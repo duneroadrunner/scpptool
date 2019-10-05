@@ -122,7 +122,14 @@ namespace checker {
 		std::string as_a_string1() const {
 			return m_source_location_str + ": " + m_category + ": " + m_error_description_str;
 		}
-		bool operator<(const CErrorRecord &RHS) const { return (m_id < RHS.m_id); }
+		bool operator<(const CErrorRecord &RHS) const {
+			//return (m_id < RHS.m_id);
+			if (m_source_location_str != RHS.m_source_location_str) {
+				return m_source_location_str < RHS.m_source_location_str;
+			} else {
+				return m_error_description_str < RHS.m_error_description_str;
+			}
+		}
 		static std::string s_source_location_str(SourceManager& SM, clang::SourceLocation SL) {
 			return SL.printToString(SM);
 		}
@@ -133,7 +140,7 @@ namespace checker {
 		std::string m_category;
 		int m_id = 0;
 	private:
-		int next_available_id() const { return m_next_available_id++; }
+		int next_available_id() const { return m_next_available_id/*++*/; }
 		static int m_next_available_id;
 	};
 	int CErrorRecord::m_next_available_id = 0;
@@ -153,15 +160,15 @@ namespace checker {
 		bool m_MSE_SOME_NON_XSCOPE_POINTER_TYPE_IS_DISABLED_defined = false;
 	};
 
-	class MCSSSSupressChecksDirectiveCall : public MatchFinder::MatchCallback
+	class MCSSSSupressCheckDirectiveCall : public MatchFinder::MatchCallback
 	{
 	public:
-		MCSSSSupressChecksDirectiveCall (Rewriter &Rewrite, CTUState& state1) :
+		MCSSSSupressCheckDirectiveCall (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
-			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcssssuppresschecksmemberdeclmcssssuppresscheckscall");
+			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcssssuppresscheckmemberdeclmcssssuppresscheckcall");
 			//const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssfree2");
 			//const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssfree3");
 
@@ -252,15 +259,15 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
-	class MCSSSSupressChecksDirectiveDeclField : public MatchFinder::MatchCallback
+	class MCSSSSupressCheckDirectiveDeclField : public MatchFinder::MatchCallback
 	{
 	public:
-		MCSSSSupressChecksDirectiveDeclField (Rewriter &Rewrite, CTUState& state1) :
+		MCSSSSupressCheckDirectiveDeclField (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
-			const clang::CXXMethodDecl* CXXMD = MR.Nodes.getNodeAs<clang::CXXMethodDecl>("mcssssuppresschecksmemberdecl");
+			const clang::CXXMethodDecl* CXXMD = MR.Nodes.getNodeAs<clang::CXXMethodDecl>("mcssssuppresscheckmemberdecl");
 
 			if ((CXXMD != nullptr))
 			{
@@ -343,97 +350,6 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
-	class MCSSSSupressChecksDirectiveDeclNamespace : public MatchFinder::MatchCallback
-	{
-	public:
-		MCSSSSupressChecksDirectiveDeclNamespace (Rewriter &Rewrite, CTUState& state1) :
-			Rewrite(Rewrite), m_state1(state1) {}
-
-		virtual void run(const MatchFinder::MatchResult &MR)
-		{
-			const clang::FunctionDecl* FD = MR.Nodes.getNodeAs<clang::FunctionDecl>("mcssssuppresschecksmemberdecl");
-
-			if ((FD != nullptr))
-			{
-				auto FDSR = nice_source_range(FD->getSourceRange(), Rewrite);
-				SourceLocation FDSL = FDSR.getBegin();
-				SourceLocation FDSLE = FDSR.getEnd();
-
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FFDSL = ASTC->getFullLoc(FDSL);
-
-				SourceManager &SM = ASTC->getSourceManager();
-
-				auto source_location_str = FDSL.printToString(*MR.SourceManager);
-
-				if (filtered_out_by_location(MR, FDSL)) {
-					return void();
-				}
-
-				std::string source_text;
-				if (FDSL.isValid() && FDSLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(FDSL, FDSLE));
-				} else {
-					return;
-				}
-				if ("" != source_text) {
-					int q = 5;
-				}
-
-				auto method_name = FD->getNameAsString();
-				static const std::string suppress_checks_prefix = "mse_suppress_check_directive";
-				if (suppress_checks_prefix == method_name.substr(0, suppress_checks_prefix.length())) {
-					auto decl_context = FD->getDeclContext();
-					if (!decl_context) {
-						assert(false);
-					} else {
-						auto FDISR = instantiation_source_range(FD->getSourceRange(), Rewrite);
-						auto FDISL = FDISR.getBegin();
-						auto FDISLE = FDISR.getEnd();
-
-						for (auto decl_iter = decl_context->decls_begin(); decl_iter != decl_context->decls_end(); decl_iter++) {
-							if (nullptr != (*decl_iter)) {
-								auto l_DISR = instantiation_source_range((*decl_iter)->getSourceRange(), Rewrite);
-								SourceLocation l_DISL = l_DISR.getBegin();
-								SourceLocation l_DISLE = l_DISR.getEnd();
-
-								if (filtered_out_by_location(MR, l_DISL)) {
-									continue;
-								}
-
-								std::string l_source_text;
-								if (l_DISL.isValid() && l_DISLE.isValid()) {
-									l_source_text = Rewrite.getRewrittenText(SourceRange(l_DISL, l_DISLE));
-								} else {
-									continue;
-								}
-								if ("" != l_source_text) {
-									int q = 5;
-								}
-
-								if (FDISL == l_DISL) {
-									int q = 5;
-								}
-								if ((FDISLE < l_DISL)
-									|| ((FDISLE == l_DISL) && (FDISLE < l_DISLE))) {
-									m_state1.m_suppress_check_region_set.emplace(l_DISR);
-									break;
-								}
-							} else {
-								assert(false);
-							}
-						}
-					}
-				}
-
-			}
-		}
-
-	private:
-		Rewriter &Rewrite;
-		CTUState& m_state1;
-	};
-
 	bool is_xscope_type(const clang::QualType qtype, const CTUState& tu_state_cref);
 
 	bool is_xscope_type(const clang::Type& type, const CTUState& tu_state_cref) {
@@ -489,7 +405,7 @@ namespace checker {
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
 			const clang::Stmt* ST = MR.Nodes.getNodeAs<clang::Stmt>("mcsssstmtutil1");
-			//const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcssssuppresschecksmemberdeclmcssssuppresscheckscall");
+			//const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcssssuppresscheckmemberdeclmcssssuppresscheckcall");
 			//const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssfree2");
 			//const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssfree3");
 
@@ -791,6 +707,173 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
+	class MCSSSAsAnFParam : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSAsAnFParam (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssasanfparam1");
+
+			if ((CE != nullptr)/* && (DRE != nullptr)*/)
+			{
+				auto CESR = nice_source_range(CE->getSourceRange(), Rewrite);
+				SourceLocation CESL = CESR.getBegin();
+				SourceLocation CESLE = CESR.getEnd();
+
+				ASTContext *const ASTC = MR.Context;
+				FullSourceLoc FCESL = ASTC->getFullLoc(CESL);
+
+				SourceManager &SM = ASTC->getSourceManager();
+
+				auto source_location_str = CESL.printToString(*MR.SourceManager);
+
+				if (filtered_out_by_location(MR, CESL)) {
+					return void();
+				}
+
+				std::string source_text;
+				if (CESL.isValid() && CESLE.isValid()) {
+					source_text = Rewrite.getRewrittenText(SourceRange(CESL, CESLE));
+				} else {
+					return;
+				}
+
+				auto function_decl = CE->getDirectCallee();
+				auto num_args = CE->getNumArgs();
+				//assert(1 == num_args);
+				if (function_decl) {
+					std::string function_name = function_decl->getNameAsString();
+					std::string qualified_function_name = function_decl->getQualifiedNameAsString();
+					const std::string as_an_fparam_str = std::string(g_mse_namespace_str) + "::rsv::as_an_fparam";
+					const std::string as_a_returnable_fparam_str = std::string(g_mse_namespace_str) + "::rsv::as_a_returnable_fparam";
+					if ((as_an_fparam_str == qualified_function_name) || (as_a_returnable_fparam_str == qualified_function_name)) {
+						if (1 == num_args) {
+							auto EX1 = CE->getArg(0)->IgnoreImplicit();
+							auto DRE1 = dyn_cast<const clang::DeclRefExpr>(EX1);
+							if (DRE1) {
+								auto D1 = DRE1->getDecl();
+								auto PVD = dyn_cast<const clang::ParmVarDecl>(D1);
+								if (!PVD) {
+									const std::string error_desc = std::string("mse::rsv::as_an_fparam() and ")
+										+ "mse::rsv::as_a_returnable_fparam() may only be used with function parameters.";
+									auto res = (*this).m_state1.m_error_records.emplace(
+										CErrorRecord(*MR.SourceManager, CESL, error_desc, "error"));
+									if (res.second) {
+										std::cout << (*res.first).as_a_string1() << " \n";
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
+	class MCSSSTFParam : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSTFParam (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const clang::VarDecl* VD = MR.Nodes.getNodeAs<clang::VarDecl>("mcssstfparam1");
+
+			if ((VD != nullptr))
+			{
+				auto VDSR = nice_source_range(VD->getSourceRange(), Rewrite);
+				SourceLocation VDSL = VDSR.getBegin();
+				SourceLocation VDSLE = VDSR.getEnd();
+
+				ASTContext *const ASTC = MR.Context;
+				FullSourceLoc FVDSL = ASTC->getFullLoc(VDSL);
+
+				SourceManager &SM = ASTC->getSourceManager();
+
+				auto source_location_str = VDSL.printToString(*MR.SourceManager);
+
+				if (filtered_out_by_location(MR, VDSL)) {
+					return void();
+				}
+
+				std::string source_text;
+				if (VDSL.isValid() && VDSLE.isValid()) {
+					source_text = Rewrite.getRewrittenText(SourceRange(VDSL, VDSLE));
+				} else {
+					return;
+				}
+				if ("" != source_text) {
+					int q = 5;
+				}
+				if (std::string::npos != source_text.find("fparam3")) {
+					int q = 5;
+				}
+
+				{
+					auto VDISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
+					auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(VDISR);
+					if (supress_check_flag) {
+						int q = 5;
+					}
+				}
+				auto VDISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
+				auto instantiation_source_location_str = VDISR.getBegin().printToString(*MR.SourceManager);
+
+				auto qtype = VD->getType();
+				std::string qtype_str = VD->getType().getAsString();
+				const std::string TFParam_str = std::string(g_mse_namespace_str) + "::rsv::TFParam<";
+				if (std::string::npos != qtype_str.find(TFParam_str)) {
+					bool satisfies_checks = false;
+					auto FD = dyn_cast<const clang::FunctionDecl>(VD->getParentFunctionOrMethod());
+					if (FD) {
+						auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
+						if (PVD) {
+							satisfies_checks = true;
+						} else {
+							auto CE = dyn_cast<const clang::CallExpr>(VD->getInit()->IgnoreImplicit());
+							if (CE) {
+								auto function_decl = CE->getDirectCallee();
+								auto num_args = CE->getNumArgs();
+								//assert(1 == num_args);
+								if (function_decl) {
+									std::string function_name = function_decl->getNameAsString();
+									std::string qualified_function_name = function_decl->getQualifiedNameAsString();
+									const std::string as_an_fparam_str = std::string(g_mse_namespace_str) + "::rsv::as_an_fparam";
+									if ((as_an_fparam_str == qualified_function_name)) {
+										if (1 == num_args) {
+											satisfies_checks = true;
+										}
+									}
+								}
+							}
+						}
+					}
+					if (!satisfies_checks) {
+						const std::string error_desc = std::string("Unsupported use of ")
+							+ "mse::rsv::TFParam<>. ";
+						auto res = (*this).m_state1.m_error_records.emplace(
+							CErrorRecord(*MR.SourceManager, VDSL, error_desc, "error"));
+						if (res.second) {
+							std::cout << (*res.first).as_a_string1() << " \n";
+						}
+					}
+				}
+			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
 
 	struct CDiag {
 		CDiag() {}
@@ -1004,17 +1087,19 @@ namespace checker {
 
 	public:
 		MyASTConsumer(Rewriter &R, CompilerInstance &CI, CTUState &tu_state_param) : m_tu_state_ptr(&tu_state_param), HandlerMisc1(R, tu_state(), CI),
-			HandlerForSSSSupressChecksDirectiveCall(R, tu_state()), HandlerForSSSSupressChecksDirectiveDeclField(R, tu_state()), HandlerForSSSSupressChecksDirectiveDeclNamespace(R, tu_state()),
-			HandlerForSSSStmtUtil(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForSSSReturnStmt(R, tu_state()), HandlerForSSSRecordDecl2(R, tu_state())
+			HandlerForSSSSupressCheckDirectiveCall(R, tu_state()), HandlerForSSSSupressCheckDirectiveDeclField(R, tu_state()),
+			HandlerForSSSStmtUtil(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForSSSReturnStmt(R, tu_state()), HandlerForSSSRecordDecl2(R, tu_state()),
+			HandlerForSSSAsAnFParam(R, tu_state()), HandlerForSSSTFParam(R, tu_state())
 		{
 			Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerMisc1);
-			Matcher.addMatcher(callExpr(argumentCountIs(0)).bind("mcssssuppresschecksmemberdeclmcssssuppresscheckscall"), &HandlerForSSSSupressChecksDirectiveCall);
-			Matcher.addMatcher(cxxMethodDecl(decl().bind("mcssssuppresschecksmemberdecl")), &HandlerForSSSSupressChecksDirectiveDeclField);
-			Matcher.addMatcher(functionDecl(decl().bind("mcssssuppresschecksmemberdecl")), &HandlerForSSSSupressChecksDirectiveDeclNamespace);
-			Matcher.addMatcher(stmt(/*anything()*/).bind("mcsssstmtutil1"), &HandlerForSSSStmtUtil);
-			Matcher.addMatcher(decl(/*anything()*/).bind("mcsssdeclutil1"), &HandlerForSSSDeclUtil);
-			Matcher.addMatcher(returnStmt(/*anything()*/).bind("mcsssreturnstmt"), &HandlerForSSSReturnStmt);
+			Matcher.addMatcher(callExpr(argumentCountIs(0)).bind("mcssssuppresscheckmemberdeclmcssssuppresscheckcall"), &HandlerForSSSSupressCheckDirectiveCall);
+			Matcher.addMatcher(cxxMethodDecl(decl().bind("mcssssuppresscheckmemberdecl")), &HandlerForSSSSupressCheckDirectiveDeclField);
+			Matcher.addMatcher(stmt().bind("mcsssstmtutil1"), &HandlerForSSSStmtUtil);
+			Matcher.addMatcher(decl().bind("mcsssdeclutil1"), &HandlerForSSSDeclUtil);
+			Matcher.addMatcher(returnStmt().bind("mcsssreturnstmt"), &HandlerForSSSReturnStmt);
 			Matcher.addMatcher(clang::ast_matchers::recordDecl().bind("mcsssrecorddecl"), &HandlerForSSSRecordDecl2);
+			Matcher.addMatcher(callExpr(argumentCountIs(1)).bind("mcsssasanfparam1"), &HandlerForSSSAsAnFParam);
+			Matcher.addMatcher(varDecl().bind("mcssstfparam1"), &HandlerForSSSTFParam);
 		}
 
 		~MyASTConsumer() {
@@ -1032,13 +1117,14 @@ namespace checker {
 		CTUState& tu_state() { return *m_tu_state_ptr;}
 
 		Misc1 HandlerMisc1;
-		MCSSSSupressChecksDirectiveCall HandlerForSSSSupressChecksDirectiveCall;
-		MCSSSSupressChecksDirectiveDeclField HandlerForSSSSupressChecksDirectiveDeclField;
-		MCSSSSupressChecksDirectiveDeclNamespace HandlerForSSSSupressChecksDirectiveDeclNamespace;
+		MCSSSSupressCheckDirectiveCall HandlerForSSSSupressCheckDirectiveCall;
+		MCSSSSupressCheckDirectiveDeclField HandlerForSSSSupressCheckDirectiveDeclField;
 		MCSSSStmtUtil HandlerForSSSStmtUtil;
 		MCSSSDeclUtil HandlerForSSSDeclUtil;
 		MCSSSReturnStmt HandlerForSSSReturnStmt;
 		MCSSSRecordDecl2 HandlerForSSSRecordDecl2;
+		MCSSSAsAnFParam HandlerForSSSAsAnFParam;
+		MCSSSTFParam HandlerForSSSTFParam;
 
 		MatchFinder Matcher;
 	};
