@@ -922,7 +922,7 @@ namespace checker {
 							auto qname = CXXRD->getQualifiedNameAsString();
 							if ((xscope_item_f_ptr_str == qname) || (xscope_item_f_const_ptr_str == qname)
 								|| (xscope_f_ptr_str == qname) || (xscope_f_const_ptr_str == qname)
-								|| (xscope_owner_ptr_str == qname)) {
+								/*|| ((xscope_owner_ptr_str == qname) && ())*/) {
 								satisfies_checks = true;
 							}
 						} else if (arg_EX->getType()->isReferenceType()) {
@@ -1134,6 +1134,14 @@ namespace checker {
 						if (qtype->isReferenceType()) {
 							auto EX = CE->getArg(i);
 							bool satisfies_checks = can_safely_target_with_an_xscope_reference(EX);
+							if (!satisfies_checks) {
+								const auto *MTE = dyn_cast<const clang::MaterializeTemporaryExpr>(EX);
+								if (MTE && (!(MTE->getType()->isReferenceType()))) {
+									/* This argument is a temporary (non-reference) (that should outlive
+									the function parameter). */
+									satisfies_checks = true;
+								}
+							}
 							if (!satisfies_checks) {
 								auto EXSR = nice_source_range(EX->getSourceRange(), Rewrite);
 								SourceLocation EXSL = EXSR.getBegin();
