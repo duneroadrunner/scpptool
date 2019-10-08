@@ -978,15 +978,11 @@ namespace checker {
 					int q = 5;
 				}
 
-				{
-					auto VDISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
-					auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(VDISR);
-					if (supress_check_flag) {
-						int q = 5;
-					}
-				}
 				auto VDISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
-				auto instantiation_source_location_str = VDISR.getBegin().printToString(*MR.SourceManager);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(VDISR);
+				if (supress_check_flag) {
+					return;
+				}
 
 				auto qtype = VD->getType();
 				std::string qtype_str = VD->getType().getAsString();
@@ -1199,15 +1195,11 @@ namespace checker {
 					int q = 5;
 				}
 
-				{
-					auto VDISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
-					auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(VDISR);
-					if (supress_check_flag) {
-						int q = 5;
-					}
-				}
 				auto VDISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
-				auto instantiation_source_location_str = VDISR.getBegin().printToString(*MR.SourceManager);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(VDISR);
+				if (supress_check_flag) {
+					return;
+				}
 
 				auto qtype = VD->getType();
 				std::string qtype_str = VD->getType().getAsString();
@@ -1277,6 +1269,12 @@ namespace checker {
 					return;
 				}
 
+				auto CEISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CEISR);
+				if (supress_check_flag) {
+					return;
+				}
+
 				auto function_decl = CE->getDirectCallee();
 				const auto num_args = CE->getNumArgs();
 				//assert(1 == num_args);
@@ -1322,6 +1320,63 @@ namespace checker {
 								}
 							}
 						}
+					}
+				}
+			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
+	class MCSSSPointerArithmetic : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSPointerArithmetic (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const Expr* EX = MR.Nodes.getNodeAs<clang::Expr>("mcssspointerarithmetic1");
+
+			if ((EX != nullptr)/* && (DRE != nullptr)*/)
+			{
+				auto EXSR = nice_source_range(EX->getSourceRange(), Rewrite);
+				SourceLocation EXSL = EXSR.getBegin();
+				SourceLocation EXSLE = EXSR.getEnd();
+
+				ASTContext *const ASTC = MR.Context;
+				FullSourceLoc FEXSL = ASTC->getFullLoc(EXSL);
+
+				SourceManager &SM = ASTC->getSourceManager();
+
+				auto source_location_str = EXSL.printToString(*MR.SourceManager);
+
+				if (filtered_out_by_location(MR, EXSL)) {
+					return void();
+				}
+
+				std::string source_text;
+				if (EXSL.isValid() && EXSLE.isValid()) {
+					source_text = Rewrite.getRewrittenText(SourceRange(EXSL, EXSLE));
+				} else {
+					return;
+				}
+
+				auto EXISR = instantiation_source_range(EX->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
+				if (supress_check_flag) {
+					return;
+				}
+
+				{
+					const std::string error_desc = std::string("Pointer arithmetic (including ")
+						+ "native array subscripts) is not supported.";
+					auto res = (*this).m_state1.m_error_records.emplace(
+						CErrorRecord(*MR.SourceManager, EXSL, error_desc));
+					if (res.second) {
+						std::cout << (*(res.first)).as_a_string1() << " \n";
 					}
 				}
 			}
@@ -1549,7 +1604,7 @@ namespace checker {
 			HandlerForSSSStmtUtil(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForSSSDeclRefExprUtil(R, tu_state()),
 			HandlerForSSSReturnStmt(R, tu_state()), HandlerForSSSRecordDecl2(R, tu_state()), HandlerForSSSAsAnFParam(R, tu_state()),
 			HandlerForSSSTFParam(R, tu_state()), HandlerForSSSMakeXScopePointerTo(R, tu_state()), HandlerForSSSNativeReferenceVar(R, tu_state()),
-			HandlerForSSSArgToNativeReferenceParam(R, tu_state())
+			HandlerForSSSArgToNativeReferenceParam(R, tu_state()), HandlerForSSSPointerArithmetic(R, tu_state())
 		{
 			Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerMisc1);
 			Matcher.addMatcher(callExpr(argumentCountIs(0)).bind("mcssssuppresscheckmemberdeclmcssssuppresscheckcall"), &HandlerForSSSSupressCheckDirectiveCall);
@@ -1564,6 +1619,18 @@ namespace checker {
 			Matcher.addMatcher(callExpr(/*argumentCountIs(1)*/).bind("mcsssmakexscopepointerto1"), &HandlerForSSSMakeXScopePointerTo);
 			Matcher.addMatcher(varDecl().bind("mcsssnativereferencevar1"), &HandlerForSSSNativeReferenceVar);
 			Matcher.addMatcher(callExpr().bind("mcsssargtonativereferenceparam1"), &HandlerForSSSArgToNativeReferenceParam);
+			Matcher.addMatcher(expr(allOf(
+				ignoringImplicit(ignoringParenImpCasts(expr(anyOf(
+					unaryOperator(hasOperatorName("++")), unaryOperator(hasOperatorName("--")),
+					binaryOperator(hasOperatorName("+=")), binaryOperator(hasOperatorName("-=")),
+					binaryOperator(hasOperatorName("+")), binaryOperator(hasOperatorName("+=")),
+					binaryOperator(hasOperatorName("-")), binaryOperator(hasOperatorName("-=")),
+					binaryOperator(hasOperatorName("<=")), binaryOperator(hasOperatorName("<")),
+					binaryOperator(hasOperatorName(">=")), binaryOperator(hasOperatorName(">")),
+					arraySubscriptExpr()/*, clang::ast_matchers::castExpr(hasParent(arraySubscriptExpr()))*/
+					)).bind("mcssspointerarithmetic1")))),
+				hasType(pointerType())
+				)).bind("mcssspointerarithmetic3"), &HandlerForSSSPointerArithmetic);
 		}
 
 		~MyASTConsumer() {
@@ -1593,6 +1660,7 @@ namespace checker {
 		MCSSSMakeXScopePointerTo HandlerForSSSMakeXScopePointerTo;
 		MCSSSNativeReferenceVar HandlerForSSSNativeReferenceVar;
 		MCSSSArgToNativeReferenceParam HandlerForSSSArgToNativeReferenceParam;
+		MCSSSPointerArithmetic HandlerForSSSPointerArithmetic;
 
 		MatchFinder Matcher;
 	};
