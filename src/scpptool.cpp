@@ -67,7 +67,7 @@ static llvm::cl::OptionCategory MatcherSampleCategory("TBD");
 
 cl::opt<bool> CheckSystemHeader("SysHeader", cl::desc("process system headers also"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> MainFileOnly("MainOnly", cl::desc("process the main file only"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
-cl::opt<bool> ConvertToSCPP("ConvertToSCPP", cl::desc("translate the source to a (memory) safe subset of the language"), cl::init(true), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
+cl::opt<bool> ConvertToSCPP("ConvertToSCPP", cl::desc("translate the source to a (memory) safe subset of the language"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> CTUAnalysis("CTUAnalysis", cl::desc("cross translation unit analysis"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> EnableNamespaceImport("EnableNamespaceImport", cl::desc("enable importing of namespaces from other translation units"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> SuppressPrompts("SuppressPrompts", cl::desc("suppress prompts before replacing source files"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
@@ -95,20 +95,35 @@ int main(int argc, const char **argv)
   std::shared_ptr<DiagnosticConsumer> diag_consumer_shptr(new MyDiagConsumer());
   //Tool.setDiagnosticConsumer(diag_consumer_shptr.get());
 
-  //convm1
-  checker::Options options = {
-        CheckSystemHeader,
-        MainFileOnly,
-        ConvertToSCPP,
-        CTUAnalysis,
-        EnableNamespaceImport,
-        SuppressPrompts,
-        DoNotReplaceOriginalSource,
-        MergeCommand
-    };
+  int retval = -1;
 
-  //auto retval = convm1::buildASTs_and_run(Tool, options);
-  auto retval = checker::buildASTs_and_run(Tool, options);
+  if (ConvertToSCPP.getValue()) {
+#ifndef EXCLUDE_CONVERTER_MODE1
+    convm1::Options options = {
+          CheckSystemHeader,
+          MainFileOnly,
+          ConvertToSCPP,
+          CTUAnalysis,
+          EnableNamespaceImport,
+          SuppressPrompts,
+          DoNotReplaceOriginalSource,
+          MergeCommand
+      };
+    retval = convm1::buildASTs_and_run(Tool, options);
+#endif //!EXCLUDE_CONVERTER_MODE1
+  } else {
+    checker::Options options = {
+          CheckSystemHeader,
+          MainFileOnly,
+          ConvertToSCPP,
+          CTUAnalysis,
+          EnableNamespaceImport,
+          SuppressPrompts,
+          DoNotReplaceOriginalSource,
+          MergeCommand
+      };
+    retval = checker::buildASTs_and_run(Tool, options);
+  }
 
   return retval;
 }

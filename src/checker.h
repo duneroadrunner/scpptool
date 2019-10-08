@@ -115,12 +115,16 @@ namespace checker {
 	class CErrorRecord {
 		public:
 		CErrorRecord() : m_id(next_available_id()) {}
-		CErrorRecord(SourceManager& SM, clang::SourceLocation SL, std::string error_description_str = "", std::string category = "")
+		CErrorRecord(SourceManager& SM, clang::SourceLocation SL, std::string error_description_str = "", std::string tag_name = "")
 			: m_SL(SL), m_source_location_str(s_source_location_str(SM, SL)), m_error_description_str(error_description_str)
-			, m_category(category), m_id(next_available_id()) {}
+			, m_tag_name(tag_name), m_id(next_available_id()) {}
 
 		std::string as_a_string1() const {
-			return m_source_location_str + ": " + m_category + ": " + m_error_description_str;
+			std::string retval = m_source_location_str + ": " + m_severity_str + ": " + m_error_description_str;
+			if ("" != m_tag_name) {
+				retval += " (" + m_tag_name + ") ";
+			}
+			return retval;
 		}
 		bool operator<(const CErrorRecord &RHS) const {
 			//return (m_id < RHS.m_id);
@@ -137,7 +141,8 @@ namespace checker {
 		clang::SourceLocation m_SL;
 		std::string m_source_location_str;
 		std::string m_error_description_str;
-		std::string m_category;
+		std::string m_tag_name;
+		std::string m_severity_str = "error";
 		int m_id = 0;
 	private:
 		int next_available_id() const { return m_next_available_id/*++*/; }
@@ -202,7 +207,7 @@ namespace checker {
 				if (function_decl) {
 					std::string function_name = function_decl->getNameAsString();
 					std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-					const std::string suppress_check_directive_str = std::string(g_mse_namespace_str) + "::rsv::suppress_check_directive";
+					const std::string suppress_check_directive_str = g_mse_namespace_str + "::rsv::suppress_check_directive";
 					if (suppress_check_directive_str == qualified_function_name) {
 						bool parent_obtained = false;
 						const Stmt* ST = CE;
@@ -359,7 +364,7 @@ namespace checker {
 		const auto CXXRD = TP->getAsCXXRecordDecl();
 		if (CXXRD) {
 			auto qname = CXXRD->getQualifiedNameAsString();
-			const std::string xscope_tag_str = std::string(g_mse_namespace_str) + "::us::impl::XScopeTagBase";
+			const std::string xscope_tag_str = g_mse_namespace_str + "::us::impl::XScopeTagBase";
 			if (xscope_tag_str == qname) {
 				return true;
 			}
@@ -430,6 +435,12 @@ namespace checker {
 					return void();
 				}
 
+				auto STISR = instantiation_source_range(ST->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(STISR);
+				if (supress_check_flag) {
+					return;
+				}
+
 				std::string source_text;
 				if (STSL.isValid() && STSLE.isValid()) {
 					source_text = Rewrite.getRewrittenText(SourceRange(STSL, STSLE));
@@ -438,13 +449,6 @@ namespace checker {
 				}
 				if ("" != source_text) {
 					int q = 5;
-				}
-				{
-					auto STISR = instantiation_source_range(ST->getSourceRange(), Rewrite);
-					auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(STISR);
-					if (supress_check_flag) {
-						int q = 5;
-					}
 				}
 			}
 		}
@@ -481,6 +485,12 @@ namespace checker {
 					return void();
 				}
 
+				auto DISR = instantiation_source_range(D->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(DISR);
+				if (supress_check_flag) {
+					return;
+				}
+
 				std::string source_text;
 				if (DSL.isValid() && DSLE.isValid()) {
 					source_text = Rewrite.getRewrittenText(SourceRange(DSL, DSLE));
@@ -491,7 +501,74 @@ namespace checker {
 					int q = 5;
 				}
 				{
-					auto DD = MR.Nodes.getNodeAs<clang::DeclaratorDecl>("mcsssdeclutil1");
+					auto VD = dyn_cast<const clang::VarDecl>(D);
+					if (VD) {
+						const auto storage_duration = VD->getStorageDuration();
+						auto qtype = VD->getType();
+						std::string qtype_str = VD->getType().getAsString();
+						const auto qualified_name = VD->getQualifiedNameAsString();
+
+						if ((clang::StorageDuration::SD_Static == storage_duration) || (clang::StorageDuration::SD_Thread == storage_duration)) {
+							static const std::string class_space_str = "class ";
+							const std::string mse_rsv_static_immutable_obj_str1 = class_space_str + g_mse_namespace_str + "::rsv::TStaticImmutableObj<";
+							const std::string mse_scope_atomic_obj_str = class_space_str + g_mse_namespace_str + "::TXScopeAtomicObj<";
+							const std::string mse_AsyncSharedV2ReadWriteAccessRequester_str = class_space_str + g_mse_namespace_str + "::TAsyncSharedV2ReadWriteAccessRequester<";
+							const std::string mse_AsyncSharedV2ReadOnlyAccessRequester_str = class_space_str + g_mse_namespace_str + "::TAsyncSharedV2ReadOnlyAccessRequester<";
+							const std::string mse_TAsyncSharedV2ImmutableFixedPointer_str = class_space_str + g_mse_namespace_str + "::TAsyncSharedV2ImmutableFixedPointer<";
+							const std::string mse_TAsyncSharedV2AtomicFixedPointer_str = class_space_str + g_mse_namespace_str + "::TAsyncSharedV2AtomicFixedPointer<";
+							if (clang::StorageDuration::SD_Static == storage_duration) {
+								bool satisfies_checks = false;
+								if ((0 == qtype_str.compare(0, mse_rsv_static_immutable_obj_str1.size(), mse_rsv_static_immutable_obj_str1))
+									|| (0 == qtype_str.compare(0, mse_scope_atomic_obj_str.size(), mse_scope_atomic_obj_str))
+									|| (0 == qtype_str.compare(0, mse_AsyncSharedV2ReadWriteAccessRequester_str.size(), mse_AsyncSharedV2ReadWriteAccessRequester_str))
+									|| (0 == qtype_str.compare(0, mse_AsyncSharedV2ReadOnlyAccessRequester_str.size(), mse_AsyncSharedV2ReadOnlyAccessRequester_str))
+									|| (0 == qtype_str.compare(0, mse_TAsyncSharedV2ImmutableFixedPointer_str.size(), mse_TAsyncSharedV2ImmutableFixedPointer_str))
+									|| (0 == qtype_str.compare(0, mse_TAsyncSharedV2AtomicFixedPointer_str.size(), mse_TAsyncSharedV2AtomicFixedPointer_str))
+									) {
+									satisfies_checks = true;
+								}
+								if (!satisfies_checks) {
+									const std::string error_desc = std::string("'static storage duration' is not ")
+										+ "supported for this type. Eligible types wrapped in the 'mse::rsv::TStaticImmutableObj<>' "
+										+ "transparent template wrapper would be supported. Other supported wrappers include: "
+										+ "mse::TXScopeAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
+										+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>.";
+									auto res = (*this).m_state1.m_error_records.emplace(
+										CErrorRecord(*MR.SourceManager, DSL, error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n";
+									}
+								}
+							} else if (clang::StorageDuration::SD_Thread == storage_duration) {
+								const std::string mse_rsv_thread_local_obj_str1 = class_space_str + g_mse_namespace_str + "::rsv::TThreadLocalObj<";
+								bool satisfies_checks = false;
+								if ((0 == qtype_str.compare(0, mse_rsv_static_immutable_obj_str1.size(), mse_rsv_static_immutable_obj_str1))
+									|| (0 == qtype_str.compare(0, mse_scope_atomic_obj_str.size(), mse_scope_atomic_obj_str))
+									|| (0 == qtype_str.compare(0, mse_AsyncSharedV2ReadWriteAccessRequester_str.size(), mse_AsyncSharedV2ReadWriteAccessRequester_str))
+									|| (0 == qtype_str.compare(0, mse_AsyncSharedV2ReadOnlyAccessRequester_str.size(), mse_AsyncSharedV2ReadOnlyAccessRequester_str))
+									|| (0 == qtype_str.compare(0, mse_TAsyncSharedV2ImmutableFixedPointer_str.size(), mse_TAsyncSharedV2ImmutableFixedPointer_str))
+									|| (0 == qtype_str.compare(0, mse_TAsyncSharedV2AtomicFixedPointer_str.size(), mse_TAsyncSharedV2AtomicFixedPointer_str))
+									|| (0 == qtype_str.compare(0, mse_rsv_thread_local_obj_str1.size(), mse_rsv_thread_local_obj_str1))
+									) {
+									satisfies_checks = true;
+								}
+								if (!satisfies_checks) {
+									const std::string error_desc = std::string("'thread local storage duration' is not ")
+										+ "supported for this type. Eligible types wrapped in the 'mse::rsv::TThreadLocalObj<>' "
+										+ "transparent template wrapper would be supported. Other supported wrappers include: "
+										+ "mse::rsv::TStaticImmutableObj<>, mse::TXScopeAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
+										+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>.";
+									auto res = (*this).m_state1.m_error_records.emplace(
+										CErrorRecord(*MR.SourceManager, DSL, error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n";
+									}
+								}
+							}
+						}
+					}
+
+					auto DD = dyn_cast<const DeclaratorDecl>(D);
 					if (DD) {
 						auto qtype = DD->getType();
 						std::string qtype_str = DD->getType().getAsString();
@@ -501,13 +578,90 @@ namespace checker {
 					}
 
 				}
+			}
+		}
 
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
+	class MCSSSDeclRefExprUtil : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSDeclRefExprUtil (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const clang::DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssdeclrefexprutil1");
+
+			if ((DRE != nullptr))
+			{
+				auto DRESR = nice_source_range(DRE->getSourceRange(), Rewrite);
+				SourceLocation DRESL = DRESR.getBegin();
+				SourceLocation DRESLE = DRESR.getEnd();
+
+				ASTContext *const ASTC = MR.Context;
+				FullSourceLoc FDRESL = ASTC->getFullLoc(DRESL);
+
+				SourceManager &SM = ASTC->getSourceManager();
+
+				auto source_location_str = DRESL.printToString(*MR.SourceManager);
+
+				if (filtered_out_by_location(MR, DRESL)) {
+					return void();
+				}
+
+				auto DREISR = instantiation_source_range(DRE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(DREISR);
+				if (supress_check_flag) {
+					return;
+				}
+
+				std::string source_text;
+				if (DRESL.isValid() && DRESLE.isValid()) {
+					source_text = Rewrite.getRewrittenText(SourceRange(DRESL, DRESLE));
+				} else {
+					return;
+				}
+				if ("" != source_text) {
+					int q = 5;
+				}
 				{
-					auto DISR = instantiation_source_range(D->getSourceRange(), Rewrite);
-					auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(DISR);
-					if (supress_check_flag) {
-						int q = 5;
+					auto D = DRE->getDecl();
+					auto DD = dyn_cast<const DeclaratorDecl>(D);
+					if (DD) {
+						auto qtype = DD->getType();
+						std::string qtype_str = DD->getType().getAsString();
+						const auto qualified_name = DD->getQualifiedNameAsString();
+						const std::string mse_us_namespace_str1 = g_mse_namespace_str + "::us::";
+						const std::string mse_us_namespace_str2 = std::string("::") + g_mse_namespace_str + "::us::";
+						if ((0 == qualified_name.compare(0, mse_us_namespace_str1.size(), mse_us_namespace_str1))
+							|| (0 == qualified_name.compare(0, mse_us_namespace_str2.size(), mse_us_namespace_str2))) {
+
+							if ((0 == source_text.compare(0, mse_us_namespace_str1.size(), mse_us_namespace_str1))
+								|| (0 == source_text.compare(0, mse_us_namespace_str2.size(), mse_us_namespace_str2))) {
+
+								/* We can't just flag all instantiations of elements in the 'mse::us' namespace because
+								they are used by some of the safe library elements. We just want to flag cases where they
+								are explicitly instantiated by the programmer. For now we'll just check that it's
+								explicitly expressed in the source text. This wouldn't catch aliases of elements, so the
+								declaration/definition of the offending aliases (including "using namespace") will need
+								to be screened for and flagged as well. */
+
+								const std::string error_desc = std::string("Elements in the 'mse::us' namespace (like '"
+									+ qualified_name + "') are potentially unsafe. ")
+									+ "Their use requires a 'check suppression' directive.";
+								auto res = (*this).m_state1.m_error_records.emplace(
+									CErrorRecord(*MR.SourceManager, DRESL, error_desc));
+								if (res.second) {
+									std::cout << (*(res.first)).as_a_string1() << " \n";
+								}
+							}
+						}
 					}
+
 				}
 			}
 		}
@@ -583,7 +737,7 @@ namespace checker {
 							if (function_decl) {
 								std::string function_name = function_decl->getNameAsString();
 								std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-								const std::string return_value_str = std::string(g_mse_namespace_str) + "::return_value";
+								const std::string return_value_str = g_mse_namespace_str + "::return_value";
 								if (return_value_str == qualified_function_name) {
 									xscope_return_value_wrapper_present = true;
 								}
@@ -593,9 +747,9 @@ namespace checker {
 							const std::string error_desc = std::string("Return values of xscope type ")
 							+ "need to be wrapped in the mse::return_value() function wrapper.";
 							auto res = (*this).m_state1.m_error_records.emplace(
-								CErrorRecord(*MR.SourceManager, STSL, error_desc, "error"));
+								CErrorRecord(*MR.SourceManager, STSL, error_desc));
 							if (res.second) {
-								std::cout << (*res.first).as_a_string1() << " \n";
+								std::cout << (*(res.first)).as_a_string1() << " \n";
 							}
 						}
 					}
@@ -656,8 +810,8 @@ namespace checker {
 				std::string name = RD->getNameAsString();
 
 				auto qualified_name = RD->getQualifiedNameAsString();
-				const std::string mse_namespace_str1 = std::string(g_mse_namespace_str) + "::";
-				const std::string mse_namespace_str2 = std::string("::") + std::string(g_mse_namespace_str) + "::";
+				const std::string mse_namespace_str1 = g_mse_namespace_str + "::";
+				const std::string mse_namespace_str2 = std::string("::") + g_mse_namespace_str + "::";
 				if ((0 == qualified_name.compare(0, mse_namespace_str1.size(), mse_namespace_str1))
 						|| (0 == qualified_name.compare(0, mse_namespace_str2.size(), mse_namespace_str2))) {
 					int q = 5;
@@ -670,9 +824,9 @@ namespace checker {
 						const std::string error_desc = std::string("Using xscope types as base classes ")
 						+ "is not supported (currently by this tool).";
 						auto res = (*this).m_state1.m_error_records.emplace(
-							CErrorRecord(*MR.SourceManager, SL, error_desc, "error"));
+							CErrorRecord(*MR.SourceManager, SL, error_desc));
 						if (res.second) {
-							std::cout << (*res.first).as_a_string1() << " \n";
+							std::cout << (*(res.first)).as_a_string1() << " \n";
 						}
 					}
 					for (const auto& field : RD->fields()) {
@@ -686,9 +840,9 @@ namespace checker {
 							+ "fields is not supported (currently by this tool). (Note that mse::xscope_tuple<> "
 							+ "does support elements of xscope type.)";
 							auto res = (*this).m_state1.m_error_records.emplace(
-								CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc, "error"));
+								CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
 							if (res.second) {
-								std::cout << (*res.first).as_a_string1() << " \n";
+								std::cout << (*(res.first)).as_a_string1() << " \n";
 							}
 						}
 					}
@@ -747,8 +901,8 @@ namespace checker {
 				if (function_decl) {
 					std::string function_name = function_decl->getNameAsString();
 					std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-					const std::string as_an_fparam_str = std::string(g_mse_namespace_str) + "::rsv::as_an_fparam";
-					const std::string as_a_returnable_fparam_str = std::string(g_mse_namespace_str) + "::rsv::as_a_returnable_fparam";
+					const std::string as_an_fparam_str = g_mse_namespace_str + "::rsv::as_an_fparam";
+					const std::string as_a_returnable_fparam_str = g_mse_namespace_str + "::rsv::as_a_returnable_fparam";
 					if ((as_an_fparam_str == qualified_function_name) || (as_a_returnable_fparam_str == qualified_function_name)) {
 						if (1 == num_args) {
 							auto EX1 = CE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
@@ -765,9 +919,9 @@ namespace checker {
 								const std::string error_desc = std::string("mse::rsv::as_an_fparam() and ")
 									+ "mse::rsv::as_a_returnable_fparam() may only be used with function parameters.";
 								auto res = (*this).m_state1.m_error_records.emplace(
-									CErrorRecord(*MR.SourceManager, CESL, error_desc, "error"));
+									CErrorRecord(*MR.SourceManager, CESL, error_desc));
 								if (res.second) {
-									std::cout << (*res.first).as_a_string1() << " \n";
+									std::cout << (*(res.first)).as_a_string1() << " \n";
 								}
 							}
 						} else {
@@ -836,7 +990,7 @@ namespace checker {
 
 				auto qtype = VD->getType();
 				std::string qtype_str = VD->getType().getAsString();
-				const std::string TFParam_str = std::string(g_mse_namespace_str) + "::rsv::TFParam<";
+				const std::string TFParam_str = g_mse_namespace_str + "::rsv::TFParam<";
 				if (std::string::npos != qtype_str.find(TFParam_str)) {
 					bool satisfies_checks = false;
 					auto FD = dyn_cast<const clang::FunctionDecl>(VD->getParentFunctionOrMethod());
@@ -853,7 +1007,7 @@ namespace checker {
 								if (function_decl) {
 									std::string function_name = function_decl->getNameAsString();
 									std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-									const std::string as_an_fparam_str = std::string(g_mse_namespace_str) + "::rsv::as_an_fparam";
+									const std::string as_an_fparam_str = g_mse_namespace_str + "::rsv::as_an_fparam";
 									if ((as_an_fparam_str == qualified_function_name)) {
 										if (1 == num_args) {
 											satisfies_checks = true;
@@ -867,9 +1021,9 @@ namespace checker {
 						const std::string error_desc = std::string("Unsupported use of ")
 							+ "mse::rsv::TFParam<>. ";
 						auto res = (*this).m_state1.m_error_records.emplace(
-							CErrorRecord(*MR.SourceManager, VDSL, error_desc, "error"));
+							CErrorRecord(*MR.SourceManager, VDSL, error_desc));
 						if (res.second) {
-							std::cout << (*res.first).as_a_string1() << " \n";
+							std::cout << (*(res.first)).as_a_string1() << " \n";
 						}
 					}
 				}
@@ -894,7 +1048,10 @@ namespace checker {
 			auto VD = dyn_cast<const clang::VarDecl>(D1);
 			if (VD) {
 				const auto storage_duration = VD->getStorageDuration();
-				if (clang::StorageDuration::SD_Automatic == storage_duration) {
+				if ((clang::StorageDuration::SD_Automatic == storage_duration)
+					|| (clang::StorageDuration::SD_Static == storage_duration)
+					|| (clang::StorageDuration::SD_Thread == storage_duration)
+					) {
 					if (VD->getType()->isReferenceType()) {
 						/* We're assuming that imposed restrictions imply that objects targeted
 						by native references qualify as scope objects (at least for the duration
@@ -914,11 +1071,11 @@ namespace checker {
 					if (arg_EX) {
 						const auto CXXRD = arg_EX->getType()->getAsCXXRecordDecl();
 						if (CXXRD) {
-							const std::string xscope_item_f_ptr_str = std::string(g_mse_namespace_str) + "::TXScopeItemFixedPointer";
-							const std::string xscope_item_f_const_ptr_str = std::string(g_mse_namespace_str) + "::TXScopeItemFixedConstPointer";
-							const std::string xscope_f_ptr_str = std::string(g_mse_namespace_str) + "::TXScopeFixedPointer";
-							const std::string xscope_f_const_ptr_str = std::string(g_mse_namespace_str) + "::TXScopeFixedConstPointer";
-							const std::string xscope_owner_ptr_str = std::string(g_mse_namespace_str) + "::TXScopeOwnerPointer";
+							const std::string xscope_item_f_ptr_str = g_mse_namespace_str + "::TXScopeItemFixedPointer";
+							const std::string xscope_item_f_const_ptr_str = g_mse_namespace_str + "::TXScopeItemFixedConstPointer";
+							const std::string xscope_f_ptr_str = g_mse_namespace_str + "::TXScopeFixedPointer";
+							const std::string xscope_f_const_ptr_str = g_mse_namespace_str + "::TXScopeFixedConstPointer";
+							const std::string xscope_owner_ptr_str = g_mse_namespace_str + "::TXScopeOwnerPointer";
 							auto qname = CXXRD->getQualifiedNameAsString();
 							if ((xscope_item_f_ptr_str == qname) || (xscope_item_f_const_ptr_str == qname)
 								|| (xscope_f_ptr_str == qname) || (xscope_f_const_ptr_str == qname)
@@ -976,8 +1133,8 @@ namespace checker {
 				if (function_decl) {
 					std::string function_name = function_decl->getNameAsString();
 					std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-					const std::string make_xscope_pointer_to_str = std::string(g_mse_namespace_str) + "::rsv::make_xscope_pointer_to";
-					const std::string make_xscope_const_pointer_to_str = std::string(g_mse_namespace_str) + "::rsv::make_xscope_const_pointer_to";
+					const std::string make_xscope_pointer_to_str = g_mse_namespace_str + "::rsv::make_xscope_pointer_to";
+					const std::string make_xscope_const_pointer_to_str = g_mse_namespace_str + "::rsv::make_xscope_const_pointer_to";
 					if ((make_xscope_pointer_to_str == qualified_function_name) || (make_xscope_const_pointer_to_str == qualified_function_name)) {
 						if (1 == num_args) {
 							auto EX1 = CE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
@@ -986,9 +1143,9 @@ namespace checker {
 								const std::string error_desc = std::string("Cannot verify that mse::rsv::make_xscope_pointer_to() or ")
 									+ "mse::rsv::make_xscope_const_pointer_to() is safe here.";
 								auto res = (*this).m_state1.m_error_records.emplace(
-									CErrorRecord(*MR.SourceManager, CESL, error_desc, "error"));
+									CErrorRecord(*MR.SourceManager, CESL, error_desc));
 								if (res.second) {
-									std::cout << (*res.first).as_a_string1() << " \n";
+									std::cout << (*(res.first)).as_a_string1() << " \n";
 								}
 							}
 						}
@@ -1055,6 +1212,15 @@ namespace checker {
 				auto qtype = VD->getType();
 				std::string qtype_str = VD->getType().getAsString();
 				if (qtype->isReferenceType()) {
+					if (clang::StorageDuration::SD_Automatic != VD->getStorageDuration()) {
+						const std::string error_desc = std::string("Native references that are ")
+							+ "not local variables (or function parameters) are not supported.";
+						auto res = (*this).m_state1.m_error_records.emplace(
+							CErrorRecord(*MR.SourceManager, VDSL, error_desc));
+						if (res.second) {
+							std::cout << (*(res.first)).as_a_string1() << " \n";
+						}
+					}
 					auto* EX = VD->getInit();
 					if (EX) {
 						bool satisfies_checks = can_safely_target_with_an_xscope_reference(EX);
@@ -1062,9 +1228,9 @@ namespace checker {
 							const std::string error_desc = std::string("Cannot verify that the ")
 								+ "native reference (" + qtype_str + ") is safe here.";
 							auto res = (*this).m_state1.m_error_records.emplace(
-								CErrorRecord(*MR.SourceManager, VDSL, error_desc, "error"));
+								CErrorRecord(*MR.SourceManager, VDSL, error_desc));
 							if (res.second) {
-								std::cout << (*res.first).as_a_string1() << " \n";
+								std::cout << (*(res.first)).as_a_string1() << " \n";
 							}
 						}
 					}
@@ -1117,8 +1283,8 @@ namespace checker {
 				if (function_decl) {
 					std::string function_name = function_decl->getNameAsString();
 					std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-					const std::string mse_namespace_str1 = std::string(g_mse_namespace_str) + "::";
-					const std::string mse_namespace_str2 = std::string("::") + std::string(g_mse_namespace_str) + "::";
+					const std::string mse_namespace_str1 = g_mse_namespace_str + "::";
+					const std::string mse_namespace_str2 = std::string("::") + g_mse_namespace_str + "::";
 					if ((0 == qualified_function_name.compare(0, mse_namespace_str1.size(), mse_namespace_str1))
 							|| (0 == qualified_function_name.compare(0, mse_namespace_str2.size(), mse_namespace_str2))) {
 						return;
@@ -1150,9 +1316,9 @@ namespace checker {
 									+ "argument passed to the parameter of native reference type ("
 									+ qtype_str + ") is safe here.";
 								auto res = (*this).m_state1.m_error_records.emplace(
-									CErrorRecord(*MR.SourceManager, EXSL, error_desc, "error"));
+									CErrorRecord(*MR.SourceManager, EXSL, error_desc));
 								if (res.second) {
-									std::cout << (*res.first).as_a_string1() << " \n";
+									std::cout << (*(res.first)).as_a_string1() << " \n";
 								}
 							}
 						}
@@ -1380,15 +1546,17 @@ namespace checker {
 	public:
 		MyASTConsumer(Rewriter &R, CompilerInstance &CI, CTUState &tu_state_param) : m_tu_state_ptr(&tu_state_param), HandlerMisc1(R, tu_state(), CI),
 			HandlerForSSSSupressCheckDirectiveCall(R, tu_state()), HandlerForSSSSupressCheckDirectiveDeclField(R, tu_state()),
-			HandlerForSSSStmtUtil(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForSSSReturnStmt(R, tu_state()), HandlerForSSSRecordDecl2(R, tu_state()),
-			HandlerForSSSAsAnFParam(R, tu_state()), HandlerForSSSTFParam(R, tu_state()), HandlerForSSSMakeXScopePointerTo(R, tu_state()),
-			HandlerForSSSNativeReferenceVar(R, tu_state()), HandlerForSSSArgToNativeReferenceParam(R, tu_state())
+			HandlerForSSSStmtUtil(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForSSSDeclRefExprUtil(R, tu_state()),
+			HandlerForSSSReturnStmt(R, tu_state()), HandlerForSSSRecordDecl2(R, tu_state()), HandlerForSSSAsAnFParam(R, tu_state()),
+			HandlerForSSSTFParam(R, tu_state()), HandlerForSSSMakeXScopePointerTo(R, tu_state()), HandlerForSSSNativeReferenceVar(R, tu_state()),
+			HandlerForSSSArgToNativeReferenceParam(R, tu_state())
 		{
 			Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerMisc1);
 			Matcher.addMatcher(callExpr(argumentCountIs(0)).bind("mcssssuppresscheckmemberdeclmcssssuppresscheckcall"), &HandlerForSSSSupressCheckDirectiveCall);
 			Matcher.addMatcher(cxxMethodDecl(decl().bind("mcssssuppresscheckmemberdecl")), &HandlerForSSSSupressCheckDirectiveDeclField);
 			Matcher.addMatcher(stmt().bind("mcsssstmtutil1"), &HandlerForSSSStmtUtil);
 			Matcher.addMatcher(decl().bind("mcsssdeclutil1"), &HandlerForSSSDeclUtil);
+			Matcher.addMatcher(declRefExpr().bind("mcsssdeclrefexprutil1"), &HandlerForSSSDeclRefExprUtil);
 			Matcher.addMatcher(returnStmt().bind("mcsssreturnstmt"), &HandlerForSSSReturnStmt);
 			Matcher.addMatcher(clang::ast_matchers::recordDecl().bind("mcsssrecorddecl"), &HandlerForSSSRecordDecl2);
 			Matcher.addMatcher(callExpr(/*argumentCountIs(1)*/).bind("mcsssasanfparam1"), &HandlerForSSSAsAnFParam);
@@ -1417,6 +1585,7 @@ namespace checker {
 		MCSSSSupressCheckDirectiveDeclField HandlerForSSSSupressCheckDirectiveDeclField;
 		MCSSSStmtUtil HandlerForSSSStmtUtil;
 		MCSSSDeclUtil HandlerForSSSDeclUtil;
+		MCSSSDeclRefExprUtil HandlerForSSSDeclRefExprUtil;
 		MCSSSReturnStmt HandlerForSSSReturnStmt;
 		MCSSSRecordDecl2 HandlerForSSSRecordDecl2;
 		MCSSSAsAnFParam HandlerForSSSAsAnFParam;
