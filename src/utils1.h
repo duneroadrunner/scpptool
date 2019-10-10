@@ -72,6 +72,7 @@ std::vector<std::string> f_declared_object_strings(const std::string& decl_stmt_
 std::string tolowerstr(const std::string& a);
 
 bool string_begins_with(const std::string& s1, const std::string& prefix);
+bool string_ends_with(const std::string& s1, const std::string& suffix);
 
 
 /* This function returns a list of individual declarations contained in the same declaration statement

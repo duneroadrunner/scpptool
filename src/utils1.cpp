@@ -299,6 +299,12 @@ std::string tolowerstr(const std::string& a) {
 bool string_begins_with(const std::string& s1, const std::string& prefix) {
 	return (0 == s1.compare(0, prefix.length(), prefix));
 }
+bool string_ends_with(const std::string& s1, const std::string& suffix) {
+	if (suffix.length() > s1.length()) {
+		return false;
+	}
+	return (0 == s1.compare(s1.length() - suffix.length(), suffix.length(), suffix));
+}
 
 
 /* This function returns a list of individual declarations contained in the same declaration statement
