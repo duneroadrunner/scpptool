@@ -415,9 +415,6 @@ namespace checker {
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
 			const clang::Stmt* ST = MR.Nodes.getNodeAs<clang::Stmt>("mcsssstmtutil1");
-			//const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcssssuppresscheckmemberdeclmcssssuppresscheckcall");
-			//const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssfree2");
-			//const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssfree3");
 
 			if ((ST != nullptr)/* && (DRE != nullptr)*/)
 			{
@@ -454,6 +451,33 @@ namespace checker {
 				}
 				if ("" != source_text) {
 					int q = 5;
+				}
+
+				const auto *EX = dyn_cast<const Expr>(ST);
+				if (EX) {
+					const auto *CE = dyn_cast<const CallExpr>(EX);
+					if (CE) {
+						auto function_decl = CE->getDirectCallee();
+						auto num_args = CE->getNumArgs();
+						//assert(1 == num_args);
+						if (function_decl) {
+							const std::string qualified_function_name = function_decl->getQualifiedNameAsString();
+							const std::string std_move_str = "std::move";
+							if (std_move_str == qualified_function_name) {
+								if (1 == num_args) {
+									if (string_begins_with(source_text, std_move_str)) {
+										const std::string error_desc = std::string("Explicit use of std::move() ")
+											+ "is not (yet) supported.";
+										auto res = (*this).m_state1.m_error_records.emplace(
+											CErrorRecord(*MR.SourceManager, STSL, error_desc));
+										if (res.second) {
+											std::cout << (*(res.first)).as_a_string1() << " \n";
+										}
+									}
+								}
+							}
+						}
+					}
 				}
 			}
 		}
@@ -624,7 +648,7 @@ namespace checker {
 
 							const std::string mse_namespace_str1 = g_mse_namespace_str;
 							const std::string mse_namespace_str2 = g_mse_namespace_str + std::string("::");
-							if (string_begins_with(source_namespace_str, mse_namespace_str1)
+							if ((source_namespace_str == mse_namespace_str1)
 								|| string_begins_with(source_namespace_str, mse_namespace_str2)) {
 
 								/* This check might be a bit of a hack. The idea is that we want to
@@ -1648,6 +1672,90 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
+	class MCSSSCast : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSCast (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const clang::Expr* EX = MR.Nodes.getNodeAs<clang::Expr>("mcssscast1");
+
+			if ((EX != nullptr))
+			{
+				auto EXSR = nice_source_range(EX->getSourceRange(), Rewrite);
+				SourceLocation EXSL = EXSR.getBegin();
+				SourceLocation EXSLE = EXSR.getEnd();
+
+				ASTContext *const ASTC = MR.Context;
+				FullSourceLoc FEXSL = ASTC->getFullLoc(EXSL);
+
+				SourceManager &SM = ASTC->getSourceManager();
+
+				auto source_location_str = EXSL.printToString(*MR.SourceManager);
+
+				if (filtered_out_by_location(MR, EXSL)) {
+					return void();
+				}
+
+				auto EXISR = instantiation_source_range(EX->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
+				if (supress_check_flag) {
+					return;
+				}
+				if ((*this).m_state1.raw_pointer_scope_restrictions_are_disabled()) {
+					return;
+				}
+
+				std::string source_text;
+				if (EXSL.isValid() && EXSLE.isValid()) {
+					source_text = Rewrite.getRewrittenText(SourceRange(EXSL, EXSLE));
+				} else {
+					return;
+				}
+				if ("" != source_text) {
+					int q = 5;
+				}
+
+				std::string cast_type_str;
+				const auto* EXii = EX->IgnoreImplicit()->IgnoreParenImpCasts();
+				const auto *CSCE = dyn_cast<const CStyleCastExpr>(EXii);
+				if (CSCE) {
+					cast_type_str = "'C-style'";
+				} else {
+					const auto *CXXRCE = dyn_cast<const CXXReinterpretCastExpr>(EXii);
+					if (CXXRCE) {
+						cast_type_str = "Reinterpret";
+					} else {
+						const auto *CXXFCE = dyn_cast<const CXXFunctionalCastExpr>(EXii);
+						if (CSCE) {
+							cast_type_str = "'C-style' functional";
+						} else {
+							const auto *CXXCCE = dyn_cast<const CXXConstCastExpr>(EXii);
+							if (CSCE) {
+								cast_type_str = "Const";
+							}
+						}
+					}
+				}
+				if ("" != cast_type_str) {
+					const std::string error_desc = cast_type_str
+						+ " casts are not supported.";
+					auto res = (*this).m_state1.m_error_records.emplace(
+						CErrorRecord(*MR.SourceManager, EXSL, error_desc));
+					if (res.second) {
+						std::cout << (*(res.first)).as_a_string1() << " \n";
+					}
+				}
+			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
 
 	struct CDiag {
 		CDiag() {}
@@ -1866,7 +1974,7 @@ namespace checker {
 			HandlerForSSSReturnStmt(R, tu_state()), HandlerForSSSRecordDecl2(R, tu_state()), HandlerForSSSAsAnFParam(R, tu_state()),
 			HandlerForSSSTFParam(R, tu_state()), HandlerForSSSMakeXScopePointerTo(R, tu_state()), HandlerForSSSNativeReferenceVar(R, tu_state()),
 			HandlerForSSSArgToNativeReferenceParam(R, tu_state()), HandlerForSSSPointerArithmetic(R, tu_state()), HandlerForSSSAddressOf(R, tu_state()),
-			HandlerForSSSNativePointerVar(R, tu_state())
+			HandlerForSSSNativePointerVar(R, tu_state()), HandlerForSSSCast(R, tu_state())
 		{
 			Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerMisc1);
 			Matcher.addMatcher(callExpr(argumentCountIs(0)).bind("mcssssuppresscheckmemberdeclmcssssuppresscheckcall"), &HandlerForSSSSupressCheckDirectiveCall);
@@ -1902,6 +2010,9 @@ namespace checker {
 				unaryOperator(hasOperatorName("&")).bind("mcsssaddressof2")
 				)).bind("mcsssaddressof1"), &HandlerForSSSAddressOf);
 			Matcher.addMatcher(varDecl().bind("mcsssnativepointervar1"), &HandlerForSSSNativePointerVar);
+			Matcher.addMatcher(cxxReinterpretCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
+			Matcher.addMatcher(cxxFunctionalCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
+			Matcher.addMatcher(cxxConstCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
 		}
 
 		~MyASTConsumer() {
@@ -1934,6 +2045,7 @@ namespace checker {
 		MCSSSPointerArithmetic HandlerForSSSPointerArithmetic;
 		MCSSSAddressOf HandlerForSSSAddressOf;
 		MCSSSNativePointerVar HandlerForSSSNativePointerVar;
+		MCSSSCast HandlerForSSSCast;
 
 		MatchFinder Matcher;
 	};
