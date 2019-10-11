@@ -486,6 +486,10 @@ namespace checker {
 
 				auto source_location_str = DSL.printToString(*MR.SourceManager);
 
+				if (std::string::npos != source_location_str.find(":98:")) {
+					int q = 5;
+				}
+
 				if (filtered_out_by_location(MR, DSL)) {
 					return void();
 				}
@@ -505,12 +509,18 @@ namespace checker {
 				if ("" != source_text) {
 					int q = 5;
 				}
-				{
+
+				auto DD = dyn_cast<const DeclaratorDecl>(D);
+				if (DD) {
+					const auto qtype = DD->getType();
+					const std::string qtype_str = DD->getType().getAsString();
+					if (is_xscope_type(qtype, (*this).m_state1)) {
+						int q = 5;
+					}
+
 					auto VD = dyn_cast<const clang::VarDecl>(D);
 					if (VD) {
 						const auto storage_duration = VD->getStorageDuration();
-						auto qtype = VD->getType();
-						std::string qtype_str = VD->getType().getAsString();
 						const auto qualified_name = VD->getQualifiedNameAsString();
 
 						if ((clang::StorageDuration::SD_Static == storage_duration) || (clang::StorageDuration::SD_Thread == storage_duration)) {
@@ -571,17 +581,68 @@ namespace checker {
 								}
 							}
 						}
-					}
 
-					auto DD = dyn_cast<const DeclaratorDecl>(D);
-					if (DD) {
-						auto qtype = DD->getType();
-						std::string qtype_str = DD->getType().getAsString();
-						if (is_xscope_type(qtype, (*this).m_state1)) {
-							int q = 5;
+						if (qtype.getTypePtr()->isArithmeticType()) {
+							const auto* init_EX = VD->getInit();
+							if (!init_EX) {
+								auto *PVD = dyn_cast<const ParmVarDecl>(VD);
+								if (!PVD) {
+									const std::string error_desc = std::string("Uninitialized ")
+										+ "arithmetic variables are not supported.";
+									auto res = (*this).m_state1.m_error_records.emplace(
+										CErrorRecord(*MR.SourceManager, DSL, error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n";
+									}
+								}
+							}
+						}
+					} else {
+						auto FD = dyn_cast<const clang::FieldDecl>(D);
+						if (FD) {
+							if (qtype.getTypePtr()->isArithmeticType()) {
+								//FD->getInClassInitStyle();
+								const auto* init_EX = FD->getInClassInitializer();
+								if (!init_EX) {
+									const std::string error_desc = std::string("Arithmetic member fields ")
+										+ "require direct initialization.";
+									auto res = (*this).m_state1.m_error_records.emplace(
+										CErrorRecord(*MR.SourceManager, DSL, error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n";
+									}
+								}
+							}
 						}
 					}
+				} else {
+					auto NAD = dyn_cast<const NamespaceAliasDecl>(D);
+					if (NAD) {
+						const auto ND = NAD->getNamespace();
+						if (ND) {
+							const auto source_namespace_str = ND->getQualifiedNameAsString();
 
+							const std::string mse_namespace_str1 = g_mse_namespace_str;
+							const std::string mse_namespace_str2 = g_mse_namespace_str + std::string("::");
+							if (string_begins_with(source_namespace_str, mse_namespace_str1)
+								|| string_begins_with(source_namespace_str, mse_namespace_str2)) {
+
+								/* This check might be a bit of a hack. The idea is that we want to
+								prevent the subversion of checks for use of elements in the mse::us
+								namespace by using an alias to the namespace.
+								*/
+
+								const std::string error_desc = std::string("This namespace alias could ")
+									+ "be used to subvert some of the checks. "
+									+ "So its use requires a 'check suppression' directive.";
+								auto res = (*this).m_state1.m_error_records.emplace(
+									CErrorRecord(*MR.SourceManager, DSL, error_desc));
+								if (res.second) {
+									std::cout << (*(res.first)).as_a_string1() << " \n";
+								}
+							}
+						}
+					}
 				}
 			}
 		}
@@ -641,10 +702,9 @@ namespace checker {
 						std::string qtype_str = DD->getType().getAsString();
 						const auto qualified_name = DD->getQualifiedNameAsString();
 						const std::string mse_us_namespace_str1 = g_mse_namespace_str + "::us::";
-						const std::string mse_us_namespace_str2 = std::string("::") + g_mse_namespace_str + "::us::";
-						if (string_begins_with(qualified_name, mse_us_namespace_str1)
-							|| string_begins_with(qualified_name, mse_us_namespace_str2)) {
+						if (string_begins_with(qualified_name, mse_us_namespace_str1)) {
 
+							const std::string mse_us_namespace_str2 = std::string("::") + g_mse_namespace_str + "::us::";
 							if (string_begins_with(source_text, mse_us_namespace_str1)
 								|| string_begins_with(source_text, mse_us_namespace_str2)) {
 
@@ -654,6 +714,7 @@ namespace checker {
 								explicitly expressed in the source text. This wouldn't catch aliases of elements, so the
 								declaration/definition of the offending aliases (including "using namespace") will need
 								to be screened for and flagged as well. */
+
 
 								const std::string error_desc = std::string("Elements in the 'mse::us' namespace (like '"
 									+ qualified_name + "') are potentially unsafe. ")
@@ -816,9 +877,7 @@ namespace checker {
 
 				auto qualified_name = RD->getQualifiedNameAsString();
 				const std::string mse_namespace_str1 = g_mse_namespace_str + "::";
-				const std::string mse_namespace_str2 = std::string("::") + g_mse_namespace_str + "::";
-				if (string_begins_with(qualified_name, mse_namespace_str1)
-					|| string_begins_with(qualified_name, mse_namespace_str2)) {
+				if (string_begins_with(qualified_name, mse_namespace_str1)) {
 					int q = 5;
 					//return;
 				}
@@ -1520,7 +1579,7 @@ namespace checker {
 				if (qtype->isPointerType()) {
 					if (clang::StorageDuration::SD_Automatic != VD->getStorageDuration()) {
 						const std::string error_desc = std::string("Native pointers that are ")
-							+ "not local variables (or function parameters) are not supported.";
+							+ "not (automatic) local variables (or function parameters) are not supported.";
 						auto res = (*this).m_state1.m_error_records.emplace(
 							CErrorRecord(*MR.SourceManager, VDSL, error_desc));
 						if (res.second) {
@@ -1562,6 +1621,17 @@ namespace checker {
 						if (null_initialization) {
 							const std::string error_desc = std::string("Null initialization of ")
 								+ "native pointers is not supported.";
+							auto res = (*this).m_state1.m_error_records.emplace(
+								CErrorRecord(*MR.SourceManager, VDSL, error_desc));
+							if (res.second) {
+								std::cout << (*(res.first)).as_a_string1() << " \n";
+							}
+						}
+					} else {
+						auto *PVD = dyn_cast<const ParmVarDecl>(VD);
+						if (!PVD) {
+							const std::string error_desc = std::string("Uninitialized ")
+								+ "native pointer variables are not supported.";
 							auto res = (*this).m_state1.m_error_records.emplace(
 								CErrorRecord(*MR.SourceManager, VDSL, error_desc));
 							if (res.second) {
