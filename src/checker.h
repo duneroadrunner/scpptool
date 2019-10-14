@@ -360,8 +360,41 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
-	bool is_xscope_type(const clang::QualType qtype, const CTUState& tu_state_cref);
+	bool has_ancestor_base_class(const clang::QualType qtype, const std::string& qualified_base_class_name);
+	bool has_ancestor_base_class(const clang::Type& type, const std::string& qualified_base_class_name) {
+		bool retval = false;
 
+		const auto TP = &type;
+		const auto CXXRD = TP->getAsCXXRecordDecl();
+		if (CXXRD) {
+			auto qname = CXXRD->getQualifiedNameAsString();
+			if (qualified_base_class_name == qname) {
+				return true;
+			}
+			for (const auto& base : CXXRD->bases()) {
+				const auto base_qtype = base.getType();
+				const auto base_qtype_str = base_qtype.getAsString();
+
+				if (has_ancestor_base_class(base.getType(), qualified_base_class_name)) {
+					return true;
+				}
+			}
+		}
+
+		return retval;
+	}
+	bool has_ancestor_base_class(const clang::QualType qtype, const std::string& qualified_base_class_name) {
+		bool retval = false;
+
+		std::string qtype_str = qtype.getAsString();
+		const auto TP = qtype.getTypePtr();
+		if (!TP) { assert(false); } else {
+			retval = has_ancestor_base_class(*TP, qualified_base_class_name);
+		}
+		return retval;
+	}
+
+	bool is_xscope_type(const clang::QualType qtype, const CTUState& tu_state_cref);
 	bool is_xscope_type(const clang::Type& type, const CTUState& tu_state_cref) {
 		bool retval = false;
 
@@ -370,16 +403,8 @@ namespace checker {
 		if (CXXRD) {
 			auto qname = CXXRD->getQualifiedNameAsString();
 			const std::string xscope_tag_str = g_mse_namespace_str + "::us::impl::XScopeTagBase";
-			if (xscope_tag_str == qname) {
+			if (has_ancestor_base_class(type, xscope_tag_str)) {
 				return true;
-			}
-			for (const auto& base : CXXRD->bases()) {
-				const auto base_qtype = base.getType();
-				auto base_qtype_str = base_qtype.getAsString();
-
-				if (is_xscope_type(base.getType(), tu_state_cref)) {
-					return true;
-				}
 			}
 		}
 		if (!(tu_state_cref.m_MSE_SOME_NON_XSCOPE_POINTER_TYPE_IS_DISABLED_defined)) {
@@ -405,6 +430,122 @@ namespace checker {
 		}
 		return retval;
 	}
+
+	bool has_tag_method(const clang::CXXRecordDecl& record_decl_cref, const std::string& target_name) {
+		bool retval = false;
+		auto qname = record_decl_cref.getQualifiedNameAsString();
+		static const std::string s_async_shareable_tag_str = "async_shareable_tag";
+		static const std::string s_async_shareable_and_passable_tag_str = "async_shareable_and_passable_tag";
+		for (const auto& method : record_decl_cref.methods()) {
+			const auto method_name = method->getNameAsString();
+			if (target_name == method_name) {
+				return true;
+			}
+		}
+		return retval;
+	}
+
+	bool is_async_shareable(const clang::QualType qtype, const CTUState& tu_state_cref);
+	bool is_async_shareable(const clang::Type& type, const CTUState& tu_state_cref) {
+		bool retval = false;
+
+		const auto TP = &type;
+		const auto CXXRD = TP->getAsCXXRecordDecl();
+		if (CXXRD) {
+			auto qname = CXXRD->getQualifiedNameAsString();
+			static const std::string s_async_shareable_tag_str = "async_shareable_tag";
+			static const std::string s_async_shareable_and_passable_tag_str = "async_shareable_and_passable_tag";
+			if (has_tag_method(*CXXRD, s_async_shareable_tag_str) || has_tag_method(*CXXRD, s_async_shareable_and_passable_tag_str)) {
+				return true;
+			} else {
+				const std::string async_not_shareable_tag_str = g_mse_namespace_str + "::us::impl::AsyncNotShareableTagBase";
+				if (has_ancestor_base_class(type, async_not_shareable_tag_str)) {
+					return false;
+				} else {
+					for (const auto& FD : CXXRD->fields()) {
+						assert(FD);
+						const auto FD_qtype = FD->getType();
+						auto FD_qtype_str = FD_qtype.getAsString();
+
+						if ((!is_async_shareable(FD->getType(), tu_state_cref))
+							|| (FD->isMutable())) {
+							return false;
+						}
+					}
+					return true;
+				}
+			}
+		} else if (TP->isArithmeticType()) {
+			return true;
+		} else if (TP->isFunctionPointerType()) {
+			return true;
+		} else {
+			/* todo: support pointers to non-capture lamdas and any other types we're forgetting */
+		}
+
+		return retval;
+	}
+	bool is_async_shareable(const clang::QualType qtype, const CTUState& tu_state_cref) {
+		bool retval = false;
+
+		std::string qtype_str = qtype.getAsString();
+		const auto TP = qtype.getTypePtr();
+		if (!TP) { assert(false); } else {
+			retval = is_async_shareable(*TP, tu_state_cref);
+		}
+		return retval;
+	}
+
+	bool is_async_passable(const clang::QualType qtype, const CTUState& tu_state_cref);
+	bool is_async_passable(const clang::Type& type, const CTUState& tu_state_cref) {
+		bool retval = false;
+
+		const auto TP = &type;
+		const auto CXXRD = TP->getAsCXXRecordDecl();
+		if (CXXRD) {
+			auto qname = CXXRD->getQualifiedNameAsString();
+			static const std::string s_async_passable_tag_str = "async_passable_tag";
+			static const std::string s_async_passable_and_passable_tag_str = "async_passable_and_passable_tag";
+			if (has_tag_method(*CXXRD, s_async_passable_tag_str) || has_tag_method(*CXXRD, s_async_passable_and_passable_tag_str)) {
+				return true;
+			} else {
+				const std::string async_not_passable_tag_str = g_mse_namespace_str + "::us::impl::AsyncNotShareableTagBase";
+				if (has_ancestor_base_class(type, async_not_passable_tag_str)) {
+					return false;
+				} else {
+					for (const auto& FD : CXXRD->fields()) {
+						assert(FD);
+						const auto FD_qtype = FD->getType();
+						auto FD_qtype_str = FD_qtype.getAsString();
+
+						if (!is_async_passable(FD->getType(), tu_state_cref)) {
+							return false;
+						}
+					}
+					return true;
+				}
+			}
+		} else if (TP->isArithmeticType()) {
+			return true;
+		} else if (TP->isFunctionPointerType()) {
+			return true;
+		} else {
+			/* todo: support pointers to non-capture lamdas and any other types we're forgetting */
+		}
+
+		return retval;
+	}
+	bool is_async_passable(const clang::QualType qtype, const CTUState& tu_state_cref) {
+		bool retval = false;
+
+		std::string qtype_str = qtype.getAsString();
+		const auto TP = qtype.getTypePtr();
+		if (!TP) { assert(false); } else {
+			retval = is_async_passable(*TP, tu_state_cref);
+		}
+		return retval;
+	}
+
 
 	class MCSSSStmtUtil : public MatchFinder::MatchCallback
 	{
@@ -465,7 +606,8 @@ namespace checker {
 							const std::string std_move_str = "std::move";
 							if (std_move_str == qualified_function_name) {
 								if (1 == num_args) {
-									if (string_begins_with(source_text, std_move_str)) {
+									if (true || string_begins_with(source_text, std_move_str)) {
+										/* todo: check for aliases */
 										const std::string error_desc = std::string("Explicit use of std::move() ")
 											+ "is not (yet) supported.";
 										auto res = (*this).m_state1.m_error_records.emplace(
@@ -510,12 +652,12 @@ namespace checker {
 
 				auto source_location_str = DSL.printToString(*MR.SourceManager);
 
-				if (std::string::npos != source_location_str.find(":98:")) {
-					int q = 5;
-				}
-
 				if (filtered_out_by_location(MR, DSL)) {
 					return void();
+				}
+
+				if (std::string::npos != source_location_str.find(":128:")) {
+					int q = 5;
 				}
 
 				auto DISR = instantiation_source_range(D->getSourceRange(), Rewrite);
@@ -538,6 +680,7 @@ namespace checker {
 				if (DD) {
 					const auto qtype = DD->getType();
 					const std::string qtype_str = DD->getType().getAsString();
+
 					if (is_xscope_type(qtype, (*this).m_state1)) {
 						int q = 5;
 					}
@@ -611,8 +754,8 @@ namespace checker {
 							if (!init_EX) {
 								auto *PVD = dyn_cast<const ParmVarDecl>(VD);
 								if (!PVD) {
-									const std::string error_desc = std::string("Uninitialized ")
-										+ "arithmetic variables are not supported.";
+									const std::string error_desc = std::string("uninitialized ")
+										+ "arithmetic variable ";
 									auto res = (*this).m_state1.m_error_records.emplace(
 										CErrorRecord(*MR.SourceManager, DSL, error_desc));
 									if (res.second) {
@@ -629,7 +772,77 @@ namespace checker {
 								const auto* init_EX = FD->getInClassInitializer();
 								if (!init_EX) {
 									const std::string error_desc = std::string("Arithmetic member fields ")
-										+ "require direct initialization.";
+										+ "require direct initializers.";
+									auto res = (*this).m_state1.m_error_records.emplace(
+										CErrorRecord(*MR.SourceManager, DSL, error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n";
+									}
+								}
+							}
+						}
+					}
+
+					const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+					if (CXXRD) {
+						const auto name = CXXRD->getQualifiedNameAsString();
+						const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
+						if (tmplt_CXXRD) {
+							const auto tmplt_name = tmplt_CXXRD->getQualifiedNameAsString();
+							const std::string mse_rsv_TAsyncShareableObj_str1 = g_mse_namespace_str + "::rsv::TAsyncShareableObj";
+							const std::string mse_rsv_TFParam_str = g_mse_namespace_str + "::rsv::TFParam";
+							if (mse_rsv_TAsyncShareableObj_str1 == tmplt_name) {
+								if (1 == CXXRD->getNumBases()) {
+									const auto& base = *(CXXRD->bases_begin());
+									const auto base_qtype = base.getType();
+									const auto base_qtype_str = base_qtype.getAsString();
+									if (!is_async_shareable(base_qtype, (*this).m_state1)) {
+										const std::string error_desc = std::string("Unable to verify that the ")
+											+ "given (adjusted) parameter of mse::rsv::TAsyncShareableObj<>, '"
+											+ base_qtype_str + "', is eligible to be safely shared (among threads). "
+											+ "If it is known to be so, then this error can be suppressed with a "
+											+ "'check suppression' directive. ";
+										auto res = (*this).m_state1.m_error_records.emplace(
+											CErrorRecord(*MR.SourceManager, DSL, error_desc));
+										if (res.second) {
+											std::cout << (*(res.first)).as_a_string1() << " \n";
+										}
+									}
+								} else {
+									/* This branch shouldn't happen. Unless the library's been changed somehow. */
+								}
+							} else if (mse_rsv_TFParam_str == tmplt_name) {
+								bool satisfies_checks = false;
+								auto VD = dyn_cast<const clang::VarDecl>(DD);
+								if (VD) {
+									auto FND = dyn_cast<const clang::FunctionDecl>(VD->getParentFunctionOrMethod());
+									if (FND) {
+										auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
+										if (PVD) {
+											satisfies_checks = true;
+										} else {
+											auto CE = dyn_cast<const clang::CallExpr>(VD->getInit()->IgnoreImplicit()->IgnoreParenImpCasts());
+											if (CE) {
+												auto function_decl = CE->getDirectCallee();
+												auto num_args = CE->getNumArgs();
+												//assert(1 == num_args);
+												if (function_decl) {
+													std::string function_name = function_decl->getNameAsString();
+													std::string qualified_function_name = function_decl->getQualifiedNameAsString();
+													const std::string as_an_fparam_str = g_mse_namespace_str + "::rsv::as_an_fparam";
+													if ((as_an_fparam_str == qualified_function_name)) {
+														if (1 == num_args) {
+															satisfies_checks = true;
+														}
+													}
+												}
+											}
+										}
+									}
+								}
+								if (!satisfies_checks) {
+									const std::string error_desc = std::string("Unsupported use of ")
+										+ "mse::rsv::TFParam<>. ";
 									auto res = (*this).m_state1.m_error_records.emplace(
 										CErrorRecord(*MR.SourceManager, DSL, error_desc));
 									if (res.second) {
@@ -906,15 +1119,19 @@ namespace checker {
 					//return;
 				}
 
+				const auto record_name = RD->getName();
+				RD->getTypeForDecl();
+				auto CXXRD = RD->getTypeForDecl()->getAsCXXRecordDecl();
 				if (RD->isThisDeclarationADefinition()) {
-					auto CXXRD = RD->getTypeForDecl()->getAsCXXRecordDecl();
-					if (CXXRD && is_xscope_type(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
-						const std::string error_desc = std::string("Using xscope types as base classes ")
-						+ "is not supported (currently by this tool).";
-						auto res = (*this).m_state1.m_error_records.emplace(
-							CErrorRecord(*MR.SourceManager, SL, error_desc));
-						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n";
+					if (CXXRD) {
+						if (is_xscope_type(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
+							const std::string error_desc = std::string("Using xscope types as base classes ")
+							+ "is not supported (currently by this tool).";
+							auto res = (*this).m_state1.m_error_records.emplace(
+								CErrorRecord(*MR.SourceManager, SL, error_desc));
+							if (res.second) {
+								std::cout << (*(res.first)).as_a_string1() << " \n";
+							}
 						}
 					}
 					for (const auto& field : RD->fields()) {
@@ -934,9 +1151,7 @@ namespace checker {
 							}
 						}
 					}
-
 				}
-
 			}
 		}
 
@@ -1032,100 +1247,7 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
-	class MCSSSTFParam : public MatchFinder::MatchCallback
-	{
-	public:
-		MCSSSTFParam (Rewriter &Rewrite, CTUState& state1) :
-			Rewrite(Rewrite), m_state1(state1) {}
-
-		virtual void run(const MatchFinder::MatchResult &MR)
-		{
-			const clang::VarDecl* VD = MR.Nodes.getNodeAs<clang::VarDecl>("mcssstfparam1");
-
-			if ((VD != nullptr))
-			{
-				auto VDSR = nice_source_range(VD->getSourceRange(), Rewrite);
-				SourceLocation VDSL = VDSR.getBegin();
-				SourceLocation VDSLE = VDSR.getEnd();
-
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FVDSL = ASTC->getFullLoc(VDSL);
-
-				SourceManager &SM = ASTC->getSourceManager();
-
-				auto source_location_str = VDSL.printToString(*MR.SourceManager);
-
-				if (filtered_out_by_location(MR, VDSL)) {
-					return void();
-				}
-
-				auto VDISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(VDISR);
-				if (supress_check_flag) {
-					return;
-				}
-
-				std::string source_text;
-				if (VDSL.isValid() && VDSLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(VDSL, VDSLE));
-				} else {
-					return;
-				}
-				if ("" != source_text) {
-					int q = 5;
-				}
-				if (std::string::npos != source_text.find("fparam3")) {
-					int q = 5;
-				}
-
-				auto qtype = VD->getType();
-				std::string qtype_str = VD->getType().getAsString();
-				const std::string TFParam_str = g_mse_namespace_str + "::rsv::TFParam<";
-				if (std::string::npos != qtype_str.find(TFParam_str)) {
-					bool satisfies_checks = false;
-					auto FD = dyn_cast<const clang::FunctionDecl>(VD->getParentFunctionOrMethod());
-					if (FD) {
-						auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
-						if (PVD) {
-							satisfies_checks = true;
-						} else {
-							auto CE = dyn_cast<const clang::CallExpr>(VD->getInit()->IgnoreImplicit()->IgnoreParenImpCasts());
-							if (CE) {
-								auto function_decl = CE->getDirectCallee();
-								auto num_args = CE->getNumArgs();
-								//assert(1 == num_args);
-								if (function_decl) {
-									std::string function_name = function_decl->getNameAsString();
-									std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-									const std::string as_an_fparam_str = g_mse_namespace_str + "::rsv::as_an_fparam";
-									if ((as_an_fparam_str == qualified_function_name)) {
-										if (1 == num_args) {
-											satisfies_checks = true;
-										}
-									}
-								}
-							}
-						}
-					}
-					if (!satisfies_checks) {
-						const std::string error_desc = std::string("Unsupported use of ")
-							+ "mse::rsv::TFParam<>. ";
-						auto res = (*this).m_state1.m_error_records.emplace(
-							CErrorRecord(*MR.SourceManager, VDSL, error_desc));
-						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n";
-						}
-					}
-				}
-			}
-		}
-
-	private:
-		Rewriter &Rewrite;
-		CTUState& m_state1;
-	};
-
-	bool can_safely_target_with_an_xscope_reference(const clang::Expr* EX1) {
+	bool can_be_safely_targeted_with_an_xscope_reference(const clang::Expr* EX1) {
 		if (!EX1) {
 			assert(false);
 			return false;
@@ -1233,7 +1355,7 @@ namespace checker {
 					if ((make_xscope_pointer_to_str == qualified_function_name) || (make_xscope_const_pointer_to_str == qualified_function_name)) {
 						if (1 == num_args) {
 							auto EX1 = CE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
-							bool satisfies_checks = can_safely_target_with_an_xscope_reference(EX1);
+							bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX1);
 							if (!satisfies_checks) {
 								const std::string error_desc = std::string("Cannot verify that mse::rsv::make_xscope_pointer_to() or ")
 									+ "mse::rsv::make_xscope_const_pointer_to() is safe here.";
@@ -1314,7 +1436,7 @@ namespace checker {
 					}
 					auto* EX = VD->getInit();
 					if (EX) {
-						bool satisfies_checks = can_safely_target_with_an_xscope_reference(EX);
+						bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX);
 						if (!satisfies_checks) {
 							const std::string error_desc = std::string("Cannot verify that the ")
 								+ "native reference (" + qtype_str + ") is safe here.";
@@ -1396,7 +1518,7 @@ namespace checker {
 						const std::string qtype_str = (*param_iter)->getType().getAsString();
 						if (qtype->isReferenceType()) {
 							auto EX = CE->getArg(i);
-							bool satisfies_checks = can_safely_target_with_an_xscope_reference(EX);
+							bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX);
 							if (!satisfies_checks) {
 								const auto *MTE = dyn_cast<const clang::MaterializeTemporaryExpr>(EX);
 								if (MTE && (!(MTE->getType()->isReferenceType()))) {
@@ -1532,8 +1654,16 @@ namespace checker {
 					int q = 5;
 				}
 
+				const clang::Expr* resulting_pointer_EX = MR.Nodes.getNodeAs<clang::Expr>("mcsssaddressof2");
+				if (resulting_pointer_EX) {
+					const auto qtype = resulting_pointer_EX->getType();
+					const std::string qtype_str = resulting_pointer_EX->getType().getAsString();
+					if (resulting_pointer_EX->getType().getTypePtr()->isMemberPointerType()) {
+						return;
+					}
+				}
 				{
-					bool satisfies_checks = can_safely_target_with_an_xscope_reference(EX);
+					bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX);
 					if (!satisfies_checks) {
 						const std::string error_desc = std::string("Cannot verify that the return value ")
 							+ "of the '&' operator or std::addressof() is safe here.";
@@ -1720,21 +1850,50 @@ namespace checker {
 
 				std::string cast_type_str;
 				const auto* EXii = EX->IgnoreImplicit()->IgnoreParenImpCasts();
-				const auto *CSCE = dyn_cast<const CStyleCastExpr>(EXii);
-				if (CSCE) {
-					cast_type_str = "'C-style'";
-				} else {
-					const auto *CXXRCE = dyn_cast<const CXXReinterpretCastExpr>(EXii);
-					if (CXXRCE) {
-						cast_type_str = "Reinterpret";
+				const auto *CSTE = dyn_cast<const clang::CastExpr>(EXii);
+				if (CSTE) {
+					const auto cast_kind = CSTE->getCastKind();
+					if (clang::CK_IntegralToPointer == CSTE->getCastKind()) {
+						cast_type_str = "Integral-to-pointer";
+					} else if (clang::CK_NoOp == CSTE->getCastKind()) {
+						/* If the cast is a no-op, I guess we won't complain. */
+						//cast_type_str = "";
 					} else {
-						const auto *CXXFCE = dyn_cast<const CXXFunctionalCastExpr>(EXii);
+						const auto *CSCE = dyn_cast<const CStyleCastExpr>(EXii);
 						if (CSCE) {
-							cast_type_str = "'C-style' functional";
+							cast_type_str = "'C-style'";
 						} else {
-							const auto *CXXCCE = dyn_cast<const CXXConstCastExpr>(EXii);
-							if (CSCE) {
-								cast_type_str = "Const";
+							const auto *CXXRCE = dyn_cast<const CXXReinterpretCastExpr>(EXii);
+							if (CXXRCE) {
+								cast_type_str = "Reinterpret";
+							} else {
+								const auto *CXXCCE = dyn_cast<const CXXConstCastExpr>(EXii);
+								if (CXXCCE) {
+									cast_type_str = "Const";
+								} else {
+									const auto *CXXFCE = dyn_cast<const CXXFunctionalCastExpr>(EXii);
+									if (CXXFCE) {
+										const auto qtype = CXXFCE->getType();
+										const std::string qtype_str = CXXFCE->getType().getAsString();
+
+										const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+										if (CXXRD) {
+											const auto name = CXXRD->getQualifiedNameAsString();
+											const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
+											if (tmplt_CXXRD) {
+												const auto tmplt_name = tmplt_CXXRD->getQualifiedNameAsString();
+												const std::string mse_rsv_tfparam_str1 = g_mse_namespace_str + "::rsv::TFParam";
+												if (mse_rsv_tfparam_str1 == tmplt_name) {
+													if (1 == CXXRD->getNumBases()) {
+														cast_type_str = "Explicit mse::rsv::TFParam<> functional";
+													} else {
+														/* This branch shouldn't happen. Unless the library's been changed somehow. */
+													}
+												}
+											}
+										}
+									}
+								}
 							}
 						}
 					}
@@ -1972,7 +2131,7 @@ namespace checker {
 			HandlerForSSSSupressCheckDirectiveCall(R, tu_state()), HandlerForSSSSupressCheckDirectiveDeclField(R, tu_state()),
 			HandlerForSSSStmtUtil(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForSSSDeclRefExprUtil(R, tu_state()),
 			HandlerForSSSReturnStmt(R, tu_state()), HandlerForSSSRecordDecl2(R, tu_state()), HandlerForSSSAsAnFParam(R, tu_state()),
-			HandlerForSSSTFParam(R, tu_state()), HandlerForSSSMakeXScopePointerTo(R, tu_state()), HandlerForSSSNativeReferenceVar(R, tu_state()),
+			HandlerForSSSMakeXScopePointerTo(R, tu_state()), HandlerForSSSNativeReferenceVar(R, tu_state()),
 			HandlerForSSSArgToNativeReferenceParam(R, tu_state()), HandlerForSSSPointerArithmetic(R, tu_state()), HandlerForSSSAddressOf(R, tu_state()),
 			HandlerForSSSNativePointerVar(R, tu_state()), HandlerForSSSCast(R, tu_state())
 		{
@@ -1985,7 +2144,6 @@ namespace checker {
 			Matcher.addMatcher(returnStmt().bind("mcsssreturnstmt"), &HandlerForSSSReturnStmt);
 			Matcher.addMatcher(clang::ast_matchers::recordDecl().bind("mcsssrecorddecl"), &HandlerForSSSRecordDecl2);
 			Matcher.addMatcher(callExpr(/*argumentCountIs(1)*/).bind("mcsssasanfparam1"), &HandlerForSSSAsAnFParam);
-			Matcher.addMatcher(varDecl().bind("mcssstfparam1"), &HandlerForSSSTFParam);
 			Matcher.addMatcher(callExpr(/*argumentCountIs(1)*/).bind("mcsssmakexscopepointerto1"), &HandlerForSSSMakeXScopePointerTo);
 			Matcher.addMatcher(varDecl().bind("mcsssnativereferencevar1"), &HandlerForSSSNativeReferenceVar);
 			Matcher.addMatcher(callExpr().bind("mcsssargtonativereferenceparam1"), &HandlerForSSSArgToNativeReferenceParam);
@@ -2038,7 +2196,6 @@ namespace checker {
 		MCSSSReturnStmt HandlerForSSSReturnStmt;
 		MCSSSRecordDecl2 HandlerForSSSRecordDecl2;
 		MCSSSAsAnFParam HandlerForSSSAsAnFParam;
-		MCSSSTFParam HandlerForSSSTFParam;
 		MCSSSMakeXScopePointerTo HandlerForSSSMakeXScopePointerTo;
 		MCSSSNativeReferenceVar HandlerForSSSNativeReferenceVar;
 		MCSSSArgToNativeReferenceParam HandlerForSSSArgToNativeReferenceParam;
