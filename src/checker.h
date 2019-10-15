@@ -600,7 +600,6 @@ namespace checker {
 					if (CE) {
 						auto function_decl = CE->getDirectCallee();
 						auto num_args = CE->getNumArgs();
-						//assert(1 == num_args);
 						if (function_decl) {
 							const std::string qualified_function_name = function_decl->getQualifiedNameAsString();
 							const std::string std_move_str = "std::move";
@@ -691,60 +690,55 @@ namespace checker {
 						const auto qualified_name = VD->getQualifiedNameAsString();
 
 						if ((clang::StorageDuration::SD_Static == storage_duration) || (clang::StorageDuration::SD_Thread == storage_duration)) {
-							static const std::string class_space_str = "class ";
-							const std::string mse_rsv_static_immutable_obj_str1 = class_space_str + g_mse_namespace_str + "::rsv::TStaticImmutableObj<";
-							const std::string mse_scope_atomic_obj_str = class_space_str + g_mse_namespace_str + "::TXScopeAtomicObj<";
-							const std::string mse_AsyncSharedV2ReadWriteAccessRequester_str = class_space_str + g_mse_namespace_str + "::TAsyncSharedV2ReadWriteAccessRequester<";
-							const std::string mse_AsyncSharedV2ReadOnlyAccessRequester_str = class_space_str + g_mse_namespace_str + "::TAsyncSharedV2ReadOnlyAccessRequester<";
-							const std::string mse_TAsyncSharedV2ImmutableFixedPointer_str = class_space_str + g_mse_namespace_str + "::TAsyncSharedV2ImmutableFixedPointer<";
-							const std::string mse_TAsyncSharedV2AtomicFixedPointer_str = class_space_str + g_mse_namespace_str + "::TAsyncSharedV2AtomicFixedPointer<";
-							if (clang::StorageDuration::SD_Static == storage_duration) {
-								bool satisfies_checks = false;
-								if (string_begins_with(qtype_str, mse_rsv_static_immutable_obj_str1)
-									|| string_begins_with(qtype_str, mse_scope_atomic_obj_str)
-									|| string_begins_with(qtype_str, mse_AsyncSharedV2ReadWriteAccessRequester_str)
-									|| string_begins_with(qtype_str, mse_AsyncSharedV2ReadOnlyAccessRequester_str)
-									|| string_begins_with(qtype_str, mse_TAsyncSharedV2ImmutableFixedPointer_str)
-									|| string_begins_with(qtype_str, mse_TAsyncSharedV2AtomicFixedPointer_str)
+							bool satisfies_checks = false;
+							const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+							if (CXXRD) {
+								auto name = CXXRD->getQualifiedNameAsString();
+								const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
+								if (tmplt_CXXRD) {
+									name = tmplt_CXXRD->getQualifiedNameAsString();
+								}
+
+								const std::string mse_rsv_static_immutable_obj_str1 = g_mse_namespace_str + "::rsv::TStaticImmutableObj";
+								const std::string std_atomic_str = std::string("std::atomic");
+								const std::string mse_AsyncSharedV2ReadWriteAccessRequester_str = g_mse_namespace_str + "::TAsyncSharedV2ReadWriteAccessRequester";
+								const std::string mse_AsyncSharedV2ReadOnlyAccessRequester_str = g_mse_namespace_str + "::TAsyncSharedV2ReadOnlyAccessRequester";
+								const std::string mse_TAsyncSharedV2ImmutableFixedPointer_str = g_mse_namespace_str + "::TAsyncSharedV2ImmutableFixedPointer";
+								const std::string mse_TAsyncSharedV2AtomicFixedPointer_str = g_mse_namespace_str + "::TAsyncSharedV2AtomicFixedPointer";
+								const std::string mse_rsv_ThreadLocalObj_str = g_mse_namespace_str + "::rsv::TThreadLocalObj";
+
+								if ((name == mse_rsv_static_immutable_obj_str1)
+									|| (name == std_atomic_str)
+									|| (name == mse_AsyncSharedV2ReadWriteAccessRequester_str)
+									|| (name == mse_AsyncSharedV2ReadOnlyAccessRequester_str)
+									|| (name == mse_TAsyncSharedV2ImmutableFixedPointer_str)
+									|| (name == mse_TAsyncSharedV2AtomicFixedPointer_str)
+									|| ((name == mse_rsv_ThreadLocalObj_str) && (clang::StorageDuration::SD_Thread == storage_duration))
 									) {
 									satisfies_checks = true;
 								}
-								if (!satisfies_checks) {
-									const std::string error_desc = std::string("'static storage duration' is not ")
+							}
+
+							if (!satisfies_checks) {
+								std::string error_desc;
+								if (clang::StorageDuration::SD_Static == storage_duration) {
+									error_desc = std::string("'static storage duration' is not ")
 										+ "supported for this type. Eligible types wrapped in the 'mse::rsv::TStaticImmutableObj<>' "
 										+ "transparent template wrapper would be supported. Other supported wrappers include: "
-										+ "mse::TXScopeAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
+										+ "mse::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
 										+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>.";
-									auto res = (*this).m_state1.m_error_records.emplace(
-										CErrorRecord(*MR.SourceManager, DSL, error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n";
-									}
-								}
-							} else if (clang::StorageDuration::SD_Thread == storage_duration) {
-								const std::string mse_rsv_thread_local_obj_str1 = class_space_str + g_mse_namespace_str + "::rsv::TThreadLocalObj<";
-								bool satisfies_checks = false;
-								if (string_begins_with(qtype_str, mse_rsv_static_immutable_obj_str1)
-									|| string_begins_with(qtype_str, mse_scope_atomic_obj_str)
-									|| string_begins_with(qtype_str, mse_AsyncSharedV2ReadWriteAccessRequester_str)
-									|| string_begins_with(qtype_str, mse_AsyncSharedV2ReadOnlyAccessRequester_str)
-									|| string_begins_with(qtype_str, mse_TAsyncSharedV2ImmutableFixedPointer_str)
-									|| string_begins_with(qtype_str, mse_TAsyncSharedV2AtomicFixedPointer_str)
-									|| string_begins_with(qtype_str, mse_rsv_thread_local_obj_str1)
-									) {
-									satisfies_checks = true;
-								}
-								if (!satisfies_checks) {
-									const std::string error_desc = std::string("'thread local storage duration' is not ")
+								} else {
+									assert(clang::StorageDuration::SD_Thread == storage_duration);
+									error_desc = std::string("'thread local storage duration' is not ")
 										+ "supported for this type. Eligible types wrapped in the 'mse::rsv::TThreadLocalObj<>' "
 										+ "transparent template wrapper would be supported. Other supported wrappers include: "
-										+ "mse::rsv::TStaticImmutableObj<>, mse::TXScopeAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
+										+ "mse::rsv::TStaticImmutableObj<>, mse::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
 										+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>.";
-									auto res = (*this).m_state1.m_error_records.emplace(
-										CErrorRecord(*MR.SourceManager, DSL, error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n";
-									}
+								}
+								auto res = (*this).m_state1.m_error_records.emplace(
+									CErrorRecord(*MR.SourceManager, DSL, error_desc));
+								if (res.second) {
+									std::cout << (*(res.first)).as_a_string1() << " \n";
 								}
 							}
 						}
@@ -785,69 +779,68 @@ namespace checker {
 
 					const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 					if (CXXRD) {
-						const auto name = CXXRD->getQualifiedNameAsString();
+						auto name = CXXRD->getQualifiedNameAsString();
 						const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
 						if (tmplt_CXXRD) {
-							const auto tmplt_name = tmplt_CXXRD->getQualifiedNameAsString();
-							const std::string mse_rsv_TAsyncShareableObj_str1 = g_mse_namespace_str + "::rsv::TAsyncShareableObj";
-							const std::string mse_rsv_TFParam_str = g_mse_namespace_str + "::rsv::TFParam";
-							if (mse_rsv_TAsyncShareableObj_str1 == tmplt_name) {
-								if (1 == CXXRD->getNumBases()) {
-									const auto& base = *(CXXRD->bases_begin());
-									const auto base_qtype = base.getType();
-									const auto base_qtype_str = base_qtype.getAsString();
-									if (!is_async_shareable(base_qtype, (*this).m_state1)) {
-										const std::string error_desc = std::string("Unable to verify that the ")
-											+ "given (adjusted) parameter of mse::rsv::TAsyncShareableObj<>, '"
-											+ base_qtype_str + "', is eligible to be safely shared (among threads). "
-											+ "If it is known to be so, then this error can be suppressed with a "
-											+ "'check suppression' directive. ";
-										auto res = (*this).m_state1.m_error_records.emplace(
-											CErrorRecord(*MR.SourceManager, DSL, error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n";
-										}
+							name = tmplt_CXXRD->getQualifiedNameAsString();
+						}
+						const std::string mse_rsv_TAsyncShareableObj_str1 = g_mse_namespace_str + "::rsv::TAsyncShareableObj";
+						const std::string mse_rsv_TFParam_str = g_mse_namespace_str + "::rsv::TFParam";
+						if (mse_rsv_TAsyncShareableObj_str1 == name) {
+							if (1 == CXXRD->getNumBases()) {
+								const auto& base = *(CXXRD->bases_begin());
+								const auto base_qtype = base.getType();
+								const auto base_qtype_str = base_qtype.getAsString();
+								if (!is_async_shareable(base_qtype, (*this).m_state1)) {
+									const std::string error_desc = std::string("Unable to verify that the ")
+										+ "given (adjusted) parameter of mse::rsv::TAsyncShareableObj<>, '"
+										+ base_qtype_str + "', is eligible to be safely shared (among threads). "
+										+ "If it is known to be so, then this error can be suppressed with a "
+										+ "'check suppression' directive. ";
+									auto res = (*this).m_state1.m_error_records.emplace(
+										CErrorRecord(*MR.SourceManager, DSL, error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n";
 									}
-								} else {
-									/* This branch shouldn't happen. Unless the library's been changed somehow. */
 								}
-							} else if (mse_rsv_TFParam_str == tmplt_name) {
-								bool satisfies_checks = false;
-								auto VD = dyn_cast<const clang::VarDecl>(DD);
-								if (VD) {
-									auto FND = dyn_cast<const clang::FunctionDecl>(VD->getParentFunctionOrMethod());
-									if (FND) {
-										auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
-										if (PVD) {
-											satisfies_checks = true;
-										} else {
-											auto CE = dyn_cast<const clang::CallExpr>(VD->getInit()->IgnoreImplicit()->IgnoreParenImpCasts());
-											if (CE) {
-												auto function_decl = CE->getDirectCallee();
-												auto num_args = CE->getNumArgs();
-												//assert(1 == num_args);
-												if (function_decl) {
-													std::string function_name = function_decl->getNameAsString();
-													std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-													const std::string as_an_fparam_str = g_mse_namespace_str + "::rsv::as_an_fparam";
-													if ((as_an_fparam_str == qualified_function_name)) {
-														if (1 == num_args) {
-															satisfies_checks = true;
-														}
+							} else {
+								/* This branch shouldn't happen. Unless the library's been changed somehow. */
+							}
+						} else if (mse_rsv_TFParam_str == name) {
+							bool satisfies_checks = false;
+							auto VD = dyn_cast<const clang::VarDecl>(DD);
+							if (VD) {
+								auto FND = dyn_cast<const clang::FunctionDecl>(VD->getParentFunctionOrMethod());
+								if (FND) {
+									auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
+									if (PVD) {
+										satisfies_checks = true;
+									} else {
+										auto CE = dyn_cast<const clang::CallExpr>(VD->getInit()->IgnoreImplicit()->IgnoreParenImpCasts());
+										if (CE) {
+											auto function_decl = CE->getDirectCallee();
+											auto num_args = CE->getNumArgs();
+											if (function_decl) {
+												std::string function_name = function_decl->getNameAsString();
+												std::string qualified_function_name = function_decl->getQualifiedNameAsString();
+												const std::string as_an_fparam_str = g_mse_namespace_str + "::rsv::as_an_fparam";
+												if ((as_an_fparam_str == qualified_function_name)) {
+													if (1 == num_args) {
+														satisfies_checks = true;
 													}
 												}
 											}
 										}
 									}
 								}
-								if (!satisfies_checks) {
-									const std::string error_desc = std::string("Unsupported use of ")
-										+ "mse::rsv::TFParam<>. ";
-									auto res = (*this).m_state1.m_error_records.emplace(
-										CErrorRecord(*MR.SourceManager, DSL, error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n";
-									}
+							}
+							if (!satisfies_checks) {
+								const std::string error_desc = std::string("Unsupported use of ")
+									+ "mse::rsv::TFParam<>. ";
+								auto res = (*this).m_state1.m_error_records.emplace(
+									CErrorRecord(*MR.SourceManager, DSL, error_desc));
+								if (res.second) {
+									std::cout << (*(res.first)).as_a_string1() << " \n";
 								}
 							}
 						}
@@ -1206,7 +1199,6 @@ namespace checker {
 
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
-				//assert(1 == num_args);
 				if (function_decl) {
 					std::string function_name = function_decl->getNameAsString();
 					std::string qualified_function_name = function_decl->getQualifiedNameAsString();
@@ -1346,7 +1338,6 @@ namespace checker {
 
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
-				//assert(1 == num_args);
 				if (function_decl) {
 					std::string function_name = function_decl->getNameAsString();
 					std::string qualified_function_name = function_decl->getQualifiedNameAsString();
@@ -1498,26 +1489,38 @@ namespace checker {
 
 				auto function_decl = CE->getDirectCallee();
 				const auto num_args = CE->getNumArgs();
-				//assert(1 == num_args);
 				if (function_decl) {
 					std::string function_name = function_decl->getNameAsString();
 					std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-					const std::string mse_namespace_str1 = g_mse_namespace_str + "::";
-					const std::string mse_namespace_str2 = std::string("::") + g_mse_namespace_str + "::";
-					if (string_begins_with(qualified_function_name, mse_namespace_str1)
-						|| string_begins_with(qualified_function_name, mse_namespace_str2)) {
+					const std::string mse_namespace_str = g_mse_namespace_str + "::";
+					const std::string std_namespace_str = "std::";
+					if (string_begins_with(qualified_function_name, mse_namespace_str)
+						|| string_begins_with(qualified_function_name, std_namespace_str)) {
 						return;
 					}
+
+					int arg_index = 0;
+					auto num_params = function_decl->getNumParams();
+					if (num_params < num_args) {
+						/* todo: investigate and handle this case */
+						if (num_params + 1 == num_args) {
+							if (string_begins_with(function_name, "operator")) {
+								int q = 5;
+							}
+						}
+						if (0 == arg_index) {
+							return;
+						}
+					}
 					auto param_iter = function_decl->param_begin();
-					for (int i = 0; i < num_args; i++, param_iter++) {
+					for (; arg_index < num_args; arg_index++, param_iter++) {
 						if (function_decl->param_end() == param_iter) {
-							assert(false);
 							break;
 						}
 						const auto qtype = (*param_iter)->getType();
 						const std::string qtype_str = (*param_iter)->getType().getAsString();
 						if (qtype->isReferenceType()) {
-							auto EX = CE->getArg(i);
+							auto EX = CE->getArg(arg_index);
 							bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX);
 							if (!satisfies_checks) {
 								const auto *MTE = dyn_cast<const clang::MaterializeTemporaryExpr>(EX);
@@ -1878,17 +1881,17 @@ namespace checker {
 
 										const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 										if (CXXRD) {
-											const auto name = CXXRD->getQualifiedNameAsString();
+											auto name = CXXRD->getQualifiedNameAsString();
 											const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
 											if (tmplt_CXXRD) {
-												const auto tmplt_name = tmplt_CXXRD->getQualifiedNameAsString();
-												const std::string mse_rsv_tfparam_str1 = g_mse_namespace_str + "::rsv::TFParam";
-												if (mse_rsv_tfparam_str1 == tmplt_name) {
-													if (1 == CXXRD->getNumBases()) {
-														cast_type_str = "Explicit mse::rsv::TFParam<> functional";
-													} else {
-														/* This branch shouldn't happen. Unless the library's been changed somehow. */
-													}
+												name = tmplt_CXXRD->getQualifiedNameAsString();
+											}
+											const std::string mse_rsv_tfparam_str1 = g_mse_namespace_str + "::rsv::TFParam";
+											if (mse_rsv_tfparam_str1 == name) {
+												if (1 == CXXRD->getNumBases()) {
+													cast_type_str = "Explicit mse::rsv::TFParam<> functional";
+												} else {
+													/* This branch shouldn't happen. Unless the library's been changed somehow. */
 												}
 											}
 										}
@@ -2374,7 +2377,7 @@ namespace checker {
 			int q = 5;
 		}
 		~MyFrontendAction() {
-			int q = 5;
+			std::cout << "\n" << (*this).m_tu_state.m_error_records.size() << " errors found. \n";
 			//llvm::errs() << "\n~MyFrontendAction() " << '\n';
 			if (false && ConvertToSCPP) {
 				auto res = overwriteChangedFiles();
