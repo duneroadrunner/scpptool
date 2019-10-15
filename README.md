@@ -7,7 +7,7 @@ Oct 2019
 
 `make LLVM_CONF=~/llvm8/bin/llvm-conf`
 
-(if necessary, substitute the `~/llvm8` part with the directory you chose for llvm 8)
+(If necessary, substitute the `~/llvm8` part with the directory you chose for llvm 8.)
 
 ### How to Use:
 
