@@ -7,6 +7,8 @@ Oct 2019
 
 `make LLVM_CONF=~/llvm8/bin/llvm-conf`
 
+(if necessary, substitute the `~/llvm8` part with the directory you chose for llvm 8)
+
 ### How to Use:
 
 The syntax is as follows:
@@ -24,7 +26,7 @@ scpptool is a command line tool to help enforce a memory and data race safe subs
 
 Note that while the aims are similar, this tool enforces a slightly more restricted subset of the language than does the lifetime profile checker. The idea being that this restrictiveness is mitigated by additional flexible elements provided in the SaferCPlusPlus library (that may sometimes resort to run-time safety mechanisms when necessary). Code that conforms to the subset enforced by this tool should also be conformant to the subset enforced by an (eventually completed) lifetime profile checker.
 
-Note that is this tool is still in early development and not well tested.
+Note that this tool is still in early development and not well tested.
 
 
 ### Local Suppression of the Checks
