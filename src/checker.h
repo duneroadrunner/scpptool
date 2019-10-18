@@ -179,10 +179,8 @@ namespace checker {
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
 			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcssssuppresscheckmemberdeclmcssssuppresscheckcall");
-			//const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssfree2");
-			//const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssfree3");
 
-			if ((CE != nullptr)/* && (DRE != nullptr)*/)
+			if ((CE != nullptr))
 			{
 				auto CESR = nice_source_range(CE->getSourceRange(), Rewrite);
 				SourceLocation CESL = CESR.getBegin();
@@ -557,7 +555,7 @@ namespace checker {
 		{
 			const clang::Stmt* ST = MR.Nodes.getNodeAs<clang::Stmt>("mcsssstmtutil1");
 
-			if ((ST != nullptr)/* && (DRE != nullptr)*/)
+			if (ST != nullptr)
 			{
 				auto STSR = nice_source_range(ST->getSourceRange(), Rewrite);
 				SourceLocation STSL = STSR.getBegin();
@@ -926,6 +924,16 @@ namespace checker {
 				}
 				{
 					auto D = DRE->getDecl();
+
+					if (D->getType() != DRE->getType()) {
+						auto D_qtype_str = D->getType().getAsString();
+						auto DRE_qtype_str = DRE->getType().getAsString();
+						if (D->getType()->isReferenceType() == DRE->getType()->isReferenceType()) {
+							/* Does this ever happen? */
+							assert(false);
+						}
+					}
+
 					auto DD = dyn_cast<const DeclaratorDecl>(D);
 					if (DD) {
 						auto qtype = DD->getType();
@@ -1239,14 +1247,67 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
-	bool can_be_safely_targeted_with_an_xscope_reference(const clang::Expr* EX1) {
+	const clang::Expr* containing_object_expr_from_member_expr(const clang::MemberExpr* ME) {
+		const clang::Expr* retval = nullptr;
+		if (!ME) {
+			//assert(false);
+			return retval;
+		}
+		if (ME) {
+			auto iter = ME->child_begin();
+			if (ME->child_end() != iter) {
+				auto child1 = *iter;
+				auto child1_EX = dyn_cast<const clang::Expr>(child1);
+				iter++;
+				if (ME->child_end() == iter) {
+					retval = child1_EX;
+				} else {
+					/* unexpected */
+					int q = 5;
+				}
+			}
+		}
+		return retval;
+	}
+
+	const clang::DeclRefExpr* declrefexpr_of_member_expr_if_any(const clang::MemberExpr* ME) {
+		const clang::DeclRefExpr* retval = nullptr;
+
+		auto EX = containing_object_expr_from_member_expr(ME);
+		if (EX) {
+			auto EX_ii = EX->IgnoreImplicit()->IgnoreParenCasts();
+			auto DRE = dyn_cast<const clang::DeclRefExpr>(EX_ii);
+			if (DRE) {
+				return DRE;
+			} else {
+				auto ME2 = dyn_cast<const clang::MemberExpr>(EX);
+				if (ME2) {
+					/* nested member */
+					return declrefexpr_of_member_expr_if_any(ME2);
+				}
+			}
+		}
+		return retval;
+	}
+
+	bool can_be_safely_targeted_with_an_xscope_reference(const clang::Expr* EX1, ASTContext& Ctx) {
 		if (!EX1) {
-			assert(false);
+			//assert(false);
 			return false;
 		}
 		const auto EX = EX1->IgnoreImplicit()->IgnoreParenImpCasts();
 		bool satisfies_checks = false;
 		auto DRE1 = dyn_cast<const clang::DeclRefExpr>(EX);
+		if (!DRE1) {
+			auto ME = dyn_cast<const clang::MemberExpr>(EX);
+			if (ME) {
+				if (!(ME->isBoundMemberFunction(Ctx))) {
+					DRE1 = declrefexpr_of_member_expr_if_any(ME);
+				} else {
+					int q = 5;
+				}
+			}
+		}
 		if (DRE1) {
 			auto D1 = DRE1->getDecl();
 			auto VD = dyn_cast<const clang::VarDecl>(D1);
@@ -1346,7 +1407,7 @@ namespace checker {
 					if ((make_xscope_pointer_to_str == qualified_function_name) || (make_xscope_const_pointer_to_str == qualified_function_name)) {
 						if (1 == num_args) {
 							auto EX1 = CE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
-							bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX1);
+							bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX1, *ASTC);
 							if (!satisfies_checks) {
 								const std::string error_desc = std::string("Cannot verify that mse::rsv::make_xscope_pointer_to() or ")
 									+ "mse::rsv::make_xscope_const_pointer_to() is safe here.";
@@ -1427,7 +1488,7 @@ namespace checker {
 					}
 					auto* EX = VD->getInit();
 					if (EX) {
-						bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX);
+						bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX, *ASTC);
 						if (!satisfies_checks) {
 							const std::string error_desc = std::string("Cannot verify that the ")
 								+ "native reference (" + qtype_str + ") is safe here.";
@@ -1521,7 +1582,7 @@ namespace checker {
 						const std::string qtype_str = (*param_iter)->getType().getAsString();
 						if (qtype->isReferenceType()) {
 							auto EX = CE->getArg(arg_index);
-							bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX);
+							bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX, *ASTC);
 							if (!satisfies_checks) {
 								const auto *MTE = dyn_cast<const clang::MaterializeTemporaryExpr>(EX);
 								if (MTE && (!(MTE->getType()->isReferenceType()))) {
@@ -1638,6 +1699,10 @@ namespace checker {
 					return void();
 				}
 
+				if (std::string::npos != source_location_str.find(":147:")) {
+					int q = 5;
+				}
+
 				auto EXISR = instantiation_source_range(EX->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
 				if (supress_check_flag) {
@@ -1661,12 +1726,13 @@ namespace checker {
 				if (resulting_pointer_EX) {
 					const auto qtype = resulting_pointer_EX->getType();
 					const std::string qtype_str = resulting_pointer_EX->getType().getAsString();
-					if (resulting_pointer_EX->getType().getTypePtr()->isMemberPointerType()) {
+					if ((resulting_pointer_EX->getType().getTypePtr()->isMemberPointerType())
+						|| (resulting_pointer_EX->getType().getTypePtr()->isFunctionPointerType())) {
 						return;
 					}
 				}
 				{
-					bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX);
+					bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX, *ASTC);
 					if (!satisfies_checks) {
 						const std::string error_desc = std::string("Cannot verify that the return value ")
 							+ "of the '&' operator or std::addressof() is safe here.";
@@ -1918,6 +1984,75 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
+	class MCSSSMemberFunctionCall : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSMemberFunctionCall (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const CXXMemberCallExpr* CXXMCE = MR.Nodes.getNodeAs<clang::CXXMemberCallExpr>("mcsssmemberfunctioncall1");
+
+			if ((CXXMCE != nullptr)/* && (DRE != nullptr)*/)
+			{
+				auto CXXMCESR = nice_source_range(CXXMCE->getSourceRange(), Rewrite);
+				SourceLocation CXXMCESL = CXXMCESR.getBegin();
+				SourceLocation CXXMCESLE = CXXMCESR.getEnd();
+
+				ASTContext *const ASTC = MR.Context;
+				FullSourceLoc FCXXMCESL = ASTC->getFullLoc(CXXMCESL);
+
+				SourceManager &SM = ASTC->getSourceManager();
+
+				auto source_location_str = CXXMCESL.printToString(*MR.SourceManager);
+
+				if (filtered_out_by_location(MR, CXXMCESL)) {
+					return void();
+				}
+
+				auto CXXMCEISR = instantiation_source_range(CXXMCE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CXXMCEISR);
+				if (supress_check_flag) {
+					return;
+				}
+
+				std::string source_text;
+				if (CXXMCESL.isValid() && CXXMCESLE.isValid()) {
+					source_text = Rewrite.getRewrittenText(SourceRange(CXXMCESL, CXXMCESLE));
+				} else {
+					return;
+				}
+
+				auto method_decl = CXXMCE->getMethodDecl();
+				const auto EX = CXXMCE->getImplicitObjectArgument()->IgnoreImplicit()->IgnoreParenImpCasts();
+				const auto num_args = CXXMCE->getNumArgs();
+				if (EX) {
+					bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX, *ASTC);
+					if (!satisfies_checks) {
+						const auto CXXTOE = dyn_cast<const clang::CXXTemporaryObjectExpr>(EX);
+						if (CXXTOE) {
+							satisfies_checks = true;
+						}
+					}
+					if (!satisfies_checks) {
+						const std::string error_desc = std::string("Cannot verify that the 'this' pointer ")
+							+ "will remain valid for the duration of the member function call.";
+						auto res = (*this).m_state1.m_error_records.emplace(
+							CErrorRecord(*MR.SourceManager, CXXMCESL, error_desc));
+						if (res.second) {
+							std::cout << (*(res.first)).as_a_string1() << " \n";
+						}
+					}
+				}
+			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
 
 	struct CDiag {
 		CDiag() {}
@@ -2136,7 +2271,7 @@ namespace checker {
 			HandlerForSSSReturnStmt(R, tu_state()), HandlerForSSSRecordDecl2(R, tu_state()), HandlerForSSSAsAnFParam(R, tu_state()),
 			HandlerForSSSMakeXScopePointerTo(R, tu_state()), HandlerForSSSNativeReferenceVar(R, tu_state()),
 			HandlerForSSSArgToNativeReferenceParam(R, tu_state()), HandlerForSSSPointerArithmetic(R, tu_state()), HandlerForSSSAddressOf(R, tu_state()),
-			HandlerForSSSNativePointerVar(R, tu_state()), HandlerForSSSCast(R, tu_state())
+			HandlerForSSSNativePointerVar(R, tu_state()), HandlerForSSSCast(R, tu_state()), HandlerForSSSMemberFunctionCall(R, tu_state())
 		{
 			Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerMisc1);
 			Matcher.addMatcher(callExpr(argumentCountIs(0)).bind("mcssssuppresscheckmemberdeclmcssssuppresscheckcall"), &HandlerForSSSSupressCheckDirectiveCall);
@@ -2174,6 +2309,7 @@ namespace checker {
 			Matcher.addMatcher(cxxReinterpretCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
 			Matcher.addMatcher(cxxFunctionalCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
 			Matcher.addMatcher(cxxConstCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
+			Matcher.addMatcher(cxxMemberCallExpr().bind("mcsssmemberfunctioncall1"), &HandlerForSSSMemberFunctionCall);
 		}
 
 		~MyASTConsumer() {
@@ -2206,6 +2342,7 @@ namespace checker {
 		MCSSSAddressOf HandlerForSSSAddressOf;
 		MCSSSNativePointerVar HandlerForSSSNativePointerVar;
 		MCSSSCast HandlerForSSSCast;
+		MCSSSMemberFunctionCall HandlerForSSSMemberFunctionCall;
 
 		MatchFinder Matcher;
 	};
