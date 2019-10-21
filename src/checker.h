@@ -786,13 +786,13 @@ namespace checker {
 							}
 						}
 
-						if (qtype.getTypePtr()->isArithmeticType()) {
+						if (qtype.getTypePtr()->isScalarType()) {
 							const auto* init_EX = VD->getInit();
 							if (!init_EX) {
 								auto *PVD = dyn_cast<const ParmVarDecl>(VD);
 								if (!PVD) {
 									const std::string error_desc = std::string("uninitialized ")
-										+ "arithmetic variable ";
+										+ "scalar variable ";
 									auto res = (*this).m_state1.m_error_records.emplace(
 										CErrorRecord(*MR.SourceManager, DSL, error_desc));
 									if (res.second) {
@@ -804,16 +804,27 @@ namespace checker {
 					} else {
 						auto FD = dyn_cast<const clang::FieldDecl>(D);
 						if (FD) {
-							if (qtype.getTypePtr()->isArithmeticType()) {
-								//FD->getInClassInitStyle();
+							if (qtype.getTypePtr()->isScalarType()) {
 								const auto* init_EX = FD->getInClassInitializer();
 								if (!init_EX) {
-									const std::string error_desc = std::string("Arithmetic member fields ")
-										+ "require direct initializers.";
-									auto res = (*this).m_state1.m_error_records.emplace(
-										CErrorRecord(*MR.SourceManager, DSL, error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n";
+									const auto grandparent_DC = FD->getParent()->getParentFunctionOrMethod();
+									bool is_lambda_capture_field = false;
+
+									const auto& parents = MR.Context->getParents(*(FD->getParent()));
+									if ( !(parents.empty()) ) {
+										const auto LE = parents[0].get<LambdaExpr>();
+										if (LE) {
+											is_lambda_capture_field = true;
+										}
+									}
+									if (!is_lambda_capture_field) {
+										const std::string error_desc = std::string("Scalar member fields ")
+											+ "require direct initializers.";
+										auto res = (*this).m_state1.m_error_records.emplace(
+											CErrorRecord(*MR.SourceManager, DSL, error_desc));
+										if (res.second) {
+											std::cout << (*(res.first)).as_a_string1() << " \n";
+										}
 									}
 								}
 							}
@@ -1267,27 +1278,60 @@ namespace checker {
 				RD->getTypeForDecl();
 				auto CXXRD = RD->getTypeForDecl()->getAsCXXRecordDecl();
 				if (RD->isThisDeclarationADefinition()) {
+					const std::string xscope_tag_str = g_mse_namespace_str + "::us::impl::XScopeTagBase";
+					const std::string ContainsNonOwningScopeReference_tag_str = g_mse_namespace_str + "::us::impl::ContainsNonOwningScopeReferenceTagBase";
+					const std::string ReferenceableByScopePointer_tag_str = g_mse_namespace_str + "::us::impl::ReferenceableByScopePointerTagBase";
+
+					bool has_xscope_tag_base = false;
+					bool has_ContainsNonOwningScopeReference_tag_base = false;
+					bool has_ReferenceableByScopePointer_tag_base = false;
+
 					if (CXXRD) {
 						if (is_xscope_type(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
-							const std::string error_desc = std::string("Using xscope types as base classes ")
-							+ "is not supported (currently by this tool).";
-							auto res = (*this).m_state1.m_error_records.emplace(
-								CErrorRecord(*MR.SourceManager, SL, error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n";
-							}
+							has_xscope_tag_base = true;
+						}
+						if (has_ancestor_base_class(*(CXXRD->getTypeForDecl()), ContainsNonOwningScopeReference_tag_str)) {
+							has_ContainsNonOwningScopeReference_tag_base = true;
+						}
+						if (has_ancestor_base_class(*(CXXRD->getTypeForDecl()), ReferenceableByScopePointer_tag_str)) {
+							has_ReferenceableByScopePointer_tag_base = true;
 						}
 					}
+
 					for (const auto& field : RD->fields()) {
 						const auto field_qtype = field->getType();
 						auto field_qtype_str = field_qtype.getAsString();
 
-						if (is_xscope_type(field->getType(), (*this).m_state1)) {
+						if ((!has_xscope_tag_base) && is_xscope_type(field_qtype, (*this).m_state1)) {
+							const std::string error_desc = std::string("Structs or classes containing fields of xscope type (like '")
+								+ field_qtype_str + "') must inherit from mse::rsv::XScopeTagBase.";
 							auto FDISR = instantiation_source_range(field->getSourceRange(), Rewrite);
-							const std::string error_desc = std::string("Using xscope types (like '"
-							+ field_qtype_str + "') as struct/class ")
-							+ "fields is not supported (currently by this tool). (Note that mse::xscope_tuple<> "
-							+ "does support elements of xscope type.)";
+							auto res = (*this).m_state1.m_error_records.emplace(
+								CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
+							if (res.second) {
+								std::cout << (*(res.first)).as_a_string1() << " \n";
+							}
+						}
+						if ((!has_ContainsNonOwningScopeReference_tag_base) && (
+								has_ancestor_base_class(field_qtype, ContainsNonOwningScopeReference_tag_str)
+								|| (field_qtype->isPointerType()) || (field_qtype->isReferenceType())
+							)) {
+							const std::string error_desc = std::string("Structs or classes containing fields that are, or contain, ")
+								+ "non-owning scope references (like '" + field_qtype_str + "') must inherit from "
+								+ "mse::rsv::ContainsNonOwningScopeReferenceTagBase.";
+							auto FDISR = instantiation_source_range(field->getSourceRange(), Rewrite);
+							auto res = (*this).m_state1.m_error_records.emplace(
+								CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
+							if (res.second) {
+								std::cout << (*(res.first)).as_a_string1() << " \n";
+							}
+						}
+						if ((!has_ReferenceableByScopePointer_tag_base)
+							&& has_ancestor_base_class(field_qtype, ReferenceableByScopePointer_tag_str)) {
+							const std::string error_desc = std::string("Structs or classes containing fields (like '") + field_qtype_str
+								+ "') that yield scope pointers (from their overloaded 'operator&'), or contain an element "
+								+ "that does, must inherit from mse::rsv::ReferenceableByScopePointerTagBase.";
+							auto FDISR = instantiation_source_range(field->getSourceRange(), Rewrite);
 							auto res = (*this).m_state1.m_error_records.emplace(
 								CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
 							if (res.second) {
