@@ -51,3 +51,42 @@ The presence of `MSE_SUPPRESS_CHECK_IN_XSCOPE` (a macro provided in the SaferCPl
     };
 }
 ```
+
+
+### About the Enforced Subset
+
+#### Restrictions on the use of native pointers and references
+
+The SaferCPlusPlus library is designed to enable you to avoid potentially unsafe C++ elements, including native pointers and references. But in some cases it might be more convenient to use (or continue using) native pointers and references when their use can be verified to be safe. So "non-retargetable" (aka `const`) native pointers are treated in similar fashion to (and are in large part interchangeable with) [non-owning scope pointers](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#txscopeitemfixedpointer) by this tool, and similar restrictions are imposed. You can use `operator &` or `std::addressof()` in the usual way to initialize the value of a non-retargetable native pointer, but the tool restricts their application to expressions that it can verify are safe. These are generally limited to local (or `thread_local`) variables, objects of "scope type", or direct dereferences of a scope pointer/reference.
+
+If you do make substantial use of native pointers, it's likely you'll encounter the need to convert between native and scope pointers. This can be done as follows:
+
+```cpp
+#include "msescope.h"
+
+void main(int argc, char* argv[]){
+	mse::mstd::string str1 = "abc"; //local variable
+	auto* const non_retargetable_native_ptr1 = &str1; // scpptool can verify this is safe
+
+	// obtaining a scope pointer from a (non-retargetable) native pointer
+	auto xscope_ptr1 = mse::rsv::make_xscope_pointer_to(*non_retargetable_native_ptr1);
+
+	// obtaining a (non-retargetable) native pointer from a scope pointer
+	auto* const non_retargetable_native_ptr2 = *xscope_ptr1;
+}
+```
+
+Retargetable (aka non-`const`) native pointers are not supported (at this time). You can instead use registered (or norad) pointers as shown in the the [`xscope_ifptr_to()` example](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#xscope_ifptr_to).
+
+Native references are subject to essentially the same restrictions as non-retargetable native pointers. The functional difference between native references and non-retargetable native pointers is that C++ permits (`const`) native references to temporaries, perhaps making them a little more convenient to use as function parameters.
+
+#### SaferCPlusPlus elements
+
+Most of the restrictions required to ensure safety of the elements in the SaferCPlusPlus library are implemented in the type system. However, some of the necessary restrictions cannot be implemented in the type system. This tool is meant to enforce those remaining restrictions. Elements requiring enforcement help are generally relegated to the `mse::rsv` namespace. One exception is the restriction that scope types (regardless of the namespace in which they reside), cannot be used as members (or base classes) of structs/classes that are not themselves scope types. The tool currently enforces this restriction by disallowing the use scope types as members of any struct/class period. This "over-restriction" will be lifted in the future, but shouldn't be all that burdensome in the meantime, as generaly you can just use the "non-scope" version of the type instead, or use a (scope) tuple in place of the struct/class.
+
+Note that the `mse::rsv::make_xscope_pointer_to()` function, which allows you to obtain a scope pointer to the resulting object of any eligible expression, is not listed in the documentation of the SaferCPlusPlus library, as without an enforcement helper tool like this one, it could significantly undermine safety.
+
+#### Elements not (yet) addressed
+
+The set of potentially unsafe elements in C++, and in the standard library itself, is pretty large. This tool does not yet address them all. In particular it does not complain about the use of essential elements for which the SaferCPlusPlus library does not (yet) provide a safe alternative, such as conatiners like maps, sets, etc.,. 
+
