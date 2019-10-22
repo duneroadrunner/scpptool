@@ -76,7 +76,7 @@ void main(int argc, char* argv[]){
 }
 ```
 
-Retargetable (aka non-`const`) native pointers are not supported (at this time). You can instead use registered (or norad) pointers as shown in the the [`xscope_ifptr_to()` example](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#xscope_ifptr_to).
+Retargetable (aka non-`const`) native pointers are not supported (at this time). You can instead use registered (or norad) pointers as [demonstrated](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#retargetable-references-to-scope-objects) in the SaferCPlusPlus documentation.
 
 Native references are subject to essentially the same restrictions as non-retargetable native pointers. The functional difference between native references and non-retargetable native pointers is that C++ permits (`const`) native references to temporaries, perhaps making them a little more convenient to use as function parameters.
 
