@@ -72,7 +72,7 @@ void main(int argc, char* argv[]){
 	auto xscope_ptr1 = mse::rsv::make_xscope_pointer_to(*non_retargetable_native_ptr1);
 
 	// obtaining a (non-retargetable) native pointer from a scope pointer
-	auto* const non_retargetable_native_ptr2 = *xscope_ptr1;
+	auto* const non_retargetable_native_ptr2 = std::addressof(*xscope_ptr1);
 }
 ```
 
