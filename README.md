@@ -72,11 +72,11 @@ void main(int argc, char* argv[]){
 	auto xscope_ptr1 = mse::rsv::make_xscope_pointer_to(*non_retargetable_native_ptr1);
 
 	// obtaining a (non-retargetable) native pointer from a scope pointer
-	auto* const non_retargetable_native_ptr2 = *xscope_ptr1;
+	auto* const non_retargetable_native_ptr2 = std::addressof(*xscope_ptr1);
 }
 ```
 
-Retargetable (aka non-`const`) native pointers are not supported (at this time). You can instead use registered (or norad) pointers as shown in the the [`xscope_ifptr_to()` example](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#xscope_ifptr_to).
+Retargetable (aka non-`const`) native pointers are not supported (at this time). You can instead use registered (or norad) pointers as [demonstrated](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#retargetable-references-to-scope-objects) in the SaferCPlusPlus documentation.
 
 Native references are subject to essentially the same restrictions as non-retargetable native pointers. The functional difference between native references and non-retargetable native pointers is that C++ permits (`const`) native references to temporaries, perhaps making them a little more convenient to use as function parameters.
 
