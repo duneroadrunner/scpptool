@@ -357,6 +357,48 @@ namespace checker {
 		Rewriter &Rewrite;
 		CTUState& m_state1;
 	};
+	auto get_containing_scope(const Stmt* ST, clang::ASTContext& context) {
+		const CompoundStmt* retval = nullptr;
+		if (!ST) {
+			return retval;
+		}
+		bool parent_obtained = false;
+		while (true) {
+			//get parents
+			const auto& parents = context.getParents(*ST);
+			if ( parents.empty() ) {
+				llvm::errs() << "Can not find parent\n";
+				break;
+			}
+			//llvm::errs() << "find parent size=" << parents.size() << "\n";
+			ST = parents[0].get<Stmt>();
+			if (!ST) {
+				break;
+			}
+			//ST->dump();
+			if (isa<CompoundStmt>(ST)) {
+				parent_obtained = true;
+				retval = dyn_cast<const CompoundStmt>(ST);
+				assert(retval);
+				break;
+			}
+		}
+		return retval;
+	}
+	bool first_is_contained_in_scope_of_second(const Stmt* ST1, const Stmt* ST2, clang::ASTContext& context) {
+		bool retval = true;
+		auto scope1 = get_containing_scope(ST1, context);
+		const auto scope2 = get_containing_scope(ST2, context);
+		bool parent_obtained = false;
+		while (scope2 != scope1) {
+			scope1 = get_containing_scope(scope1, context);
+			if (!scope1) {
+				retval = (scope2 == scope1);
+				break;
+			}
+		}
+		return retval;
+	}
 
 	bool has_ancestor_base_class(const clang::QualType qtype, const std::string& qualified_base_class_name);
 	bool has_ancestor_base_class(const clang::Type& type, const std::string& qualified_base_class_name) {
@@ -612,8 +654,7 @@ namespace checker {
 										/* todo: check for aliases */
 										const std::string error_desc = std::string("Explicit use of std::move() ")
 											+ "is not (yet) supported.";
-										auto res = (*this).m_state1.m_error_records.emplace(
-											CErrorRecord(*MR.SourceManager, STSL, error_desc));
+										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, STSL, error_desc));
 										if (res.second) {
 											std::cout << (*(res.first)).as_a_string1() << " \n";
 										}
@@ -634,8 +675,7 @@ namespace checker {
 								if ("" != unsupported_function_str) {
 									const std::string error_desc = std::string("The '") + unsupported_function_str
 										+ "' function is not supported.";
-									auto res = (*this).m_state1.m_error_records.emplace(
-										CErrorRecord(*MR.SourceManager, STSL, error_desc));
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, STSL, error_desc));
 									if (res.second) {
 										std::cout << (*(res.first)).as_a_string1() << " \n";
 									}
@@ -654,8 +694,7 @@ namespace checker {
 						if ("" != unsupported_expression_str) {
 							const std::string error_desc = std::string("'") + unsupported_expression_str
 								+ "' is not supported.";
-							auto res = (*this).m_state1.m_error_records.emplace(
-								CErrorRecord(*MR.SourceManager, STSL, error_desc));
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, STSL, error_desc));
 							if (res.second) {
 								std::cout << (*(res.first)).as_a_string1() << " \n";
 							}
@@ -778,8 +817,7 @@ namespace checker {
 										+ "mse::rsv::TStaticImmutableObj<>, mse::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
 										+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>.";
 								}
-								auto res = (*this).m_state1.m_error_records.emplace(
-									CErrorRecord(*MR.SourceManager, DSL, error_desc));
+								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, DSL, error_desc));
 								if (res.second) {
 									std::cout << (*(res.first)).as_a_string1() << " \n";
 								}
@@ -793,8 +831,7 @@ namespace checker {
 								if (!PVD) {
 									const std::string error_desc = std::string("uninitialized ")
 										+ "scalar variable ";
-									auto res = (*this).m_state1.m_error_records.emplace(
-										CErrorRecord(*MR.SourceManager, DSL, error_desc));
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, DSL, error_desc));
 									if (res.second) {
 										std::cout << (*(res.first)).as_a_string1() << " \n";
 									}
@@ -804,7 +841,9 @@ namespace checker {
 					} else {
 						auto FD = dyn_cast<const clang::FieldDecl>(D);
 						if (FD) {
-							if (qtype.getTypePtr()->isScalarType()) {
+							if (qtype.getTypePtr()->isPointerType() || qtype.getTypePtr()->isReferenceType()) {
+								/* These are handled in MCSSSRecordDecl2. */
+							} else if (qtype.getTypePtr()->isScalarType()) {
 								const auto* init_EX = FD->getInClassInitializer();
 								if (!init_EX) {
 									const auto grandparent_DC = FD->getParent()->getParentFunctionOrMethod();
@@ -820,8 +859,7 @@ namespace checker {
 									if (!is_lambda_capture_field) {
 										const std::string error_desc = std::string("Scalar member fields ")
 											+ "require direct initializers.";
-										auto res = (*this).m_state1.m_error_records.emplace(
-											CErrorRecord(*MR.SourceManager, DSL, error_desc));
+										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, DSL, error_desc));
 										if (res.second) {
 											std::cout << (*(res.first)).as_a_string1() << " \n";
 										}
@@ -853,8 +891,7 @@ namespace checker {
 										+ base_qtype_str + "', is eligible to be safely shared (among threads). "
 										+ "If it is known to be so, then this error can be suppressed with a "
 										+ "'check suppression' directive. ";
-									auto res = (*this).m_state1.m_error_records.emplace(
-										CErrorRecord(*MR.SourceManager, DSL, error_desc));
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, DSL, error_desc));
 									if (res.second) {
 										std::cout << (*(res.first)).as_a_string1() << " \n";
 									}
@@ -873,8 +910,7 @@ namespace checker {
 										+ base_qtype_str + "', is eligible to be safely passed (between threads). "
 										+ "If it is known to be so, then this error can be suppressed with a "
 										+ "'check suppression' directive. ";
-									auto res = (*this).m_state1.m_error_records.emplace(
-										CErrorRecord(*MR.SourceManager, DSL, error_desc));
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, DSL, error_desc));
 									if (res.second) {
 										std::cout << (*(res.first)).as_a_string1() << " \n";
 									}
@@ -893,8 +929,7 @@ namespace checker {
 										+ base_qtype_str + "', is eligible to be safely shared and passed (among threads). "
 										+ "If it is known to be so, then this error can be suppressed with a "
 										+ "'check suppression' directive. ";
-									auto res = (*this).m_state1.m_error_records.emplace(
-										CErrorRecord(*MR.SourceManager, DSL, error_desc));
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, DSL, error_desc));
 									if (res.second) {
 										std::cout << (*(res.first)).as_a_string1() << " \n";
 									}
@@ -933,8 +968,7 @@ namespace checker {
 							if (!satisfies_checks) {
 								const std::string error_desc = std::string("Unsupported use of ")
 									+ "mse::rsv::TFParam<>. ";
-								auto res = (*this).m_state1.m_error_records.emplace(
-									CErrorRecord(*MR.SourceManager, DSL, error_desc));
+								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, DSL, error_desc));
 								if (res.second) {
 									std::cout << (*(res.first)).as_a_string1() << " \n";
 								}
@@ -942,8 +976,7 @@ namespace checker {
 						} else if (qtype.getTypePtr()->isUnionType()) {
 							const std::string error_desc = std::string("Native unions are not ")
 								+ "supported. ";
-							auto res = (*this).m_state1.m_error_records.emplace(
-								CErrorRecord(*MR.SourceManager, DSL, error_desc));
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, DSL, error_desc));
 							if (res.second) {
 								std::cout << (*(res.first)).as_a_string1() << " \n";
 							}
@@ -971,8 +1004,7 @@ namespace checker {
 									if ("" != err_def.m_recommended_alternative) {
 										error_desc += "Consider using " + err_def.m_recommended_alternative + " instead.";
 									}
-									auto res = (*this).m_state1.m_error_records.emplace(
-										CErrorRecord(*MR.SourceManager, DSL, error_desc));
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, DSL, error_desc));
 									if (res.second) {
 										std::cout << (*(res.first)).as_a_string1() << " \n";
 									}
@@ -990,8 +1022,7 @@ namespace checker {
 						if ("" != unsupported_type_str) {
 							const std::string error_desc = unsupported_type_str + std::string("s are not ")
 								+ "supported. ";
-							auto res = (*this).m_state1.m_error_records.emplace(
-								CErrorRecord(*MR.SourceManager, DSL, error_desc));
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, DSL, error_desc));
 							if (res.second) {
 								std::cout << (*(res.first)).as_a_string1() << " \n";
 							}
@@ -1017,8 +1048,7 @@ namespace checker {
 								const std::string error_desc = std::string("This namespace alias could ")
 									+ "be used to subvert some of the checks. "
 									+ "So its use requires a 'check suppression' directive.";
-								auto res = (*this).m_state1.m_error_records.emplace(
-									CErrorRecord(*MR.SourceManager, DSL, error_desc));
+								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, DSL, error_desc));
 								if (res.second) {
 									std::cout << (*(res.first)).as_a_string1() << " \n";
 								}
@@ -1111,8 +1141,7 @@ namespace checker {
 								const std::string error_desc = std::string("Elements in the 'mse::us' namespace (like '"
 									+ qualified_name + "') are potentially unsafe. ")
 									+ "Their use requires a 'check suppression' directive.";
-								auto res = (*this).m_state1.m_error_records.emplace(
-									CErrorRecord(*MR.SourceManager, DRESL, error_desc));
+								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, DRESL, error_desc));
 								if (res.second) {
 									std::cout << (*(res.first)).as_a_string1() << " \n";
 								}
@@ -1204,8 +1233,7 @@ namespace checker {
 						if (!xscope_return_value_wrapper_present) {
 							const std::string error_desc = std::string("Return values of xscope type ")
 							+ "need to be wrapped in the mse::return_value() function wrapper.";
-							auto res = (*this).m_state1.m_error_records.emplace(
-								CErrorRecord(*MR.SourceManager, STSL, error_desc));
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, STSL, error_desc));
 							if (res.second) {
 								std::cout << (*(res.first)).as_a_string1() << " \n";
 							}
@@ -1302,38 +1330,48 @@ namespace checker {
 						const auto field_qtype = field->getType();
 						auto field_qtype_str = field_qtype.getAsString();
 
-						if ((!has_xscope_tag_base) && is_xscope_type(field_qtype, (*this).m_state1)) {
-							const std::string error_desc = std::string("Structs or classes containing fields of xscope type (like '")
-								+ field_qtype_str + "') must inherit from mse::rsv::XScopeTagBase.";
-							auto FDISR = instantiation_source_range(field->getSourceRange(), Rewrite);
-							auto res = (*this).m_state1.m_error_records.emplace(
-								CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n";
+						std::string error_desc;
+						if (field_qtype.getTypePtr()->isPointerType()) {
+							if (!(*this).m_state1.raw_pointer_scope_restrictions_are_disabled()) {
+								if (has_xscope_tag_base) {
+									error_desc = std::string("Native pointers are not (yet) supported as fields of xscope ")
+										+ "structs or classes.";
+								} else {
+									error_desc = std::string("Native pointers are not supported as fields of (non-xscope) ")
+										+ "structs or classes.";
+								}
 							}
+						} else if (field_qtype.getTypePtr()->isReferenceType()) {
+							if (has_xscope_tag_base) {
+								error_desc = std::string("Native references are not (yet) supported as fields of xscope ")
+									+ "structs or classes.";
+							} else {
+								error_desc = std::string("Native references are not supported as fields of (non-xscope) ")
+									+ "structs or classes.";
+							}
+						}
+
+						if ((!has_xscope_tag_base) && is_xscope_type(field_qtype, (*this).m_state1)) {
+							error_desc = std::string("Structs or classes containing fields of xscope type (like '")
+								+ field_qtype_str + "') must inherit from mse::rsv::XScopeTagBase.";
 						}
 						if ((!has_ContainsNonOwningScopeReference_tag_base) && (
 								has_ancestor_base_class(field_qtype, ContainsNonOwningScopeReference_tag_str)
 								|| (field_qtype->isPointerType()) || (field_qtype->isReferenceType())
 							)) {
-							const std::string error_desc = std::string("Structs or classes containing fields that are, or contain, ")
+							error_desc = std::string("Structs or classes containing fields that are, or contain, ")
 								+ "non-owning scope references (like '" + field_qtype_str + "') must inherit from "
 								+ "mse::rsv::ContainsNonOwningScopeReferenceTagBase.";
-							auto FDISR = instantiation_source_range(field->getSourceRange(), Rewrite);
-							auto res = (*this).m_state1.m_error_records.emplace(
-								CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n";
-							}
 						}
 						if ((!has_ReferenceableByScopePointer_tag_base)
 							&& has_ancestor_base_class(field_qtype, ReferenceableByScopePointer_tag_str)) {
-							const std::string error_desc = std::string("Structs or classes containing fields (like '") + field_qtype_str
+							error_desc = std::string("Structs or classes containing fields (like '") + field_qtype_str
 								+ "') that yield scope pointers (from their overloaded 'operator&'), or contain an element "
 								+ "that does, must inherit from mse::rsv::ReferenceableByScopePointerTagBase.";
+						}
+						if ("" != error_desc) {
 							auto FDISR = instantiation_source_range(field->getSourceRange(), Rewrite);
-							auto res = (*this).m_state1.m_error_records.emplace(
-								CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
 							if (res.second) {
 								std::cout << (*(res.first)).as_a_string1() << " \n";
 							}
@@ -1414,8 +1452,7 @@ namespace checker {
 							if (!satisfies_checks) {
 								const std::string error_desc = std::string("mse::rsv::as_an_fparam() and ")
 									+ "mse::rsv::as_a_returnable_fparam() may only be used with function parameters.";
-								auto res = (*this).m_state1.m_error_records.emplace(
-									CErrorRecord(*MR.SourceManager, CESL, error_desc));
+								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, CESL, error_desc));
 								if (res.second) {
 									std::cout << (*(res.first)).as_a_string1() << " \n";
 								}
@@ -1539,6 +1576,21 @@ namespace checker {
 					}
 				}
 				int q = 5;
+			} else {
+				auto UO = dyn_cast<const clang::UnaryOperator>(EX);
+				if (UO) {
+					const auto opcode = UO->getOpcode();
+					const auto opcode_str = UO->getOpcodeStr(opcode);
+					if (clang::UnaryOperator::Opcode::UO_Deref == opcode) {
+						const auto UOSE = UO->getSubExpr();
+						if (UOSE) {
+							if (UOSE->getType()->isPointerType()) {
+								/* The declrefexpression is a direct dereference of a native pointer. */
+								satisfies_checks = true;
+							}
+						}
+					}
+				}
 			}
 		}
 		return satisfies_checks;
@@ -1598,8 +1650,7 @@ namespace checker {
 							if (!satisfies_checks) {
 								const std::string error_desc = std::string("Cannot verify that mse::rsv::make_xscope_pointer_to() or ")
 									+ "mse::rsv::make_xscope_const_pointer_to() is safe here.";
-								auto res = (*this).m_state1.m_error_records.emplace(
-									CErrorRecord(*MR.SourceManager, CESL, error_desc));
+								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, CESL, error_desc));
 								if (res.second) {
 									std::cout << (*(res.first)).as_a_string1() << " \n";
 								}
@@ -1667,8 +1718,7 @@ namespace checker {
 					if (clang::StorageDuration::SD_Automatic != VD->getStorageDuration()) {
 						const std::string error_desc = std::string("Native references that are ")
 							+ "not local variables (or function parameters) are not supported.";
-						auto res = (*this).m_state1.m_error_records.emplace(
-							CErrorRecord(*MR.SourceManager, VDSL, error_desc));
+						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, VDSL, error_desc));
 						if (res.second) {
 							std::cout << (*(res.first)).as_a_string1() << " \n";
 						}
@@ -1679,8 +1729,7 @@ namespace checker {
 						if (!satisfies_checks) {
 							const std::string error_desc = std::string("Cannot verify that the ")
 								+ "native reference (" + qtype_str + ") is safe here.";
-							auto res = (*this).m_state1.m_error_records.emplace(
-								CErrorRecord(*MR.SourceManager, VDSL, error_desc));
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, VDSL, error_desc));
 							if (res.second) {
 								std::cout << (*(res.first)).as_a_string1() << " \n";
 							}
@@ -1785,8 +1834,7 @@ namespace checker {
 								const std::string error_desc = std::string("Cannot verify that the ")
 									+ "argument passed to the parameter of native reference type ("
 									+ qtype_str + ") is safe here.";
-								auto res = (*this).m_state1.m_error_records.emplace(
-									CErrorRecord(*MR.SourceManager, EXSL, error_desc));
+								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, EXSL, error_desc));
 								if (res.second) {
 									std::cout << (*(res.first)).as_a_string1() << " \n";
 								}
@@ -1845,8 +1893,7 @@ namespace checker {
 				{
 					const std::string error_desc = std::string("Pointer arithmetic (including ")
 						+ "native array subscripts) is not supported.";
-					auto res = (*this).m_state1.m_error_records.emplace(
-						CErrorRecord(*MR.SourceManager, EXSL, error_desc));
+					auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, EXSL, error_desc));
 					if (res.second) {
 						std::cout << (*(res.first)).as_a_string1() << " \n";
 					}
@@ -1923,8 +1970,7 @@ namespace checker {
 					if (!satisfies_checks) {
 						const std::string error_desc = std::string("Cannot verify that the return value ")
 							+ "of the '&' operator or std::addressof() is safe here.";
-						auto res = (*this).m_state1.m_error_records.emplace(
-							CErrorRecord(*MR.SourceManager, EXSL, error_desc));
+						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, EXSL, error_desc));
 						if (res.second) {
 							std::cout << (*(res.first)).as_a_string1() << " \n";
 						}
@@ -1990,8 +2036,7 @@ namespace checker {
 					if (clang::StorageDuration::SD_Automatic != VD->getStorageDuration()) {
 						const std::string error_desc = std::string("Native pointers that are ")
 							+ "not (automatic) local variables (or function parameters) are not supported.";
-						auto res = (*this).m_state1.m_error_records.emplace(
-							CErrorRecord(*MR.SourceManager, VDSL, error_desc));
+						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, VDSL, error_desc));
 						if (res.second) {
 							std::cout << (*(res.first)).as_a_string1() << " \n";
 						}
@@ -1999,8 +2044,7 @@ namespace checker {
 					if (!(qtype.isConstQualified())) {
 						const std::string error_desc = std::string("Retargetable (aka non-const) native pointers ")
 							+ "are not supported.";
-						auto res = (*this).m_state1.m_error_records.emplace(
-							CErrorRecord(*MR.SourceManager, VDSL, error_desc));
+						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, VDSL, error_desc));
 						if (res.second) {
 							std::cout << (*(res.first)).as_a_string1() << " \n";
 						}
@@ -2031,8 +2075,7 @@ namespace checker {
 						if (null_initialization) {
 							const std::string error_desc = std::string("Null initialization of ")
 								+ "native pointers is not supported.";
-							auto res = (*this).m_state1.m_error_records.emplace(
-								CErrorRecord(*MR.SourceManager, VDSL, error_desc));
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, VDSL, error_desc));
 							if (res.second) {
 								std::cout << (*(res.first)).as_a_string1() << " \n";
 							}
@@ -2042,8 +2085,7 @@ namespace checker {
 						if (!PVD) {
 							const std::string error_desc = std::string("Uninitialized ")
 								+ "native pointer variables are not supported.";
-							auto res = (*this).m_state1.m_error_records.emplace(
-								CErrorRecord(*MR.SourceManager, VDSL, error_desc));
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, VDSL, error_desc));
 							if (res.second) {
 								std::cout << (*(res.first)).as_a_string1() << " \n";
 							}
@@ -2157,8 +2199,7 @@ namespace checker {
 				if ("" != cast_type_str) {
 					const std::string error_desc = cast_type_str
 						+ " casts are not supported.";
-					auto res = (*this).m_state1.m_error_records.emplace(
-						CErrorRecord(*MR.SourceManager, EXSL, error_desc));
+					auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, EXSL, error_desc));
 					if (res.second) {
 						std::cout << (*(res.first)).as_a_string1() << " \n";
 					}
@@ -2225,11 +2266,72 @@ namespace checker {
 					if (!satisfies_checks) {
 						const std::string error_desc = std::string("Cannot verify that the 'this' pointer ")
 							+ "will remain valid for the duration of the member function call.";
-						auto res = (*this).m_state1.m_error_records.emplace(
-							CErrorRecord(*MR.SourceManager, CXXMCESL, error_desc));
+						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, CXXMCESL, error_desc));
 						if (res.second) {
 							std::cout << (*(res.first)).as_a_string1() << " \n";
 						}
+					}
+				}
+			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
+	class MCSSSPointerAssignment : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSPointerAssignment (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const BinaryOperator* BO = MR.Nodes.getNodeAs<clang::BinaryOperator>("mcssspointerassignment1");
+
+			if ((BO != nullptr)/* && (DRE != nullptr)*/)
+			{
+				auto BOSR = nice_source_range(BO->getSourceRange(), Rewrite);
+				SourceLocation BOSL = BOSR.getBegin();
+				SourceLocation BOSLE = BOSR.getEnd();
+
+				ASTContext *const ASTC = MR.Context;
+				FullSourceLoc FBOSL = ASTC->getFullLoc(BOSL);
+
+				SourceManager &SM = ASTC->getSourceManager();
+
+				auto source_location_str = BOSL.printToString(*MR.SourceManager);
+
+				if (filtered_out_by_location(MR, BOSL)) {
+					return void();
+				}
+
+				auto BOISR = instantiation_source_range(BO->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(BOISR);
+				if (supress_check_flag) {
+					return;
+				}
+
+				std::string source_text;
+				if (BOSL.isValid() && BOSLE.isValid()) {
+					source_text = Rewrite.getRewrittenText(SourceRange(BOSL, BOSLE));
+				} else {
+					return;
+				}
+
+				const auto LHSEX = BO->getLHS()->IgnoreImplicit()->IgnoreParenImpCasts();
+				const auto RHSEX = BO->getRHS()->IgnoreImplicit()->IgnoreParenImpCasts();
+				bool satisfies_checks = false;
+
+				/*** left off here ***/
+
+				{
+					const std::string error_desc = std::string("Pointer assignment ")
+						+ "is not supported.";
+					auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, BOSL, error_desc));
+					if (res.second) {
+						std::cout << (*(res.first)).as_a_string1() << " \n";
 					}
 				}
 			}
