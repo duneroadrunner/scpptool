@@ -63,6 +63,7 @@ If you do make substantial use of native pointers, it's likely you'll encounter 
 
 ```cpp
 #include "msescope.h"
+#include "msemstdstring.h"
 
 void main(int argc, char* argv[]){
 	mse::mstd::string str1 = "abc"; //local variable
