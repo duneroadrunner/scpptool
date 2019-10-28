@@ -63,6 +63,7 @@ If you do make substantial use of native pointers, it's likely you'll encounter 
 
 ```cpp
 #include "msescope.h"
+#include "msemstdstring.h"
 
 void main(int argc, char* argv[]){
 	mse::mstd::string str1 = "abc"; //local variable
@@ -82,7 +83,7 @@ Native references are subject to essentially the same restrictions as non-retarg
 
 #### SaferCPlusPlus elements
 
-Most of the restrictions required to ensure safety of the elements in the SaferCPlusPlus library are implemented in the type system. However, some of the necessary restrictions cannot be implemented in the type system. This tool is meant to enforce those remaining restrictions. Elements requiring enforcement help are generally relegated to the `mse::rsv` namespace. One exception is the restriction that scope types (regardless of the namespace in which they reside), cannot be used as members (or base classes) of structs/classes that are not themselves scope types. The tool currently enforces this restriction by disallowing the use scope types as members of any struct/class period. This "over-restriction" will be lifted in the future, but shouldn't be all that burdensome in the meantime, as generaly you can just use the "non-scope" version of the type instead, or use a (scope) tuple in place of the struct/class.
+Most of the restrictions required to ensure safety of the elements in the SaferCPlusPlus library are implemented in the type system. However, some of the necessary restrictions cannot be implemented in the type system. This tool is meant to enforce those remaining restrictions. Elements requiring enforcement help are generally relegated to the `mse::rsv` namespace. One exception is the restriction that scope types (regardless of the namespace in which they reside), cannot be used as members (or base classes) of structs/classes that are not themselves scope types. The tool will flag any violations of this restriction.
 
 Note that the `mse::rsv::make_xscope_pointer_to()` function, which allows you to obtain a scope pointer to the resulting object of any eligible expression, is not listed in the documentation of the SaferCPlusPlus library, as without an enforcement helper tool like this one, it could significantly undermine safety.
 
