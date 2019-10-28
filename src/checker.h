@@ -357,31 +357,22 @@ namespace checker {
 		Rewriter &Rewrite;
 		CTUState& m_state1;
 	};
-	auto get_containing_scope(const Stmt* ST, clang::ASTContext& context) {
+	template <typename NodeT> auto get_containing_scope(const NodeT* NodePtr, clang::ASTContext& context) {
 		const CompoundStmt* retval = nullptr;
-		if (!ST) {
+		if (!NodePtr) {
 			return retval;
 		}
-		bool parent_obtained = false;
-		while (true) {
-			//get parents
-			const auto& parents = context.getParents(*ST);
-			if ( parents.empty() ) {
-				llvm::errs() << "Can not find parent\n";
-				break;
-			}
-			//llvm::errs() << "find parent size=" << parents.size() << "\n";
-			ST = parents[0].get<Stmt>();
-			if (!ST) {
-				break;
-			}
-			//ST->dump();
-			if (isa<CompoundStmt>(ST)) {
-				parent_obtained = true;
-				retval = dyn_cast<const CompoundStmt>(ST);
-				assert(retval);
-				break;
-			}
+		const auto& parents = context.getParents(*NodePtr);
+		if ( parents.empty() ) {
+			return retval;
+		}
+		const auto num_parents = parents.size();
+		const CompoundStmt* ST = parents[0].template get<CompoundStmt>();
+		if (ST) {
+			retval = dyn_cast<const CompoundStmt>(ST);
+			assert(retval);
+		} else {
+			return get_containing_scope(&(parents[0]), context);
 		}
 		return retval;
 	}
@@ -398,6 +389,43 @@ namespace checker {
 			}
 		}
 		return retval;
+	}
+	bool first_is_contained_in_scope_of_second(const VarDecl& VD1_cref, const VarDecl& VD2_cref, clang::ASTContext& context) {
+		bool retval = true;
+		auto ST1 = VD1_cref.getAnyInitializer();
+		{
+			const auto storage_duration = VD1_cref.getStorageDuration();
+			if (clang::StorageDuration::SD_Automatic == storage_duration) {
+			} else if (clang::StorageDuration::SD_Thread == storage_duration) {
+				/* (In our usage) a null ST1 means that the pointer to be modified has
+				thread_local lifetime (i.e. no containing parent scope), and so can essentially
+				only point to objects that also have thread local lifetime. */
+				ST1 = nullptr;
+			}
+		}
+
+		auto ST2 = VD2_cref.getAnyInitializer();
+		{
+			const auto storage_duration = VD2_cref.getStorageDuration();
+			if (clang::StorageDuration::SD_Automatic == storage_duration) {
+			} else if (clang::StorageDuration::SD_Thread == storage_duration) {
+				ST2 = nullptr;
+			}
+		}
+
+		return first_is_contained_in_scope_of_second(ST1, ST2, context);
+	}
+	bool first_is_contained_in_scope_of_second(const DeclContext* scope1, const DeclContext* const scope2) {
+		if (scope2 == scope1) {
+			return true;
+		}
+		while (scope1) {
+			scope1 = scope1->getParent();
+			if (scope2 == scope1) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	bool has_ancestor_base_class(const clang::QualType qtype, const std::string& qualified_base_class_name);
@@ -664,6 +692,7 @@ namespace checker {
 								static const std::string malloc_str = "malloc";
 								static const std::string realloc_str = "realloc";
 								static const std::string free_str = "free";
+								static const std::string alloca_str = "alloca";
 								std::string unsupported_function_str;
 								if (malloc_str == qualified_function_name) {
 									unsupported_function_str = malloc_str;
@@ -671,6 +700,8 @@ namespace checker {
 									unsupported_function_str = realloc_str;
 								} else if (free_str == qualified_function_name) {
 									unsupported_function_str = free_str;
+								} else if (alloca_str == qualified_function_name) {
+									unsupported_function_str = alloca_str;
 								}
 								if ("" != unsupported_function_str) {
 									const std::string error_desc = std::string("The '") + unsupported_function_str
@@ -1514,10 +1545,9 @@ namespace checker {
 		return retval;
 	}
 
-	bool can_be_safely_targeted_with_an_xscope_reference(const clang::Expr* EX1, ASTContext& Ctx) {
+	const clang::DeclRefExpr* declrefexpr_of_expr_if_any(const clang::Expr* EX1, ASTContext& Ctx) {
 		if (!EX1) {
-			//assert(false);
-			return false;
+			return nullptr;
 		}
 		const auto EX = EX1->IgnoreImplicit()->IgnoreParenImpCasts();
 		bool satisfies_checks = false;
@@ -1532,6 +1562,18 @@ namespace checker {
 				}
 			}
 		}
+
+		return DRE1;
+	}
+
+	bool can_be_safely_targeted_with_an_xscope_reference(const clang::Expr* EX1, ASTContext& Ctx) {
+		if (!EX1) {
+			//assert(false);
+			return false;
+		}
+		const auto EX = EX1->IgnoreImplicit()->IgnoreParenImpCasts();
+		bool satisfies_checks = false;
+		auto DRE1 = declrefexpr_of_expr_if_any(EX, Ctx);
 		if (DRE1) {
 			auto D1 = DRE1->getDecl();
 			auto VD = dyn_cast<const clang::VarDecl>(D1);
@@ -2041,7 +2083,7 @@ namespace checker {
 							std::cout << (*(res.first)).as_a_string1() << " \n";
 						}
 					}
-					if (!(qtype.isConstQualified())) {
+					if (false && (!(qtype.isConstQualified()))) {
 						const std::string error_desc = std::string("Retargetable (aka non-const) native pointers ")
 							+ "are not supported.";
 						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, VDSL, error_desc));
@@ -2320,15 +2362,176 @@ namespace checker {
 					return;
 				}
 
+				/* In our case, it's significantly harder to verify the safety of a pointer assignment than say,
+				a value initialization of a pointer. With initialization, we only need to verify that the target
+				object has scope lifetime, as that alone is sufficient to conclude that the target object
+				outlives the pointer. Not so with pointer assignment. There we need to obtain an "upper bound"
+				for the (scope) lifetime of the (lhs) pointer being modified and a lower bound for the (scope)
+				lifetime of the new target object. */
+
 				const auto LHSEX = BO->getLHS()->IgnoreImplicit()->IgnoreParenImpCasts();
 				const auto RHSEX = BO->getRHS()->IgnoreImplicit()->IgnoreParenImpCasts();
 				bool satisfies_checks = false;
 
-				/*** left off here ***/
+				/* Currently we are only able to obtain the declaration (location) of the pointer to be
+				modified (and therefore its scope lifetime) if the left hand side is a declref or member
+				expression of the pointer. */
+				auto LHSDRE1 = declrefexpr_of_expr_if_any(LHSEX, *(MR.Context));
+				const VarDecl * LHSVD = nullptr;
+				if (LHSDRE1) {
+					auto D1 = LHSDRE1->getDecl();
+					auto VD = dyn_cast<const clang::VarDecl>(D1);
+					if (VD) {
+						const auto storage_duration = VD->getStorageDuration();
+						if (clang::StorageDuration::SD_Automatic == storage_duration) {
+							LHSVD = VD;
+						} else if (clang::StorageDuration::SD_Thread == storage_duration) {
+							LHSVD = VD;
+						}
+					}
+				}
 
-				{
-					const std::string error_desc = std::string("Pointer assignment ")
-						+ "is not supported.";
+				auto RHSDRE1 = declrefexpr_of_expr_if_any(RHSEX, *(MR.Context));
+				const VarDecl * RHSVD = nullptr;
+				if (RHSDRE1) {
+					auto D1 = RHSDRE1->getDecl();
+					auto VD = dyn_cast<const clang::VarDecl>(D1);
+					if (VD) {
+						/* The rhs is a pointer variable (or member of a variable). */
+						const auto storage_duration = VD->getStorageDuration();
+						if (clang::StorageDuration::SD_Automatic == storage_duration) {
+							RHSVD = VD;
+						} else if (clang::StorageDuration::SD_Thread == storage_duration) {
+							RHSVD = VD;
+						} else if (clang::StorageDuration::SD_Static == storage_duration) {
+							const auto qtype = VD->getType();
+							const auto qtype_str = qtype.getAsString();
+							if (qtype.getTypePtr()->isPointerType()) {
+								const auto pointee_qtype = qtype.getTypePtr()->getPointeeType();
+								const auto pointee_qtype_str = pointee_qtype.getAsString();
+								if (pointee_qtype.isConstQualified() && pointee_qtype.getTypePtr()->isArithmeticType()) {
+									/* This case includes "C"-string literals. */
+									RHSVD = VD;
+								}
+							}
+						}
+					}
+				}
+				if (LHSVD) {
+					if (RHSVD) {
+						satisfies_checks |= first_is_contained_in_scope_of_second(*LHSVD, *RHSVD, *(MR.Context));
+					} else {
+						/* The rhs was not a pointer variable (or member of a variable). */
+						const clang::Expr* subexpr = nullptr;
+						auto UO = dyn_cast<const clang::UnaryOperator>(RHSEX);
+						if (UO) {
+							const auto opcode = UO->getOpcode();
+							const auto opcode_str = UO->getOpcodeStr(opcode);
+							if (clang::UnaryOperator::Opcode::UO_AddrOf == opcode) {
+								/* The rhs expression is essentially of the form "&(subexpr)" */
+								subexpr = UO->getSubExpr()->IgnoreImplicit()->IgnoreParenImpCasts();
+							}
+						} else {
+							auto CE = dyn_cast<const clang::CallExpr>(RHSEX);
+							if (CE) {
+								auto function_decl = CE->getDirectCallee();
+								auto num_args = CE->getNumArgs();
+								if (function_decl) {
+									const std::string qualified_function_name = function_decl->getQualifiedNameAsString();
+									static const std::string std_addressof_str = "std::addressof";
+									if (std_addressof_str == qualified_function_name) {
+										if (1 == num_args) {
+											/* The rhs expression is essentially of the form "std::addressof(subexpr)" */
+											subexpr = CE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
+										}
+									}
+								}
+							}
+						}
+						if (subexpr) {
+							auto subexpr_DRE = declrefexpr_of_expr_if_any(subexpr, *(MR.Context));
+							if (subexpr_DRE) {
+								auto D1 = subexpr_DRE->getDecl();
+								auto VD = dyn_cast<const clang::VarDecl>(D1);
+								if (VD) {
+									RHSVD = VD;
+									satisfies_checks |= first_is_contained_in_scope_of_second(*LHSVD, *RHSVD, *(MR.Context));
+								}
+							} else {
+								/* The target object from which the new pointer value is being derived is not expressed
+								 directly as a variable or member of a variable. Perhaps it's being expressed as a
+								 dereference of another (scope) pointer of some kind. Let's check: */
+								const clang::Expr* subsubexpr = nullptr;
+								auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(subexpr);
+								if (CXXOCE) {
+									const std::string operator_star_str = "operator*";
+									auto operator_name = CXXOCE->getDirectCallee()->getNameAsString();
+									if ((operator_star_str == operator_name) && (1 == CXXOCE->getNumArgs())) {
+										auto arg_EX = CXXOCE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
+										if (arg_EX) {
+											const auto CXXRD = arg_EX->getType()->getAsCXXRecordDecl();
+											if (CXXRD) {
+												const std::string xscope_item_f_ptr_str = g_mse_namespace_str + "::TXScopeItemFixedPointer";
+												const std::string xscope_item_f_const_ptr_str = g_mse_namespace_str + "::TXScopeItemFixedConstPointer";
+												const std::string xscope_f_ptr_str = g_mse_namespace_str + "::TXScopeFixedPointer";
+												const std::string xscope_f_const_ptr_str = g_mse_namespace_str + "::TXScopeFixedConstPointer";
+												const std::string xscope_owner_ptr_str = g_mse_namespace_str + "::TXScopeOwnerPointer";
+												auto qname = CXXRD->getQualifiedNameAsString();
+												if ((xscope_item_f_ptr_str == qname) || (xscope_item_f_const_ptr_str == qname)
+													|| (xscope_f_ptr_str == qname) || (xscope_f_const_ptr_str == qname)
+													/*|| ((xscope_owner_ptr_str == qname) && ())*/) {
+													subsubexpr = arg_EX;
+												}
+											} else if (arg_EX->getType()->isReferenceType()) {
+												int q = 5;
+											}
+										}
+									}
+									int q = 5;
+								} else {
+									auto UO = dyn_cast<const clang::UnaryOperator>(subexpr);
+									if (UO) {
+										const auto opcode = UO->getOpcode();
+										const auto opcode_str = UO->getOpcodeStr(opcode);
+										if (clang::UnaryOperator::Opcode::UO_Deref == opcode) {
+											const auto UOSE = UO->getSubExpr();
+											if (UOSE) {
+												if (UOSE->getType()->isPointerType()) {
+													/* subexpr is a direct dereference of a native pointer. */
+													subsubexpr = UOSE;
+												}
+											}
+										}
+									}
+								}
+								auto subsubexpr_DRE = declrefexpr_of_expr_if_any(subsubexpr, *(MR.Context));
+								if (subsubexpr_DRE) {
+									/* The rhs expression seems to be the address of a dereference of a scope pointer
+									of some type. The (scope) lifetime of the scope pointer must be contained within
+									the lifetime of the target object, so we can use it as a "lower bound" for the
+									lifetime of the target object. */
+
+									auto D1 = subsubexpr_DRE->getDecl();
+									auto VD = dyn_cast<const clang::VarDecl>(D1);
+									if (VD) {
+										RHSVD = VD;
+										satisfies_checks |= first_is_contained_in_scope_of_second(*LHSVD, *RHSVD, *(MR.Context));
+									}
+								}
+							}
+						} else {
+							auto STRL = dyn_cast<const clang::StringLiteral>(RHSEX);
+							if (STRL) {
+								satisfies_checks = true;
+							}
+						}
+					}
+				} else {
+					/* We were not able to obtain a declaration from the lhs, so we're not going to be able the verify anything. */
+				}
+				if (!satisfies_checks) {
+					const std::string error_desc = std::string("Cannot verify that this pointer assignment ")
+						+ "is safe.";
 					auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, BOSL, error_desc));
 					if (res.second) {
 						std::cout << (*(res.first)).as_a_string1() << " \n";
@@ -2560,7 +2763,8 @@ namespace checker {
 			HandlerForSSSReturnStmt(R, tu_state()), HandlerForSSSRecordDecl2(R, tu_state()), HandlerForSSSAsAnFParam(R, tu_state()),
 			HandlerForSSSMakeXScopePointerTo(R, tu_state()), HandlerForSSSNativeReferenceVar(R, tu_state()),
 			HandlerForSSSArgToNativeReferenceParam(R, tu_state()), HandlerForSSSPointerArithmetic(R, tu_state()), HandlerForSSSAddressOf(R, tu_state()),
-			HandlerForSSSNativePointerVar(R, tu_state()), HandlerForSSSCast(R, tu_state()), HandlerForSSSMemberFunctionCall(R, tu_state())
+			HandlerForSSSNativePointerVar(R, tu_state()), HandlerForSSSCast(R, tu_state()), HandlerForSSSMemberFunctionCall(R, tu_state()),
+			HandlerForSSSPointerAssignment(R, tu_state())
 		{
 			Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerMisc1);
 			Matcher.addMatcher(callExpr(argumentCountIs(0)).bind("mcssssuppresscheckmemberdeclmcssssuppresscheckcall"), &HandlerForSSSSupressCheckDirectiveCall);
@@ -2598,7 +2802,14 @@ namespace checker {
 			Matcher.addMatcher(cxxReinterpretCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
 			Matcher.addMatcher(cxxFunctionalCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
 			Matcher.addMatcher(cxxConstCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
+			//Matcher.addMatcher(implicitCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
 			Matcher.addMatcher(cxxMemberCallExpr().bind("mcsssmemberfunctioncall1"), &HandlerForSSSMemberFunctionCall);
+			Matcher.addMatcher(expr(allOf(
+				ignoringImplicit(ignoringParenImpCasts(expr(
+						binaryOperator(hasOperatorName("="))
+					).bind("mcssspointerassignment1"))),
+				hasType(pointerType())
+				)).bind("mcssspointerassignment3"), &HandlerForSSSPointerAssignment);
 		}
 
 		~MyASTConsumer() {
@@ -2632,6 +2843,7 @@ namespace checker {
 		MCSSSNativePointerVar HandlerForSSSNativePointerVar;
 		MCSSSCast HandlerForSSSCast;
 		MCSSSMemberFunctionCall HandlerForSSSMemberFunctionCall;
+		MCSSSPointerAssignment HandlerForSSSPointerAssignment;
 
 		MatchFinder Matcher;
 	};
