@@ -357,7 +357,8 @@ namespace checker {
 		Rewriter &Rewrite;
 		CTUState& m_state1;
 	};
-	template <typename NodeT> auto get_containing_scope(const NodeT* NodePtr, clang::ASTContext& context) {
+	template <typename NodeT>
+	auto get_containing_scope(const NodeT* NodePtr, clang::ASTContext& context) {
 		const CompoundStmt* retval = nullptr;
 		if (!NodePtr) {
 			return retval;
@@ -1604,12 +1605,24 @@ namespace checker {
 			return false;
 		}
 		const auto EX = EX1->IgnoreImplicit()->IgnoreParenImpCasts();
+		const auto EX_qtype = EX->getType();
+		const auto EX_qtype_str = EX_qtype.getAsString();
+
 		bool satisfies_checks = false;
 		auto DRE1 = declrefexpr_of_expr_if_any(EX, Ctx);
 		if (DRE1) {
+			const auto DRE1_qtype = DRE1->getType();
+			const auto DRE1_qtype_str = DRE1_qtype.getAsString();
+
 			auto D1 = DRE1->getDecl();
+			const auto D1_qtype = D1->getType();
+			const auto D1_qtype_str = D1_qtype.getAsString();
+
 			auto VD = dyn_cast<const clang::VarDecl>(D1);
 			if (VD) {
+				const auto VD_qtype = VD->getType();
+				const auto VD_qtype_str = VD_qtype.getAsString();
+
 				const auto storage_duration = VD->getStorageDuration();
 				if ((clang::StorageDuration::SD_Automatic == storage_duration)
 					|| (clang::StorageDuration::SD_Thread == storage_duration)
@@ -1632,6 +1645,9 @@ namespace checker {
 				if (((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs())) {
 					auto arg_EX = CXXOCE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
 					if (arg_EX) {
+						const auto arg_EX_qtype = arg_EX->getType();
+						const auto arg_EX_qtype_str = arg_EX_qtype.getAsString();
+
 						const auto CXXRD = remove_fparam_wrappers(*(arg_EX->getType()))->getAsCXXRecordDecl();
 						if (CXXRD) {
 							const std::string xscope_item_f_ptr_str = g_mse_namespace_str + "::TXScopeItemFixedPointer";
@@ -1659,9 +1675,27 @@ namespace checker {
 					if (clang::UnaryOperator::Opcode::UO_Deref == opcode) {
 						const auto UOSE = UO->getSubExpr();
 						if (UOSE) {
+							const auto UOSE_qtype = UOSE->getType();
+							const auto UOSE_qtype_str = UOSE_qtype.getAsString();
+
 							if (UOSE->getType()->isPointerType()) {
 								/* The declrefexpression is a direct dereference of a native pointer. */
 								satisfies_checks = true;
+							}
+						}
+					}
+				} else {
+					auto ME = dyn_cast<const clang::MemberExpr>(EX);
+					if (ME) {
+						for (const auto& child : ME->children()) {
+							auto CXXTE = dyn_cast<const clang::CXXThisExpr>(child->IgnoreImplicit());
+							if (CXXTE) {
+								/* The expression is a (possibly implicit) dereference of a 'this' pointer.
+								And this tool treats 'this' pointers, like all native pointers, as scope
+								pointers. */
+								satisfies_checks = true;
+							} else {
+								break;
 							}
 						}
 					}
@@ -2319,6 +2353,10 @@ namespace checker {
 				if (supress_check_flag) {
 					return;
 				}
+				std::string instantiation_source_text;
+				if (CXXMCEISR.isValid()) {
+					instantiation_source_text = Rewrite.getRewrittenText(SourceRange(CXXMCESL, CXXMCESLE));
+				}
 
 				std::string source_text;
 				if (CXXMCESL.isValid() && CXXMCESLE.isValid()) {
@@ -2327,10 +2365,40 @@ namespace checker {
 					return;
 				}
 
+				std::string qmethod_name;
+				std::string method_name;
 				auto method_decl = CXXMCE->getMethodDecl();
+				if (method_decl) {
+					qmethod_name = method_decl->getQualifiedNameAsString();
+					method_name = method_decl->getNameAsString();
+					auto template_kind = method_decl->getTemplatedKind();
+					if (clang::FunctionDecl::TemplatedKind::TK_FunctionTemplate == template_kind) {
+						return;
+					}
+					if (method_decl->isDefaulted()) {
+						return;
+					}
+					if (method_decl->isStatic()) {
+						return;
+					}
+					if (method_decl->isImplicit()) {
+						return;
+					}
+				} else {
+					int q = 5;
+				}
 				const auto EX = CXXMCE->getImplicitObjectArgument()->IgnoreImplicit()->IgnoreParenImpCasts();
 				const auto num_args = CXXMCE->getNumArgs();
 				if (EX) {
+					const auto qtype = EX->getType();
+					const auto qtype_str = qtype.getAsString();
+
+					auto EXSR = nice_source_range(EX->getSourceRange(), Rewrite);
+					std::string EX_source_text;
+					if (EXSR.isValid()) {
+						EX_source_text = Rewrite.getRewrittenText(EXSR);
+					}
+
 					bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX, *ASTC);
 					if (!satisfies_checks) {
 						const auto CXXTOE = dyn_cast<const clang::CXXTemporaryObjectExpr>(EX);
