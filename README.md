@@ -77,7 +77,7 @@ void main(int argc, char* argv[]){
 }
 ```
 
-Retargetable (aka non-`const`) native pointers are not supported (at this time). You can instead use registered (or norad) pointers as [demonstrated](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#retargetable-references-to-scope-objects) in the SaferCPlusPlus documentation.
+Retargetable (aka non-const) native pointers face the same restrictions as non-retargetable pointers with respect to the expression used to initialize their value. The expressions used to assign a new value to the pointer (subsequent to initialization) are even more restricted. The tool requires that the target object must outlive the pointer (regardless of how long it will remain the target of the pointer), so the tool only supports (a subset of) expressions for which this is readily apparent (at compile-time). When you need more flexibility, you can instead use registered (or norad) pointers as [demonstrated](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#retargetable-references-to-scope-objects) in the SaferCPlusPlus documentation.
 
 Native references are subject to essentially the same restrictions as non-retargetable native pointers. The functional difference between native references and non-retargetable native pointers is that C++ permits (`const`) native references to temporaries, perhaps making them a little more convenient to use as function parameters.
 
