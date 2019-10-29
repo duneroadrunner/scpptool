@@ -1566,6 +1566,38 @@ namespace checker {
 		return DRE1;
 	}
 
+	const clang::Type* remove_fparam_wrappers(const clang::QualType& qtype);
+
+	auto remove_fparam_wrappers(const clang::Type& type) {
+		const auto TP = &type;
+		const auto CXXRD = TP->getAsCXXRecordDecl();
+		if (CXXRD) {
+			auto qname = CXXRD->getQualifiedNameAsString();
+			//const std::string treturnablefparam_str = g_mse_namespace_str + "::rsv::TReturnableFParam";
+			//const std::string tfparam_str = g_mse_namespace_str + "::rsv::TFParam";
+			//const std::string txsifcfparam_str = g_mse_namespace_str + "::rsv::TXScopeItemFixedConstPointerFParam";
+			//const std::string txsiffparam_str = g_mse_namespace_str + "::rsv::TXScopeItemFixedPointerFParam";
+
+			const std::string prefix_str = g_mse_namespace_str + "::rsv::";
+			const std::string suffix_str = "FParam";
+			if (!(string_begins_with(qname, prefix_str) || string_ends_with(qname, suffix_str))) {
+				return TP;
+			}
+			for (const auto& base : CXXRD->bases()) {
+				const auto base_qtype = base.getType();
+				const auto base_qtype_str = base_qtype.getAsString();
+				/* The first base class should be the one we're interested in. */
+				return remove_fparam_wrappers(base_qtype);
+			}
+			/*unexpected*/
+			int q = 5;
+		}
+		return TP;
+	}
+	const clang::Type* remove_fparam_wrappers(const clang::QualType& qtype) {
+		return remove_fparam_wrappers(*(qtype.getTypePtr()));
+	}
+
 	bool can_be_safely_targeted_with_an_xscope_reference(const clang::Expr* EX1, ASTContext& Ctx) {
 		if (!EX1) {
 			//assert(false);
@@ -1594,12 +1626,13 @@ namespace checker {
 		} else {
 			auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(EX);
 			if (CXXOCE) {
-				const std::string operator_star_str = "operator*";
+				static const std::string operator_star_str = "operator*";
+				static const std::string operator_arrow_str = "operator->";
 				auto operator_name = CXXOCE->getDirectCallee()->getNameAsString();
-				if ((operator_star_str == operator_name) && (1 == CXXOCE->getNumArgs())) {
+				if (((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs())) {
 					auto arg_EX = CXXOCE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
 					if (arg_EX) {
-						const auto CXXRD = arg_EX->getType()->getAsCXXRecordDecl();
+						const auto CXXRD = remove_fparam_wrappers(*(arg_EX->getType()))->getAsCXXRecordDecl();
 						if (CXXRD) {
 							const std::string xscope_item_f_ptr_str = g_mse_namespace_str + "::TXScopeItemFixedPointer";
 							const std::string xscope_item_f_const_ptr_str = g_mse_namespace_str + "::TXScopeItemFixedConstPointer";
@@ -2464,9 +2497,10 @@ namespace checker {
 								const clang::Expr* subsubexpr = nullptr;
 								auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(subexpr);
 								if (CXXOCE) {
-									const std::string operator_star_str = "operator*";
+									static const std::string operator_star_str = "operator*";
+									static const std::string operator_arrow_str = "operator->";
 									auto operator_name = CXXOCE->getDirectCallee()->getNameAsString();
-									if ((operator_star_str == operator_name) && (1 == CXXOCE->getNumArgs())) {
+									if (((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs())) {
 										auto arg_EX = CXXOCE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
 										if (arg_EX) {
 											const auto CXXRD = arg_EX->getType()->getAsCXXRecordDecl();
@@ -2802,7 +2836,6 @@ namespace checker {
 			Matcher.addMatcher(cxxReinterpretCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
 			Matcher.addMatcher(cxxFunctionalCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
 			Matcher.addMatcher(cxxConstCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
-			//Matcher.addMatcher(implicitCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
 			Matcher.addMatcher(cxxMemberCallExpr().bind("mcsssmemberfunctioncall1"), &HandlerForSSSMemberFunctionCall);
 			Matcher.addMatcher(expr(allOf(
 				ignoringImplicit(ignoringParenImpCasts(expr(
