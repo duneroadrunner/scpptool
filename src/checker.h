@@ -2371,6 +2371,29 @@ namespace checker {
 				if (method_decl) {
 					qmethod_name = method_decl->getQualifiedNameAsString();
 					method_name = method_decl->getNameAsString();
+
+					auto method_declSR = nice_source_range(method_decl->getSourceRange(), Rewrite);
+					SourceLocation method_declSL = method_declSR.getBegin();
+
+					const std::string mse_ns_prefix = g_mse_namespace_str + std::string("::");
+					static const std::string std_ns_prefix = "std::";
+					if (string_begins_with(qmethod_name, mse_ns_prefix)
+						|| string_begins_with(qmethod_name, std_ns_prefix)
+						|| filtered_out_by_location(MR, method_declSL)) {
+						/* The idea is to permit member function calls only if it's clear that the implicit 'this'
+						pointer parameter will remain valid for the duration of the member function call. Generally
+						we'll require that the implicit 'this' pointer argument be a scope pointer/reference, or
+						equivalent.
+						Here we waive this requirement if the member function is part of the SaferCPlusPlus library
+						or the standard library. The dynamic SaferCPlusPlus containers have run-time safety
+						mechanisms that ensure that the 'this' pointer target is not desroyed (i.e. its destructor 
+						executed) during the call. In the future we may have an option/mode where the (run-time)
+						safety mechanisms are disabled and the SaferCPlusPlus containers are not exempt.
+						We don't apply this requirement to standard library elements here as standard library
+						containers are themselves considered unsafe by default. */
+						return;
+					}
+
 					auto template_kind = method_decl->getTemplatedKind();
 					if (clang::FunctionDecl::TemplatedKind::TK_FunctionTemplate == template_kind) {
 						return;
@@ -2401,8 +2424,14 @@ namespace checker {
 
 					bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX, *ASTC);
 					if (!satisfies_checks) {
-						const auto CXXTOE = dyn_cast<const clang::CXXTemporaryObjectExpr>(EX);
-						if (CXXTOE) {
+						const auto EX_iic = CXXMCE->getImplicitObjectArgument()->IgnoreImpCasts();
+
+						const auto MTE = dyn_cast<const clang::MaterializeTemporaryExpr>(EX_iic);
+						//const auto CXXTOE = dyn_cast<const clang::CXXTemporaryObjectExpr>(EX_iic);
+						//const auto CXXBTE = dyn_cast<const clang::CXXBindTemporaryExpr>(EX_iic);
+						if (MTE) {
+							/* Calling a member function of a temporary should be fine. The temporary object
+							will outlive the function call. */
 							satisfies_checks = true;
 						}
 					}
