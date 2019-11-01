@@ -357,9 +357,10 @@ namespace checker {
 		Rewriter &Rewrite;
 		CTUState& m_state1;
 	};
-	template <typename NodeT>
-	auto get_containing_scope(const NodeT* NodePtr, clang::ASTContext& context) {
-		const CompoundStmt* retval = nullptr;
+
+	template <typename ContainingElementT, typename NodeT>
+	auto Tget_immediately_containing_element_of_type(const NodeT* NodePtr, clang::ASTContext& context) {
+		const ContainingElementT* retval = nullptr;
 		if (!NodePtr) {
 			return retval;
 		}
@@ -368,14 +369,37 @@ namespace checker {
 			return retval;
 		}
 		const auto num_parents = parents.size();
-		const CompoundStmt* ST = parents[0].template get<CompoundStmt>();
+		const ContainingElementT* ST = parents[0].template get<ContainingElementT>();
 		if (ST) {
-			retval = dyn_cast<const CompoundStmt>(ST);
+			retval = dyn_cast<const ContainingElementT>(ST);
 			assert(retval);
-		} else {
-			return get_containing_scope(&(parents[0]), context);
 		}
 		return retval;
+	}
+
+	template <typename ContainingElementT, typename NodeT>
+	auto Tget_containing_element_of_type(const NodeT* NodePtr, clang::ASTContext& context) {
+		const ContainingElementT* retval = nullptr;
+		if (!NodePtr) {
+			return retval;
+		}
+		const auto& parents = context.getParents(*NodePtr);
+		if ( parents.empty() ) {
+			return retval;
+		}
+		const auto num_parents = parents.size();
+		const ContainingElementT* ST = parents[0].template get<ContainingElementT>();
+		if (ST) {
+			retval = dyn_cast<const ContainingElementT>(ST);
+			assert(retval);
+		} else {
+			return Tget_containing_element_of_type<ContainingElementT>(&(parents[0]), context);
+		}
+		return retval;
+	}
+	template <typename NodeT>
+	auto get_containing_scope(const NodeT* NodePtr, clang::ASTContext& context) {
+		return Tget_containing_element_of_type<CompoundStmt>(NodePtr, context);
 	}
 	bool first_is_contained_in_scope_of_second(const Stmt* ST1, const Stmt* ST2, clang::ASTContext& context) {
 		bool retval = true;
@@ -1338,6 +1362,8 @@ namespace checker {
 				RD->getTypeForDecl();
 				auto CXXRD = RD->getTypeForDecl()->getAsCXXRecordDecl();
 				if (RD->isThisDeclarationADefinition()) {
+					bool is_lambda = false;
+
 					const std::string xscope_tag_str = g_mse_namespace_str + "::us::impl::XScopeTagBase";
 					const std::string ContainsNonOwningScopeReference_tag_str = g_mse_namespace_str + "::us::impl::ContainsNonOwningScopeReferenceTagBase";
 					const std::string ReferenceableByScopePointer_tag_str = g_mse_namespace_str + "::us::impl::ReferenceableByScopePointerTagBase";
@@ -1347,6 +1373,49 @@ namespace checker {
 					bool has_ReferenceableByScopePointer_tag_base = false;
 
 					if (CXXRD) {
+						if (CXXRD->isLambda()) {
+							is_lambda = true;
+
+							auto& context = *MR.Context;
+							const auto* LE = Tget_immediately_containing_element_of_type<clang::LambdaExpr>(CXXRD, *MR.Context);
+							if (LE) {
+								auto* MTE = Tget_immediately_containing_element_of_type<clang::MaterializeTemporaryExpr>(LE, *MR.Context);
+								if (!MTE) {
+									const clang::ImplicitCastExpr* ICE2 = Tget_immediately_containing_element_of_type<clang::ImplicitCastExpr>(LE, *MR.Context);
+									const clang::ImplicitCastExpr* ICE1 = ICE2;
+									do {
+										ICE1 = ICE2;
+										ICE2 = Tget_immediately_containing_element_of_type<clang::ImplicitCastExpr>(ICE1, *MR.Context);
+									} while (ICE2);
+									MTE = Tget_immediately_containing_element_of_type<clang::MaterializeTemporaryExpr>(ICE1, *MR.Context);
+								}
+								if (MTE) {
+									const auto* CE = Tget_immediately_containing_element_of_type<clang::CallExpr>(
+										MTE->IgnoreImpCasts(), *MR.Context);
+									if (CE) {
+										const auto qname = CE->getDirectCallee()->getQualifiedNameAsString();
+										const auto name = CE->getDirectCallee()->getNameAsString();
+										const std::string mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str = g_mse_namespace_str + "::rsv::make_xscope_reference_or_pointer_capture_lambda";
+										if (mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str == qname) {
+											/* This CXXRecordDecl is a lambda expression being supplied as an argument
+											to the 'mse::rsv::make_xscope_reference_or_pointer_capture_lambda()' function.
+											Being a lambda, it cannot inherit from 'mse::us::impl::ContainsNonOwningScopeReferenceTagBase'
+											(or anything else for that matter), but here we'll treat it as if it satisfies
+											that (potential) requirement as it should be safe (and is kind of necessary)
+											here. */
+											has_ContainsNonOwningScopeReference_tag_base = true;
+											has_xscope_tag_base = true;
+
+											/* The safety of the following is premised on the assumption that captured lambda
+											variables(/fields) are not addressable (by scope pointer) from outside the lambda. */
+											has_ReferenceableByScopePointer_tag_base = true;
+										}
+									}
+								}
+							} else {
+								int q = 5; /* unexpected*/
+							}
+						}
 						if (is_xscope_type(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
 							has_xscope_tag_base = true;
 						}
@@ -1366,40 +1435,73 @@ namespace checker {
 						if (field_qtype.getTypePtr()->isPointerType()) {
 							if (!(*this).m_state1.raw_pointer_scope_restrictions_are_disabled()) {
 								if (has_xscope_tag_base) {
+									/*
 									error_desc = std::string("Native pointers are not (yet) supported as fields of xscope ")
 										+ "structs or classes.";
+									*/
 								} else {
-									error_desc = std::string("Native pointers are not supported as fields of (non-xscope) ")
-										+ "structs or classes.";
+									if (is_lambda) {
+										error_desc = std::string("Native pointers are not supported as captures of (non-xscope) ")
+											+ "lambdas. ";
+									} else {
+										error_desc = std::string("Native pointers are not supported as fields of (non-xscope) ")
+											+ "structs or classes.";
+									}
 								}
 							}
 						} else if (field_qtype.getTypePtr()->isReferenceType()) {
 							if (has_xscope_tag_base) {
+								/*
 								error_desc = std::string("Native references are not (yet) supported as fields of xscope ")
 									+ "structs or classes.";
+								*/
 							} else {
-								error_desc = std::string("Native references are not supported as fields of (non-xscope) ")
-									+ "structs or classes.";
+								if (is_lambda) {
+									error_desc = std::string("Native references are not supported as captures of (non-xscope) ")
+										+ "lambdas. ";
+								} else {
+									error_desc = std::string("Native references are not supported as fields of (non-xscope) ")
+										+ "structs or classes.";
+								}
 							}
 						}
 
 						if ((!has_xscope_tag_base) && is_xscope_type(field_qtype, (*this).m_state1)) {
-							error_desc = std::string("Structs or classes containing fields of xscope type (like '")
-								+ field_qtype_str + "') must inherit from mse::rsv::XScopeTagBase.";
+							if (is_lambda) {
+								error_desc = std::string("Lambdas that capture variables of xscope type (like '")
+									+ field_qtype_str + "') must be scope lambdas (usually created via an "
+									+  "'mse::rsv::make_xscope_*_lambda()' wrapper function).";
+							} else {
+								error_desc = std::string("Structs or classes containing fields of xscope type (like '")
+									+ field_qtype_str + "') must inherit from mse::rsv::XScopeTagBase.";
+							}
 						}
 						if ((!has_ContainsNonOwningScopeReference_tag_base) && (
 								has_ancestor_base_class(field_qtype, ContainsNonOwningScopeReference_tag_str)
 								|| (field_qtype->isPointerType()) || (field_qtype->isReferenceType())
 							)) {
-							error_desc = std::string("Structs or classes containing fields that are, or contain, ")
-								+ "non-owning scope references (like '" + field_qtype_str + "') must inherit from "
-								+ "mse::rsv::ContainsNonOwningScopeReferenceTagBase.";
+							if (is_lambda) {
+								error_desc = std::string("Lambdas that capture non-owning scope references (like '")
+									+ field_qtype_str + "') must be scope 'reference or pointer capture' lambdas "
+									+  "(created via the 'mse::rsv::make_xscope_reference_or_pointer_capture_lambda()' "
+									+ "wrapper function).";
+							} else {
+								error_desc = std::string("Structs or classes containing fields that are, or contain, ")
+									+ "non-owning scope references (like '" + field_qtype_str + "') must inherit from "
+									+ "mse::rsv::ContainsNonOwningScopeReferenceTagBase.";
+							}
 						}
 						if ((!has_ReferenceableByScopePointer_tag_base)
 							&& has_ancestor_base_class(field_qtype, ReferenceableByScopePointer_tag_str)) {
-							error_desc = std::string("Structs or classes containing fields (like '") + field_qtype_str
-								+ "') that yield scope pointers (from their overloaded 'operator&'), or contain an element "
-								+ "that does, must inherit from mse::rsv::ReferenceableByScopePointerTagBase.";
+							if (is_lambda) {
+								/* The assumption is that we don't have to worry about scope pointers targeting
+								lambda capture variables(/fields) from outside the lambda, because they're not 
+								directly accessible from outside? */
+							} else {
+								error_desc = std::string("Structs or classes containing fields (like '") + field_qtype_str
+									+ "') that yield scope pointers (from their overloaded 'operator&'), or contain an element "
+									+ "that does, must inherit from mse::rsv::ReferenceableByScopePointerTagBase.";
+							}
 						}
 						if ("" != error_desc) {
 							auto FDISR = instantiation_source_range(field->getSourceRange(), Rewrite);
@@ -2385,10 +2487,10 @@ namespace checker {
 						we'll require that the implicit 'this' pointer argument be a scope pointer/reference, or
 						equivalent.
 						Here we waive this requirement if the member function is part of the SaferCPlusPlus library
-						or the standard library. The dynamic SaferCPlusPlus containers have run-time safety
-						mechanisms that ensure that the 'this' pointer target is not desroyed (i.e. its destructor 
-						executed) during the call. In the future we may have an option/mode where the (run-time)
-						safety mechanisms are disabled and the SaferCPlusPlus containers are not exempt.
+						or the standard library. The SaferCPlusPlus containers have run-time safety mechanisms that
+						ensure that the 'this' pointer target is not desroyed (i.e. its destructor he call. In the
+						future we may have an option/mode where the (run-time) safety mechanisms are disabled and
+						the SaferCPlusPlus containers are not exempt.
 						We don't apply this requirement to standard library elements here as standard library
 						containers are themselves considered unsafe by default. */
 						return;
