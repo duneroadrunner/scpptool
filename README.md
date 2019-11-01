@@ -81,6 +81,25 @@ Retargetable (aka non-const) native pointers face the same restrictions as non-r
 
 Native references are subject to essentially the same restrictions as non-retargetable native pointers. The functional difference between native references and non-retargetable native pointers is that C++ permits (`const`) native references to temporaries, perhaps making them a little more convenient to use as function parameters.
 
+#### Lambda captures
+
+Just as a class or struct that contains fields of scope type, [must itself be a scope type](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#defining-your-own-scope-types), a lambda expression with captures of scope type (including native references) must themselves be "scope lambdas". Scope lambdas are created using one of:
+`mse::rsv::make_xscope_reference_or_pointer_capture_lambda()`  
+`mse::rsv::make_xscope_non_reference_or_pointer_capture_lambda()`  
+`mse::rsv::make_xscope_non_capture_lambda()`  
+(This tool will flag attempts to use the wrong one.)
+
+example:
+```cpp
+#include "msescope.h"
+
+void main(int argc, char* argv[]) {
+    int i1 = 5;
+    auto xscope_lambda1 = mse::rsv::make_xscope_reference_or_pointer_capture_lambda([&] { return i1; });
+    int i2 = xscope_lambda1();
+}
+```
+
 #### SaferCPlusPlus elements
 
 Most of the restrictions required to ensure safety of the elements in the SaferCPlusPlus library are implemented in the type system. However, some of the necessary restrictions cannot be implemented in the type system. This tool is meant to enforce those remaining restrictions. Elements requiring enforcement help are generally relegated to the `mse::rsv` namespace. One exception is the restriction that scope types (regardless of the namespace in which they reside), cannot be used as members (or base classes) of structs/classes that are not themselves scope types. The tool will flag any violations of this restriction.
