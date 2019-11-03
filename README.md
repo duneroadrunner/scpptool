@@ -83,7 +83,7 @@ Native references are subject to essentially the same restrictions as non-retarg
 
 #### Lambda captures
 
-Just as a class or struct that contains fields of scope type, [must itself be a scope type](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#defining-your-own-scope-types), a lambda expression with captures of scope type (including native references) must themselves be "scope lambdas". Scope lambdas are created using one of:
+Just as a class or struct that contains fields of scope type, [must itself be a scope type](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#defining-your-own-scope-types), a lambda expression with captures of scope type (including native references) must itself be a "scope lambda". Scope lambdas are created using one of:
 `mse::rsv::make_xscope_reference_or_pointer_capture_lambda()`  
 `mse::rsv::make_xscope_non_reference_or_pointer_capture_lambda()`  
 `mse::rsv::make_xscope_non_capture_lambda()`  
