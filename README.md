@@ -69,10 +69,10 @@ void main(int argc, char* argv[]){
 	mse::mstd::string str1 = "abc"; //local variable
 	auto* const non_retargetable_native_ptr1 = &str1; // scpptool can verify this is safe
 
-	// obtaining a scope pointer from a (non-retargetable) native pointer
+	// obtaining a scope pointer from a native pointer
 	auto xscope_ptr1 = mse::rsv::make_xscope_pointer_to(*non_retargetable_native_ptr1);
 
-	// obtaining a (non-retargetable) native pointer from a scope pointer
+	// obtaining a native pointer from a scope pointer
 	auto* const non_retargetable_native_ptr2 = std::addressof(*xscope_ptr1);
 }
 ```
@@ -87,7 +87,7 @@ Just as a class or struct that contains fields of scope type, [must itself be a 
 `mse::rsv::make_xscope_reference_or_pointer_capture_lambda()`  
 `mse::rsv::make_xscope_non_reference_or_pointer_capture_lambda()`  
 `mse::rsv::make_xscope_non_capture_lambda()`  
-(This tool will flag attempts to use the wrong one.)
+(This tool will flag attempts to use one not appropriate for the given lambda.)
 
 example:
 ```cpp
