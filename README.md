@@ -59,7 +59,7 @@ The presence of `MSE_SUPPRESS_CHECK_IN_XSCOPE` (a macro provided in the SaferCPl
 
 The SaferCPlusPlus library is designed to enable you to avoid potentially unsafe C++ elements, including native pointers and references. But in some cases it might be more convenient to use (or continue using) native pointers and references when their use can be verified to be safe. So "non-retargetable" (aka `const`) native pointers (including `this` pointers) are treated in similar fashion to (and are in large part interchangeable with) [non-owning scope pointers](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#txscopeitemfixedpointer) by this tool, and similar restrictions are imposed. You can use `operator &` or `std::addressof()` in the usual way to initialize the value of a non-retargetable native pointer, but the tool restricts their application to expressions that it can verify are safe. These are generally limited to local (or `thread_local`) variables, objects of "scope type", or direct dereferences of a scope pointer/reference.
 
-If you do make substantial use of native pointers, it's likely you'll encounter the need to convert between native and scope pointers. This can be done as follows:
+So for example, this tool would not condone directly taking the address of an element in a vector. In order to obtain a native pointer to a vector element, you would first need to obtain a scope pointer to the element (which in turn [requires obtaining a scope iterator](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#structure-locking) to the element). Converting between native and scope pointers can be done as follows:
 
 ```cpp
 #include "msescope.h"
