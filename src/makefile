@@ -1,11 +1,11 @@
 TARGET=scpptool
 SHELL=bash
 SHELL?=bash
-CC=clang
-CC?=clang
+CC=gcc
+CC?=gcc
 CFLAGS=-fpic -std=c11
-CXX=clang++
-CXX?=clang++
+CXX=g++
+CXX?=g++
 CXX_FLAGS=-fpic
 CXX_EXTRA?=
 CTAGS_I_PATH?=./
@@ -28,8 +28,11 @@ LLVM_CONF?=llvm-config
 LLVM_CXX_FLAGS=$(shell $(LLVM_CONF) --cxxflags)
 LLVM_CXX_FLAGS+=-I$(shell $(LLVM_CONF) --src-root)/tools/clang/include\
  -I$(shell $(LLVM_CONF) --obj-root)/tools/clang/include\
- -stdlib=libstdc++ -std=c++17
+ -std=c++17
 # -stdlib=libstdc++ -std=c++17 -frtti -fexceptions
+ifeq ($(CXX), clang++)
+LLVM_CXX_FLAGS+=-stdlib=libstdc++
+endif
 LLVM_LD_FLAGS=-Wl,--start-group -lclangAST -lclangAnalysis -lclangBasic\
  -lclangDriver -lclangEdit -lclangFrontend -lclangFrontendTool\
  -lclangLex -lclangParse -lclangSema -lclangASTMatchers\
