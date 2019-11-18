@@ -17,8 +17,7 @@ The syntax is as follows:
 
 So for example:
 
-`scpptool hello_world.cpp -- -I./msetl -std=c++17 -I'/home/user1/
-clang+llvm-8.0.0-x86_64-linux-gnu-ubuntu-18.04/lib/clang/8.0.0/include'`
+`scpptool hello_world.cpp -- -I./msetl -std=c++17 -I'/home/user1/clang+llvm-8.0.0-x86_64-linux-gnu-ubuntu-18.04/lib/clang/8.0.0/include'`
 
 
 ### Overview
