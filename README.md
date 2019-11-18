@@ -3,11 +3,11 @@ Oct 2019
 
 ### How to Build:
 
-[Download llvm 8](http://releases.llvm.org/download.html#8.0.0) and extract it to a directory of your choosing, say, `~/llvm8`. [Download scpptool](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract it to a directory of your choosing, say, `~/scpptool`. Open a shell and switch to the `src` subdirectory of the scpptool directory. Type:
+Download the [llvm 8 pre-built binaries](http://releases.llvm.org/download.html#8.0.0) and extract them to a directory of your choosing. Download the [scpptool source code](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract it to a directory of your choosing. Open a shell and switch to the `src` subdirectory of the scpptool directory. Type:
 
-`make LLVM_CONF=~/llvm8/bin/llvm-conf`
+`make LLVM_CONF={the llvm8 directory}/bin/llvm-conf`
 
-(If necessary, substitute the `~/llvm8` part with the directory you chose for llvm 8.)
+Substituting the `{the llvm8 directory}` part with the directory where you extracted llvm 8.
 
 ### How to Use:
 
