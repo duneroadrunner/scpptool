@@ -15,7 +15,7 @@ sudo apt-get install libxml2-dev
 
 scpptool also uses the `yaml-cpp` library which can be installed as follows:
 ```
-sudo apt-get install yaml-cpp-dev
+sudo apt-get install libyaml-cpp-dev
 ```
 
 From the `src` subdirectory of the scpptool directory, you can build the tool by typing:
