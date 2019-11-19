@@ -3,7 +3,7 @@ Nov 2019
 
 ### How to Build:
 
-Download the [llvm 8 pre-built binaries](http://releases.llvm.org/download.html#8.0.0) and extract them to a directory of your choosing. Download the [scpptool source code](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract it to a directory of your choosing. 
+On Ubuntu Linux: Download the [llvm 8 pre-built binaries](http://releases.llvm.org/download.html#8.0.0) and extract them to a directory of your choosing. Download the [scpptool source code](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract it to a directory of your choosing. 
 
 llvm8 requires some additional libraries that can be installed as follows:
 ```
