@@ -20,7 +20,7 @@ sudo apt-get install libyaml-cpp-dev
 
 From the `src` subdirectory of the scpptool directory, you can build the tool by typing:
 ```
-make LLVM_CONF={the llvm8 directory}/bin/llvm-conf
+make LLVM_CONF={the llvm8 directory}/bin/llvm-config
 ```
 
 Substituting the `{the llvm8 directory}` part with the directory where you extracted llvm 8.
