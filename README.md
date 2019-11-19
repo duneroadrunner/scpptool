@@ -3,9 +3,25 @@ Oct 2019
 
 ### How to Build:
 
-Download the [llvm 8 pre-built binaries](http://releases.llvm.org/download.html#8.0.0) and extract them to a directory of your choosing. Download the [scpptool source code](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract it to a directory of your choosing. Open a shell and switch to the `src` subdirectory of the scpptool directory. Type:
+Download the [llvm 8 pre-built binaries](http://releases.llvm.org/download.html#8.0.0) and extract them to a directory of your choosing. Download the [scpptool source code](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract it to a directory of your choosing. 
 
-`make LLVM_CONF={the llvm8 directory}/bin/llvm-conf`
+llvm8 requires some additional libraries that can be installed as follows:
+```
+sudo apt-get update
+sudo apt-get install zlib1g-dev
+sudo apt-get install libtinfo-dev
+sudo apt-get install libxml2-dev
+```
+
+scpptool also uses the `yaml-cpp` library which can be installed as follows:
+```
+sudo apt-get install yaml-cpp-dev
+```
+
+From the `src` subdirectory of the scpptool directory, you can build the tool by typing:
+```
+make LLVM_CONF={the llvm8 directory}/bin/llvm-conf
+```
 
 Substituting the `{the llvm8 directory}` part with the directory where you extracted llvm 8.
 
