@@ -1790,12 +1790,15 @@ namespace checker {
 					auto ME = dyn_cast<const clang::MemberExpr>(EX);
 					if (ME) {
 						for (const auto& child : ME->children()) {
+							auto EX2 = dyn_cast<const clang::Expr>(child->IgnoreImplicit());
 							auto CXXTE = dyn_cast<const clang::CXXThisExpr>(child->IgnoreImplicit());
 							if (CXXTE) {
 								/* The expression is a (possibly implicit) dereference of a 'this' pointer.
 								And this tool treats 'this' pointers, like all native pointers, as scope
 								pointers. */
 								satisfies_checks = true;
+							} else if (EX2) {
+								return can_be_safely_targeted_with_an_xscope_reference(EX2, Ctx);
 							} else {
 								break;
 							}
@@ -2021,7 +2024,7 @@ namespace checker {
 						}
 					}
 					auto param_iter = function_decl->param_begin();
-					for (; arg_index < num_args; arg_index++, param_iter++) {
+					for (; arg_index < int(num_args); arg_index++, param_iter++) {
 						if (function_decl->param_end() == param_iter) {
 							break;
 						}
@@ -2144,7 +2147,7 @@ namespace checker {
 					return void();
 				}
 
-				if (std::string::npos != source_location_str.find(":147:")) {
+				if (std::string::npos != source_location_str.find(":145:")) {
 					int q = 5;
 				}
 
