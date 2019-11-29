@@ -1605,70 +1605,6 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
-	const clang::Expr* containing_object_expr_from_member_expr(const clang::MemberExpr* ME) {
-		const clang::Expr* retval = nullptr;
-		if (!ME) {
-			//assert(false);
-			return retval;
-		}
-		if (ME) {
-			auto iter = ME->child_begin();
-			if (ME->child_end() != iter) {
-				auto child1 = *iter;
-				auto child1_EX = dyn_cast<const clang::Expr>(child1);
-				iter++;
-				if (ME->child_end() == iter) {
-					retval = child1_EX;
-				} else {
-					/* unexpected */
-					int q = 5;
-				}
-			}
-		}
-		return retval;
-	}
-
-	const clang::DeclRefExpr* declrefexpr_of_member_expr_if_any(const clang::MemberExpr* ME) {
-		const clang::DeclRefExpr* retval = nullptr;
-
-		auto EX = containing_object_expr_from_member_expr(ME);
-		if (EX) {
-			auto EX_ii = EX->IgnoreImplicit()->IgnoreParenCasts();
-			auto DRE = dyn_cast<const clang::DeclRefExpr>(EX_ii);
-			if (DRE) {
-				return DRE;
-			} else {
-				auto ME2 = dyn_cast<const clang::MemberExpr>(EX);
-				if (ME2) {
-					/* nested member */
-					return declrefexpr_of_member_expr_if_any(ME2);
-				}
-			}
-		}
-		return retval;
-	}
-
-	const clang::DeclRefExpr* declrefexpr_of_expr_if_any(const clang::Expr* EX1, ASTContext& Ctx) {
-		if (!EX1) {
-			return nullptr;
-		}
-		const auto EX = EX1->IgnoreImplicit()->IgnoreParenImpCasts();
-		bool satisfies_checks = false;
-		auto DRE1 = dyn_cast<const clang::DeclRefExpr>(EX);
-		if (!DRE1) {
-			auto ME = dyn_cast<const clang::MemberExpr>(EX);
-			if (ME) {
-				if (!(ME->isBoundMemberFunction(Ctx))) {
-					DRE1 = declrefexpr_of_member_expr_if_any(ME);
-				} else {
-					int q = 5;
-				}
-			}
-		}
-
-		return DRE1;
-	}
-
 	const clang::Type* remove_fparam_wrappers(const clang::QualType& qtype);
 
 	auto remove_fparam_wrappers(const clang::Type& type) {
@@ -1701,6 +1637,197 @@ namespace checker {
 		return remove_fparam_wrappers(*(qtype.getTypePtr()));
 	}
 
+	const clang::Type* remove_mse_transparent_wrappers(const clang::QualType& qtype);
+
+	auto remove_mse_transparent_wrappers(const clang::Type& type) {
+		//const auto TP = &type;
+		const auto TP = remove_fparam_wrappers(type);
+		const auto CXXRD = TP->getAsCXXRecordDecl();
+		if (CXXRD) {
+			auto qname = CXXRD->getQualifiedNameAsString();
+
+			const std::string txscopeobj_str = g_mse_namespace_str + "::TXScopeObj";
+			const std::string tregobj_str = g_mse_namespace_str + "::TRegisteredObj";
+			const std::string tndregobj_str = g_mse_namespace_str + "::TNDRegisteredObj";
+			const std::string tgnoradobj_str = g_mse_namespace_str + "::us::impl::TGNoradObj";
+			const std::string tnoradobj_str = g_mse_namespace_str + "::TNoradObj";
+			const std::string tndnoradobj_str = g_mse_namespace_str + "::TNDNoradObj";
+			const std::string tasyncshareableobj_str = g_mse_namespace_str + "::rsv::TAsyncShareableObj";
+			const std::string tasyncpassableobj_str = g_mse_namespace_str + "::rsv::TAsyncPassableObj";
+			const std::string tasyncshareableandpassableobj_str = g_mse_namespace_str + "::rsv::TAsyncShareableAndPassableObj";
+
+			if (!((qname == txscopeobj_str) || (qname == tregobj_str) || (qname == tndregobj_str)
+				|| (qname == tgnoradobj_str) || (qname == tnoradobj_str) || (qname == tndnoradobj_str)
+				|| (qname == tasyncshareableobj_str) || (qname == tasyncpassableobj_str) || (qname == tasyncshareableandpassableobj_str)
+				)) {
+				return TP;
+			}
+			for (const auto& base : CXXRD->bases()) {
+				const auto base_qtype = base.getType();
+				const auto base_qtype_str = base_qtype.getAsString();
+				/* The first base class should be the one we're interested in. */
+				return remove_mse_transparent_wrappers(base_qtype);
+			}
+			/*unexpected*/
+			int q = 5;
+		}
+		return TP;
+	}
+	const clang::Type* remove_mse_transparent_wrappers(const clang::QualType& qtype) {
+		return remove_mse_transparent_wrappers(*(qtype.getTypePtr()));
+	}
+
+	const clang::Expr* containing_object_expr_from_member_expr(const clang::MemberExpr* ME) {
+		const clang::Expr* retval = nullptr;
+		if (!ME) {
+			//assert(false);
+			return retval;
+		}
+		if (ME) {
+			auto iter = ME->child_begin();
+			if (ME->child_end() != iter) {
+				auto child1 = *iter;
+				auto child1_EX = dyn_cast<const clang::Expr>(child1);
+				iter++;
+				if (ME->child_end() == iter) {
+					retval = child1_EX;
+				} else {
+					/* unexpected */
+					int q = 5;
+				}
+			}
+		}
+		return retval;
+	}
+
+	const clang::DeclRefExpr* declrefexpr_of_target_expr_if_any(const clang::Expr* EX1, ASTContext& Ctx) {
+		if (!EX1) {
+			return nullptr;
+		}
+		const auto EX = EX1->IgnoreImplicit()->IgnoreParenImpCasts();
+		bool satisfies_checks = false;
+		auto DRE1 = dyn_cast<const clang::DeclRefExpr>(EX);
+		if (!DRE1) {
+			auto ME = dyn_cast<const clang::MemberExpr>(EX);
+			if (ME) {
+				if (!(ME->isBoundMemberFunction(Ctx))) {
+					auto containing_EX = containing_object_expr_from_member_expr(ME);
+					DRE1 = declrefexpr_of_target_expr_if_any(containing_EX, Ctx);
+				} else {
+					int q = 5;
+				}
+			} else {
+				auto UO = dyn_cast<const clang::UnaryOperator>(EX);
+				if (UO) {
+					const auto opcode = UO->getOpcode();
+					const auto opcode_str = UO->getOpcodeStr(opcode);
+					if (clang::UnaryOperator::Opcode::UO_AddrOf == opcode) {
+						const auto UOSE = UO->getSubExpr();
+						if (UOSE) {
+							const auto UOSE_qtype = UOSE->getType();
+							const auto UOSE_qtype_str = UOSE_qtype.getAsString();
+
+							DRE1 = declrefexpr_of_target_expr_if_any(UOSE, Ctx);
+						}
+					}
+				} else {
+					auto CXXCE = dyn_cast<const clang::CXXConstructExpr>(EX);
+					if (CXXCE) {
+						const auto qtype = CXXCE->getType();
+						const auto CXXCE_rw_type_ptr = remove_mse_transparent_wrappers(CXXCE->getType());
+						assert(CXXCE_rw_type_ptr);
+						bool is_pointer_or_equivalent = true;
+						if (!CXXCE_rw_type_ptr->isPointerType()) {
+							const auto RD = CXXCE_rw_type_ptr->getAsRecordDecl();
+							if (!RD) {
+								is_pointer_or_equivalent = false;
+							} else {
+								/* `mse::us::impl::TPointerForLegacy<>` is sometimes used as (a functionally
+								equivalent) substitute for native pointers that can act as a base class. */
+								const auto CXXCE_rw_qtype_str = RD->getQualifiedNameAsString();
+								const std::string TPointerForLegacy_str = g_mse_namespace_str + "::us::impl::TPointerForLegacy";
+								if (TPointerForLegacy_str != CXXCE_rw_qtype_str) {
+									is_pointer_or_equivalent = false;
+								}
+							}
+						}
+						if (is_pointer_or_equivalent) {
+							const auto numArgs = CXXCE->getNumArgs();
+							if (1 == CXXCE->getNumArgs()) {
+								const auto arg_EX = CXXCE->getArg(0);
+								assert(arg_EX);
+
+								DRE1 = declrefexpr_of_target_expr_if_any(arg_EX, Ctx);
+							}
+						}
+					}
+				}
+			}
+		}
+
+		return DRE1;
+	}
+
+	const clang::DeclRefExpr* declrefexpr_of_reference_expr_if_any(const clang::Expr* EX1, ASTContext& Ctx) {
+		if (!EX1) {
+			return nullptr;
+		}
+		const auto EX = EX1->IgnoreImplicit()->IgnoreParenImpCasts();
+		bool satisfies_checks = false;
+		auto DRE1 = dyn_cast<const clang::DeclRefExpr>(EX);
+		if (!DRE1) {
+			auto ME = dyn_cast<const clang::MemberExpr>(EX);
+			if (ME) {
+				if (!(ME->isBoundMemberFunction(Ctx))) {
+					auto containing_EX = containing_object_expr_from_member_expr(ME);
+					DRE1 = declrefexpr_of_reference_expr_if_any(containing_EX, Ctx);
+				} else {
+					int q = 5;
+				}
+			} else {
+				const clang::Expr* potential_owner_EX = nullptr;
+				auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(EX);
+				auto CXXMCE = dyn_cast<const clang::CXXMemberCallExpr>(EX);
+				if (CXXOCE) {
+					static const std::string operator_star_str = "operator*";
+					static const std::string operator_arrow_str = "operator->";
+					auto operator_name = CXXOCE->getDirectCallee()->getNameAsString();
+					if (((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs())) {
+						potential_owner_EX = CXXOCE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
+					}
+				} else if (CXXMCE) {
+					static const std::string method_star_str = "value";
+					auto method_name = CXXMCE->getDirectCallee()->getNameAsString();
+					if (((method_star_str == method_name)) && (0 == CXXMCE->getNumArgs())) {
+						potential_owner_EX = CXXMCE->getImplicitObjectArgument()->IgnoreImplicit()->IgnoreParenImpCasts();
+					}
+				}
+				if (potential_owner_EX) {
+					auto potential_owner_EX_ii = potential_owner_EX->IgnoreImplicit()->IgnoreParenImpCasts();
+					if (potential_owner_EX_ii) {
+						const auto potential_owner_EX_ii_qtype = potential_owner_EX_ii->getType();
+						const auto potential_owner_EX_ii_qtype_str = potential_owner_EX_ii_qtype.getAsString();
+
+						const auto CXXRD = remove_fparam_wrappers(*(potential_owner_EX_ii->getType()))->getAsCXXRecordDecl();
+						if (CXXRD) {
+							const std::string xscope_optional_str = g_mse_namespace_str + "::xscope_optional";
+							static const std::string std_optional_str = "std::optional";
+							const std::string xscope_owner_ptr_str = g_mse_namespace_str + "::TXScopeOwnerPointer";
+							auto qname = CXXRD->getQualifiedNameAsString();
+							if ((xscope_optional_str == qname) || (std_optional_str == qname) || (xscope_owner_ptr_str == qname)) {
+								return declrefexpr_of_reference_expr_if_any(potential_owner_EX_ii, Ctx);
+							}
+						} else if (potential_owner_EX_ii->getType()->isReferenceType()) {
+							int q = 5;
+						}
+					}
+				}
+			}
+		}
+
+		return DRE1;
+	}
+
 	bool can_be_safely_targeted_with_an_xscope_reference(const clang::Expr* EX1, ASTContext& Ctx) {
 		if (!EX1) {
 			//assert(false);
@@ -1711,7 +1838,7 @@ namespace checker {
 		const auto EX_qtype_str = EX_qtype.getAsString();
 
 		bool satisfies_checks = false;
-		auto DRE1 = declrefexpr_of_expr_if_any(EX, Ctx);
+		auto DRE1 = declrefexpr_of_target_expr_if_any(EX, Ctx);
 		if (DRE1) {
 			const auto DRE1_qtype = DRE1->getType();
 			const auto DRE1_qtype_str = DRE1_qtype.getAsString();
@@ -2566,10 +2693,30 @@ namespace checker {
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
 			const BinaryOperator* BO = MR.Nodes.getNodeAs<clang::BinaryOperator>("mcssspointerassignment1");
+			const CXXOperatorCallExpr* CXXOCE = MR.Nodes.getNodeAs<clang::CXXOperatorCallExpr>("mcssspointerassignment1");
 
-			if ((BO != nullptr)/* && (DRE != nullptr)*/)
+			if ((BO != nullptr) || (CXXOCE != nullptr))
 			{
-				auto BOSR = nice_source_range(BO->getSourceRange(), Rewrite);
+				if ((BO == nullptr) && (CXXOCE != nullptr)) {
+					/* This handler may be called by either of two matchers. One matcher matches against 
+					`BinaryOperator` elements that are assignment operators. The other matcher matches against
+					`CXXOperatorCallExpr` elements, but does not filter to ensure they are "assignment"
+					`CXXOperatorCallExpr` elements. So we do the filtering here. */
+					const auto l_operator = CXXOCE->getDirectCallee();
+					if (l_operator) {
+						//const auto operator_name = l_operator->getName();
+						const auto operator_name = l_operator->getNameAsString();
+						static const std::string assignment_operator_str = "operator=";
+						if (assignment_operator_str != operator_name) {
+							return;
+						}
+					} else {
+						return;
+					}
+				}
+
+				auto BOSR = (BO != nullptr) ? nice_source_range(BO->getSourceRange(), Rewrite)
+					: nice_source_range(CXXOCE->getSourceRange(), Rewrite);
 				SourceLocation BOSL = BOSR.getBegin();
 				SourceLocation BOSLE = BOSR.getEnd();
 
@@ -2584,7 +2731,8 @@ namespace checker {
 					return void();
 				}
 
-				auto BOISR = instantiation_source_range(BO->getSourceRange(), Rewrite);
+				auto BOISR = (BO != nullptr) ? instantiation_source_range(BO->getSourceRange(), Rewrite)
+					: instantiation_source_range(CXXOCE->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(BOISR);
 				if (supress_check_flag) {
 					return;
@@ -2604,14 +2752,51 @@ namespace checker {
 				for the (scope) lifetime of the (lhs) pointer being modified and a lower bound for the (scope)
 				lifetime of the new target object. */
 
-				const auto LHSEX = BO->getLHS()->IgnoreImplicit()->IgnoreParenImpCasts();
-				const auto RHSEX = BO->getRHS()->IgnoreImplicit()->IgnoreParenImpCasts();
+				const clang::Expr* LHSEX = nullptr;
+				const clang::Expr* RHSEX = nullptr;
+				if (BO != nullptr) {
+					LHSEX = BO->getLHS()->IgnoreImplicit()->IgnoreParenImpCasts();
+					RHSEX = BO->getRHS()->IgnoreImplicit()->IgnoreParenImpCasts();
+				} else {
+					const auto numArgs = CXXOCE->getNumArgs();
+					if (2 == CXXOCE->getNumArgs()) {
+						LHSEX = CXXOCE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
+						RHSEX = CXXOCE->getArg(1)->IgnoreImplicit()->IgnoreParenImpCasts();
+
+						/* This handler may be called by either of two matchers. One matcher matches against 
+						`BinaryOperator` elements that are pointer assignment operators. The other matcher
+						matches against `CXXOperatorCallExpr` elements regardless of the type being assigned.
+						Here we filter for only the types we're interested in here. (I.e. native pointers
+						and native pointer substitutes) */
+
+						const auto LHSEX_qtype_str = LHSEX->getType().getAsString();
+						const auto LHSEX_rw_type_ptr = remove_mse_transparent_wrappers(LHSEX->getType());
+						assert(LHSEX_rw_type_ptr);
+						if (!LHSEX_rw_type_ptr->isPointerType()) {
+							const auto RD = LHSEX_rw_type_ptr->getAsRecordDecl();
+							if (!RD) {
+								return;
+							} else {
+								/* `mse::us::impl::TPointerForLegacy<>` is sometimes used as (a functionally
+								equivalent) substitute for native pointers that can act as a base class. */
+								const auto LHSEX_rw_qtype_str = RD->getQualifiedNameAsString();
+								const std::string TPointerForLegacy_str = g_mse_namespace_str + "::us::impl::TPointerForLegacy";
+								if (TPointerForLegacy_str != LHSEX_rw_qtype_str) {
+									return;
+								}
+							}
+						}
+					} else {
+						return;
+					}
+				}
+
 				bool satisfies_checks = false;
 
-				/* Currently we are only able to obtain the declaration (location) of the pointer to be
-				modified (and therefore its scope lifetime) if the left hand side is a declref or member
-				expression of the pointer. */
-				auto LHSDRE1 = declrefexpr_of_expr_if_any(LHSEX, *(MR.Context));
+				/* Obtaining the declaration (location) of the pointer to be modified (or its owner) (and
+				therefore its scope lifetime) can be challenging. We are not always going to be able to
+				do so. */
+				auto LHSDRE1 = declrefexpr_of_reference_expr_if_any(LHSEX, *(MR.Context));
 				const VarDecl * LHSVD = nullptr;
 				if (LHSDRE1) {
 					auto D1 = LHSDRE1->getDecl();
@@ -2626,7 +2811,7 @@ namespace checker {
 					}
 				}
 
-				auto RHSDRE1 = declrefexpr_of_expr_if_any(RHSEX, *(MR.Context));
+				auto RHSDRE1 = declrefexpr_of_target_expr_if_any(RHSEX, *(MR.Context));
 				const VarDecl * RHSVD = nullptr;
 				if (RHSDRE1) {
 					auto D1 = RHSDRE1->getDecl();
@@ -2684,7 +2869,7 @@ namespace checker {
 							}
 						}
 						if (subexpr) {
-							auto subexpr_DRE = declrefexpr_of_expr_if_any(subexpr, *(MR.Context));
+							auto subexpr_DRE = declrefexpr_of_target_expr_if_any(subexpr, *(MR.Context));
 							if (subexpr_DRE) {
 								auto D1 = subexpr_DRE->getDecl();
 								auto VD = dyn_cast<const clang::VarDecl>(D1);
@@ -2740,7 +2925,7 @@ namespace checker {
 										}
 									}
 								}
-								auto subsubexpr_DRE = declrefexpr_of_expr_if_any(subsubexpr, *(MR.Context));
+								auto subsubexpr_DRE = declrefexpr_of_target_expr_if_any(subsubexpr, *(MR.Context));
 								if (subsubexpr_DRE) {
 									/* The rhs expression seems to be the address of a dereference of a scope pointer
 									of some type. The (scope) lifetime of the scope pointer must be contained within
@@ -3045,6 +3230,9 @@ namespace checker {
 					).bind("mcssspointerassignment1"))),
 				hasType(pointerType())
 				)).bind("mcssspointerassignment3"), &HandlerForSSSPointerAssignment);
+			Matcher.addMatcher(expr(
+				ignoringImplicit(ignoringParenImpCasts(cxxOperatorCallExpr().bind("mcssspointerassignment1")))
+				).bind("mcssspointerassignment3"), &HandlerForSSSPointerAssignment);
 		}
 
 		~MyASTConsumer() {
