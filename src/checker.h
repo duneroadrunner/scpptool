@@ -1700,6 +1700,15 @@ namespace checker {
 		return retval;
 	}
 
+	/* This function is meant to return the part of a given expression that directly refers to the declared
+	object (i.e. the `DeclRefExpr`) of interest, if such an object is present. The object of interest is the
+	one from which we can infer the lifetime (or a lower bound of the lifetime) of the intended reference
+	target (indicated by the given expression). If the intended reference target is itself a declared object
+	(as opposed to, for example, a member of another object, or an element in a container), then it itself
+	would be the object of interest. The object of interest could also be a (declared) (scope)
+	reference/pointer to the target object, as target objects must outlive any corresponding scope
+	references, so the lifetime of a (scope) reference is a lower bound for the lifetime of the
+	corresponding target object. */
 	const clang::DeclRefExpr* declrefexpr_of_target_expr_if_any(const clang::Expr* EX1, ASTContext& Ctx) {
 		if (!EX1) {
 			return nullptr;
@@ -1760,6 +1769,73 @@ namespace checker {
 								DRE1 = declrefexpr_of_target_expr_if_any(arg_EX, Ctx);
 							}
 						}
+					} else {
+						const clang::Expr* potential_owner_EX = nullptr;
+						auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(EX);
+						auto CXXMCE = dyn_cast<const clang::CXXMemberCallExpr>(EX);
+						auto CE = dyn_cast<const clang::CallExpr>(EX);
+						if (CXXOCE) {
+							static const std::string operator_star_str = "operator*";
+							static const std::string operator_arrow_str = "operator->";
+							static const std::string operator_subscript_str = "operator[]";
+							auto operator_name = CXXOCE->getDirectCallee()->getNameAsString();
+							if ((((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs()))
+								|| (((operator_subscript_str == operator_name)) && (2 == CXXOCE->getNumArgs()))
+								) {
+								potential_owner_EX = CXXOCE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
+							}
+						} else if (CXXMCE) {
+							static const std::string method_value_str = "value";
+							static const std::string method_at_str = "at";
+							auto method_name = CXXMCE->getDirectCallee()->getNameAsString();
+							if ((((method_value_str == method_name)) && (0 == CXXMCE->getNumArgs()))
+								|| (((method_at_str == method_name)) && (1 == CXXMCE->getNumArgs()))
+								) {
+								potential_owner_EX = CXXMCE->getImplicitObjectArgument()->IgnoreImplicit()->IgnoreParenImpCasts();
+							}
+						} else if (CE) {
+							static const std::string function_get_str = "std::get";
+							auto function_qname = CE->getDirectCallee()->getQualifiedNameAsString();
+							if (((function_get_str == function_qname)) && (1 == CE->getNumArgs())) {
+								potential_owner_EX = CE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
+							}
+						}
+						if (potential_owner_EX) {
+							auto potential_owner_EX_ii = potential_owner_EX->IgnoreImplicit()->IgnoreParenImpCasts();
+							if (potential_owner_EX_ii) {
+								const auto potential_owner_EX_ii_qtype = potential_owner_EX_ii->getType();
+								const auto potential_owner_EX_ii_qtype_str = potential_owner_EX_ii_qtype.getAsString();
+
+								const auto CXXRD = remove_mse_transparent_wrappers(*(potential_owner_EX_ii->getType()))->getAsCXXRecordDecl();
+								if (CXXRD) {
+									/* static structure containers */
+									const std::string xscope_owner_ptr_str = g_mse_namespace_str + "::TXScopeOwnerPointer";
+									const std::string xscope_tuple_str = g_mse_namespace_str + "::xscope_tuple";
+
+									static const std::string std_unique_ptr_str = "std::unique_ptr";
+									static const std::string std_tuple_str = "std::tuple";
+									static const std::string std_pair_str = "std::pair";
+									static const std::string std_array_str = "std::array";
+
+									const std::string mstd_tuple_str = g_mse_namespace_str + "::mstd::tuple";
+									const std::string nii_array_str = g_mse_namespace_str + "::nii_array";
+									const std::string mstd_array_str = g_mse_namespace_str + "::mstd::array";
+
+									auto qname = CXXRD->getQualifiedNameAsString();
+									if ((xscope_owner_ptr_str == qname) || (xscope_tuple_str == qname)
+
+										//|| (std_unique_ptr_str == qname)
+										|| (std_tuple_str == qname) || (std_pair_str == qname) || (std_array_str == qname)
+
+										|| (mstd_tuple_str == qname) || (nii_array_str == qname) || (mstd_array_str == qname)
+										) {
+										DRE1 = declrefexpr_of_target_expr_if_any(potential_owner_EX_ii, Ctx);
+									}
+								} else if (potential_owner_EX_ii->getType()->isReferenceType()) {
+									int q = 5;
+								}
+							}
+						}
 					}
 				}
 			}
@@ -1768,6 +1844,14 @@ namespace checker {
 		return DRE1;
 	}
 
+	/* Similar to `declrefexpr_of_target_expr_if_any()`, this function is meant to return the part of a given
+	expression that directly refers to the declared object (i.e. the `DeclRefExpr`) of interest, if such an
+	object is present. Unlike declrefexpr_of_target_expr_if_any(), the given expression is presumed to
+	indicate the (scope) reference/pointer object to be retargeted, rather than the target object. So the
+	object of interest in this case is the one from which we can infer the lifetime (or an upper bound of the
+	lifetime) of the reference object to be retargeted. If the indicated reference object is itself a declared
+	object (as opposed to, for example, a member of another object, or an element in a container), then it
+	itself would be the object of interest. */
 	const clang::DeclRefExpr* declrefexpr_of_reference_expr_if_any(const clang::Expr* EX1, ASTContext& Ctx) {
 		if (!EX1) {
 			return nullptr;
@@ -1788,18 +1872,31 @@ namespace checker {
 				const clang::Expr* potential_owner_EX = nullptr;
 				auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(EX);
 				auto CXXMCE = dyn_cast<const clang::CXXMemberCallExpr>(EX);
+				auto CE = dyn_cast<const clang::CallExpr>(EX);
 				if (CXXOCE) {
 					static const std::string operator_star_str = "operator*";
 					static const std::string operator_arrow_str = "operator->";
+					static const std::string operator_subscript_str = "operator[]";
 					auto operator_name = CXXOCE->getDirectCallee()->getNameAsString();
-					if (((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs())) {
+					if ((((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs()))
+						|| (((operator_subscript_str == operator_name)) && (2 == CXXOCE->getNumArgs()))
+						) {
 						potential_owner_EX = CXXOCE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
 					}
 				} else if (CXXMCE) {
-					static const std::string method_star_str = "value";
+					static const std::string method_value_str = "value";
+					static const std::string method_at_str = "at";
 					auto method_name = CXXMCE->getDirectCallee()->getNameAsString();
-					if (((method_star_str == method_name)) && (0 == CXXMCE->getNumArgs())) {
+					if ((((method_value_str == method_name)) && (0 == CXXMCE->getNumArgs()))
+						|| (((method_at_str == method_name)) && (1 == CXXMCE->getNumArgs()))
+						) {
 						potential_owner_EX = CXXMCE->getImplicitObjectArgument()->IgnoreImplicit()->IgnoreParenImpCasts();
+					}
+				} else if (CE) {
+					static const std::string function_get_str = "std::get";
+					auto function_qname = CE->getDirectCallee()->getQualifiedNameAsString();
+					if (((function_get_str == function_qname)) && (1 == CE->getNumArgs())) {
+						potential_owner_EX = CE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
 					}
 				}
 				if (potential_owner_EX) {
@@ -1808,14 +1905,58 @@ namespace checker {
 						const auto potential_owner_EX_ii_qtype = potential_owner_EX_ii->getType();
 						const auto potential_owner_EX_ii_qtype_str = potential_owner_EX_ii_qtype.getAsString();
 
-						const auto CXXRD = remove_fparam_wrappers(*(potential_owner_EX_ii->getType()))->getAsCXXRecordDecl();
+						const auto CXXRD = remove_mse_transparent_wrappers(*(potential_owner_EX_ii->getType()))->getAsCXXRecordDecl();
 						if (CXXRD) {
-							const std::string xscope_optional_str = g_mse_namespace_str + "::xscope_optional";
-							static const std::string std_optional_str = "std::optional";
+							/* owning containers (that might contain pointer/reference elements) */
 							const std::string xscope_owner_ptr_str = g_mse_namespace_str + "::TXScopeOwnerPointer";
+							const std::string xscope_optional_str = g_mse_namespace_str + "::xscope_optional";
+							const std::string xscope_tuple_str = g_mse_namespace_str + "::xscope_tuple";
+
+							static const std::string std_unique_ptr_str = "std::unique_ptr";
+							static const std::string std_shared_ptr_str = "std::shared_ptr";
+							static const std::string std_optional_str = "std::optional";
+							static const std::string std_tuple_str = "std::tuple";
+							static const std::string std_pair_str = "std::pair";
+							static const std::string std_array_str = "std::array";
+							static const std::string std_vector_str = "std::vector";
+							static const std::string std_list_str = "std::list";
+							static const std::string std_map_str = "std::map";
+							static const std::string std_set_str = "std::set";
+							static const std::string std_multimap_str = "std::multimap";
+							static const std::string std_multiset_str = "std::multiset";
+							static const std::string std_unordered_map_str = "std::unordered_map";
+							static const std::string std_unordered_set_str = "std::unordered_set";
+							static const std::string std_unordered_multimap_str = "std::unordered_multimap";
+							static const std::string std_unordered_multiset_str = "std::unordered_multiset";
+
+							/*
+							const std::string mstd_optional_str = g_mse_namespace_str + "::mstd::optional";
+							const std::string mstd_tuple_str = g_mse_namespace_str + "::mstd::tuple";
+							const std::string nii_array_str = g_mse_namespace_str + "::nii_array";
+							const std::string mstd_array_str = g_mse_namespace_str + "::mstd::array";
+							const std::string nii_vector_str = g_mse_namespace_str + "::nii_vector";
+							const std::string stnii_vector_str = g_mse_namespace_str + "::stnii_vector";
+							const std::string mtnii_vector_str = g_mse_namespace_str + "::mtnii_vector";
+							const std::string mstd_vector_str = g_mse_namespace_str + "::mstd::vector";
+							*/
+
 							auto qname = CXXRD->getQualifiedNameAsString();
-							if ((xscope_optional_str == qname) || (std_optional_str == qname) || (xscope_owner_ptr_str == qname)) {
-								return declrefexpr_of_reference_expr_if_any(potential_owner_EX_ii, Ctx);
+							if ((xscope_owner_ptr_str == qname) || (xscope_optional_str == qname) || (xscope_tuple_str == qname)
+
+								|| (std_unique_ptr_str == qname) || (std_shared_ptr_str == qname) || (std_optional_str == qname)
+								|| (std_tuple_str == qname) || (std_pair_str == qname)
+								|| (std_array_str == qname) || (std_vector_str == qname) || (std_list_str == qname)
+								|| (std_map_str == qname) || (std_set_str == qname) || (std_multimap_str == qname) || (std_multiset_str == qname)
+								|| (std_unordered_map_str == qname) || (std_unordered_set_str == qname) || (std_unordered_multimap_str == qname) || (std_unordered_multiset_str == qname)
+
+								/*
+								|| (mstd_optional_str == qname) || (mstd_tuple_str == qname)
+								|| (nii_array_str == qname) || (mstd_array_str == qname)
+								|| (nii_vector_str == qname) || (stnii_vector_str == qname) || (mtnii_vector_str == qname)
+								|| (mstd_vector_str == qname)
+								*/
+								) {
+								DRE1 = declrefexpr_of_reference_expr_if_any(potential_owner_EX_ii, Ctx);
 							}
 						} else if (potential_owner_EX_ii->getType()->isReferenceType()) {
 							int q = 5;
@@ -1877,7 +2018,7 @@ namespace checker {
 						const auto arg_EX_qtype = arg_EX->getType();
 						const auto arg_EX_qtype_str = arg_EX_qtype.getAsString();
 
-						const auto CXXRD = remove_fparam_wrappers(*(arg_EX->getType()))->getAsCXXRecordDecl();
+						const auto CXXRD = remove_mse_transparent_wrappers(*(arg_EX->getType()))->getAsCXXRecordDecl();
 						if (CXXRD) {
 							const std::string xscope_item_f_ptr_str = g_mse_namespace_str + "::TXScopeItemFixedPointer";
 							const std::string xscope_item_f_const_ptr_str = g_mse_namespace_str + "::TXScopeItemFixedConstPointer";
@@ -2731,6 +2872,10 @@ namespace checker {
 					return void();
 				}
 
+				if (std::string::npos != source_location_str.find(":226:")) {
+					int q = 5;
+				}
+
 				auto BOISR = (BO != nullptr) ? instantiation_source_range(BO->getSourceRange(), Rewrite)
 					: instantiation_source_range(CXXOCE->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(BOISR);
@@ -2762,32 +2907,26 @@ namespace checker {
 					if (2 == CXXOCE->getNumArgs()) {
 						LHSEX = CXXOCE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
 						RHSEX = CXXOCE->getArg(1)->IgnoreImplicit()->IgnoreParenImpCasts();
-
-						/* This handler may be called by either of two matchers. One matcher matches against 
-						`BinaryOperator` elements that are pointer assignment operators. The other matcher
-						matches against `CXXOperatorCallExpr` elements regardless of the type being assigned.
-						Here we filter for only the types we're interested in here. (I.e. native pointers
-						and native pointer substitutes) */
-
-						const auto LHSEX_qtype_str = LHSEX->getType().getAsString();
-						const auto LHSEX_rw_type_ptr = remove_mse_transparent_wrappers(LHSEX->getType());
-						assert(LHSEX_rw_type_ptr);
-						if (!LHSEX_rw_type_ptr->isPointerType()) {
-							const auto RD = LHSEX_rw_type_ptr->getAsRecordDecl();
-							if (!RD) {
-								return;
-							} else {
-								/* `mse::us::impl::TPointerForLegacy<>` is sometimes used as (a functionally
-								equivalent) substitute for native pointers that can act as a base class. */
-								const auto LHSEX_rw_qtype_str = RD->getQualifiedNameAsString();
-								const std::string TPointerForLegacy_str = g_mse_namespace_str + "::us::impl::TPointerForLegacy";
-								if (TPointerForLegacy_str != LHSEX_rw_qtype_str) {
-									return;
-								}
-							}
-						}
 					} else {
 						return;
+					}
+				}
+
+				const auto LHSEX_qtype_str = LHSEX->getType().getAsString();
+				const auto LHSEX_rw_type_ptr = remove_mse_transparent_wrappers(LHSEX->getType());
+				assert(LHSEX_rw_type_ptr);
+				if (!LHSEX_rw_type_ptr->isPointerType()) {
+					const auto RD = LHSEX_rw_type_ptr->getAsRecordDecl();
+					if (!RD) {
+						return;
+					} else {
+						/* `mse::us::impl::TPointerForLegacy<>` is sometimes used as (a functionally
+						equivalent) substitute for native pointers that can act as a base class. */
+						const auto LHSEX_rw_qtype_str = RD->getQualifiedNameAsString();
+						const std::string TPointerForLegacy_str = g_mse_namespace_str + "::us::impl::TPointerForLegacy";
+						if (TPointerForLegacy_str != LHSEX_rw_qtype_str) {
+							return;
+						}
 					}
 				}
 
@@ -3228,7 +3367,11 @@ namespace checker {
 				ignoringImplicit(ignoringParenImpCasts(expr(
 						binaryOperator(hasOperatorName("="))
 					).bind("mcssspointerassignment1"))),
-				hasType(pointerType())
+				/* We'd like to select for pointer types exclusively here, but it seems to miss some cases
+				where the (dependent?) type is an alias for a pointer type. So we'll delegate the filtering
+				for pointer types to the handler itself. */
+				//hasType(pointerType())
+				anything()
 				)).bind("mcssspointerassignment3"), &HandlerForSSSPointerAssignment);
 			Matcher.addMatcher(expr(
 				ignoringImplicit(ignoringParenImpCasts(cxxOperatorCallExpr().bind("mcssspointerassignment1")))
