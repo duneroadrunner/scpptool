@@ -408,7 +408,27 @@ namespace checker {
 		bool retval = true;
 		auto scope1 = get_containing_scope(ST1, context);
 		const auto scope2 = get_containing_scope(ST2, context);
-		bool parent_obtained = false;
+		if (scope2 == scope1) {
+			const auto SR1 = ST1->getSourceRange();
+			const auto SR2 = ST2->getSourceRange();
+			if (SR1.isValid() && SR2.isValid()) {
+				if (SR2.getEnd() < SR1.getBegin()) {
+					/* The second item occurs before the first item. */
+					retval = true;
+				} else if ( ((SR1.getBegin() < SR2.getBegin()) || (SR1.getBegin() == SR2.getBegin()))
+					&& ((SR2.getEnd() < SR1.getEnd()) || (SR1.getEnd() == SR2.getEnd())) ) {
+					/* The second item and first item are the same item, or the second item is a member
+					of, or base of, the first item. Perhaps unintuitively, the scope of an object is
+					"contained inside" the scope of any of its members or base classes as they are
+					constructed before and destructed after the object itself. Right? */
+					retval = true;
+				} else {
+					retval = false;
+				}
+			} else {
+				retval = false;
+			}
+		}
 		while (scope2 != scope1) {
 			scope1 = get_containing_scope(scope1, context);
 			if (!scope1) {
@@ -757,6 +777,35 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
+	bool statement_makes_reference_to_decl(const clang::ValueDecl& VLD_cref, const Stmt& ST1_cref);
+	bool statement_makes_reference_to_decl(const clang::VarDecl& VD_cref, const Stmt& ST1_cref) {
+		auto VLD = dyn_cast<const clang::ValueDecl>(&VD_cref);
+		assert(VLD);
+		return statement_makes_reference_to_decl(*VLD, ST1_cref);
+	}
+
+	bool statement_makes_reference_to_decl(const clang::ValueDecl& VLD_cref, const Stmt& ST1_cref) {
+		bool retval = false;
+
+		auto ST = ST1_cref.IgnoreImplicit();
+
+		auto DRE1 = dyn_cast<const clang::DeclRefExpr>(ST);
+		if (DRE1) {
+			const auto D1 = DRE1->getDecl();
+			if (D1 == (&VLD_cref)) {
+				return true;
+			}
+		}
+		for (const auto& child : ST->children()) {
+			const auto res1 = statement_makes_reference_to_decl(VLD_cref, *child);
+			if (res1) {
+				return true;
+			}
+		}
+
+		return retval;
+	}
+
 	class MCSSSDeclUtil : public MatchFinder::MatchCallback
 	{
 	public:
@@ -859,9 +908,9 @@ namespace checker {
 						}
 
 						if (qtype.getTypePtr()->isScalarType()) {
-							const auto* init_EX = VD->getInit();
+							const auto init_EX = VD->getInit();
 							if (!init_EX) {
-								auto *PVD = dyn_cast<const ParmVarDecl>(VD);
+								auto PVD = dyn_cast<const ParmVarDecl>(VD);
 								if (!PVD) {
 									const std::string error_desc = std::string("uninitialized ")
 										+ "scalar variable ";
@@ -869,6 +918,21 @@ namespace checker {
 									if (res.second) {
 										std::cout << (*(res.first)).as_a_string1() << " \n";
 									}
+								}
+							}
+						}
+
+						const auto init_EX = VD->getInit();
+						if (init_EX) {
+							auto res = statement_makes_reference_to_decl(*VD, *init_EX);
+							if (res) {
+								VD->getNameAsString();
+								const std::string error_desc = std::string("Reference to variable '")
+									+ VD->getNameAsString() + "' before the completion of its "
+									+ "construction/initialization is not supported.";
+								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+								if (res.second) {
+									std::cout << (*(res.first)).as_a_string1() << " \n";
 								}
 							}
 						}
