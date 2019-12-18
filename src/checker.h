@@ -404,7 +404,9 @@ namespace checker {
 	auto get_containing_scope(const NodeT* NodePtr, clang::ASTContext& context) {
 		return Tget_containing_element_of_type<CompoundStmt>(NodePtr, context);
 	}
-	bool first_is_contained_in_scope_of_second(const Stmt* ST1, const Stmt* ST2, clang::ASTContext& context) {
+
+	template <typename NodeT>
+	bool first_is_contained_in_scope_of_second(const NodeT* ST1, const NodeT* ST2, clang::ASTContext& context) {
 		bool retval = true;
 		auto scope1 = get_containing_scope(ST1, context);
 		const auto scope2 = get_containing_scope(ST2, context);
@@ -437,43 +439,6 @@ namespace checker {
 			}
 		}
 		return retval;
-	}
-	bool first_is_contained_in_scope_of_second(const VarDecl& VD1_cref, const VarDecl& VD2_cref, clang::ASTContext& context) {
-		bool retval = true;
-		auto ST1 = VD1_cref.getAnyInitializer();
-		{
-			const auto storage_duration = VD1_cref.getStorageDuration();
-			if (clang::StorageDuration::SD_Automatic == storage_duration) {
-			} else if (clang::StorageDuration::SD_Thread == storage_duration) {
-				/* (In our usage) a null ST1 means that the pointer to be modified has
-				thread_local lifetime (i.e. no containing parent scope), and so can essentially
-				only point to objects that also have thread local lifetime. */
-				ST1 = nullptr;
-			}
-		}
-
-		auto ST2 = VD2_cref.getAnyInitializer();
-		{
-			const auto storage_duration = VD2_cref.getStorageDuration();
-			if (clang::StorageDuration::SD_Automatic == storage_duration) {
-			} else if (clang::StorageDuration::SD_Thread == storage_duration) {
-				ST2 = nullptr;
-			}
-		}
-
-		return first_is_contained_in_scope_of_second(ST1, ST2, context);
-	}
-	bool first_is_contained_in_scope_of_second(const DeclContext* scope1, const DeclContext* const scope2) {
-		if (scope2 == scope1) {
-			return true;
-		}
-		while (scope1) {
-			scope1 = scope1->getParent();
-			if (scope2 == scope1) {
-				return true;
-			}
-		}
-		return false;
 	}
 
 	bool has_ancestor_base_class(const clang::QualType qtype, const std::string& qualified_base_class_name);
@@ -806,6 +771,62 @@ namespace checker {
 		return retval;
 	}
 
+	template <typename ContainedElementT>
+	std::vector<const ContainedElementT*> Tget_contained_elements_of_type(const Stmt& ST1_cref) {
+		std::vector<const ContainedElementT*> retval;
+
+		auto ST = ST1_cref.IgnoreImplicit();
+
+		const ContainedElementT* contained_element_of_given_type = dyn_cast<const ContainedElementT>(ST);
+
+		if (contained_element_of_given_type) {
+			retval.push_back(contained_element_of_given_type);
+		}
+
+		for (const auto& child : ST->children()) {
+			auto res1 = Tget_contained_elements_of_type<ContainedElementT>(*child);
+			retval.insert(retval.end(), res1.begin(), res1.end());
+		}
+
+		return retval;
+	}
+	std::vector<const CXXThisExpr*> get_contained_elements_of_type_CXXThisExpr(const Stmt& ST1_cref) {
+		return Tget_contained_elements_of_type<CXXThisExpr>(ST1_cref);
+	}
+	const MemberExpr* get_immediately_containing_MemberExpr_from_CXXThisExpr_if_any(const CXXThisExpr& CXXTE_cref, clang::ASTContext& context) {
+		return Tget_immediately_containing_element_of_type<MemberExpr>(CXXTE_cref.IgnoreImplicit()->IgnoreParenImpCasts(), context);
+	}
+	const FieldDecl* get_FieldDecl_from_MemberExpr_if_any(const MemberExpr& ME_cref) {
+		auto decl = ME_cref.getMemberDecl();
+		return dyn_cast<const FieldDecl>(decl);
+	}
+	bool is_nullptr_literal(const Expr* EX) {
+		bool retval = false;
+		if (!EX) {
+			return retval;
+		}
+		const auto* EXii = EX->IgnoreImplicit()->IgnoreParenImpCasts();
+		auto *CXXNPLE = dyn_cast<const CXXNullPtrLiteralExpr>(EXii);
+		auto *GNE = dyn_cast<const GNUNullExpr>(EXii);
+		if (CXXNPLE || GNE) {
+			retval = true;
+		} else {
+			auto *IL = dyn_cast<const IntegerLiteral>(EXii);
+			if (IL) {
+				const auto apint_val = IL->getValue();
+				const auto u64_limited_val = apint_val.getLimitedValue();
+				const auto limited_val = int(u64_limited_val);
+				if (0 == limited_val) {
+					retval = true;
+				} else {
+					/* This should result in a compile error,
+					so we don't issue a redundant error here. */
+				}
+			}
+		}
+		return retval;
+	}
+
 	class MCSSSDeclUtil : public MatchFinder::MatchCallback
 	{
 	public:
@@ -939,7 +960,7 @@ namespace checker {
 					} else {
 						auto FD = dyn_cast<const clang::FieldDecl>(D);
 						if (FD) {
-							if (qtype.getTypePtr()->isPointerType() || qtype.getTypePtr()->isReferenceType()) {
+							if (false && (qtype.getTypePtr()->isPointerType() || qtype.getTypePtr()->isReferenceType())) {
 								/* These are handled in MCSSSRecordDecl2. */
 							} else if (qtype.getTypePtr()->isScalarType()) {
 								const auto* init_EX = FD->getInClassInitializer();
@@ -955,11 +976,14 @@ namespace checker {
 										}
 									}
 									if (!is_lambda_capture_field) {
-										const std::string error_desc = std::string("Scalar member fields ")
-											+ "require direct initializers.";
-										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n";
+										if (qtype.getTypePtr()->isPointerType()) {
+										} else {
+											const std::string error_desc = std::string("(Non-pointer) scalar fields ")
+												+ "require direct initializers.";
+											auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+											if (res.second) {
+												std::cout << (*(res.first)).as_a_string1() << " \n";
+											}
 										}
 									}
 								}
@@ -1428,6 +1452,51 @@ namespace checker {
 								}
 							} else {
 								int q = 5; /* unexpected*/
+							}
+						} else {
+							std::vector<const FieldDecl*> pointer_fields;
+							for (const auto& field : RD->fields()) {
+								const auto field_qtype = field->getType();
+								//auto field_qtype_str = field_qtype.getAsString();
+								if (field_qtype.getTypePtr()->isPointerType()) {
+									const auto EX = field->getInClassInitializer();
+									if (!EX) {
+										pointer_fields.push_back(field);
+									}
+								}
+							}
+							if (1 <= pointer_fields.size()) {
+								for (const auto& constructor : CXXRD->ctors()) {
+									if (constructor->isCopyOrMoveConstructor()) {
+										if (constructor->isDefaulted()) {
+											break;
+										}
+									}
+									auto l_pointer_fields = pointer_fields;
+									int num_pointer_constructor_initializers = 0;
+									for (const auto& constructor_initializer : constructor->inits()) {
+										const auto FD = constructor_initializer->getMember();
+										for (auto iter = l_pointer_fields.begin(); l_pointer_fields.end() != iter; iter++) {
+											if (FD == *iter) {
+												l_pointer_fields.erase(iter);
+												break;
+											}
+										}
+									}
+									if (1 <= l_pointer_fields.size()) {
+										auto constructor_SR = nice_source_range(constructor->getSourceRange(), Rewrite);
+										if (!SR.isValid()) {
+											constructor_SR = SR;
+										}
+										const std::string error_desc = std::string("Missing constructor initializer (or ")
+										+ "direct initializer) required for '" + l_pointer_fields.front()->getNameAsString()
+										+ "' (raw) pointer field.";
+										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, constructor_SR.getBegin(), error_desc));
+										if (res.second) {
+											std::cout << (*(res.first)).as_a_string1() << " \n";
+										}
+									}
+								}
 							}
 						}
 						if (is_xscope_type(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
@@ -1986,6 +2055,10 @@ namespace checker {
 		const auto EX_qtype = EX->getType();
 		const auto EX_qtype_str = EX_qtype.getAsString();
 
+		if (EX->isImplicitCXXThis()) {
+			return true;
+		}
+
 		bool satisfies_checks = false;
 		auto DRE1 = declrefexpr_of_target_expr_if_any(EX, Ctx);
 		if (DRE1) {
@@ -2491,26 +2564,7 @@ namespace checker {
 					}
 					const auto* EX = VD->getInit();
 					if (EX) {
-						const auto* EXii = EX->IgnoreImplicit()->IgnoreParenImpCasts();
-						auto *CXXNPLE = dyn_cast<const CXXNullPtrLiteralExpr>(EXii);
-						auto *GNE = dyn_cast<const GNUNullExpr>(EXii);
-						bool null_initialization = false;
-						if (CXXNPLE || GNE) {
-							null_initialization = true;
-						} else {
-							auto *IL = dyn_cast<const IntegerLiteral>(EXii);
-							if (IL) {
-								const auto apint_val = IL->getValue();
-								const auto u64_limited_val = apint_val.getLimitedValue();
-								const auto limited_val = int(u64_limited_val);
-								if (0 == limited_val) {
-									null_initialization = true;
-								} else {
-									/* This should result in a compile error,
-									so we don't issue a redundant error here. */
-								}
-							}
-						}
+						bool null_initialization = is_nullptr_literal(EX);
 
 						if (null_initialization) {
 							const std::string error_desc = std::string("Null initialization of ")
@@ -2698,9 +2752,9 @@ namespace checker {
 						equivalent.
 						Here we waive this requirement if the member function is part of the SaferCPlusPlus library
 						or the standard library. The SaferCPlusPlus containers have run-time safety mechanisms that
-						ensure that the 'this' pointer target is not desroyed (i.e. its destructor he call. In the
-						future we may have an option/mode where the (run-time) safety mechanisms are disabled and
-						the SaferCPlusPlus containers are not exempt.
+						ensure that the 'this' pointer target is not desroyed. In the future we may have an
+						option/mode where the (run-time) safety mechanisms are disabled and the SaferCPlusPlus
+						containers are not exempt.
 						We don't apply this requirement to standard library elements here as standard library
 						containers are themselves considered unsafe by default. */
 						return;
@@ -2749,10 +2803,133 @@ namespace checker {
 					}
 					if (!satisfies_checks) {
 						const std::string error_desc = std::string("Cannot verify that the 'this' pointer ")
-							+ "will remain valid for the duration of the member function call.";
+							+ "will remain valid for the duration of the member function call ('"
+							+ CXXMCE->getDirectCallee()->getNameAsString() + "').";
 						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 						if (res.second) {
 							std::cout << (*(res.first)).as_a_string1() << " \n";
+						}
+					}
+				}
+			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
+	class MCSSSConstructionInitializer : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSConstructionInitializer (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const CXXCtorInitializer* CXXCI = MR.Nodes.getNodeAs<clang::CXXCtorInitializer>("mcsssconstructioninitializer1");
+
+			if ((CXXCI != nullptr)/* && (DRE != nullptr)*/)
+			{
+				auto SR = nice_source_range(CXXCI->getSourceRange(), Rewrite);
+				if (!SR.isValid()) {
+					return;
+				}
+
+				std::string source_location_str;
+				std::string source_text;
+
+				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+
+				if (filtered_out_by_location(MR, SR.getBegin())) {
+					return void();
+				}
+
+				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+
+				auto CXXCIISR = instantiation_source_range(CXXCI->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CXXCIISR);
+				if (supress_check_flag) {
+					return;
+				}
+
+				const auto FD = CXXCI->getMember();
+				if (!FD) {
+					/* This is presumably a base class initializer (rather than a member field initializer). */
+					return;
+				}
+				const auto name = FD->getNameAsString();
+
+				const auto EX = CXXCI->getInit();
+				if (EX) {
+					auto CXXThisExpr_range = get_contained_elements_of_type_CXXThisExpr(*EX);
+					for (const auto CXXTE : CXXThisExpr_range) {
+						assert(CXXTE);
+						const auto ME = get_immediately_containing_MemberExpr_from_CXXThisExpr_if_any(*CXXTE, *(MR.Context));
+						if (ME) {
+							const auto FD2 = get_FieldDecl_from_MemberExpr_if_any(*ME);
+							if (FD2) {
+								bool res = first_is_contained_in_scope_of_second(FD, FD2, *(MR.Context));
+								if ((!res) || (FD == FD2)) {
+									const std::string error_desc = std::string("The field '") + FD2->getNameAsString()
+										+ "' may be being referenced before it has been constructed.";
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n";
+									}
+								}
+							} else {
+								const auto CXXMD = dyn_cast<const CXXMethodDecl>(ME->getMemberDecl());
+								if (CXXMD) {
+									/* error: Cannot verify that the member function used here can't access part of
+									the object that hasn't been constructed yet. */
+									const std::string error_desc = std::string("Calling non-static member functions ")
+									+ "(such as '" + CXXMD->getNameAsString() + "') of an object is not supported in "
+									+ "constructor initializers or direct field initializers of the object. Consider "
+									+ "using a static member or free function instead. ";
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n";
+									}
+								} else {
+									/* Since this MemberExpr was obtained from a CXXThisExpr, if it doesn't refer to
+									a field, then presumably it refers to a (non-static) member function.
+									So arriving here would be unexpected. */
+									int q = 5;
+								}
+							}
+						} else {
+							const std::string error_desc = std::string("Cannot verify that the 'this' pointer ")
+							+ "used here can't be used to access part of the object that hasn't been constructed yet.";
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+							if (res.second) {
+								std::cout << (*(res.first)).as_a_string1() << " \n";
+							}
+						}
+					}
+				} else {
+					if (FD->getType()->isPointerType()) {
+						const auto ICIS = FD->getInClassInitStyle();
+						const auto ICIEX = FD->getInClassInitializer();
+						if (!ICIS_ListInit) {
+							int q = 5;
+							/* error: Raw pointer member fields require explicit initialization. */
+						} else {
+							if (ICIEX) {
+								bool null_initialization = is_nullptr_literal(ICIEX);
+
+								if (null_initialization) {
+									int q = 5;
+									/*
+									const std::string error_desc = std::string("Null initialization of ")
+										+ "native pointers is not supported.";
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n";
+									}
+									*/
+								}
+							}
 						}
 					}
 				}
@@ -2912,7 +3089,7 @@ namespace checker {
 				}
 				if (LHSVD) {
 					if (RHSVD) {
-						satisfies_checks |= first_is_contained_in_scope_of_second(*LHSVD, *RHSVD, *(MR.Context));
+						satisfies_checks |= first_is_contained_in_scope_of_second(LHSVD, RHSVD, *(MR.Context));
 					} else {
 						/* The rhs was not a pointer variable (or member of a variable). */
 						const clang::Expr* subexpr = nullptr;
@@ -2948,7 +3125,7 @@ namespace checker {
 								auto VD = dyn_cast<const clang::VarDecl>(D1);
 								if (VD) {
 									RHSVD = VD;
-									satisfies_checks |= first_is_contained_in_scope_of_second(*LHSVD, *RHSVD, *(MR.Context));
+									satisfies_checks |= first_is_contained_in_scope_of_second(LHSVD, RHSVD, *(MR.Context));
 								}
 							} else {
 								/* The target object from which the new pointer value is being derived is not expressed
@@ -3009,7 +3186,7 @@ namespace checker {
 									auto VD = dyn_cast<const clang::VarDecl>(D1);
 									if (VD) {
 										RHSVD = VD;
-										satisfies_checks |= first_is_contained_in_scope_of_second(*LHSVD, *RHSVD, *(MR.Context));
+										satisfies_checks |= first_is_contained_in_scope_of_second(LHSVD, RHSVD, *(MR.Context));
 									}
 								}
 							}
@@ -3258,7 +3435,7 @@ namespace checker {
 			HandlerForSSSMakeXScopePointerTo(R, tu_state()), HandlerForSSSNativeReferenceVar(R, tu_state()),
 			HandlerForSSSArgToNativeReferenceParam(R, tu_state()), HandlerForSSSPointerArithmetic(R, tu_state()), HandlerForSSSAddressOf(R, tu_state()),
 			HandlerForSSSNativePointerVar(R, tu_state()), HandlerForSSSCast(R, tu_state()), HandlerForSSSMemberFunctionCall(R, tu_state()),
-			HandlerForSSSPointerAssignment(R, tu_state())
+			HandlerForSSSConstructionInitializer(R, tu_state()), HandlerForSSSPointerAssignment(R, tu_state())
 		{
 			Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerMisc1);
 			Matcher.addMatcher(callExpr(argumentCountIs(0)).bind("mcssssuppresscheckmemberdeclmcssssuppresscheckcall"), &HandlerForSSSSupressCheckDirectiveCall);
@@ -3297,6 +3474,7 @@ namespace checker {
 			Matcher.addMatcher(cxxFunctionalCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
 			Matcher.addMatcher(cxxConstCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
 			Matcher.addMatcher(cxxMemberCallExpr().bind("mcsssmemberfunctioncall1"), &HandlerForSSSMemberFunctionCall);
+			Matcher.addMatcher(cxxCtorInitializer().bind("mcsssconstructioninitializer1"), &HandlerForSSSConstructionInitializer);
 			Matcher.addMatcher(expr(allOf(
 				ignoringImplicit(ignoringParenImpCasts(expr(
 						binaryOperator(hasOperatorName("="))
@@ -3343,6 +3521,7 @@ namespace checker {
 		MCSSSNativePointerVar HandlerForSSSNativePointerVar;
 		MCSSSCast HandlerForSSSCast;
 		MCSSSMemberFunctionCall HandlerForSSSMemberFunctionCall;
+		MCSSSConstructionInitializer HandlerForSSSConstructionInitializer;
 		MCSSSPointerAssignment HandlerForSSSPointerAssignment;
 
 		MatchFinder Matcher;
