@@ -205,16 +205,16 @@ namespace checker {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
@@ -296,16 +296,16 @@ namespace checker {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto method_name = CXXMD->getNameAsString();
 				static const std::string suppress_checks_prefix = "mse_suppress_check_directive";
@@ -632,87 +632,190 @@ namespace checker {
 	}
 
 
-	class MCSSSStmtUtil : public MatchFinder::MatchCallback
+	class MCSSSExprUtil : public MatchFinder::MatchCallback
 	{
 	public:
-		MCSSSStmtUtil (Rewriter &Rewrite, CTUState& state1) :
+		MCSSSExprUtil (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
-			const clang::Stmt* ST = MR.Nodes.getNodeAs<clang::Stmt>("mcsssstmtutil1");
+			const clang::Expr* EX = MR.Nodes.getNodeAs<clang::Expr>("mcsssexprutil1");
 
-			if (ST != nullptr)
+			if (EX != nullptr)
 			{
-				auto SR = nice_source_range(ST->getSourceRange(), Rewrite);
+				auto SR = nice_source_range(EX->getSourceRange(), Rewrite);
 				if (!SR.isValid()) {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				if (std::string::npos != debug_source_location_str.find(":264:")) {
+					int q = 5;
+				}
 
-				auto STISR = instantiation_source_range(ST->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(STISR);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto EXISR = instantiation_source_range(EX->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
 				if (supress_check_flag) {
 					return;
 				}
 
-				auto const * const EX = dyn_cast<const Expr>(ST);
-				if (EX) {
+				{
 					auto const * const EX_ii = EX->IgnoreImplicit()->IgnoreParenImpCasts();
 					auto const * const CE = dyn_cast<const CallExpr>(EX_ii);
 					if (CE) {
 						auto function_decl = CE->getDirectCallee();
 						auto num_args = CE->getNumArgs();
+						//function_decl->isInStdNamespace();
 						if (function_decl) {
 							const std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-							static const std::string std_move_str = "std::move";
-							if (std_move_str == qualified_function_name) {
-								if (1 == num_args) {
-									auto l_source_text = Rewrite.getRewrittenText(SR);
-									if (true || string_begins_with(l_source_text, std_move_str)) {
-										/* todo: check for aliases */
-										const std::string error_desc = std::string("Explicit use of std::move() ")
-											+ "is not (yet) supported.";
+							const auto FDSR = function_decl->getSourceRange();
+							bool is_potentially_from_standard_header = FDSR.getBegin().isInvalid()
+								|| MR.SourceManager->isInSystemHeader(FDSR.getBegin());
+							if (!is_potentially_from_standard_header) {
+								bool filename_is_invalid = false;
+								std::string full_path_name = MR.SourceManager->getBufferName(FDSR.getBegin(), &filename_is_invalid);
+								static const std::string built_in_str = "<built-in>";
+								is_potentially_from_standard_header |= (built_in_str == full_path_name);
+							}
+							if (is_potentially_from_standard_header) {
+								static const std::string std_move_str = "std::move";
+								if (std_move_str == qualified_function_name) {
+									if (1 == num_args) {
+										auto l_source_text = Rewrite.getRewrittenText(SR);
+										if (true || string_begins_with(l_source_text, std_move_str)) {
+											/* todo: check for aliases */
+											const std::string error_desc = std::string("Explicit use of std::move() ")
+												+ "is not (yet) supported.";
+											auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+											if (res.second) {
+												std::cout << (*(res.first)).as_a_string1() << " \n";
+											}
+										}
+									}
+								} else {
+									static const std::string malloc_str = "malloc";
+									static const std::string realloc_str = "realloc";
+									static const std::string free_str = "free";
+									static const std::string alloca_str = "alloca";
+									std::string unsupported_function_str;
+									if (malloc_str == qualified_function_name) {
+										unsupported_function_str = malloc_str;
+									} else if (realloc_str == qualified_function_name) {
+										unsupported_function_str = realloc_str;
+									} else if (free_str == qualified_function_name) {
+										unsupported_function_str = free_str;
+									} else if (alloca_str == qualified_function_name) {
+										unsupported_function_str = alloca_str;
+									}
+									if ("" != unsupported_function_str) {
+										const std::string error_desc = std::string("The '") + unsupported_function_str
+											+ "' function is not supported.";
 										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 										if (res.second) {
 											std::cout << (*(res.first)).as_a_string1() << " \n";
 										}
-									}
-								}
-							} else {
-								static const std::string malloc_str = "malloc";
-								static const std::string realloc_str = "realloc";
-								static const std::string free_str = "free";
-								static const std::string alloca_str = "alloca";
-								std::string unsupported_function_str;
-								if (malloc_str == qualified_function_name) {
-									unsupported_function_str = malloc_str;
-								} else if (realloc_str == qualified_function_name) {
-									unsupported_function_str = realloc_str;
-								} else if (free_str == qualified_function_name) {
-									unsupported_function_str = free_str;
-								} else if (alloca_str == qualified_function_name) {
-									unsupported_function_str = alloca_str;
-								}
-								if ("" != unsupported_function_str) {
-									const std::string error_desc = std::string("The '") + unsupported_function_str
-										+ "' function is not supported.";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n";
+									} else {
+										for (const auto& arg_EX : CE->arguments()) {
+											assert(arg_EX);
+											auto const * const LE = dyn_cast<const clang::LambdaExpr>(arg_EX->IgnoreImplicit()->IgnoreParenImpCasts());
+											if (LE) {
+												/* We're passing a lambda expression as a parameter to some kind of
+												standard library (or system) function. In regular code, the lambda
+												would be checked when/where it's actually called, but since we don't
+												check standard library (or system) code, we have to check for potential
+												dangers here where it's being passed as a parameter. */
+												const auto CXXMD = LE->getCallOperator();
+												assert(CXXMD);
+												for (const auto& param : CXXMD->parameters()) {
+													if (param->getType()->isReferenceType()) {
+														auto param_SR = param->getSourceRange();
+														if (param_SR.isInvalid()) {
+															param_SR = LE->getSourceRange();
+															if (param_SR.isInvalid()) {
+																param_SR = SR;
+															}
+														}
+														const std::string error_desc = std::string("Cannot verify the safety ")
+															+ "of the native reference lambda parameter '" + param->getNameAsString()
+															+ "' here.";
+														auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, param_SR.getBegin(), error_desc));
+														if (res.second) {
+															std::cout << (*(res.first)).as_a_string1() << " \n";
+														}
+													}
+												}
+												const auto CXXRD = LE->getLambdaClass();
+												if (CXXRD) {
+													for (const auto& field : CXXRD->fields()) {
+														if (field->getType()->isReferenceType()) {
+															auto field_SR = field->getSourceRange();
+															if (field_SR.isInvalid()) {
+																field_SR = LE->getSourceRange();
+																if (field_SR.isInvalid()) {
+																	field_SR = SR;
+																}
+															}
+															std::string error_desc = std::string("Cannot verify the safety of ");
+															const auto field_name = field->getNameAsString();
+															if ("" == field_name) {
+																error_desc += "a native reference lambda capture field of type '"
+																+ field->getType().getAsString() + "'.";
+															} else {
+																error_desc += "the native reference lambda capture field ('" + field_name
+																+ "').";
+															}
+															auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, field_SR.getBegin(), error_desc));
+															if (res.second) {
+																std::cout << (*(res.first)).as_a_string1() << " \n";
+															}
+														}
+													}
+												} else {
+													int q = 5;
+												}
+											}
+
+											auto function_decl = CE->getDirectCallee();
+											const auto num_args = CE->getNumArgs();
+											if (function_decl) {
+												std::string function_name = function_decl->getNameAsString();
+												std::string qualified_function_name = function_decl->getQualifiedNameAsString();
+												static const std::string str = "str";
+												if (string_begins_with(function_name, str)) {
+													for (const auto& param : function_decl->parameters()) {
+														const auto uqtype_str = param->getType().getUnqualifiedType().getAsString();
+														static const std::string const_char_star_str = "const char *";
+														static const std::string char_star_str = "char *";
+														if ((const_char_star_str == uqtype_str) || (char_star_str == uqtype_str)) {
+															const std::string error_desc = std::string("'") + qualified_function_name
+																+ "' heuristically looks like a C standard library string function. "
+																+ "Those are not supported.";
+															auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+															if (res.second) {
+																std::cout << (*(res.first)).as_a_string1() << " \n";
+															}
+														}
+													}
+												}
+
+											}
+
+										}
 									}
 								}
 							}
+
 						}
 					} else {
 						auto const * const CXXNE = dyn_cast<const clang::CXXNewExpr>(EX_ii);
@@ -844,16 +947,16 @@ namespace checker {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto DISR = instantiation_source_range(D->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(DISR);
@@ -1203,16 +1306,16 @@ namespace checker {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto DREISR = instantiation_source_range(DRE->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(DREISR);
@@ -1292,16 +1395,16 @@ namespace checker {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto STISR = instantiation_source_range(ST->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(STISR);
@@ -1370,16 +1473,16 @@ namespace checker {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto RDISR = instantiation_source_range(RD->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(RDISR);
@@ -1624,16 +1727,16 @@ namespace checker {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto CEISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CEISR);
@@ -2176,16 +2279,16 @@ namespace checker {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto CEISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CEISR);
@@ -2240,16 +2343,16 @@ namespace checker {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto VDISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(VDISR);
@@ -2273,7 +2376,7 @@ namespace checker {
 						bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context));
 						if (!satisfies_checks) {
 							const std::string error_desc = std::string("Cannot verify that the ")
-								+ "native reference (" + qtype_str + ") is safe here.";
+								+ "native reference (of type '" + qtype_str + "') is safe here.";
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
 								std::cout << (*(res.first)).as_a_string1() << " \n";
@@ -2306,16 +2409,16 @@ namespace checker {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto CEISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CEISR);
@@ -2372,7 +2475,9 @@ namespace checker {
 
 								const std::string error_desc = std::string("Cannot verify that the ")
 									+ "argument passed to the parameter of native reference type ("
-									+ qtype_str + ") is safe here.";
+									+ qtype_str + ") is safe here. (This is often addressed "
+									+ "by obtaining a scope pointer to the intended argument and passing "
+									+ "an expression consisting of a dereference of that pointer.)";
 								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 								if (res.second) {
 									std::cout << (*(res.first)).as_a_string1() << " \n";
@@ -2406,16 +2511,16 @@ namespace checker {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto EXISR = instantiation_source_range(EX->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
@@ -2456,16 +2561,16 @@ namespace checker {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto EXISR = instantiation_source_range(EX->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
@@ -2522,16 +2627,16 @@ namespace checker {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto VDISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(VDISR);
@@ -2611,16 +2716,16 @@ namespace checker {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto EXISR = instantiation_source_range(EX->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
@@ -2714,16 +2819,16 @@ namespace checker {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto CXXMCEISR = instantiation_source_range(CXXMCE->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CXXMCEISR);
@@ -2804,7 +2909,9 @@ namespace checker {
 					if (!satisfies_checks) {
 						const std::string error_desc = std::string("Cannot verify that the 'this' pointer ")
 							+ "will remain valid for the duration of the member function call ('"
-							+ CXXMCE->getDirectCallee()->getNameAsString() + "').";
+							+ CXXMCE->getDirectCallee()->getNameAsString() + "'). (This is often addressed "
+							+ "by obtaining a scope pointer to the object then calling the member function "
+							+ "through the scope pointer.)";
 						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 						if (res.second) {
 							std::cout << (*(res.first)).as_a_string1() << " \n";
@@ -2836,16 +2943,16 @@ namespace checker {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto CXXCIISR = instantiation_source_range(CXXCI->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CXXCIISR);
@@ -2979,20 +3086,20 @@ namespace checker {
 					return;
 				}
 
-				std::string source_location_str;
-				std::string source_text;
+				std::string debug_source_location_str;
+				std::string debug_source_text;
 
-				DEBUG_SET_SOURCE_LOCATION_STR(source_location_str, SR, MR);
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
 				}
 
-				if (std::string::npos != source_location_str.find(":226:")) {
+				if (std::string::npos != debug_source_location_str.find(":226:")) {
 					int q = 5;
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(source_text, SR, Rewrite);
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto ISR = (BO != nullptr) ? instantiation_source_range(BO->getSourceRange(), Rewrite)
 					: instantiation_source_range(CXXOCE->getSourceRange(), Rewrite);
@@ -3322,11 +3429,11 @@ namespace checker {
 						}
 
 						auto SL = SR.getBegin();
-						std::string source_location_str = SL.printToString(localRewriter.getSourceMgr());
+						std::string debug_source_location_str = SL.printToString(localRewriter.getSourceMgr());
 
-						if (std::string::npos != source_location_str.find("lodepng.cpp")) {
+						if (std::string::npos != debug_source_location_str.find("lodepng.cpp")) {
 							int q = 5;
-						} else if (std::string::npos != source_location_str.find("lodepng_util.cpp")) {
+						} else if (std::string::npos != debug_source_location_str.find("lodepng_util.cpp")) {
 							int q = 5;
 						} else {
 							int q = 5;
@@ -3430,7 +3537,7 @@ namespace checker {
 	public:
 		MyASTConsumer(Rewriter &R, CompilerInstance &CI, CTUState &tu_state_param) : m_tu_state_ptr(&tu_state_param), HandlerMisc1(R, tu_state(), CI),
 			HandlerForSSSSupressCheckDirectiveCall(R, tu_state()), HandlerForSSSSupressCheckDirectiveDeclField(R, tu_state()),
-			HandlerForSSSStmtUtil(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForSSSDeclRefExprUtil(R, tu_state()),
+			HandlerForSSSExprUtil(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForSSSDeclRefExprUtil(R, tu_state()),
 			HandlerForSSSReturnStmt(R, tu_state()), HandlerForSSSRecordDecl2(R, tu_state()), HandlerForSSSAsAnFParam(R, tu_state()),
 			HandlerForSSSMakeXScopePointerTo(R, tu_state()), HandlerForSSSNativeReferenceVar(R, tu_state()),
 			HandlerForSSSArgToNativeReferenceParam(R, tu_state()), HandlerForSSSPointerArithmetic(R, tu_state()), HandlerForSSSAddressOf(R, tu_state()),
@@ -3440,7 +3547,12 @@ namespace checker {
 			Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerMisc1);
 			Matcher.addMatcher(callExpr(argumentCountIs(0)).bind("mcssssuppresscheckmemberdeclmcssssuppresscheckcall"), &HandlerForSSSSupressCheckDirectiveCall);
 			Matcher.addMatcher(cxxMethodDecl(decl().bind("mcssssuppresscheckmemberdecl")), &HandlerForSSSSupressCheckDirectiveDeclField);
-			Matcher.addMatcher(stmt().bind("mcsssstmtutil1"), &HandlerForSSSStmtUtil);
+
+			Matcher.addMatcher(expr().bind("mcsssexprutil1"), &HandlerForSSSExprUtil);
+			Matcher.addMatcher(callExpr().bind("mcsssexprutil1"), &HandlerForSSSExprUtil);
+			Matcher.addMatcher(cxxNewExpr().bind("mcsssexprutil1"), &HandlerForSSSExprUtil);
+			Matcher.addMatcher(cxxDeleteExpr().bind("mcsssexprutil1"), &HandlerForSSSExprUtil);
+
 			Matcher.addMatcher(decl().bind("mcsssdeclutil1"), &HandlerForSSSDeclUtil);
 			Matcher.addMatcher(declRefExpr().bind("mcsssdeclrefexprutil1"), &HandlerForSSSDeclRefExprUtil);
 			Matcher.addMatcher(returnStmt().bind("mcsssreturnstmt"), &HandlerForSSSReturnStmt);
@@ -3507,7 +3619,7 @@ namespace checker {
 		Misc1 HandlerMisc1;
 		MCSSSSupressCheckDirectiveCall HandlerForSSSSupressCheckDirectiveCall;
 		MCSSSSupressCheckDirectiveDeclField HandlerForSSSSupressCheckDirectiveDeclField;
-		MCSSSStmtUtil HandlerForSSSStmtUtil;
+		MCSSSExprUtil HandlerForSSSExprUtil;
 		MCSSSDeclUtil HandlerForSSSDeclUtil;
 		MCSSSDeclRefExprUtil HandlerForSSSDeclRefExprUtil;
 		MCSSSReturnStmt HandlerForSSSReturnStmt;

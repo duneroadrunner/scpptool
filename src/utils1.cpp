@@ -111,9 +111,10 @@ bool filtered_out_by_filename(const std::string &filename) {
 	bool retval = false;
 
 	static const std::string mse_str = "mse";
+	static const std::string built_in_str = "<built-in>";
 	if (0 == filename.compare(0, mse_str.size(), mse_str)) {
 		retval = true;
-	} else if ("<built-in>" == filename) {
+	} else if (built_in_str == filename) {
 		retval = true;
 	}
 
@@ -161,7 +162,6 @@ bool filtered_out_by_location(const SourceManager &SM, SourceLocation SL) {
 				filename = "";
 			}
 		}
-		static const std::string mse_str = "mse";
 		if (filtered_out_by_filename(filename)) {
 			retval = true;
 		}
