@@ -690,13 +690,18 @@ namespace checker {
 							}
 							if (is_potentially_from_standard_header) {
 								static const std::string std_move_str = "std::move";
-								if (std_move_str == qualified_function_name) {
-									if (1 == num_args) {
+								if ((std_move_str == qualified_function_name) && (1 == num_args)) {
+									const auto arg_EX = CE->getArg(0);
+									assert(arg_EX);
+									const auto arg_qtype = arg_EX->getType();
+									const auto arg_qtype_str = arg_EX->getType().getAsString();
+									if (is_xscope_type(arg_qtype, (*this).m_state1)) {
 										auto l_source_text = Rewrite.getRewrittenText(SR);
 										if (true || string_begins_with(l_source_text, std_move_str)) {
 											/* todo: check for aliases */
 											const std::string error_desc = std::string("Explicit use of std::move() ")
-												+ "is not (yet) supported.";
+												+ "on objects of scope type (including '" + arg_EX->getType().getAsString()
+												+ "') is not supported.";
 											auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 											if (res.second) {
 												std::cout << (*(res.first)).as_a_string1() << " \n";
