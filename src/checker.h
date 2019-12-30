@@ -512,6 +512,33 @@ namespace checker {
 		return retval;
 	}
 
+	bool contains_non_owning_scope_reference(const clang::QualType qtype, const CTUState& tu_state_cref);
+	bool contains_non_owning_scope_reference(const clang::Type& type, const CTUState& tu_state_cref) {
+		bool retval = false;
+
+		auto CXXRD = type.getAsCXXRecordDecl();
+		if (CXXRD) {
+			DECLARE_CACHED_CONST_STRING(ContainsNonOwningScopeReference_tag_str, g_mse_namespace_str + "::us::impl::ContainsNonOwningScopeReferenceTagBase");
+			if (has_ancestor_base_class(*(CXXRD->getTypeForDecl()), ContainsNonOwningScopeReference_tag_str)) {
+				return true;
+			}
+		} else if ((!(tu_state_cref.m_MSE_SOME_NON_XSCOPE_POINTER_TYPE_IS_DISABLED_defined))
+			&& ((type.isPointerType()) || (type.isReferenceType()))) {
+			return true;
+		}
+		return retval;
+	}
+	bool contains_non_owning_scope_reference(const clang::QualType qtype, const CTUState& tu_state_cref) {
+		bool retval = false;
+
+		std::string qtype_str = qtype.getAsString();
+		const auto TP = qtype.getTypePtr();
+		if (!TP) { assert(false); } else {
+			retval = contains_non_owning_scope_reference(*TP, tu_state_cref);
+		}
+		return retval;
+	}
+
 	bool has_tag_method(const clang::CXXRecordDecl& record_decl_cref, const std::string& target_name) {
 		bool retval = false;
 		auto qname = record_decl_cref.getQualifiedNameAsString();
@@ -695,16 +722,35 @@ namespace checker {
 									assert(arg_EX);
 									const auto arg_qtype = arg_EX->getType();
 									const auto arg_qtype_str = arg_EX->getType().getAsString();
-									if (is_xscope_type(arg_qtype, (*this).m_state1)) {
+									if (contains_non_owning_scope_reference(arg_qtype, (*this).m_state1)) {
 										auto l_source_text = Rewrite.getRewrittenText(SR);
 										if (true || string_begins_with(l_source_text, std_move_str)) {
 											/* todo: check for aliases */
-											const std::string error_desc = std::string("Explicit use of std::move() ")
-												+ "on objects of scope type (including '" + arg_EX->getType().getAsString()
-												+ "') is not supported.";
+											const std::string error_desc = std::string("Explicit use of std::move() on ")
+												+ "scope references or objects that contain scope references (including '" + arg_EX->getType().getAsString()
+												+ "')" + " is not supported.";
 											auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 											if (res.second) {
 												std::cout << (*(res.first)).as_a_string1() << " \n";
+											}
+										}
+									} else {
+										const auto* CXXRD = arg_qtype.getTypePtr()->getAsCXXRecordDecl();
+										if (CXXRD) {
+											auto name = CXXRD->getQualifiedNameAsString();
+											const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
+											if (tmplt_CXXRD) {
+												name = tmplt_CXXRD->getQualifiedNameAsString();
+											}
+
+											DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, g_mse_namespace_str + "::TXScopeOwnerPointer");
+											if (name == xscope_owner_ptr_str) {
+												const std::string error_desc = std::string("Explicit use of std::move() on ")
+													+ xscope_owner_ptr_str + "<> " + " is not supported.";
+												auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+												if (res.second) {
+													std::cout << (*(res.first)).as_a_string1() << " \n";
+												}
 											}
 										}
 									}
