@@ -1,5 +1,5 @@
 
-Nov 2019
+Dec 2019
 
 ### How to Build:
 
@@ -115,7 +115,7 @@ void main(int argc, char* argv[]) {
 }
 ```
 
-the native reference `item` would be flagged as "not verifiably safe". You can instead use [`mse::for_each_ptr()`](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#for_each_ptr) like so
+the native reference `item` would be flagged as "not verifiably safe". You could instead use [`mse::for_each_ptr()`](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#for_each_ptr) like so
 
 ```cpp
 #include "msemstdvector.h"
