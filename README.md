@@ -99,6 +99,47 @@ The expressions used to assign a new value to a retargetable (aka non-`const`) p
 
 Native references are subject to essentially the same restrictions as non-retargetable native pointers. The functional difference between native references and non-retargetable native pointers is that C++ permits (`const`) native references to temporaries, perhaps making them a little more convenient to use as function parameters.
 
+#### Range-based `for` loops by reference
+
+One common use case for native references that this tool can't generally verify to be safe is range-based `for` loops. So for example in this code:
+
+```cpp
+#include "msemstdvector.h"
+
+void main(int argc, char* argv[]) {
+    mse::mstd::vector<int> vec1{1, 2, 3};
+    for (auto& item : vec1) {
+        //vec1.clear();
+        item += 5;
+    }
+}
+```
+
+the native reference `item` would be flagged as "not verifiably safe". You can instead use [`mse::for_each_ptr()`](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#for_each_ptr) like so
+
+```cpp
+#include "msemstdvector.h"
+#include "msealgorithm.h"
+
+void main(int argc, char* argv[]) {
+    mse::mstd::vector<int> vec1{1, 2, 3};
+    mse::for_each_ptr(vec1.begin(), vec1.end(), [](auto item_ptr){ *item_ptr += 5; });
+}
+```
+
+or the "range-based" version
+
+```cpp
+#include "msemstdvector.h"
+#include "msealgorithm.h"
+#include "msescope.h"
+
+void main(int argc, char* argv[]) {
+    auto xscope_vec1 = mse::make_xscope(mse::mstd::vector<int>{1, 2, 3});
+    mse::xscope_range_for_each_ptr(&xscope_vec1, [](auto item_ptr){ *item_ptr += 5; });
+}
+```
+
 #### Lambda captures
 
 Just as a class or struct that contains fields of scope type, [must itself be a scope type](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#defining-your-own-scope-types), a lambda expression with captures of scope type (including native references) must itself be a "scope lambda". Scope lambdas are created using one of:
