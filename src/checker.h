@@ -539,6 +539,30 @@ namespace checker {
 		return retval;
 	}
 
+	bool referenceable_by_scope_pointer(const clang::QualType qtype, const CTUState& tu_state_cref);
+	bool referenceable_by_scope_pointer(const clang::Type& type, const CTUState& tu_state_cref) {
+		bool retval = false;
+
+		auto CXXRD = type.getAsCXXRecordDecl();
+		if (CXXRD) {
+			DECLARE_CACHED_CONST_STRING(ReferenceableByScopePointer_tag_str, g_mse_namespace_str + "::us::impl::ReferenceableByScopePointerTagBase");
+			if (has_ancestor_base_class(*(CXXRD->getTypeForDecl()), ReferenceableByScopePointer_tag_str)) {
+				return true;
+			}
+		}
+		return retval;
+	}
+	bool referenceable_by_scope_pointer(const clang::QualType qtype, const CTUState& tu_state_cref) {
+		bool retval = false;
+
+		std::string qtype_str = qtype.getAsString();
+		const auto TP = qtype.getTypePtr();
+		if (!TP) { assert(false); } else {
+			retval = referenceable_by_scope_pointer(*TP, tu_state_cref);
+		}
+		return retval;
+	}
+
 	bool has_tag_method(const clang::CXXRecordDecl& record_decl_cref, const std::string& target_name) {
 		bool retval = false;
 		auto qname = record_decl_cref.getQualifiedNameAsString();
@@ -722,16 +746,16 @@ namespace checker {
 									assert(arg_EX);
 									const auto arg_qtype = arg_EX->getType();
 									const auto arg_qtype_str = arg_EX->getType().getAsString();
-									if (contains_non_owning_scope_reference(arg_qtype, (*this).m_state1)) {
+									if (referenceable_by_scope_pointer(arg_qtype, (*this).m_state1)) {
 										auto l_source_text = Rewrite.getRewrittenText(SR);
 										if (true || string_begins_with(l_source_text, std_move_str)) {
 											/* todo: check for aliases */
-											const std::string error_desc = std::string("Explicit use of std::move() on ")
-												+ "scope references or objects that contain scope references (including '" + arg_EX->getType().getAsString()
-												+ "')" + " is not supported.";
+											const std::string error_desc = std::string("Cannot (yet) verify the safety of this explicit use of std::move() with ")
+												+ "argument type '" + arg_EX->getType().getAsString() + "'). (Note that explicit use of std::move() with 'mse::TXScopeOwnerPointer<>' "
+												+ "or any object that might contain an 'mse::TXScopeOwnerPointer<>' is not supported.) ";
 											auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 											if (res.second) {
-												std::cout << (*(res.first)).as_a_string1() << " \n";
+												std::cout << (*(res.first)).as_a_string1() << " \n\n";
 											}
 										}
 									} else {
@@ -749,7 +773,7 @@ namespace checker {
 													+ xscope_owner_ptr_str + "<> " + " is not supported.";
 												auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 												if (res.second) {
-													std::cout << (*(res.first)).as_a_string1() << " \n";
+													std::cout << (*(res.first)).as_a_string1() << " \n\n";
 												}
 											}
 										}
@@ -774,7 +798,7 @@ namespace checker {
 											+ "' function is not supported.";
 										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n";
+											std::cout << (*(res.first)).as_a_string1() << " \n\n";
 										}
 									} else {
 										for (const auto& arg_EX : CE->arguments()) {
@@ -802,7 +826,7 @@ namespace checker {
 															+ "' here.";
 														auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, param_SR.getBegin(), error_desc));
 														if (res.second) {
-															std::cout << (*(res.first)).as_a_string1() << " \n";
+															std::cout << (*(res.first)).as_a_string1() << " \n\n";
 														}
 													}
 												}
@@ -828,7 +852,7 @@ namespace checker {
 															}
 															auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, field_SR.getBegin(), error_desc));
 															if (res.second) {
-																std::cout << (*(res.first)).as_a_string1() << " \n";
+																std::cout << (*(res.first)).as_a_string1() << " \n\n";
 															}
 														}
 													}
@@ -854,7 +878,7 @@ namespace checker {
 																+ "Those are not supported.";
 															auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 															if (res.second) {
-																std::cout << (*(res.first)).as_a_string1() << " \n";
+																std::cout << (*(res.first)).as_a_string1() << " \n\n";
 															}
 														}
 													}
@@ -882,7 +906,7 @@ namespace checker {
 								+ "' is not supported.";
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n";
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
 							}
 						}
 
@@ -1077,7 +1101,7 @@ namespace checker {
 								}
 								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n";
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
 								}
 							}
 						}
@@ -1091,7 +1115,7 @@ namespace checker {
 										+ "scalar variable ";
 									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n";
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
 									}
 								}
 							}
@@ -1107,7 +1131,7 @@ namespace checker {
 									+ "construction/initialization is not supported.";
 								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n";
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
 								}
 							}
 						}
@@ -1136,7 +1160,7 @@ namespace checker {
 												+ "require direct initializers.";
 											auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 											if (res.second) {
-												std::cout << (*(res.first)).as_a_string1() << " \n";
+												std::cout << (*(res.first)).as_a_string1() << " \n\n";
 											}
 										}
 									}
@@ -1169,7 +1193,7 @@ namespace checker {
 										+ "'check suppression' directive. ";
 									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n";
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
 									}
 								}
 							} else {
@@ -1188,7 +1212,7 @@ namespace checker {
 										+ "'check suppression' directive. ";
 									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n";
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
 									}
 								}
 							} else {
@@ -1207,7 +1231,7 @@ namespace checker {
 										+ "'check suppression' directive. ";
 									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n";
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
 									}
 								}
 							} else {
@@ -1246,7 +1270,7 @@ namespace checker {
 									+ "mse::rsv::TFParam<>. ";
 								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n";
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
 								}
 							}
 						} else if (qtype.getTypePtr()->isUnionType()) {
@@ -1254,7 +1278,7 @@ namespace checker {
 								+ "supported. ";
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n";
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
 							}
 						} else {
 							struct CErrDef {
@@ -1282,7 +1306,7 @@ namespace checker {
 									}
 									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n";
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
 									}
 									break;
 								}
@@ -1300,7 +1324,7 @@ namespace checker {
 								+ "supported. ";
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n";
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
 							}
 						}
 					}
@@ -1326,7 +1350,7 @@ namespace checker {
 									+ "So its use requires a 'check suppression' directive.";
 								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n";
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
 								}
 							}
 						}
@@ -1414,7 +1438,7 @@ namespace checker {
 									+ "Their use requires a 'check suppression' directive.";
 								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n";
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
 								}
 							}
 						}
@@ -1494,7 +1518,7 @@ namespace checker {
 							+ "need to be wrapped in the mse::return_value() function wrapper.";
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n";
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
 							}
 						}
 					}
@@ -1555,10 +1579,6 @@ namespace checker {
 				auto CXXRD = RD->getTypeForDecl()->getAsCXXRecordDecl();
 				if (RD->isThisDeclarationADefinition()) {
 					bool is_lambda = false;
-
-					DECLARE_CACHED_CONST_STRING(xscope_tag_str, g_mse_namespace_str + "::us::impl::XScopeTagBase");
-					DECLARE_CACHED_CONST_STRING(ContainsNonOwningScopeReference_tag_str, g_mse_namespace_str + "::us::impl::ContainsNonOwningScopeReferenceTagBase");
-					DECLARE_CACHED_CONST_STRING(ReferenceableByScopePointer_tag_str, g_mse_namespace_str + "::us::impl::ReferenceableByScopePointerTagBase");
 
 					bool has_xscope_tag_base = false;
 					bool has_ContainsNonOwningScopeReference_tag_base = false;
@@ -1647,7 +1667,7 @@ namespace checker {
 										+ "' (raw) pointer field.";
 										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, constructor_SR.getBegin(), error_desc));
 										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n";
+											std::cout << (*(res.first)).as_a_string1() << " \n\n";
 										}
 									}
 								}
@@ -1656,10 +1676,10 @@ namespace checker {
 						if (is_xscope_type(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
 							has_xscope_tag_base = true;
 						}
-						if (has_ancestor_base_class(*(CXXRD->getTypeForDecl()), ContainsNonOwningScopeReference_tag_str)) {
+						if (contains_non_owning_scope_reference(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
 							has_ContainsNonOwningScopeReference_tag_base = true;
 						}
-						if (has_ancestor_base_class(*(CXXRD->getTypeForDecl()), ReferenceableByScopePointer_tag_str)) {
+						if (referenceable_by_scope_pointer(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
 							has_ReferenceableByScopePointer_tag_base = true;
 						}
 					}
@@ -1713,10 +1733,8 @@ namespace checker {
 									+ field_qtype_str + "') must inherit from mse::rsv::XScopeTagBase.";
 							}
 						}
-						if ((!has_ContainsNonOwningScopeReference_tag_base) && (
-								has_ancestor_base_class(field_qtype, ContainsNonOwningScopeReference_tag_str)
-								|| (field_qtype->isPointerType()) || (field_qtype->isReferenceType())
-							)) {
+						if ((!has_ContainsNonOwningScopeReference_tag_base)
+							&& contains_non_owning_scope_reference(field_qtype, (*this).m_state1)) {
 							if (is_lambda) {
 								error_desc = std::string("Lambdas that capture non-owning scope references (like '")
 									+ field_qtype_str + "') must be scope 'reference or pointer capture' lambdas "
@@ -1729,7 +1747,7 @@ namespace checker {
 							}
 						}
 						if ((!has_ReferenceableByScopePointer_tag_base)
-							&& has_ancestor_base_class(field_qtype, ReferenceableByScopePointer_tag_str)) {
+							&& referenceable_by_scope_pointer(field_qtype, (*this).m_state1)) {
 							if (is_lambda) {
 								/* The assumption is that we don't have to worry about scope pointers targeting
 								lambda capture variables(/fields) from outside the lambda, because they're not 
@@ -1744,7 +1762,7 @@ namespace checker {
 							auto FDISR = instantiation_source_range(field->getSourceRange(), Rewrite);
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
 							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n";
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
 							}
 						}
 					}
@@ -1818,7 +1836,7 @@ namespace checker {
 									+ "mse::rsv::as_a_returnable_fparam() may only be used with function parameters.";
 								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n";
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
 								}
 							}
 						} else {
@@ -2363,7 +2381,7 @@ namespace checker {
 									+ "mse::rsv::make_xscope_const_pointer_to() is safe here.";
 								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n";
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
 								}
 							}
 						}
@@ -2419,7 +2437,7 @@ namespace checker {
 							+ "not local variables (or function parameters) are not supported.";
 						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n";
+							std::cout << (*(res.first)).as_a_string1() << " \n\n";
 						}
 					}
 					auto* EX = VD->getInit();
@@ -2430,7 +2448,7 @@ namespace checker {
 								+ "native reference (of type '" + qtype_str + "') is safe here.";
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n";
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
 							}
 						}
 					}
@@ -2531,7 +2549,7 @@ namespace checker {
 									+ "an expression consisting of a dereference of that pointer.)";
 								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n";
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
 								}
 							}
 						}
@@ -2584,7 +2602,7 @@ namespace checker {
 						+ "native array subscripts) is not supported.";
 					auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 					if (res.second) {
-						std::cout << (*(res.first)).as_a_string1() << " \n";
+						std::cout << (*(res.first)).as_a_string1() << " \n\n";
 					}
 				}
 			}
@@ -2649,7 +2667,7 @@ namespace checker {
 							+ "of the '&' operator or std::addressof() is safe here.";
 						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n";
+							std::cout << (*(res.first)).as_a_string1() << " \n\n";
 						}
 					}
 				}
@@ -2707,7 +2725,7 @@ namespace checker {
 							+ "not (automatic) local variables (or function parameters) are not supported.";
 						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n";
+							std::cout << (*(res.first)).as_a_string1() << " \n\n";
 						}
 					}
 					if (false && (!(qtype.isConstQualified()))) {
@@ -2715,7 +2733,7 @@ namespace checker {
 							+ "are not supported.";
 						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n";
+							std::cout << (*(res.first)).as_a_string1() << " \n\n";
 						}
 					}
 					const auto* EX = VD->getInit();
@@ -2727,7 +2745,7 @@ namespace checker {
 								+ "native pointers is not supported.";
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n";
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
 							}
 						}
 					} else {
@@ -2737,7 +2755,7 @@ namespace checker {
 								+ "native pointer variables are not supported.";
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n";
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
 							}
 						}
 					}
@@ -2842,7 +2860,7 @@ namespace checker {
 						+ " casts are not supported.";
 					auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 					if (res.second) {
-						std::cout << (*(res.first)).as_a_string1() << " \n";
+						std::cout << (*(res.first)).as_a_string1() << " \n\n";
 					}
 				}
 			}
@@ -2965,7 +2983,7 @@ namespace checker {
 							+ "through the scope pointer.)";
 						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n";
+							std::cout << (*(res.first)).as_a_string1() << " \n\n";
 						}
 					}
 				}
@@ -3033,7 +3051,7 @@ namespace checker {
 										+ "' may be being referenced before it has been constructed.";
 									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n";
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
 									}
 								}
 							} else {
@@ -3047,7 +3065,7 @@ namespace checker {
 									+ "using a static member or free function instead. ";
 									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n";
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
 									}
 								} else {
 									/* Since this MemberExpr was obtained from a CXXThisExpr, if it doesn't refer to
@@ -3061,7 +3079,7 @@ namespace checker {
 							+ "used here can't be used to access part of the object that hasn't been constructed yet.";
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n";
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
 							}
 						}
 					}
@@ -3083,7 +3101,7 @@ namespace checker {
 										+ "native pointers is not supported.";
 									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n";
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
 									}
 									*/
 								}
@@ -3363,7 +3381,7 @@ namespace checker {
 						+ "is safe.";
 					auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 					if (res.second) {
-						std::cout << (*(res.first)).as_a_string1() << " \n";
+						std::cout << (*(res.first)).as_a_string1() << " \n\n";
 					}
 				}
 			}
