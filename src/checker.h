@@ -751,14 +751,18 @@ namespace checker {
 										if (true || string_begins_with(l_source_text, std_move_str)) {
 											/* todo: check for aliases */
 											const std::string error_desc = std::string("Cannot (yet) verify the safety of this explicit use of std::move() with ")
-												+ "argument type '" + arg_EX->getType().getAsString() + "'). (Note that explicit use of std::move() with 'mse::TXScopeOwnerPointer<>' "
+												+ "argument types like '" + arg_EX->getType().getAsString() + "' that yield scope pointers (uncoditionally via the "
+												+ "'operator &' of some component). "
+												+ "(In particular, explicit use of std::move() with 'mse::TXScopeOwnerPointer<>' "
 												+ "or any object that might contain an 'mse::TXScopeOwnerPointer<>' is not supported.) ";
 											auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 											if (res.second) {
 												std::cout << (*(res.first)).as_a_string1() << " \n\n";
 											}
 										}
-									} else {
+									} else if (false) {
+										/* This branch is now redundant with the other branch, but may be 
+										resurrected at some point. */
 										const auto* CXXRD = arg_qtype.getTypePtr()->getAsCXXRecordDecl();
 										if (CXXRD) {
 											auto name = CXXRD->getQualifiedNameAsString();
@@ -2035,9 +2039,13 @@ namespace checker {
 						} else if (CXXMCE) {
 							static const std::string method_value_str = "value";
 							static const std::string method_at_str = "at";
+							static const std::string method_front_str = "front";
+							static const std::string method_back_str = "back";
 							auto method_name = CXXMCE->getDirectCallee()->getNameAsString();
 							if ((((method_value_str == method_name)) && (0 == CXXMCE->getNumArgs()))
 								|| (((method_at_str == method_name)) && (1 == CXXMCE->getNumArgs()))
+								|| (((method_front_str == method_name)) && (0 == CXXMCE->getNumArgs()))
+								|| (((method_back_str == method_name)) && (0 == CXXMCE->getNumArgs()))
 								) {
 								potential_owner_EX = CXXMCE->getImplicitObjectArgument()->IgnoreImplicit()->IgnoreParenImpCasts();
 							}
@@ -2134,9 +2142,13 @@ namespace checker {
 				} else if (CXXMCE) {
 					static const std::string method_value_str = "value";
 					static const std::string method_at_str = "at";
+					static const std::string method_front_str = "front";
+					static const std::string method_back_str = "back";
 					auto method_name = CXXMCE->getDirectCallee()->getNameAsString();
 					if ((((method_value_str == method_name)) && (0 == CXXMCE->getNumArgs()))
 						|| (((method_at_str == method_name)) && (1 == CXXMCE->getNumArgs()))
+						|| (((method_front_str == method_name)) && (0 == CXXMCE->getNumArgs()))
+						|| (((method_back_str == method_name)) && (0 == CXXMCE->getNumArgs()))
 						) {
 						potential_owner_EX = CXXMCE->getImplicitObjectArgument()->IgnoreImplicit()->IgnoreParenImpCasts();
 					}
