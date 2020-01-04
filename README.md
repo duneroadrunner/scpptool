@@ -169,3 +169,5 @@ Note that the `mse::rsv::make_xscope_pointer_to()` function, which allows you to
 
 The set of potentially unsafe elements in C++, and in the standard library itself, is pretty large. This tool does not yet address them all. In particular it does not complain about the use of essential elements for which the SaferCPlusPlus library does not (yet) provide a safe alternative, such as conatiners like maps, sets, etc.,. 
 
+### Questions and comments
+If you have questions or comments you can create a post in the [issues section](https://github.com/duneroadrunner/scpptool/issues).
