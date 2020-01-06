@@ -899,15 +899,19 @@ namespace checker {
 					} else {
 						auto const * const CXXNE = dyn_cast<const clang::CXXNewExpr>(EX_ii);
 						auto const * const CXXDE = dyn_cast<const clang::CXXDeleteExpr>(EX_ii);
+						auto const * const CXXSVIE = dyn_cast<const clang::CXXScalarValueInitExpr>(EX_ii);
 						std::string unsupported_expression_str;
 						if (CXXNE) {
-							unsupported_expression_str = "operator new";
+							unsupported_expression_str = "'operator new'";
 						} else if (CXXDE) {
-							unsupported_expression_str = "operator delete";
+							unsupported_expression_str = "'operator delete'";
+						} else if (CXXSVIE) {
+							CXXSVIE->getType().getAsString();
+							unsupported_expression_str = "Default construction of scalar type '" + CXXSVIE->getType().getAsString() + "'";
 						}
 						if ("" != unsupported_expression_str) {
-							const std::string error_desc = std::string("'") + unsupported_expression_str
-								+ "' is not supported.";
+							const std::string error_desc = unsupported_expression_str
+								+ " is not supported.";
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
 								std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -1632,42 +1636,65 @@ namespace checker {
 								int q = 5; /* unexpected*/
 							}
 						} else {
-							std::vector<const FieldDecl*> pointer_fields;
+							std::vector<const FieldDecl*> unverified_pointer_fields;
 							for (const auto& field : RD->fields()) {
 								const auto field_qtype = field->getType();
 								//auto field_qtype_str = field_qtype.getAsString();
 								if (field_qtype.getTypePtr()->isPointerType()) {
-									const auto EX = field->getInClassInitializer();
-									if (!EX) {
-										pointer_fields.push_back(field);
+									const auto ICIEX = field->getInClassInitializer();
+									if (!ICIEX) {
+										unverified_pointer_fields.push_back(field);
+									} else if (is_nullptr_literal(ICIEX)) {
+										auto ICISR = nice_source_range(ICIEX->getSourceRange(), Rewrite);
+										if (!ICISR.isValid()) {
+											ICISR = SR;
+										}
+										const std::string error_desc = std::string("Null initialization of ")
+											+ "native pointer fields (like '" + field->getNameAsString()
+											+ "') is not supported.";
+										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, ICISR.getBegin(), error_desc));
+										if (res.second) {
+											std::cout << (*(res.first)).as_a_string1() << " \n\n";
+										}
 									}
 								}
 							}
-							if (1 <= pointer_fields.size()) {
+							if (1 <= unverified_pointer_fields.size()) {
 								for (const auto& constructor : CXXRD->ctors()) {
 									if (constructor->isCopyOrMoveConstructor()) {
 										if (constructor->isDefaulted()) {
-											break;
+											continue;
 										}
 									}
-									auto l_pointer_fields = pointer_fields;
+									auto l_unverified_pointer_fields = unverified_pointer_fields;
 									int num_pointer_constructor_initializers = 0;
 									for (const auto& constructor_initializer : constructor->inits()) {
 										const auto FD = constructor_initializer->getMember();
-										for (auto iter = l_pointer_fields.begin(); l_pointer_fields.end() != iter; iter++) {
+										for (auto iter = l_unverified_pointer_fields.begin(); l_unverified_pointer_fields.end() != iter; iter++) {
 											if (FD == *iter) {
-												l_pointer_fields.erase(iter);
+												l_unverified_pointer_fields.erase(iter);
+
+												const auto CIEX = constructor_initializer->getInit();
+												if (!CIEX) {
+													/* unexpected*/
+													int q = 3;
+												} else {
+													if (false && is_nullptr_literal(CIEX)) {
+														/* This case is handled in the MCSSSConstructionInitializer handler. */
+													}
+												}
+
 												break;
 											}
 										}
 									}
-									if (1 <= l_pointer_fields.size()) {
+									if (1 <= l_unverified_pointer_fields.size()) {
 										auto constructor_SR = nice_source_range(constructor->getSourceRange(), Rewrite);
 										if (!SR.isValid()) {
 											constructor_SR = SR;
 										}
 										const std::string error_desc = std::string("Missing constructor initializer (or ")
-										+ "direct initializer) required for '" + l_pointer_fields.front()->getNameAsString()
+										+ "direct initializer) required for '" + l_unverified_pointer_fields.front()->getNameAsString()
 										+ "' (raw) pointer field.";
 										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, constructor_SR.getBegin(), error_desc));
 										if (res.second) {
@@ -3095,28 +3122,34 @@ namespace checker {
 							}
 						}
 					}
+					if (FD->getType()->isPointerType()) {
+						if (is_nullptr_literal(EX)) {
+							auto CISR = nice_source_range(EX->getSourceRange(), Rewrite);
+							if (!CISR.isValid()) {
+								CISR = SR;
+							}
+							const std::string error_desc = std::string("Null initialization of ")
+								+ "native pointer field '" + FD->getNameAsString()
+								+ "' is not supported.";
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, CISR.getBegin(), error_desc));
+							if (res.second) {
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
+							}
+						}
+					}
 				} else {
 					if (FD->getType()->isPointerType()) {
-						const auto ICIS = FD->getInClassInitStyle();
-						const auto ICIEX = FD->getInClassInitializer();
-						if (!ICIS_ListInit) {
-							int q = 5;
-							/* error: Raw pointer member fields require explicit initialization. */
-						} else {
-							if (ICIEX) {
-								bool null_initialization = is_nullptr_literal(ICIEX);
-
-								if (null_initialization) {
-									int q = 5;
-									/*
-									const std::string error_desc = std::string("Null initialization of ")
-										+ "native pointers is not supported.";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-									*/
-								}
+						{
+							auto CISR = nice_source_range(EX->getSourceRange(), Rewrite);
+							if (!CISR.isValid()) {
+								CISR = SR;
+							}
+							const std::string error_desc = std::string("Default initialization of ")
+								+ "native pointer field '" + FD->getNameAsString()
+								+ "' is not supported.";
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, CISR.getBegin(), error_desc));
+							if (res.second) {
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
 							}
 						}
 					}
