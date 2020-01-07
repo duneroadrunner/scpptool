@@ -2077,8 +2077,14 @@ namespace checker {
 								potential_owner_EX = CXXMCE->getImplicitObjectArgument()->IgnoreImplicit()->IgnoreParenImpCasts();
 							}
 						} else if (CE) {
-							static const std::string function_get_str = "std::get";
 							auto function_qname = CE->getDirectCallee()->getQualifiedNameAsString();
+
+							static const std::string std_move_str = "std::move";
+							if ((std_move_str == function_qname) && (1 == CE->getNumArgs())) {
+								return declrefexpr_of_target_expr_if_any(CE->getArg(0), Ctx);
+							}
+
+							static const std::string function_get_str = "std::get";
 							if (((function_get_str == function_qname)) && (1 == CE->getNumArgs())) {
 								potential_owner_EX = CE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
 							}
@@ -2361,6 +2367,15 @@ namespace checker {
 								return can_be_safely_targeted_with_an_xscope_reference(EX2, Ctx);
 							} else {
 								break;
+							}
+						}
+					} else {
+						auto CE = dyn_cast<const clang::CallExpr>(EX);
+						if (CE) {
+							static const std::string std_move_str = "std::move";
+							const auto qname = CE->getDirectCallee()->getQualifiedNameAsString();
+							if ((std_move_str == qname) && (1 == CE->getNumArgs())) {
+								return can_be_safely_targeted_with_an_xscope_reference(CE->getArg(0), Ctx);
 							}
 						}
 					}
@@ -2944,12 +2959,10 @@ namespace checker {
 					return;
 				}
 
-				std::string qmethod_name;
-				std::string method_name;
+				const std::string method_name = CXXMCE->getDirectCallee()->getNameAsString();;
 				auto method_decl = CXXMCE->getMethodDecl();
 				if (method_decl) {
-					qmethod_name = method_decl->getQualifiedNameAsString();
-					method_name = method_decl->getNameAsString();
+					const std::string qmethod_name = method_decl->getQualifiedNameAsString();
 
 					auto method_declSR = nice_source_range(method_decl->getSourceRange(), Rewrite);
 					SourceLocation method_declSL = method_declSR.getBegin();
@@ -2986,9 +2999,27 @@ namespace checker {
 					if (method_decl->isImplicit()) {
 						return;
 					}
+					const auto CXXDD = dyn_cast<const clang::CXXDestructorDecl>(method_decl);
+					if (CXXDD) {
+						const std::string error_desc =  std::string("Explicitly calling destructors (like '") + method_name
+							+ "') is not supported.";
+						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+						if (res.second) {
+							std::cout << (*(res.first)).as_a_string1() << " \n\n";
+						}
+					}
 				} else {
-					int q = 5;
+					static const std::string tilda_str = "~";
+					if (string_begins_with(method_name, tilda_str)) {
+						const std::string error_desc =  std::string("'") + method_name
+							+ "' looks like a destructor. Explicitly calling destructors is not supported.";
+						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+						if (res.second) {
+							std::cout << (*(res.first)).as_a_string1() << " \n\n";
+						}
+					}
 				}
+
 				const auto EX = CXXMCE->getImplicitObjectArgument()->IgnoreImplicit()->IgnoreParenImpCasts();
 				const auto num_args = CXXMCE->getNumArgs();
 				if (EX) {
