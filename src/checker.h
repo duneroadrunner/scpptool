@@ -1414,8 +1414,8 @@ namespace checker {
 						auto D_qtype_str = D->getType().getAsString();
 						auto DRE_qtype_str = DRE->getType().getAsString();
 						if (D->getType()->isReferenceType() == DRE->getType()->isReferenceType()) {
-							/* Does this ever happen? */
-							assert(false);
+							/* just a break-point site for debugging */
+							int q = 5;
 						}
 					}
 #endif /*!NDEBUG*/
