@@ -196,7 +196,7 @@ namespace checker {
 
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
-			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcssssuppresscheckmemberdeclmcssssuppresscheckcall");
+			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcssssuppresscheckcall");
 
 			if ((CE != nullptr))
 			{
@@ -343,6 +343,88 @@ namespace checker {
 								}
 								if ((CXXMDISLE < l_DISL)
 									|| ((CXXMDISLE == l_DISL) && (CXXMDISLE < l_DISLE))) {
+									m_state1.m_suppress_check_region_set.emplace(l_DISR);
+									break;
+								}
+							} else {
+								assert(false);
+							}
+						}
+					}
+				}
+
+			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
+	class MCSSSSupressCheckDirectiveDeclGlobal : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSSupressCheckDirectiveDeclGlobal (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const clang::FunctionDecl* FD = MR.Nodes.getNodeAs<clang::FunctionDecl>("mcssssuppresscheckglobaldecl");
+
+			if ((FD != nullptr))
+			{
+				auto SR = nice_source_range(FD->getSourceRange(), Rewrite);
+				if (!SR.isValid()) {
+					return;
+				}
+
+				std::string debug_source_location_str;
+				std::string debug_source_text;
+
+				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+
+				if (filtered_out_by_location(MR, SR.getBegin())) {
+					return void();
+				}
+
+				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto method_name = FD->getNameAsString();
+				static const std::string suppress_checks_prefix = "mse_suppress_check_directive";
+				if (suppress_checks_prefix == method_name.substr(0, suppress_checks_prefix.length())) {
+					auto decl_context = FD->getDeclContext();
+					if (!decl_context) {
+						assert(false);
+					} else {
+						auto FDISR = instantiation_source_range(FD->getSourceRange(), Rewrite);
+						auto FDISL = FDISR.getBegin();
+						auto FDISLE = FDISR.getEnd();
+
+						for (auto decl_iter = decl_context->decls_begin(); decl_iter != decl_context->decls_end(); decl_iter++) {
+							if (nullptr != (*decl_iter)) {
+								auto l_DISR = instantiation_source_range((*decl_iter)->getSourceRange(), Rewrite);
+								SourceLocation l_DISL = l_DISR.getBegin();
+								SourceLocation l_DISLE = l_DISR.getEnd();
+
+								if (filtered_out_by_location(MR, l_DISL)) {
+									continue;
+								}
+
+								std::string l_source_text;
+								if (l_DISL.isValid() && l_DISLE.isValid()) {
+									l_source_text = Rewrite.getRewrittenText(SourceRange(l_DISL, l_DISLE));
+								} else {
+									continue;
+								}
+								if ("" != l_source_text) {
+									int q = 5;
+								}
+
+								if (FDISL == l_DISL) {
+									int q = 5;
+								}
+								if ((FDISLE < l_DISL)
+									|| ((FDISLE == l_DISL) && (FDISLE < l_DISLE))) {
 									m_state1.m_suppress_check_region_set.emplace(l_DISR);
 									break;
 								}
@@ -1039,6 +1121,10 @@ namespace checker {
 					return void();
 				}
 
+				if (std::string::npos != debug_source_location_str.find(":74:")) {
+					int q = 5;
+				}
+
 				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto DISR = instantiation_source_range(D->getSourceRange(), Rewrite);
@@ -1092,24 +1178,38 @@ namespace checker {
 							}
 
 							if (!satisfies_checks) {
-								std::string error_desc;
 								if (clang::StorageDuration::SD_Static == storage_duration) {
-									error_desc = std::string("'static storage duration' is not ")
-										+ "supported for this type. Eligible types wrapped in the 'mse::rsv::TStaticImmutableObj<>' "
-										+ "transparent template wrapper would be supported. Other supported wrappers include: "
-										+ "mse::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
-										+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>.";
+									if ((qtype.isConstQualified()) && (is_async_shareable(qtype, (*this).m_state1))) {
+										satisfies_checks = true;
+									} else {
+										const std::string error_desc = std::string("Cannot verify the safety of variable '")
+											+ qualified_name + "' of type '" + qtype_str + "' with 'static storage duration'. "
+											+ "'static storage duration' is supported for eligible types wrapped in the "
+											+ "'mse::rsv::TStaticImmutableObj<>' transparent template wrapper. Other supported wrappers include: "
+											+ "mse::rsv::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
+											+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>. "
+											+ "Note that objects with 'static storage duration' may be simultaneously accessible from different threads.";
+										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+										if (res.second) {
+											std::cout << (*(res.first)).as_a_string1() << " \n\n";
+										}
+									}
 								} else {
 									assert(clang::StorageDuration::SD_Thread == storage_duration);
-									error_desc = std::string("'thread local storage duration' is not ")
-										+ "supported for this type. Eligible types wrapped in the 'mse::rsv::TThreadLocalObj<>' "
-										+ "transparent template wrapper would be supported. Other supported wrappers include: "
-										+ "mse::rsv::TStaticImmutableObj<>, mse::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
-										+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>.";
-								}
-								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									if (is_async_shareable(qtype, (*this).m_state1)) {
+										satisfies_checks = true;
+									} else {
+										const std::string error_desc = std::string("Cannot verify the safety of variable '")
+											+ qualified_name + "' of type '" + qtype_str + "' with 'thread local storage duration'. "
+											+ "'thread local storage duration' is supported for eligible types wrapped in the "
+											+ "'mse::rsv::TThreadLocalObj<>' transparent template wrapper. Other supported wrappers include: "
+											+ "mse::rsv::TStaticImmutableObj<>, mse::rsv::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
+											+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>.";
+										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+										if (res.second) {
+											std::cout << (*(res.first)).as_a_string1() << " \n\n";
+										}
+									}
 								}
 							}
 						}
@@ -2598,7 +2698,7 @@ namespace checker {
 
 								const std::string error_desc = std::string("Cannot verify that the ")
 									+ "argument passed to the parameter of native reference type ("
-									+ qtype_str + ") is safe here. (This is often addressed "
+									+ qtype_str + ") of the function '" + function_name + "' is safe here. (This is often addressed "
 									+ "by obtaining a scope pointer to the intended argument and passing "
 									+ "an expression consisting of a dereference of that pointer.)";
 								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
@@ -3682,6 +3782,7 @@ namespace checker {
 	public:
 		MyASTConsumer(Rewriter &R, CompilerInstance &CI, CTUState &tu_state_param) : m_tu_state_ptr(&tu_state_param), HandlerMisc1(R, tu_state(), CI),
 			HandlerForSSSSupressCheckDirectiveCall(R, tu_state()), HandlerForSSSSupressCheckDirectiveDeclField(R, tu_state()),
+			HandlerForSSSSupressCheckDirectiveDeclGlobal(R, tu_state()), 
 			HandlerForSSSExprUtil(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForSSSDeclRefExprUtil(R, tu_state()),
 			HandlerForSSSReturnStmt(R, tu_state()), HandlerForSSSRecordDecl2(R, tu_state()), HandlerForSSSAsAnFParam(R, tu_state()),
 			HandlerForSSSMakeXScopePointerTo(R, tu_state()), HandlerForSSSNativeReferenceVar(R, tu_state()),
@@ -3690,8 +3791,9 @@ namespace checker {
 			HandlerForSSSConstructionInitializer(R, tu_state()), HandlerForSSSPointerAssignment(R, tu_state())
 		{
 			Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerMisc1);
-			Matcher.addMatcher(callExpr(argumentCountIs(0)).bind("mcssssuppresscheckmemberdeclmcssssuppresscheckcall"), &HandlerForSSSSupressCheckDirectiveCall);
+			Matcher.addMatcher(callExpr(argumentCountIs(0)).bind("mcssssuppresscheckcall"), &HandlerForSSSSupressCheckDirectiveCall);
 			Matcher.addMatcher(cxxMethodDecl(decl().bind("mcssssuppresscheckmemberdecl")), &HandlerForSSSSupressCheckDirectiveDeclField);
+			Matcher.addMatcher(functionDecl(decl().bind("mcssssuppresscheckglobaldecl")), &HandlerForSSSSupressCheckDirectiveDeclGlobal);
 
 			Matcher.addMatcher(expr().bind("mcsssexprutil1"), &HandlerForSSSExprUtil);
 			Matcher.addMatcher(callExpr().bind("mcsssexprutil1"), &HandlerForSSSExprUtil);
@@ -3764,6 +3866,7 @@ namespace checker {
 		Misc1 HandlerMisc1;
 		MCSSSSupressCheckDirectiveCall HandlerForSSSSupressCheckDirectiveCall;
 		MCSSSSupressCheckDirectiveDeclField HandlerForSSSSupressCheckDirectiveDeclField;
+		MCSSSSupressCheckDirectiveDeclGlobal HandlerForSSSSupressCheckDirectiveDeclGlobal;
 		MCSSSExprUtil HandlerForSSSExprUtil;
 		MCSSSDeclUtil HandlerForSSSDeclUtil;
 		MCSSSDeclRefExprUtil HandlerForSSSDeclRefExprUtil;
