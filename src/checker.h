@@ -763,6 +763,14 @@ namespace checker {
 		}
 		return retval;
 	}
+	template<typename TPtr>
+	auto IgnoreParenImpCasts(const TPtr ptr) {
+		return ptr->IgnoreImplicit()->IgnoreParenImpCasts();
+	}
+	template<typename TPtr>
+	auto IgnoreParenImpNoopCasts(const TPtr ptr, ASTContext& Ctx) {
+		return IgnoreParenImpCasts(ptr)->IgnoreParenNoopCasts(Ctx);
+	}
 
 
 	class MCSSSExprUtil : public MatchFinder::MatchCallback
@@ -804,7 +812,7 @@ namespace checker {
 				}
 
 				{
-					auto const * const EX_ii = EX->IgnoreImplicit()->IgnoreParenImpCasts();
+					auto const * const EX_ii = IgnoreParenImpNoopCasts(EX, *(MR.Context));
 					auto const * const CE = dyn_cast<const CallExpr>(EX_ii);
 					if (CE) {
 						auto function_decl = CE->getDirectCallee();
@@ -889,7 +897,7 @@ namespace checker {
 									} else {
 										for (const auto& arg_EX : CE->arguments()) {
 											assert(arg_EX);
-											auto const * const LE = dyn_cast<const clang::LambdaExpr>(arg_EX->IgnoreImplicit()->IgnoreParenImpCasts());
+											auto const * const LE = dyn_cast<const clang::LambdaExpr>(IgnoreParenImpNoopCasts(arg_EX, *(MR.Context)));
 											if (LE) {
 												/* We're passing a lambda expression as a parameter to some kind of
 												standard library (or system) function. In regular code, the lambda
@@ -1062,18 +1070,18 @@ namespace checker {
 		return Tget_contained_elements_of_type<CXXThisExpr>(ST1_cref);
 	}
 	const MemberExpr* get_immediately_containing_MemberExpr_from_CXXThisExpr_if_any(const CXXThisExpr& CXXTE_cref, clang::ASTContext& context) {
-		return Tget_immediately_containing_element_of_type<MemberExpr>(CXXTE_cref.IgnoreImplicit()->IgnoreParenImpCasts(), context);
+		return Tget_immediately_containing_element_of_type<MemberExpr>(IgnoreParenImpNoopCasts(&CXXTE_cref, context), context);
 	}
 	const FieldDecl* get_FieldDecl_from_MemberExpr_if_any(const MemberExpr& ME_cref) {
 		auto decl = ME_cref.getMemberDecl();
 		return dyn_cast<const FieldDecl>(decl);
 	}
-	bool is_nullptr_literal(const Expr* EX) {
+	bool is_nullptr_literal(const Expr* EX, ASTContext& Ctx) {
 		bool retval = false;
 		if (!EX) {
 			return retval;
 		}
-		const auto* EXii = EX->IgnoreImplicit()->IgnoreParenImpCasts();
+		const auto* EXii = IgnoreParenImpNoopCasts(EX, Ctx);
 		auto *CXXNPLE = dyn_cast<const CXXNullPtrLiteralExpr>(EXii);
 		auto *GNE = dyn_cast<const GNUNullExpr>(EXii);
 		if (CXXNPLE || GNE) {
@@ -1355,7 +1363,7 @@ namespace checker {
 									if (PVD) {
 										satisfies_checks = true;
 									} else {
-										auto CE = dyn_cast<const clang::CallExpr>(VD->getInit()->IgnoreImplicit()->IgnoreParenImpCasts());
+										auto CE = dyn_cast<const clang::CallExpr>(IgnoreParenImpNoopCasts(VD->getInit(), *(MR.Context)));
 										if (CE) {
 											auto function_decl = CE->getDirectCallee();
 											auto num_args = CE->getNumArgs();
@@ -1598,12 +1606,12 @@ namespace checker {
 				if (ST->getRetValue()) {
 					if (is_xscope_type(ST->getRetValue()->getType(), (*this).m_state1)) {
 						bool xscope_return_value_wrapper_present = false;
-						const clang::Stmt* stii = ST->getRetValue()->IgnoreImplicit()->IgnoreParenImpCasts();
+						const clang::Stmt* stii = IgnoreParenImpNoopCasts(ST->getRetValue(), *(MR.Context));
 						while (!dyn_cast<const CallExpr>(stii)) {
 							//stii->dump();
 							auto* CXXCE = dyn_cast<const CXXConstructExpr>(stii);
 							if (CXXCE && (1 <= CXXCE->getNumArgs()) && (CXXCE->getArg(0))) {
-								stii = CXXCE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
+								stii = IgnoreParenImpNoopCasts(CXXCE->getArg(0), *(MR.Context));
 								continue;
 							}
 							break;
@@ -1744,7 +1752,7 @@ namespace checker {
 									const auto ICIEX = field->getInClassInitializer();
 									if (!ICIEX) {
 										unverified_pointer_fields.push_back(field);
-									} else if (is_nullptr_literal(ICIEX)) {
+									} else if (is_nullptr_literal(ICIEX, *(MR.Context))) {
 										auto ICISR = nice_source_range(ICIEX->getSourceRange(), Rewrite);
 										if (!ICISR.isValid()) {
 											ICISR = SR;
@@ -1779,7 +1787,7 @@ namespace checker {
 													/* unexpected*/
 													int q = 3;
 												} else {
-													if (false && is_nullptr_literal(CIEX)) {
+													if (false && is_nullptr_literal(CIEX, *(MR.Context))) {
 														/* This case is handled in the MCSSSConstructionInitializer handler. */
 													}
 												}
@@ -1952,7 +1960,7 @@ namespace checker {
 					DECLARE_CACHED_CONST_STRING(as_a_returnable_fparam_str, g_mse_namespace_str + "::rsv::as_a_returnable_fparam");
 					if ((as_an_fparam_str == qualified_function_name) || (as_a_returnable_fparam_str == qualified_function_name)) {
 						if (1 == num_args) {
-							auto EX1 = CE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
+							auto EX1 = IgnoreParenImpNoopCasts(CE->getArg(0), *(MR.Context));
 							bool satisfies_checks = false;
 							auto DRE1 = dyn_cast<const clang::DeclRefExpr>(EX1);
 							if (DRE1) {
@@ -2092,7 +2100,7 @@ namespace checker {
 		if (!EX1) {
 			return nullptr;
 		}
-		const auto EX = EX1->IgnoreImplicit()->IgnoreParenImpCasts();
+		const auto EX = IgnoreParenImpNoopCasts(EX1, Ctx);
 		bool satisfies_checks = false;
 		auto DRE1 = dyn_cast<const clang::DeclRefExpr>(EX);
 		if (!DRE1) {
@@ -2161,7 +2169,7 @@ namespace checker {
 							if ((((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs()))
 								|| (((operator_subscript_str == operator_name)) && (2 == CXXOCE->getNumArgs()))
 								) {
-								potential_owner_EX = CXXOCE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
+								potential_owner_EX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), Ctx);
 							}
 						} else if (CXXMCE) {
 							static const std::string method_value_str = "value";
@@ -2174,7 +2182,7 @@ namespace checker {
 								|| (((method_front_str == method_name)) && (0 == CXXMCE->getNumArgs()))
 								|| (((method_back_str == method_name)) && (0 == CXXMCE->getNumArgs()))
 								) {
-								potential_owner_EX = CXXMCE->getImplicitObjectArgument()->IgnoreImplicit()->IgnoreParenImpCasts();
+								potential_owner_EX = IgnoreParenImpNoopCasts(CXXMCE->getImplicitObjectArgument(), Ctx);
 							}
 						} else if (CE) {
 							auto function_qname = CE->getDirectCallee()->getQualifiedNameAsString();
@@ -2186,11 +2194,11 @@ namespace checker {
 
 							static const std::string function_get_str = "std::get";
 							if (((function_get_str == function_qname)) && (1 == CE->getNumArgs())) {
-								potential_owner_EX = CE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
+								potential_owner_EX = IgnoreParenImpNoopCasts(CE->getArg(0), Ctx);
 							}
 						}
 						if (potential_owner_EX) {
-							auto potential_owner_EX_ii = potential_owner_EX->IgnoreImplicit()->IgnoreParenImpCasts();
+							auto potential_owner_EX_ii = IgnoreParenImpNoopCasts(potential_owner_EX, Ctx);
 							if (potential_owner_EX_ii) {
 								const auto potential_owner_EX_ii_qtype = potential_owner_EX_ii->getType();
 								const auto potential_owner_EX_ii_qtype_str = potential_owner_EX_ii_qtype.getAsString();
@@ -2245,7 +2253,7 @@ namespace checker {
 		if (!EX1) {
 			return nullptr;
 		}
-		const auto EX = EX1->IgnoreImplicit()->IgnoreParenImpCasts();
+		const auto EX = IgnoreParenImpNoopCasts(EX1, Ctx);
 		bool satisfies_checks = false;
 		auto DRE1 = dyn_cast<const clang::DeclRefExpr>(EX);
 		if (!DRE1) {
@@ -2270,7 +2278,7 @@ namespace checker {
 					if ((((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs()))
 						|| (((operator_subscript_str == operator_name)) && (2 == CXXOCE->getNumArgs()))
 						) {
-						potential_owner_EX = CXXOCE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
+						potential_owner_EX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), Ctx);
 					}
 				} else if (CXXMCE) {
 					static const std::string method_value_str = "value";
@@ -2283,17 +2291,17 @@ namespace checker {
 						|| (((method_front_str == method_name)) && (0 == CXXMCE->getNumArgs()))
 						|| (((method_back_str == method_name)) && (0 == CXXMCE->getNumArgs()))
 						) {
-						potential_owner_EX = CXXMCE->getImplicitObjectArgument()->IgnoreImplicit()->IgnoreParenImpCasts();
+						potential_owner_EX = IgnoreParenImpNoopCasts(CXXMCE->getImplicitObjectArgument(), Ctx);
 					}
 				} else if (CE) {
 					static const std::string function_get_str = "std::get";
 					auto function_qname = CE->getDirectCallee()->getQualifiedNameAsString();
 					if (((function_get_str == function_qname)) && (1 == CE->getNumArgs())) {
-						potential_owner_EX = CE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
+						potential_owner_EX = IgnoreParenImpNoopCasts(CE->getArg(0), Ctx);
 					}
 				}
 				if (potential_owner_EX) {
-					auto potential_owner_EX_ii = potential_owner_EX->IgnoreImplicit()->IgnoreParenImpCasts();
+					auto potential_owner_EX_ii = IgnoreParenImpNoopCasts(potential_owner_EX, Ctx);
 					if (potential_owner_EX_ii) {
 						const auto potential_owner_EX_ii_qtype = potential_owner_EX_ii->getType();
 						const auto potential_owner_EX_ii_qtype_str = potential_owner_EX_ii_qtype.getAsString();
@@ -2368,7 +2376,7 @@ namespace checker {
 			//assert(false);
 			return false;
 		}
-		const auto EX = EX1->IgnoreImplicit()->IgnoreParenImpCasts();
+		const auto EX = IgnoreParenImpNoopCasts(EX1, Ctx);
 		const auto EX_qtype = EX->getType();
 		const auto EX_qtype_str = EX_qtype.getAsString();
 
@@ -2411,7 +2419,7 @@ namespace checker {
 				static const std::string operator_arrow_str = "operator->";
 				auto operator_name = CXXOCE->getDirectCallee()->getNameAsString();
 				if (((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs())) {
-					auto arg_EX = CXXOCE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
+					auto arg_EX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), Ctx);
 					if (arg_EX) {
 						const auto arg_EX_qtype = arg_EX->getType();
 						const auto arg_EX_qtype_str = arg_EX_qtype.getAsString();
@@ -2528,7 +2536,7 @@ namespace checker {
 					DECLARE_CACHED_CONST_STRING(make_xscope_const_pointer_to_str, g_mse_namespace_str + "::rsv::make_xscope_const_pointer_to");
 					if ((make_xscope_pointer_to_str == qualified_function_name) || (make_xscope_const_pointer_to_str == qualified_function_name)) {
 						if (1 == num_args) {
-							auto EX1 = CE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
+							auto EX1 = IgnoreParenImpNoopCasts(CE->getArg(0), *(MR.Context));
 							bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX1, *(MR.Context));
 							if (!satisfies_checks) {
 								const std::string error_desc = std::string("Cannot verify that mse::rsv::make_xscope_pointer_to() or ")
@@ -2639,6 +2647,10 @@ namespace checker {
 
 				if (filtered_out_by_location(MR, SR.getBegin())) {
 					return void();
+				}
+
+				if (std::string::npos != debug_source_location_str.find(":174:")) {
+					int q = 5;
 				}
 
 				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
@@ -2892,7 +2904,7 @@ namespace checker {
 					}
 					const auto* EX = VD->getInit();
 					if (EX) {
-						bool null_initialization = is_nullptr_literal(EX);
+						bool null_initialization = is_nullptr_literal(EX, *(MR.Context));
 
 						if (null_initialization) {
 							const std::string error_desc = std::string("Null initialization of ")
@@ -2960,7 +2972,7 @@ namespace checker {
 				}
 
 				std::string cast_type_str;
-				const auto* EXii = EX->IgnoreImplicit()->IgnoreParenImpCasts();
+				const auto* EXii = IgnoreParenImpCasts(EX);
 				auto const * const CSTE = dyn_cast<const clang::CastExpr>(EXii);
 				if (CSTE) {
 					const auto cast_kind = CSTE->getCastKind();
@@ -3120,7 +3132,7 @@ namespace checker {
 					}
 				}
 
-				const auto EX = CXXMCE->getImplicitObjectArgument()->IgnoreImplicit()->IgnoreParenImpCasts();
+				const auto EX = IgnoreParenImpNoopCasts(CXXMCE->getImplicitObjectArgument(), *(MR.Context));
 				const auto num_args = CXXMCE->getNumArgs();
 				if (EX) {
 					const auto qtype = EX->getType();
@@ -3254,7 +3266,7 @@ namespace checker {
 						}
 					}
 					if (FD->getType()->isPointerType()) {
-						if (is_nullptr_literal(EX)) {
+						if (is_nullptr_literal(EX, *(MR.Context))) {
 							auto CISR = nice_source_range(EX->getSourceRange(), Rewrite);
 							if (!CISR.isValid()) {
 								CISR = SR;
@@ -3363,13 +3375,13 @@ namespace checker {
 				const clang::Expr* LHSEX = nullptr;
 				const clang::Expr* RHSEX = nullptr;
 				if (BO != nullptr) {
-					LHSEX = BO->getLHS()->IgnoreImplicit()->IgnoreParenImpCasts();
-					RHSEX = BO->getRHS()->IgnoreImplicit()->IgnoreParenImpCasts();
+					LHSEX = IgnoreParenImpNoopCasts(BO->getLHS(), *(MR.Context));
+					RHSEX = IgnoreParenImpNoopCasts(BO->getRHS(), *(MR.Context));
 				} else {
 					const auto numArgs = CXXOCE->getNumArgs();
 					if (2 == CXXOCE->getNumArgs()) {
-						LHSEX = CXXOCE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
-						RHSEX = CXXOCE->getArg(1)->IgnoreImplicit()->IgnoreParenImpCasts();
+						LHSEX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), *(MR.Context));
+						RHSEX = IgnoreParenImpNoopCasts(CXXOCE->getArg(1), *(MR.Context));
 					} else {
 						return;
 					}
@@ -3451,7 +3463,7 @@ namespace checker {
 							const auto opcode_str = UO->getOpcodeStr(opcode);
 							if (clang::UnaryOperator::Opcode::UO_AddrOf == opcode) {
 								/* The rhs expression is essentially of the form "&(subexpr)" */
-								subexpr = UO->getSubExpr()->IgnoreImplicit()->IgnoreParenImpCasts();
+								subexpr = IgnoreParenImpNoopCasts(UO->getSubExpr(), *(MR.Context));
 							}
 						} else {
 							auto CE = dyn_cast<const clang::CallExpr>(RHSEX);
@@ -3464,7 +3476,7 @@ namespace checker {
 									if (std_addressof_str == qualified_function_name) {
 										if (1 == num_args) {
 											/* The rhs expression is essentially of the form "std::addressof(subexpr)" */
-											subexpr = CE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
+											subexpr = IgnoreParenImpNoopCasts(CE->getArg(0), *(MR.Context));
 										}
 									}
 								}
@@ -3490,7 +3502,7 @@ namespace checker {
 									static const std::string operator_arrow_str = "operator->";
 									auto operator_name = CXXOCE->getDirectCallee()->getNameAsString();
 									if (((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs())) {
-										auto arg_EX = CXXOCE->getArg(0)->IgnoreImplicit()->IgnoreParenImpCasts();
+										auto arg_EX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), *(MR.Context));
 										if (arg_EX) {
 											const auto CXXRD = arg_EX->getType()->getAsCXXRecordDecl();
 											if (CXXRD) {
