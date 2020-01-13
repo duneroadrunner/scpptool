@@ -841,7 +841,7 @@ namespace checker {
 										if (true || string_begins_with(l_source_text, std_move_str)) {
 											/* todo: check for aliases */
 											const std::string error_desc = std::string("Cannot (yet) verify the safety of this explicit use of std::move() with ")
-												+ "argument types like '" + arg_EX->getType().getAsString() + "' that yield scope pointers (uncoditionally via the "
+												+ "an argument type ('" + arg_EX->getType().getAsString() + "') that yields scope pointers (uncoditionally via the "
 												+ "'operator &' of some component). "
 												+ "(In particular, explicit use of std::move() with 'mse::TXScopeOwnerPointer<>' "
 												+ "or any object that might contain an 'mse::TXScopeOwnerPointer<>' is not supported.) ";
@@ -876,6 +876,7 @@ namespace checker {
 									static const std::string malloc_str = "malloc";
 									static const std::string realloc_str = "realloc";
 									static const std::string free_str = "free";
+									static const std::string calloc_str = "calloc";
 									static const std::string alloca_str = "alloca";
 									std::string unsupported_function_str;
 									if (malloc_str == qualified_function_name) {
@@ -884,6 +885,8 @@ namespace checker {
 										unsupported_function_str = realloc_str;
 									} else if (free_str == qualified_function_name) {
 										unsupported_function_str = free_str;
+									} else if (calloc_str == qualified_function_name) {
+										unsupported_function_str = calloc_str;
 									} else if (alloca_str == qualified_function_name) {
 										unsupported_function_str = alloca_str;
 									}
@@ -915,7 +918,7 @@ namespace checker {
 																param_SR = SR;
 															}
 														}
-														const std::string error_desc = std::string("Cannot verify the safety ")
+														const std::string error_desc = std::string("Unable to verify the safety ")
 															+ "of the native reference lambda parameter '" + param->getNameAsString()
 															+ "' here.";
 														auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, param_SR.getBegin(), error_desc));
@@ -935,7 +938,7 @@ namespace checker {
 																	field_SR = SR;
 																}
 															}
-															std::string error_desc = std::string("Cannot verify the safety of ");
+															std::string error_desc = std::string("Unable to verify the safety of ");
 															const auto field_name = field->getNameAsString();
 															if ("" == field_name) {
 																error_desc += "a native reference lambda capture field of type '"
@@ -960,19 +963,40 @@ namespace checker {
 											if (function_decl) {
 												std::string function_name = function_decl->getNameAsString();
 												std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-												static const std::string str = "str";
-												if (string_begins_with(function_name, str)) {
-													for (const auto& param : function_decl->parameters()) {
-														const auto uqtype_str = param->getType().getUnqualifiedType().getAsString();
-														static const std::string const_char_star_str = "const char *";
-														static const std::string char_star_str = "char *";
-														if ((const_char_star_str == uqtype_str) || (char_star_str == uqtype_str)) {
-															const std::string error_desc = std::string("'") + qualified_function_name
-																+ "' heuristically looks like a C standard library string function. "
-																+ "Those are not supported.";
-															auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-															if (res.second) {
-																std::cout << (*(res.first)).as_a_string1() << " \n\n";
+
+												const auto FDSR = function_decl->getSourceRange();
+												if (filtered_out_by_location(MR, FDSR.getBegin())) {
+													/* Being 'filtered_out_by_location' is an indication that the location might be in a standard header. */
+													static const std::string str_prefix_str = "str";
+													static const std::string mem_prefix_str = "mem";
+													if (string_begins_with(function_name, str_prefix_str)) {
+														for (const auto& param : function_decl->parameters()) {
+															const auto uqtype_str = param->getType().getUnqualifiedType().getAsString();
+															static const std::string const_char_star_str = "const char *";
+															static const std::string char_star_str = "char *";
+															if ((const_char_star_str == uqtype_str) || (char_star_str == uqtype_str)) {
+																const std::string error_desc = std::string("'") + qualified_function_name
+																	+ "' heuristically looks like a C standard library string function. "
+																	+ "Those are not supported.";
+																auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+																if (res.second) {
+																	std::cout << (*(res.first)).as_a_string1() << " \n\n";
+																}
+															}
+														}
+													} else if (string_begins_with(function_name, mem_prefix_str)) {
+														for (const auto& param : function_decl->parameters()) {
+															const auto uqtype_str = param->getType().getUnqualifiedType().getAsString();
+															static const std::string const_void_star_str = "const void *";
+															static const std::string void_star_str = "void *";
+															if ((const_void_star_str == uqtype_str) || (void_star_str == uqtype_str)) {
+																const std::string error_desc = std::string("'") + qualified_function_name
+																	+ "' heuristically looks like a C standard library memory function. "
+																	+ "Those are not supported.";
+																auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+																if (res.second) {
+																	std::cout << (*(res.first)).as_a_string1() << " \n\n";
+																}
 															}
 														}
 													}
@@ -992,12 +1016,18 @@ namespace checker {
 						auto const * const CXXSVIE = dyn_cast<const clang::CXXScalarValueInitExpr>(EX_ii);
 						std::string unsupported_expression_str;
 						if (CXXNE) {
-							unsupported_expression_str = "'operator new'";
+							unsupported_expression_str = "'operator new' (returning type '"
+								+ CXXNE->getType().getAsString() + "')";
 						} else if (CXXDE) {
+							const auto arg_EX = CXXDE->getArgument();
 							unsupported_expression_str = "'operator delete'";
+							if (arg_EX) {
+								unsupported_expression_str += " (with argument type '"
+									+ arg_EX->getType().getAsString() + "')";
+							}
 						} else if (CXXSVIE) {
 							CXXSVIE->getType().getAsString();
-							unsupported_expression_str = "Default construction of scalar type '" + CXXSVIE->getType().getAsString() + "'";
+							unsupported_expression_str = "Default construction of scalar types (such as '" + CXXSVIE->getType().getAsString() + "')";
 						}
 						if ("" != unsupported_expression_str) {
 							const std::string error_desc = unsupported_expression_str
@@ -1190,13 +1220,14 @@ namespace checker {
 									if ((qtype.isConstQualified()) && (is_async_shareable(qtype, (*this).m_state1))) {
 										satisfies_checks = true;
 									} else {
-										const std::string error_desc = std::string("Cannot verify the safety of variable '")
+										const std::string error_desc = std::string("Unable to verify the safety of variable '")
 											+ qualified_name + "' of type '" + qtype_str + "' with 'static storage duration'. "
 											+ "'static storage duration' is supported for eligible types wrapped in the "
 											+ "'mse::rsv::TStaticImmutableObj<>' transparent template wrapper. Other supported wrappers include: "
 											+ "mse::rsv::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
 											+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>. "
-											+ "Note that objects with 'static storage duration' may be simultaneously accessible from different threads.";
+											+ "Note that objects with 'static storage duration' may be simultaneously accessible from different threads "
+											+ "and so have more stringent safety requirements than objects with 'thread_local storage duration'.";
 										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 										if (res.second) {
 											std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -1207,7 +1238,7 @@ namespace checker {
 									if (is_async_shareable(qtype, (*this).m_state1)) {
 										satisfies_checks = true;
 									} else {
-										const std::string error_desc = std::string("Cannot verify the safety of variable '")
+										const std::string error_desc = std::string("Unable to verify the safety of variable '")
 											+ qualified_name + "' of type '" + qtype_str + "' with 'thread local storage duration'. "
 											+ "'thread local storage duration' is supported for eligible types wrapped in the "
 											+ "'mse::rsv::TThreadLocalObj<>' transparent template wrapper. Other supported wrappers include: "
@@ -1227,8 +1258,9 @@ namespace checker {
 							if (!init_EX) {
 								auto PVD = dyn_cast<const ParmVarDecl>(VD);
 								if (!PVD) {
-									const std::string error_desc = std::string("uninitialized ")
-										+ "scalar variable ";
+									const std::string error_desc = std::string("Uninitialized ")
+										+ "scalar variable '" + VD->getNameAsString() + "' (of type '"
+										+ qtype.getAsString() + "') ";
 									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 									if (res.second) {
 										std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -1272,8 +1304,8 @@ namespace checker {
 									if (!is_lambda_capture_field) {
 										if (qtype.getTypePtr()->isPointerType()) {
 										} else {
-											const std::string error_desc = std::string("(Non-pointer) scalar fields ")
-												+ "require direct initializers.";
+											const std::string error_desc = std::string("(Non-pointer) scalar fields (such those of type '")
+												+ qtype.getAsString() + "') require direct initializers.";
 											auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 											if (res.second) {
 												std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -1383,14 +1415,14 @@ namespace checker {
 							}
 							if (!satisfies_checks) {
 								const std::string error_desc = std::string("Unsupported use of ")
-									+ "mse::rsv::TFParam<>. ";
+									+ "mse::rsv::TFParam<> (in type '" + name + "'). ";
 								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 								if (res.second) {
 									std::cout << (*(res.first)).as_a_string1() << " \n\n";
 								}
 							}
 						} else if (qtype.getTypePtr()->isUnionType()) {
-							const std::string error_desc = std::string("Native unions are not ")
+							const std::string error_desc = std::string("Native unions (such as '" + qtype.getAsString() + "') are not ")
 								+ "supported. ";
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
@@ -1416,7 +1448,7 @@ namespace checker {
 							for (const auto& err_def : err_defs) {
 								if (name == err_def.m_name_of_unsupported) {
 									std::string error_desc = std::string("'") + name + std::string("' is not ")
-										+ "supported. ";
+										+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
 									if ("" != err_def.m_recommended_alternative) {
 										error_desc += "Consider using " + err_def.m_recommended_alternative + " instead.";
 									}
@@ -1437,7 +1469,7 @@ namespace checker {
 						}
 						if ("" != unsupported_type_str) {
 							const std::string error_desc = unsupported_type_str + std::string("s are not ")
-								+ "supported. ";
+								+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
 								std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -1461,8 +1493,8 @@ namespace checker {
 								namespace by using an alias to the namespace.
 								*/
 
-								const std::string error_desc = std::string("This namespace alias could ")
-									+ "be used to subvert some of the checks. "
+								const std::string error_desc = std::string("This namespace alias (of namespace '")
+									+ source_namespace_str + "') could be used to subvert some of the checks. "
 									+ "So its use requires a 'check suppression' directive.";
 								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 								if (res.second) {
@@ -1549,7 +1581,7 @@ namespace checker {
 								to be screened for and flagged as well. */
 
 
-								const std::string error_desc = std::string("Elements in the 'mse::us' namespace (like '"
+								const std::string error_desc = std::string("Elements in the 'mse::us' namespace (such as '"
 									+ qualified_name + "') are potentially unsafe. ")
 									+ "Their use requires a 'check suppression' directive.";
 								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
@@ -1630,8 +1662,8 @@ namespace checker {
 							}
 						}
 						if (!xscope_return_value_wrapper_present) {
-							const std::string error_desc = std::string("Return values of xscope type ")
-							+ "need to be wrapped in the mse::return_value() function wrapper.";
+							const std::string error_desc = std::string("Return values of xscope type (such as '")
+							+ ST->getRetValue()->getType().getAsString() + "') need to be wrapped in the mse::return_value() function wrapper.";
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
 								std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -1758,7 +1790,7 @@ namespace checker {
 											ICISR = SR;
 										}
 										const std::string error_desc = std::string("Null initialization of ")
-											+ "native pointer fields (like '" + field->getNameAsString()
+											+ "native pointer fields (such as '" + field->getNameAsString()
 											+ "') is not supported.";
 										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, ICISR.getBegin(), error_desc));
 										if (res.second) {
@@ -1864,24 +1896,25 @@ namespace checker {
 
 						if ((!has_xscope_tag_base) && is_xscope_type(field_qtype, (*this).m_state1)) {
 							if (is_lambda) {
-								error_desc = std::string("Lambdas that capture variables of xscope type (like '")
+								error_desc = std::string("Lambdas that capture variables of xscope type (such as '")
 									+ field_qtype_str + "') must be scope lambdas (usually created via an "
 									+  "'mse::rsv::make_xscope_*_lambda()' wrapper function).";
 							} else {
-								error_desc = std::string("Structs or classes containing fields of xscope type (like '")
+								error_desc = std::string("Structs or classes containing fields of xscope type (such as '")
 									+ field_qtype_str + "') must inherit from mse::rsv::XScopeTagBase.";
 							}
 						}
 						if ((!has_ContainsNonOwningScopeReference_tag_base)
 							&& contains_non_owning_scope_reference(field_qtype, (*this).m_state1)) {
 							if (is_lambda) {
-								error_desc = std::string("Lambdas that capture non-owning scope references (like '")
-									+ field_qtype_str + "') must be scope 'reference or pointer capture' lambdas "
-									+  "(created via the 'mse::rsv::make_xscope_reference_or_pointer_capture_lambda()' "
+								error_desc = std::string("Lambdas that capture items (such as those of type '")
+									+ field_qtype_str + "') that are, or contain, non-owning scope references must be "
+									+ "scope 'reference or pointer capture' lambdas (created via the "
+									+ "'mse::rsv::make_xscope_reference_or_pointer_capture_lambda()' "
 									+ "wrapper function).";
 							} else {
-								error_desc = std::string("Structs or classes containing fields that are, or contain, ")
-									+ "non-owning scope references (like '" + field_qtype_str + "') must inherit from "
+								error_desc = std::string("Structs or classes containing fields (such as those of type '")
+									+ field_qtype_str + "') that are, or contain, non-owning scope references must inherit from "
 									+ "mse::rsv::ContainsNonOwningScopeReferenceTagBase.";
 							}
 						}
@@ -1892,7 +1925,7 @@ namespace checker {
 								lambda capture variables(/fields) from outside the lambda, because they're not 
 								directly accessible from outside? */
 							} else {
-								error_desc = std::string("Structs or classes containing fields (like '") + field_qtype_str
+								error_desc = std::string("Structs or classes containing fields (such as '") + field_qtype_str
 									+ "') that yield scope pointers (from their overloaded 'operator&'), or contain an element "
 									+ "that does, must inherit from mse::rsv::ReferenceableByScopePointerTagBase.";
 							}
@@ -2410,6 +2443,15 @@ namespace checker {
 						int q = 5;
 					}
 					satisfies_checks = true;
+				} else if ((clang::StorageDuration::SD_Static == storage_duration)) {
+					const auto VDSR = VD->getSourceRange();
+					if (filtered_out_by_location(Ctx.getSourceManager(), VDSR.getBegin())) {
+						/* This is a static variable that looks like it's declared in a standard
+						or system header. This might include things like 'std::cout'. We'll just
+						assume that they've been implemented to be safely directly accessible from
+						different threads. */
+						satisfies_checks = true;
+					}
 				}
 			}
 		} else {
@@ -2479,12 +2521,17 @@ namespace checker {
 						}
 					} else {
 						auto CE = dyn_cast<const clang::CallExpr>(EX);
+						auto CO = dyn_cast<const clang::ConditionalOperator>(EX);
 						if (CE) {
 							static const std::string std_move_str = "std::move";
 							const auto qname = CE->getDirectCallee()->getQualifiedNameAsString();
 							if ((std_move_str == qname) && (1 == CE->getNumArgs())) {
 								return can_be_safely_targeted_with_an_xscope_reference(CE->getArg(0), Ctx);
 							}
+						} else if (CO) {
+							auto b1 = can_be_safely_targeted_with_an_xscope_reference(CO->getTrueExpr(), Ctx);
+							auto b2 = can_be_safely_targeted_with_an_xscope_reference(CO->getFalseExpr(), Ctx);
+							return (b1 && b2);
 						}
 					}
 				}
@@ -2539,8 +2586,9 @@ namespace checker {
 							auto EX1 = IgnoreParenImpNoopCasts(CE->getArg(0), *(MR.Context));
 							bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX1, *(MR.Context));
 							if (!satisfies_checks) {
-								const std::string error_desc = std::string("Cannot verify that mse::rsv::make_xscope_pointer_to() or ")
-									+ "mse::rsv::make_xscope_const_pointer_to() is safe here.";
+								const std::string error_desc = std::string("Unable to verify that the use of mse::rsv::make_xscope_pointer_to() or ")
+									+ "mse::rsv::make_xscope_const_pointer_to() (with argument type '" + CE->getArg(0)->getType().getAsString()
+									+ "') is safe here.";
 								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 								if (res.second) {
 									std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -2595,8 +2643,9 @@ namespace checker {
 				std::string qtype_str = VD->getType().getAsString();
 				if (qtype->isReferenceType()) {
 					if (clang::StorageDuration::SD_Automatic != VD->getStorageDuration()) {
-						const std::string error_desc = std::string("Native references that are ")
-							+ "not local variables (or function parameters) are not supported.";
+						const std::string error_desc = std::string("Native references (such as those of type '")
+							+ qtype.getAsString()
+							+ "') that are not local variables (or function parameters) are not supported.";
 						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 						if (res.second) {
 							std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -2606,7 +2655,7 @@ namespace checker {
 					if (EX) {
 						bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context));
 						if (!satisfies_checks) {
-							const std::string error_desc = std::string("Cannot verify that the ")
+							const std::string error_desc = std::string("Unable to verify that the ")
 								+ "native reference (of type '" + qtype_str + "') is safe here.";
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
@@ -2708,7 +2757,7 @@ namespace checker {
 								auto SR = nice_source_range(EX->getSourceRange(), Rewrite);
 								SourceLocation SL = SR.getBegin();
 
-								const std::string error_desc = std::string("Cannot verify that the ")
+								const std::string error_desc = std::string("Unable to verify that the ")
 									+ "argument passed to the parameter of native reference type ("
 									+ qtype_str + ") of the function '" + function_name + "' is safe here. (This is often addressed "
 									+ "by obtaining a scope pointer to the intended argument and passing "
@@ -2765,7 +2814,8 @@ namespace checker {
 
 				{
 					const std::string error_desc = std::string("Pointer arithmetic (including ")
-						+ "native array subscripts) is not supported.";
+						+ "native array subscripts) is not supported. (The expression in question here is of type '"
+						+ EX->getType().getAsString() + "'.)";
 					auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 					if (res.second) {
 						std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -2829,8 +2879,9 @@ namespace checker {
 				{
 					bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context));
 					if (!satisfies_checks) {
-						const std::string error_desc = std::string("Cannot verify that the return value ")
-							+ "of the '&' operator or std::addressof() is safe here.";
+						const std::string error_desc = std::string("Unable to verify that the return value ")
+							+ "of the '&' operator or std::addressof() (with argument type '"
+							+ EX->getType().getAsString() + "') is safe here.";
 						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 						if (res.second) {
 							std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -2908,7 +2959,8 @@ namespace checker {
 
 						if (null_initialization) {
 							const std::string error_desc = std::string("Null initialization of ")
-								+ "native pointers is not supported.";
+								+ "native pointers (such as those of type '" + qtype.getAsString()
+								+ "') is not supported.";
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
 								std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -3022,8 +3074,10 @@ namespace checker {
 					}
 				}
 				if ("" != cast_type_str) {
+					assert(CSTE);
 					const std::string error_desc = cast_type_str
-						+ " casts are not supported.";
+						+ " casts are not supported (in expression of type '"
+						+ CSTE->getType().getAsString() + "').";
 					auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 					if (res.second) {
 						std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -3113,7 +3167,7 @@ namespace checker {
 					}
 					const auto CXXDD = dyn_cast<const clang::CXXDestructorDecl>(method_decl);
 					if (CXXDD) {
-						const std::string error_desc =  std::string("Explicitly calling destructors (like '") + method_name
+						const std::string error_desc =  std::string("Explicitly calling destructors (such as '") + method_name
 							+ "') is not supported.";
 						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 						if (res.second) {
@@ -3158,7 +3212,7 @@ namespace checker {
 						}
 					}
 					if (!satisfies_checks) {
-						const std::string error_desc = std::string("Cannot verify that the 'this' pointer ")
+						const std::string error_desc = std::string("Unable to verify that the 'this' pointer ")
 							+ "will remain valid for the duration of the member function call ('"
 							+ CXXMCE->getDirectCallee()->getNameAsString() + "'). (This is often addressed "
 							+ "by obtaining a scope pointer to the object then calling the member function "
@@ -3239,7 +3293,7 @@ namespace checker {
 							} else {
 								const auto CXXMD = dyn_cast<const CXXMethodDecl>(ME->getMemberDecl());
 								if (CXXMD) {
-									/* error: Cannot verify that the member function used here can't access part of
+									/* error: Unable to verify that the member function used here can't access part of
 									the object that hasn't been constructed yet. */
 									const std::string error_desc = std::string("Calling non-static member functions ")
 									+ "(such as '" + CXXMD->getNameAsString() + "') of an object is not supported in "
@@ -3257,7 +3311,7 @@ namespace checker {
 								}
 							}
 						} else {
-							const std::string error_desc = std::string("Cannot verify that the 'this' pointer ")
+							const std::string error_desc = std::string("Unable to verify that the 'this' pointer ")
 							+ "used here can't be used to access part of the object that hasn't been constructed yet.";
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
@@ -3565,8 +3619,8 @@ namespace checker {
 					/* We were not able to obtain a declaration from the lhs, so we're not going to be able the verify anything. */
 				}
 				if (!satisfies_checks) {
-					const std::string error_desc = std::string("Cannot verify that this pointer assignment ")
-						+ "is safe.";
+					const std::string error_desc = std::string("Unable to verify that this pointer assignment (of type '")
+						+ LHSEX->getType().getAsString() + "') is safe.";
 					auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 					if (res.second) {
 						std::cout << (*(res.first)).as_a_string1() << " \n\n";

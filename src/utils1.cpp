@@ -153,17 +153,22 @@ bool filtered_out_by_location(const SourceManager &SM, SourceLocation SL) {
 				int q = 7;
 			}
 		}
-		std::string filename = full_path_name;
-		auto last_slash_pos = full_path_name.find_last_of('/');
-		if (std::string::npos != last_slash_pos) {
-			if (last_slash_pos + 1 < full_path_name.size()) {
-				filename = full_path_name.substr(last_slash_pos+1);
-			} else {
-				filename = "";
-			}
-		}
-		if (filtered_out_by_filename(filename)) {
+		const auto lib_clang_pos = full_path_name.find("/lib/clang/");
+		if (std::string::npos != lib_clang_pos) {
 			retval = true;
+		} else {
+			std::string filename = full_path_name;
+			const auto last_slash_pos = full_path_name.find_last_of('/');
+			if (std::string::npos != last_slash_pos) {
+				if (last_slash_pos + 1 < full_path_name.size()) {
+					filename = full_path_name.substr(last_slash_pos+1);
+				} else {
+					filename = "";
+				}
+			}
+			if (filtered_out_by_filename(filename)) {
+				retval = true;
+			}
 		}
 	}
 	return retval;
