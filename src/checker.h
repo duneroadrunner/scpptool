@@ -20,6 +20,7 @@
 #include <set>
 #include <unordered_set>
 #include <algorithm>
+#include <variant>
 #include <locale>
 
 #include <cstdio>
@@ -487,8 +488,8 @@ namespace checker {
 		return Tget_containing_element_of_type<CompoundStmt>(NodePtr, context);
 	}
 
-	template <typename NodeT>
-	bool first_is_contained_in_scope_of_second(const NodeT* ST1, const NodeT* ST2, clang::ASTContext& context) {
+	template <typename NodeT, typename Node2T>
+	bool first_is_contained_in_scope_of_second(const NodeT* ST1, const Node2T* ST2, clang::ASTContext& context) {
 		bool retval = true;
 		auto scope1 = get_containing_scope(ST1, context);
 		const auto scope2 = get_containing_scope(ST2, context);
@@ -2129,19 +2130,81 @@ namespace checker {
 	reference/pointer to the target object, as target objects must outlive any corresponding scope
 	references, so the lifetime of a (scope) reference is a lower bound for the lifetime of the
 	corresponding target object. */
-	const clang::DeclRefExpr* declrefexpr_of_target_expr_if_any(const clang::Expr* EX1, ASTContext& Ctx) {
+	typedef std::variant<const clang::VarDecl*, const clang::CXXThisExpr*, const clang::Expr*, const clang::StringLiteral*> CStaticLifetimeOwner;
+	std::optional<CStaticLifetimeOwner> static_lifetime_owner_of_target_expr_if_any(const clang::Expr* EX1, ASTContext& Ctx) {
+		std::optional<CStaticLifetimeOwner> retval;
 		if (!EX1) {
-			return nullptr;
+			return retval;
 		}
 		const auto EX = IgnoreParenImpNoopCasts(EX1, Ctx);
 		bool satisfies_checks = false;
 		auto DRE1 = dyn_cast<const clang::DeclRefExpr>(EX);
-		if (!DRE1) {
+		auto CXXTE = dyn_cast<const clang::CXXThisExpr>(EX);
+		auto SL = dyn_cast<const clang::StringLiteral>(EX);
+		if (DRE1) {
+			const auto DRE1_qtype = DRE1->getType();
+			const auto DRE1_qtype_str = DRE1_qtype.getAsString();
+
+			auto D1 = DRE1->getDecl();
+			const auto D1_qtype = D1->getType();
+			const auto D1_qtype_str = D1_qtype.getAsString();
+
+			auto VD = dyn_cast<const clang::VarDecl>(D1);
+			if (VD) {
+				const auto VD_qtype = VD->getType();
+				const auto VD_qtype_str = VD_qtype.getAsString();
+
+				const auto storage_duration = VD->getStorageDuration();
+				if ((clang::StorageDuration::SD_Automatic == storage_duration)
+					|| (clang::StorageDuration::SD_Thread == storage_duration)
+					) {
+					if (VD->getType()->isReferenceType()) {
+						/* We're assuming that imposed restrictions imply that objects targeted
+						by native references qualify as scope objects (at least for the duration
+						of the reference). */
+						int q = 5;
+					}
+					satisfies_checks = true;
+					retval = VD;
+				} else if ((clang::StorageDuration::SD_Static == storage_duration)) {
+					const auto VDSR = VD->getSourceRange();
+					if (filtered_out_by_location(Ctx.getSourceManager(), VDSR.getBegin())) {
+						/* This is a static variable that looks like it's declared in a standard
+						or system header. This might include things like 'std::cout'. We'll just
+						assume that they've been implemented to be safely directly accessible from
+						different threads. */
+						satisfies_checks = true;
+						retval = VD;
+					} else {
+						const auto VD_qtype = VD->getType();
+						const auto VD_qtype_str = VD_qtype.getAsString();
+						if (VD_qtype.getTypePtr()->isPointerType()) {
+							const auto pointee_VD_qtype = VD_qtype.getTypePtr()->getPointeeType();
+							const auto pointee_VD_qtype_str = pointee_VD_qtype.getAsString();
+							if (pointee_VD_qtype.isConstQualified() && pointee_VD_qtype.getTypePtr()->isArithmeticType()) {
+								/* This case includes "C"-string literals. */
+								satisfies_checks = true;
+								retval = VD;
+							}
+						}
+					}
+				}
+			}
+		} else if (CXXTE) {
+			retval = CXXTE;
+		} else if (SL) {
+			retval = SL;
+		} else {
 			auto ME = dyn_cast<const clang::MemberExpr>(EX);
 			if (ME) {
-				if (!(ME->isBoundMemberFunction(Ctx))) {
+				const auto VLD = ME->getMemberDecl();
+				auto FD = dyn_cast<const clang::FieldDecl>(VLD);
+				auto VD = dyn_cast<const clang::VarDecl>(VLD); /* for static members */
+				if (FD && !(ME->isBoundMemberFunction(Ctx))) {
 					auto containing_EX = containing_object_expr_from_member_expr(ME);
-					DRE1 = declrefexpr_of_target_expr_if_any(containing_EX, Ctx);
+					retval = static_lifetime_owner_of_target_expr_if_any(containing_EX, Ctx);
+				} else if (VD) {
+					retval = VD; /* static member */
 				} else {
 					int q = 5;
 				}
@@ -2156,11 +2219,24 @@ namespace checker {
 							const auto UOSE_qtype = UOSE->getType();
 							const auto UOSE_qtype_str = UOSE_qtype.getAsString();
 
-							DRE1 = declrefexpr_of_target_expr_if_any(UOSE, Ctx);
+							retval = static_lifetime_owner_of_target_expr_if_any(UOSE, Ctx);
+						}
+					} else if (clang::UnaryOperator::Opcode::UO_Deref == opcode) {
+						const auto UOSE = UO->getSubExpr();
+						if (UOSE) {
+							const auto UOSE_qtype = UOSE->getType();
+							const auto UOSE_qtype_str = UOSE_qtype.getAsString();
+
+							if (UOSE->getType()->isPointerType()) {
+								/* The declrefexpression is a direct dereference of a native pointer. */
+								satisfies_checks = true;
+								retval = dyn_cast<const clang::Expr>(UOSE);
+							}
 						}
 					}
 				} else {
 					auto CXXCE = dyn_cast<const clang::CXXConstructExpr>(EX);
+					auto CO = dyn_cast<const clang::ConditionalOperator>(EX);
 					if (CXXCE) {
 						const auto qtype = CXXCE->getType();
 						const auto CXXCE_rw_type_ptr = remove_mse_transparent_wrappers(CXXCE->getType());
@@ -2186,9 +2262,112 @@ namespace checker {
 								const auto arg_EX = CXXCE->getArg(0);
 								assert(arg_EX);
 
-								DRE1 = declrefexpr_of_target_expr_if_any(arg_EX, Ctx);
+								retval = static_lifetime_owner_of_target_expr_if_any(arg_EX, Ctx);
 							}
 						}
+					} else if (CO) {
+						auto res1 = static_lifetime_owner_of_target_expr_if_any(CO->getTrueExpr(), Ctx);
+						auto res2 = static_lifetime_owner_of_target_expr_if_any(CO->getFalseExpr(), Ctx);
+						if (!(res1.has_value())) {
+							return res1;
+						} else if (!(res2.has_value())) {
+							return res2;
+						} else {
+							switch (res1.value().index()) {
+								case 0: /* res1 is a variable declaration */ {
+									auto res1v = std::get<0>(res1.value());
+									const auto res1_storage_duration = res1v->getStorageDuration();
+									const auto res1_is_immortal = ((clang::StorageDuration::SD_Static == res1_storage_duration) || (clang::StorageDuration::SD_Thread == res1_storage_duration)) ? true : false;
+									switch (res2.value().index()) {
+										case 0: /* res2 is a variable declaration */ {
+											auto res2v = std::get<0>(res2.value());
+											const auto res2_storage_duration = res2v->getStorageDuration();
+											const auto res2_is_immortal = ((clang::StorageDuration::SD_Static == res2_storage_duration) || (clang::StorageDuration::SD_Thread == res2_storage_duration)) ? true : false;
+											if (res1_is_immortal) {
+												if (res2_is_immortal) {
+													retval = first_is_contained_in_scope_of_second(res1v, res2v, Ctx) ? res1 : res2;
+												} else {
+													retval = res2;
+												}
+											} else if (res2_is_immortal) {
+												retval = res1;
+											} else {
+												retval = first_is_contained_in_scope_of_second(res1v, res2v, Ctx) ? res1 : res2;
+											}
+										} break;
+										case 1: /* res2 is a 'this' pointer expression' */ {
+											auto res2v = std::get<1>(res2.value());
+											if (res1_is_immortal) {
+												retval = res2;
+											} else {
+												retval = res1;
+											}
+										} break;
+										case 2: /* res2 is an expression */ {
+											retval = res2;
+										} break;
+										case 3: /* res2 is an (immortal) string literal */ {
+											retval = res1;
+										} break;
+										default: {}
+											break;
+									}
+								} break;
+								case 1: /* res1 is a 'this' pointer expression' */ {
+									auto res1v = std::get<0>(res1.value());
+									switch (res2.value().index()) {
+										case 0: /* res2 is a variable declaration */ {
+											auto res2v = std::get<0>(res2.value());
+											const auto res2_storage_duration = res2v->getStorageDuration();
+											const auto res2_is_immortal = ((clang::StorageDuration::SD_Static == res2_storage_duration) || (clang::StorageDuration::SD_Thread == res2_storage_duration)) ? true : false;
+											if (res2_is_immortal) {
+												retval = res1;
+											} else {
+												retval = res2;
+											}
+										} break;
+										case 1: /* res2 is a 'this' pointer expression' */ {
+											auto res2v = std::get<1>(res2.value());
+											retval = first_is_contained_in_scope_of_second(res1v, res2v, Ctx) ? res1 : res2;
+										} break;
+										case 2: /* res2 is an expression */ {
+											retval = res2;
+										} break;
+										case 3: /* res2 is an (immortal) string literal */ {
+											retval = res1;
+										} break;
+										default: {}
+											break;
+									}
+								} break;
+								case 2: /* res1 is an expression */ {
+									auto res1v = std::get<0>(res1.value());
+									switch (res2.value().index()) {
+										case 0: /* res2 is a variable declaration */ {
+											retval = res1;
+										} break;
+										case 1: /* res2 is a 'this' pointer expression' */ {
+											retval = res1;
+										} break;
+										case 2: /* res2 is an expression */ {
+											auto res2v = std::get<1>(res2.value());
+											retval = first_is_contained_in_scope_of_second(res1v, res2v, Ctx) ? res1 : res2;
+										} break;
+										case 3: /* res2 is an (immortal) string literal */ {
+											retval = res1;
+										} break;
+										default: {}
+											break;
+									}
+								} break;
+								case 3: /* res1 is an (immortal) string literal */ {
+									retval = res2;
+								} break;
+								default: {}
+									break;
+							}
+						}
+						return retval;
 					} else {
 						const clang::Expr* potential_owner_EX = nullptr;
 						auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(EX);
@@ -2199,6 +2378,37 @@ namespace checker {
 							static const std::string operator_arrow_str = "operator->";
 							static const std::string operator_subscript_str = "operator[]";
 							auto operator_name = CXXOCE->getDirectCallee()->getNameAsString();
+
+							if (((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs())) {
+								auto arg_EX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), Ctx);
+								if (arg_EX) {
+									const auto arg_EX_qtype = arg_EX->getType();
+									const auto arg_EX_qtype_str = arg_EX_qtype.getAsString();
+
+									const auto CXXRD = remove_mse_transparent_wrappers(*(arg_EX->getType()))->getAsCXXRecordDecl();
+									if (CXXRD) {
+										DECLARE_CACHED_CONST_STRING(xscope_item_f_ptr_str, g_mse_namespace_str + "::TXScopeItemFixedPointer");
+										DECLARE_CACHED_CONST_STRING(xscope_item_f_const_ptr_str, g_mse_namespace_str + "::TXScopeItemFixedConstPointer");
+										DECLARE_CACHED_CONST_STRING(xscope_f_ptr_str, g_mse_namespace_str + "::TXScopeFixedPointer");
+										DECLARE_CACHED_CONST_STRING(xscope_f_const_ptr_str, g_mse_namespace_str + "::TXScopeFixedConstPointer");
+										DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, g_mse_namespace_str + "::TXScopeOwnerPointer");
+										auto qname = CXXRD->getQualifiedNameAsString();
+										if ((xscope_item_f_ptr_str == qname) || (xscope_item_f_const_ptr_str == qname)
+											|| (xscope_f_ptr_str == qname) || (xscope_f_const_ptr_str == qname)
+											/*|| ((xscope_owner_ptr_str == qname) && ())*/) {
+											satisfies_checks = true;
+											retval = static_lifetime_owner_of_target_expr_if_any(arg_EX, Ctx);
+											if (!retval.has_value()) {
+												retval = dyn_cast<const clang::Expr>(arg_EX);
+											}
+											return retval;
+										}
+									} else if (arg_EX->getType()->isReferenceType()) {
+										int q = 5;
+									}
+								}
+							}
+
 							if ((((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs()))
 								|| (((operator_subscript_str == operator_name)) && (2 == CXXOCE->getNumArgs()))
 								) {
@@ -2222,7 +2432,7 @@ namespace checker {
 
 							static const std::string std_move_str = "std::move";
 							if ((std_move_str == function_qname) && (1 == CE->getNumArgs())) {
-								return declrefexpr_of_target_expr_if_any(CE->getArg(0), Ctx);
+								return static_lifetime_owner_of_target_expr_if_any(CE->getArg(0), Ctx);
 							}
 
 							static const std::string function_get_str = "std::get";
@@ -2259,7 +2469,7 @@ namespace checker {
 
 										|| (mstd_tuple_str == qname) || (nii_array_str == qname) || (mstd_array_str == qname)
 										) {
-										DRE1 = declrefexpr_of_target_expr_if_any(potential_owner_EX_ii, Ctx);
+										retval = static_lifetime_owner_of_target_expr_if_any(potential_owner_EX_ii, Ctx);
 									}
 								} else if (potential_owner_EX_ii->getType()->isReferenceType()) {
 									int q = 5;
@@ -2271,154 +2481,26 @@ namespace checker {
 			}
 		}
 
-		return DRE1;
+		return retval;
 	}
 
-	/* Similar to `declrefexpr_of_target_expr_if_any()`, this function is meant to return the part of a given
+	/* Similar to `static_lifetime_owner_of_target_expr_if_any()`, this function is meant to return the part of a given
 	expression that directly refers to the declared object (i.e. the `DeclRefExpr`) of interest, if such an
-	object is present. Unlike declrefexpr_of_target_expr_if_any(), the given expression is presumed to
+	object is present. Unlike static_lifetime_owner_of_target_expr_if_any(), the given expression is presumed to
 	indicate the (scope) reference/pointer object to be retargeted, rather than the target object. So the
 	object of interest in this case is the one from which we can infer the lifetime (or an upper bound of the
 	lifetime) of the reference object to be retargeted. If the indicated reference object is itself a declared
 	object (as opposed to, for example, a member of another object, or an element in a container), then it
 	itself would be the object of interest. */
-	const clang::DeclRefExpr* declrefexpr_of_reference_expr_if_any(const clang::Expr* EX1, ASTContext& Ctx) {
+	std::optional<CStaticLifetimeOwner> static_lifetime_owner_of_reference_expr_if_any(const clang::Expr* EX1, ASTContext& Ctx) {
+		std::optional<CStaticLifetimeOwner> retval;
 		if (!EX1) {
-			return nullptr;
+			return retval;
 		}
 		const auto EX = IgnoreParenImpNoopCasts(EX1, Ctx);
 		bool satisfies_checks = false;
 		auto DRE1 = dyn_cast<const clang::DeclRefExpr>(EX);
-		if (!DRE1) {
-			auto ME = dyn_cast<const clang::MemberExpr>(EX);
-			if (ME) {
-				if (!(ME->isBoundMemberFunction(Ctx))) {
-					auto containing_EX = containing_object_expr_from_member_expr(ME);
-					DRE1 = declrefexpr_of_reference_expr_if_any(containing_EX, Ctx);
-				} else {
-					int q = 5;
-				}
-			} else {
-				const clang::Expr* potential_owner_EX = nullptr;
-				auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(EX);
-				auto CXXMCE = dyn_cast<const clang::CXXMemberCallExpr>(EX);
-				auto CE = dyn_cast<const clang::CallExpr>(EX);
-				if (CXXOCE) {
-					static const std::string operator_star_str = "operator*";
-					static const std::string operator_arrow_str = "operator->";
-					static const std::string operator_subscript_str = "operator[]";
-					auto operator_name = CXXOCE->getDirectCallee()->getNameAsString();
-					if ((((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs()))
-						|| (((operator_subscript_str == operator_name)) && (2 == CXXOCE->getNumArgs()))
-						) {
-						potential_owner_EX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), Ctx);
-					}
-				} else if (CXXMCE) {
-					static const std::string method_value_str = "value";
-					static const std::string method_at_str = "at";
-					static const std::string method_front_str = "front";
-					static const std::string method_back_str = "back";
-					auto method_name = CXXMCE->getDirectCallee()->getNameAsString();
-					if ((((method_value_str == method_name)) && (0 == CXXMCE->getNumArgs()))
-						|| (((method_at_str == method_name)) && (1 == CXXMCE->getNumArgs()))
-						|| (((method_front_str == method_name)) && (0 == CXXMCE->getNumArgs()))
-						|| (((method_back_str == method_name)) && (0 == CXXMCE->getNumArgs()))
-						) {
-						potential_owner_EX = IgnoreParenImpNoopCasts(CXXMCE->getImplicitObjectArgument(), Ctx);
-					}
-				} else if (CE) {
-					static const std::string function_get_str = "std::get";
-					auto function_qname = CE->getDirectCallee()->getQualifiedNameAsString();
-					if (((function_get_str == function_qname)) && (1 == CE->getNumArgs())) {
-						potential_owner_EX = IgnoreParenImpNoopCasts(CE->getArg(0), Ctx);
-					}
-				}
-				if (potential_owner_EX) {
-					auto potential_owner_EX_ii = IgnoreParenImpNoopCasts(potential_owner_EX, Ctx);
-					if (potential_owner_EX_ii) {
-						const auto potential_owner_EX_ii_qtype = potential_owner_EX_ii->getType();
-						const auto potential_owner_EX_ii_qtype_str = potential_owner_EX_ii_qtype.getAsString();
-
-						const auto CXXRD = remove_mse_transparent_wrappers(*(potential_owner_EX_ii->getType()))->getAsCXXRecordDecl();
-						if (CXXRD) {
-							/* owning containers (that might contain pointer/reference elements) */
-
-							DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, g_mse_namespace_str + "::TXScopeOwnerPointer");
-							DECLARE_CACHED_CONST_STRING(xscope_optional_str, g_mse_namespace_str + "::xscope_optional");
-							DECLARE_CACHED_CONST_STRING(xscope_tuple_str, g_mse_namespace_str + "::xscope_tuple");
-
-							static const std::string std_unique_ptr_str = "std::unique_ptr";
-							static const std::string std_shared_ptr_str = "std::shared_ptr";
-							static const std::string std_optional_str = "std::optional";
-							static const std::string std_tuple_str = "std::tuple";
-							static const std::string std_pair_str = "std::pair";
-							static const std::string std_array_str = "std::array";
-							static const std::string std_vector_str = "std::vector";
-							static const std::string std_list_str = "std::list";
-							static const std::string std_map_str = "std::map";
-							static const std::string std_set_str = "std::set";
-							static const std::string std_multimap_str = "std::multimap";
-							static const std::string std_multiset_str = "std::multiset";
-							static const std::string std_unordered_map_str = "std::unordered_map";
-							static const std::string std_unordered_set_str = "std::unordered_set";
-							static const std::string std_unordered_multimap_str = "std::unordered_multimap";
-							static const std::string std_unordered_multiset_str = "std::unordered_multiset";
-
-							/*
-							DECLARE_CACHED_CONST_STRING(mstd_optional_str, g_mse_namespace_str + "::mstd::optional");
-							DECLARE_CACHED_CONST_STRING(mstd_tuple_str, g_mse_namespace_str + "::mstd::tuple");
-							DECLARE_CACHED_CONST_STRING(nii_array_str, g_mse_namespace_str + "::nii_array");
-							DECLARE_CACHED_CONST_STRING(mstd_array_str, g_mse_namespace_str + "::mstd::array");
-							DECLARE_CACHED_CONST_STRING(nii_vector_str, g_mse_namespace_str + "::nii_vector");
-							DECLARE_CACHED_CONST_STRING(stnii_vector_str, g_mse_namespace_str + "::stnii_vector");
-							DECLARE_CACHED_CONST_STRING(mtnii_vector_str, g_mse_namespace_str + "::mtnii_vector");
-							DECLARE_CACHED_CONST_STRING(mstd_vector_str, g_mse_namespace_str + "::mstd::vector");
-							*/
-
-							auto qname = CXXRD->getQualifiedNameAsString();
-							if ((xscope_owner_ptr_str == qname) || (xscope_optional_str == qname) || (xscope_tuple_str == qname)
-
-								|| (std_unique_ptr_str == qname) || (std_shared_ptr_str == qname) || (std_optional_str == qname)
-								|| (std_tuple_str == qname) || (std_pair_str == qname)
-								|| (std_array_str == qname) || (std_vector_str == qname) || (std_list_str == qname)
-								|| (std_map_str == qname) || (std_set_str == qname) || (std_multimap_str == qname) || (std_multiset_str == qname)
-								|| (std_unordered_map_str == qname) || (std_unordered_set_str == qname) || (std_unordered_multimap_str == qname) || (std_unordered_multiset_str == qname)
-
-								/*
-								|| (mstd_optional_str == qname) || (mstd_tuple_str == qname)
-								|| (nii_array_str == qname) || (mstd_array_str == qname)
-								|| (nii_vector_str == qname) || (stnii_vector_str == qname) || (mtnii_vector_str == qname)
-								|| (mstd_vector_str == qname)
-								*/
-								) {
-								DRE1 = declrefexpr_of_reference_expr_if_any(potential_owner_EX_ii, Ctx);
-							}
-						} else if (potential_owner_EX_ii->getType()->isReferenceType()) {
-							int q = 5;
-						}
-					}
-				}
-			}
-		}
-
-		return DRE1;
-	}
-
-	bool can_be_safely_targeted_with_an_xscope_reference(const clang::Expr* EX1, ASTContext& Ctx) {
-		if (!EX1) {
-			//assert(false);
-			return false;
-		}
-		const auto EX = IgnoreParenImpNoopCasts(EX1, Ctx);
-		const auto EX_qtype = EX->getType();
-		const auto EX_qtype_str = EX_qtype.getAsString();
-
-		if (EX->isImplicitCXXThis()) {
-			return true;
-		}
-
-		bool satisfies_checks = false;
-		auto DRE1 = declrefexpr_of_target_expr_if_any(EX, Ctx);
+		auto CXXTE = dyn_cast<const clang::CXXThisExpr>(EX);
 		if (DRE1) {
 			const auto DRE1_qtype = DRE1->getType();
 			const auto DRE1_qtype_str = DRE1_qtype.getAsString();
@@ -2437,12 +2519,13 @@ namespace checker {
 					|| (clang::StorageDuration::SD_Thread == storage_duration)
 					) {
 					if (VD->getType()->isReferenceType()) {
-						/* We're assuming that imposed restrictions imply that objects targeted
+						/* We're assuming that imposed restrictions imply that objects referenceed
 						by native references qualify as scope objects (at least for the duration
 						of the reference). */
 						int q = 5;
 					}
 					satisfies_checks = true;
+					retval = VD;
 				} else if ((clang::StorageDuration::SD_Static == storage_duration)) {
 					const auto VDSR = VD->getSourceRange();
 					if (filtered_out_by_location(Ctx.getSourceManager(), VDSR.getBegin())) {
@@ -2451,93 +2534,231 @@ namespace checker {
 						assume that they've been implemented to be safely directly accessible from
 						different threads. */
 						satisfies_checks = true;
+						retval = VD;
 					}
 				}
 			}
+		} else if (CXXTE) {
+			retval = CXXTE;
 		} else {
-			auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(EX);
-			if (CXXOCE) {
-				static const std::string operator_star_str = "operator*";
-				static const std::string operator_arrow_str = "operator->";
-				auto operator_name = CXXOCE->getDirectCallee()->getNameAsString();
-				if (((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs())) {
-					auto arg_EX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), Ctx);
-					if (arg_EX) {
-						const auto arg_EX_qtype = arg_EX->getType();
-						const auto arg_EX_qtype_str = arg_EX_qtype.getAsString();
-
-						const auto CXXRD = remove_mse_transparent_wrappers(*(arg_EX->getType()))->getAsCXXRecordDecl();
-						if (CXXRD) {
-							DECLARE_CACHED_CONST_STRING(xscope_item_f_ptr_str, g_mse_namespace_str + "::TXScopeItemFixedPointer");
-							DECLARE_CACHED_CONST_STRING(xscope_item_f_const_ptr_str, g_mse_namespace_str + "::TXScopeItemFixedConstPointer");
-							DECLARE_CACHED_CONST_STRING(xscope_f_ptr_str, g_mse_namespace_str + "::TXScopeFixedPointer");
-							DECLARE_CACHED_CONST_STRING(xscope_f_const_ptr_str, g_mse_namespace_str + "::TXScopeFixedConstPointer");
-							DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, g_mse_namespace_str + "::TXScopeOwnerPointer");
-							auto qname = CXXRD->getQualifiedNameAsString();
-							if ((xscope_item_f_ptr_str == qname) || (xscope_item_f_const_ptr_str == qname)
-								|| (xscope_f_ptr_str == qname) || (xscope_f_const_ptr_str == qname)
-								/*|| ((xscope_owner_ptr_str == qname) && ())*/) {
-								satisfies_checks = true;
-							}
-						} else if (arg_EX->getType()->isReferenceType()) {
-							int q = 5;
-						}
-					}
-				}
-				int q = 5;
-			} else {
-				auto UO = dyn_cast<const clang::UnaryOperator>(EX);
-				if (UO) {
-					const auto opcode = UO->getOpcode();
-					const auto opcode_str = UO->getOpcodeStr(opcode);
-					if (clang::UnaryOperator::Opcode::UO_Deref == opcode) {
-						const auto UOSE = UO->getSubExpr();
-						if (UOSE) {
-							const auto UOSE_qtype = UOSE->getType();
-							const auto UOSE_qtype_str = UOSE_qtype.getAsString();
-
-							if (UOSE->getType()->isPointerType()) {
-								/* The declrefexpression is a direct dereference of a native pointer. */
-								satisfies_checks = true;
-							}
-						}
-					}
+			auto ME = dyn_cast<const clang::MemberExpr>(EX);
+			if (ME) {
+				const auto VLD = ME->getMemberDecl();
+				auto FD = dyn_cast<const clang::FieldDecl>(VLD);
+				auto VD = dyn_cast<const clang::VarDecl>(VLD); /* for static members */
+				if (FD && !(ME->isBoundMemberFunction(Ctx))) {
+					auto containing_EX = containing_object_expr_from_member_expr(ME);
+					retval = static_lifetime_owner_of_reference_expr_if_any(containing_EX, Ctx);
+				} else if (VD) {
+					retval = VD; /* static member */
 				} else {
-					auto ME = dyn_cast<const clang::MemberExpr>(EX);
-					if (ME) {
-						for (const auto& child : ME->children()) {
-							auto EX2 = dyn_cast<const clang::Expr>(child->IgnoreImplicit());
-							auto CXXTE = dyn_cast<const clang::CXXThisExpr>(child->IgnoreImplicit());
-							if (CXXTE) {
-								/* The expression is a (possibly implicit) dereference of a 'this' pointer.
-								And this tool treats 'this' pointers, like all native pointers, as scope
-								pointers. */
-								satisfies_checks = true;
-							} else if (EX2) {
-								return can_be_safely_targeted_with_an_xscope_reference(EX2, Ctx);
-							} else {
-								break;
+					int q = 5;
+				}
+			} else {
+				{
+					auto CO = dyn_cast<const clang::ConditionalOperator>(EX);
+					if (CO) {
+						auto res1 = static_lifetime_owner_of_reference_expr_if_any(CO->getTrueExpr(), Ctx);
+						auto res2 = static_lifetime_owner_of_reference_expr_if_any(CO->getFalseExpr(), Ctx);
+						if (!(res1.has_value())) {
+							return res1;
+						} else if (!(res2.has_value())) {
+							return res2;
+						} else {
+							switch (res1.value().index()) {
+								case 0: /* res1 is a variable declaration */ {
+									auto res1v = std::get<0>(res1.value());
+									const auto res1_storage_duration = res1v->getStorageDuration();
+									const auto res1_is_immortal = ((clang::StorageDuration::SD_Static == res1_storage_duration) || (clang::StorageDuration::SD_Thread == res1_storage_duration)) ? true : false;
+									switch (res2.value().index()) {
+										case 0: /* res2 is a variable declaration */ {
+											auto res2v = std::get<0>(res2.value());
+											const auto res2_storage_duration = res2v->getStorageDuration();
+											const auto res2_is_immortal = ((clang::StorageDuration::SD_Static == res2_storage_duration) || (clang::StorageDuration::SD_Thread == res2_storage_duration)) ? true : false;
+											if (res1_is_immortal) {
+												if (res2_is_immortal) {
+													retval = first_is_contained_in_scope_of_second(res1v, res2v, Ctx) ? res2 : res1;
+												} else {
+													retval = res1;
+												}
+											} else if (res2_is_immortal) {
+												retval = res2;
+											} else {
+												retval = first_is_contained_in_scope_of_second(res1v, res2v, Ctx) ? res2 : res1;
+											}
+											} break;
+										case 1: /* res2 is a 'this' pointer expression' */ {
+											auto res2v = std::get<1>(res2.value());
+											if (res1_is_immortal) {
+												retval = res1;
+											} else {
+												retval = res2;
+											}
+											} break;
+										case 2: /* res2 is an expression */ {
+											//retval = res2;
+											} break;
+										default: {
+											} break;
+									}
+									} break;
+								case 1: /* res1 is a 'this' pointer expression' */ {
+									auto res1v = std::get<0>(res1.value());
+									switch (res2.value().index()) {
+										case 0: /* res2 is a variable declaration */ {
+											auto res2v = std::get<0>(res2.value());
+											const auto res2_storage_duration = res2v->getStorageDuration();
+											const auto res2_is_immortal = ((clang::StorageDuration::SD_Static == res2_storage_duration) || (clang::StorageDuration::SD_Thread == res2_storage_duration)) ? true : false;
+											if (res2_is_immortal) {
+												retval = res2;
+											} else {
+												retval = res1;
+											}
+											} break;
+										case 1: /* res2 is a 'this' pointer expression' */ {
+											auto res2v = std::get<1>(res2.value());
+											retval = first_is_contained_in_scope_of_second(res1v, res2v, Ctx) ? res2 : res1;
+											} break;
+										case 2: /* res2 is an expression */ {
+											//retval = res2;
+											} break;
+										default: {
+											} break;
+									}
+									} break;
+								case 2: /* res1 is an expression */ {
+									auto res1v = std::get<0>(res1.value());
+									switch (res2.value().index()) {
+										case 0: /* res2 is a variable declaration */ {
+											//retval = res1;
+											} break;
+										case 1: /* res2 is a 'this' pointer expression' */ {
+											//retval = res1;
+											} break;
+										case 2: /* res2 is an expression */ {
+											auto res2v = std::get<1>(res2.value());
+											//retval = first_is_contained_in_scope_of_second(res1v, res2v, Ctx) ? res2 : res1;
+											} break;
+										default: {
+											} break;
+									}
+									} break;
+								default: {
+									} break;
 							}
 						}
+						return retval;
 					} else {
+						const clang::Expr* potential_owner_EX = nullptr;
+						auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(EX);
+						auto CXXMCE = dyn_cast<const clang::CXXMemberCallExpr>(EX);
 						auto CE = dyn_cast<const clang::CallExpr>(EX);
-						auto CO = dyn_cast<const clang::ConditionalOperator>(EX);
-						if (CE) {
-							static const std::string std_move_str = "std::move";
-							const auto qname = CE->getDirectCallee()->getQualifiedNameAsString();
-							if ((std_move_str == qname) && (1 == CE->getNumArgs())) {
-								return can_be_safely_targeted_with_an_xscope_reference(CE->getArg(0), Ctx);
+						if (CXXOCE) {
+							static const std::string operator_star_str = "operator*";
+							static const std::string operator_arrow_str = "operator->";
+							static const std::string operator_subscript_str = "operator[]";
+							auto operator_name = CXXOCE->getDirectCallee()->getNameAsString();
+							if ((((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs()))
+								|| (((operator_subscript_str == operator_name)) && (2 == CXXOCE->getNumArgs()))
+								) {
+								potential_owner_EX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), Ctx);
 							}
-						} else if (CO) {
-							auto b1 = can_be_safely_targeted_with_an_xscope_reference(CO->getTrueExpr(), Ctx);
-							auto b2 = can_be_safely_targeted_with_an_xscope_reference(CO->getFalseExpr(), Ctx);
-							return (b1 && b2);
+						} else if (CXXMCE) {
+							static const std::string method_value_str = "value";
+							static const std::string method_at_str = "at";
+							static const std::string method_front_str = "front";
+							static const std::string method_back_str = "back";
+							auto method_name = CXXMCE->getDirectCallee()->getNameAsString();
+							if ((((method_value_str == method_name)) && (0 == CXXMCE->getNumArgs()))
+								|| (((method_at_str == method_name)) && (1 == CXXMCE->getNumArgs()))
+								|| (((method_front_str == method_name)) && (0 == CXXMCE->getNumArgs()))
+								|| (((method_back_str == method_name)) && (0 == CXXMCE->getNumArgs()))
+								) {
+								potential_owner_EX = IgnoreParenImpNoopCasts(CXXMCE->getImplicitObjectArgument(), Ctx);
+							}
+						} else if (CE) {
+							auto function_qname = CE->getDirectCallee()->getQualifiedNameAsString();
+							static const std::string function_get_str = "std::get";
+							if (((function_get_str == function_qname)) && (1 == CE->getNumArgs())) {
+								potential_owner_EX = IgnoreParenImpNoopCasts(CE->getArg(0), Ctx);
+							}
+						}
+						if (potential_owner_EX) {
+							auto potential_owner_EX_ii = IgnoreParenImpNoopCasts(potential_owner_EX, Ctx);
+							if (potential_owner_EX_ii) {
+								const auto potential_owner_EX_ii_qtype = potential_owner_EX_ii->getType();
+								const auto potential_owner_EX_ii_qtype_str = potential_owner_EX_ii_qtype.getAsString();
+
+								const auto CXXRD = remove_mse_transparent_wrappers(*(potential_owner_EX_ii->getType()))->getAsCXXRecordDecl();
+								if (CXXRD) {
+									/* owning containers (that might contain pointer/reference elements) */
+
+									DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, g_mse_namespace_str + "::TXScopeOwnerPointer");
+									DECLARE_CACHED_CONST_STRING(xscope_optional_str, g_mse_namespace_str + "::xscope_optional");
+									DECLARE_CACHED_CONST_STRING(xscope_tuple_str, g_mse_namespace_str + "::xscope_tuple");
+
+									static const std::string std_unique_ptr_str = "std::unique_ptr";
+									static const std::string std_shared_ptr_str = "std::shared_ptr";
+									static const std::string std_optional_str = "std::optional";
+									static const std::string std_tuple_str = "std::tuple";
+									static const std::string std_pair_str = "std::pair";
+									static const std::string std_array_str = "std::array";
+									static const std::string std_vector_str = "std::vector";
+									static const std::string std_list_str = "std::list";
+									static const std::string std_map_str = "std::map";
+									static const std::string std_set_str = "std::set";
+									static const std::string std_multimap_str = "std::multimap";
+									static const std::string std_multiset_str = "std::multiset";
+									static const std::string std_unordered_map_str = "std::unordered_map";
+									static const std::string std_unordered_set_str = "std::unordered_set";
+									static const std::string std_unordered_multimap_str = "std::unordered_multimap";
+									static const std::string std_unordered_multiset_str = "std::unordered_multiset";
+
+									/*
+									DECLARE_CACHED_CONST_STRING(mstd_optional_str, g_mse_namespace_str + "::mstd::optional");
+									DECLARE_CACHED_CONST_STRING(mstd_tuple_str, g_mse_namespace_str + "::mstd::tuple");
+									DECLARE_CACHED_CONST_STRING(nii_array_str, g_mse_namespace_str + "::nii_array");
+									DECLARE_CACHED_CONST_STRING(mstd_array_str, g_mse_namespace_str + "::mstd::array");
+									DECLARE_CACHED_CONST_STRING(nii_vector_str, g_mse_namespace_str + "::nii_vector");
+									DECLARE_CACHED_CONST_STRING(stnii_vector_str, g_mse_namespace_str + "::stnii_vector");
+									DECLARE_CACHED_CONST_STRING(mtnii_vector_str, g_mse_namespace_str + "::mtnii_vector");
+									DECLARE_CACHED_CONST_STRING(mstd_vector_str, g_mse_namespace_str + "::mstd::vector");
+									*/
+
+									auto qname = CXXRD->getQualifiedNameAsString();
+									if ((xscope_owner_ptr_str == qname) || (xscope_optional_str == qname) || (xscope_tuple_str == qname)
+
+										|| (std_unique_ptr_str == qname) || (std_shared_ptr_str == qname) || (std_optional_str == qname)
+										|| (std_tuple_str == qname) || (std_pair_str == qname)
+										|| (std_array_str == qname) || (std_vector_str == qname) || (std_list_str == qname)
+										|| (std_map_str == qname) || (std_set_str == qname) || (std_multimap_str == qname) || (std_multiset_str == qname)
+										|| (std_unordered_map_str == qname) || (std_unordered_set_str == qname) || (std_unordered_multimap_str == qname) || (std_unordered_multiset_str == qname)
+
+										/*
+										|| (mstd_optional_str == qname) || (mstd_tuple_str == qname)
+										|| (nii_array_str == qname) || (mstd_array_str == qname)
+										|| (nii_vector_str == qname) || (stnii_vector_str == qname) || (mtnii_vector_str == qname)
+										|| (mstd_vector_str == qname)
+										*/
+										) {
+										retval = static_lifetime_owner_of_reference_expr_if_any(potential_owner_EX_ii, Ctx);
+									}
+								} else if (potential_owner_EX_ii->getType()->isReferenceType()) {
+									int q = 5;
+								}
+							}
 						}
 					}
 				}
 			}
 		}
-		return satisfies_checks;
+
+		return retval;
+	}
+
+	bool can_be_safely_targeted_with_an_xscope_reference(const clang::Expr* EX1, ASTContext& Ctx) {
+		const auto res1 = static_lifetime_owner_of_target_expr_if_any(EX1, Ctx);
+		return res1.has_value();
 	}
 
 	class MCSSSMakeXScopePointerTo : public MatchFinder::MatchCallback
@@ -3406,7 +3627,7 @@ namespace checker {
 					return void();
 				}
 
-				if (std::string::npos != debug_source_location_str.find(":226:")) {
+				if (std::string::npos != debug_source_location_str.find(":204:")) {
 					int q = 5;
 				}
 
@@ -3464,160 +3685,100 @@ namespace checker {
 				/* Obtaining the declaration (location) of the pointer to be modified (or its owner) (and
 				therefore its scope lifetime) can be challenging. We are not always going to be able to
 				do so. */
-				auto LHSDRE1 = declrefexpr_of_reference_expr_if_any(LHSEX, *(MR.Context));
-				const VarDecl * LHSVD = nullptr;
-				if (LHSDRE1) {
-					auto D1 = LHSDRE1->getDecl();
-					auto VD = dyn_cast<const clang::VarDecl>(D1);
-					if (VD) {
-						const auto storage_duration = VD->getStorageDuration();
-						if (clang::StorageDuration::SD_Automatic == storage_duration) {
-							LHSVD = VD;
-						} else if (clang::StorageDuration::SD_Thread == storage_duration) {
-							LHSVD = VD;
-						}
-					}
-				}
 
-				auto RHSDRE1 = declrefexpr_of_target_expr_if_any(RHSEX, *(MR.Context));
-				const VarDecl * RHSVD = nullptr;
-				if (RHSDRE1) {
-					auto D1 = RHSDRE1->getDecl();
-					auto VD = dyn_cast<const clang::VarDecl>(D1);
-					if (VD) {
-						/* The rhs is a pointer variable (or member of a variable). */
-						const auto storage_duration = VD->getStorageDuration();
-						if (clang::StorageDuration::SD_Automatic == storage_duration) {
-							RHSVD = VD;
-						} else if (clang::StorageDuration::SD_Thread == storage_duration) {
-							RHSVD = VD;
-						} else if (clang::StorageDuration::SD_Static == storage_duration) {
-							const auto qtype = VD->getType();
-							const auto qtype_str = qtype.getAsString();
-							if (qtype.getTypePtr()->isPointerType()) {
-								const auto pointee_qtype = qtype.getTypePtr()->getPointeeType();
-								const auto pointee_qtype_str = pointee_qtype.getAsString();
-								if (pointee_qtype.isConstQualified() && pointee_qtype.getTypePtr()->isArithmeticType()) {
-									/* This case includes "C"-string literals. */
-									RHSVD = VD;
-								}
-							}
-						}
-					}
-				}
-				if (LHSVD) {
-					if (RHSVD) {
-						satisfies_checks |= first_is_contained_in_scope_of_second(LHSVD, RHSVD, *(MR.Context));
-					} else {
-						/* The rhs was not a pointer variable (or member of a variable). */
-						const clang::Expr* subexpr = nullptr;
-						auto UO = dyn_cast<const clang::UnaryOperator>(RHSEX);
-						if (UO) {
-							const auto opcode = UO->getOpcode();
-							const auto opcode_str = UO->getOpcodeStr(opcode);
-							if (clang::UnaryOperator::Opcode::UO_AddrOf == opcode) {
-								/* The rhs expression is essentially of the form "&(subexpr)" */
-								subexpr = IgnoreParenImpNoopCasts(UO->getSubExpr(), *(MR.Context));
-							}
-						} else {
-							auto CE = dyn_cast<const clang::CallExpr>(RHSEX);
-							if (CE) {
-								auto function_decl = CE->getDirectCallee();
-								auto num_args = CE->getNumArgs();
-								if (function_decl) {
-									const std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-									static const std::string std_addressof_str = "std::addressof";
-									if (std_addressof_str == qualified_function_name) {
-										if (1 == num_args) {
-											/* The rhs expression is essentially of the form "std::addressof(subexpr)" */
-											subexpr = IgnoreParenImpNoopCasts(CE->getArg(0), *(MR.Context));
-										}
-									}
-								}
-							}
-						}
-						if (subexpr) {
-							auto subexpr_DRE = declrefexpr_of_target_expr_if_any(subexpr, *(MR.Context));
-							if (subexpr_DRE) {
-								auto D1 = subexpr_DRE->getDecl();
-								auto VD = dyn_cast<const clang::VarDecl>(D1);
-								if (VD) {
-									RHSVD = VD;
-									satisfies_checks |= first_is_contained_in_scope_of_second(LHSVD, RHSVD, *(MR.Context));
-								}
-							} else {
-								/* The target object from which the new pointer value is being derived is not expressed
-								 directly as a variable or member of a variable. Perhaps it's being expressed as a
-								 dereference of another (scope) pointer of some kind. Let's check: */
-								const clang::Expr* subsubexpr = nullptr;
-								auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(subexpr);
-								if (CXXOCE) {
-									static const std::string operator_star_str = "operator*";
-									static const std::string operator_arrow_str = "operator->";
-									auto operator_name = CXXOCE->getDirectCallee()->getNameAsString();
-									if (((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs())) {
-										auto arg_EX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), *(MR.Context));
-										if (arg_EX) {
-											const auto CXXRD = arg_EX->getType()->getAsCXXRecordDecl();
-											if (CXXRD) {
-												DECLARE_CACHED_CONST_STRING(xscope_item_f_ptr_str, g_mse_namespace_str + "::TXScopeItemFixedPointer");
-												DECLARE_CACHED_CONST_STRING(xscope_item_f_const_ptr_str, g_mse_namespace_str + "::TXScopeItemFixedConstPointer");
-												DECLARE_CACHED_CONST_STRING(xscope_f_ptr_str, g_mse_namespace_str + "::TXScopeFixedPointer");
-												DECLARE_CACHED_CONST_STRING(xscope_f_const_ptr_str, g_mse_namespace_str + "::TXScopeFixedConstPointer");
-												DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, g_mse_namespace_str + "::TXScopeOwnerPointer");
-												auto qname = CXXRD->getQualifiedNameAsString();
-												if ((xscope_item_f_ptr_str == qname) || (xscope_item_f_const_ptr_str == qname)
-													|| (xscope_f_ptr_str == qname) || (xscope_f_const_ptr_str == qname)
-													/*|| ((xscope_owner_ptr_str == qname) && ())*/) {
-													subsubexpr = arg_EX;
-												}
-											} else if (arg_EX->getType()->isReferenceType()) {
-												int q = 5;
-											}
-										}
-									}
-									int q = 5;
-								} else {
-									auto UO = dyn_cast<const clang::UnaryOperator>(subexpr);
-									if (UO) {
-										const auto opcode = UO->getOpcode();
-										const auto opcode_str = UO->getOpcodeStr(opcode);
-										if (clang::UnaryOperator::Opcode::UO_Deref == opcode) {
-											const auto UOSE = UO->getSubExpr();
-											if (UOSE) {
-												if (UOSE->getType()->isPointerType()) {
-													/* subexpr is a direct dereference of a native pointer. */
-													subsubexpr = UOSE;
-												}
-											}
-										}
-									}
-								}
-								auto subsubexpr_DRE = declrefexpr_of_target_expr_if_any(subsubexpr, *(MR.Context));
-								if (subsubexpr_DRE) {
-									/* The rhs expression seems to be the address of a dereference of a scope pointer
-									of some type. The (scope) lifetime of the scope pointer must be contained within
-									the lifetime of the target object, so we can use it as a "lower bound" for the
-									lifetime of the target object. */
-
-									auto D1 = subsubexpr_DRE->getDecl();
-									auto VD = dyn_cast<const clang::VarDecl>(D1);
-									if (VD) {
-										RHSVD = VD;
-										satisfies_checks |= first_is_contained_in_scope_of_second(LHSVD, RHSVD, *(MR.Context));
-									}
-								}
-							}
-						} else {
-							auto STRL = dyn_cast<const clang::StringLiteral>(RHSEX);
-							if (STRL) {
-								satisfies_checks = true;
-							}
-						}
-					}
+				auto lhs_slo = static_lifetime_owner_of_reference_expr_if_any(LHSEX, *(MR.Context));
+				auto rhs_slo = static_lifetime_owner_of_target_expr_if_any(RHSEX, *(MR.Context));
+				if (!(lhs_slo.has_value())) {
+					satisfies_checks = false;
+				} else if (!(rhs_slo.has_value())) {
+					satisfies_checks = false;
 				} else {
-					/* We were not able to obtain a declaration from the lhs, so we're not going to be able the verify anything. */
+					switch (lhs_slo.value().index()) {
+						case 0: /* lhs_slo is a variable declaration */ {
+							auto lhs_slov = std::get<0>(lhs_slo.value());
+							const auto lhs_slo_storage_duration = lhs_slov->getStorageDuration();
+							const auto lhs_slo_is_immortal = ((clang::StorageDuration::SD_Static == lhs_slo_storage_duration) || (clang::StorageDuration::SD_Thread == lhs_slo_storage_duration)) ? true : false;
+							switch (rhs_slo.value().index()) {
+								case 0: /* rhs_slo is a variable declaration */ {
+									auto rhs_slov = std::get<0>(rhs_slo.value());
+									const auto rhs_slo_storage_duration = rhs_slov->getStorageDuration();
+									const auto rhs_slo_is_immortal = ((clang::StorageDuration::SD_Static == rhs_slo_storage_duration) || (clang::StorageDuration::SD_Thread == rhs_slo_storage_duration)) ? true : false;
+									if (lhs_slo_is_immortal) {
+										if (rhs_slo_is_immortal) {
+											satisfies_checks = first_is_contained_in_scope_of_second(lhs_slov, rhs_slov, *(MR.Context));
+										} else {
+											satisfies_checks = false;
+										}
+									} else if (rhs_slo_is_immortal) {
+										satisfies_checks = true;
+									} else {
+										satisfies_checks = first_is_contained_in_scope_of_second(lhs_slov, rhs_slov, *(MR.Context));
+									}
+									} break;
+								case 1: /* rhs_slo is a 'this' pointer expression' */ {
+									auto rhs_slov = std::get<1>(rhs_slo.value());
+									if (lhs_slo_is_immortal) {
+										satisfies_checks = false;
+									} else {
+										satisfies_checks = true;
+									}
+									} break;
+								case 2: /* rhs_slo is an expression */ {
+									satisfies_checks = false;
+									} break;
+								case 3: /* rhs_slo is an (immortal) string literal */ {
+									satisfies_checks = true;
+									} break;
+								default: {
+									} break;
+							}
+							} break;
+						case 1: /* lhs_slo is a 'this' pointer expression' */ {
+							auto lhs_slov = std::get<0>(lhs_slo.value());
+							switch (rhs_slo.value().index()) {
+								case 0: /* rhs_slo is a variable declaration */ {
+									auto rhs_slov = std::get<0>(rhs_slo.value());
+									const auto rhs_slo_storage_duration = rhs_slov->getStorageDuration();
+									const auto rhs_slo_is_immortal = ((clang::StorageDuration::SD_Static == rhs_slo_storage_duration) || (clang::StorageDuration::SD_Thread == rhs_slo_storage_duration)) ? true : false;
+									if (rhs_slo_is_immortal) {
+										satisfies_checks = true;
+									} else {
+										satisfies_checks = false;
+									}
+									} break;
+								case 1: /* rhs_slo is a 'this' pointer expression' */ {
+									auto rhs_slov = std::get<1>(rhs_slo.value());
+									//satisfies_checks = first_is_contained_in_scope_of_second(lhs_slov, rhs_slov, *(MR.Context));
+									/* The lhs and rhs are members of an object (or the object itself). But it's technically only
+									safe for the lhs to target the rhs if the rhs member field is declared before the lhs member
+									field. Unfortunately we don't retain that information at the moment, so we can't determine that
+									the pointer assignment would be safe. */
+									satisfies_checks = false;
+									} break;
+								case 2: /* rhs_slo is an expression */ {
+									satisfies_checks = false;
+									} break;
+								case 3: /* rhs_slo is an (immortal) string literal */ {
+									satisfies_checks = true;
+									} break;
+								default: {
+									} break;
+							}
+							} break;
+						case 2: /* lhs_slo is an expression */ {
+							if (3 == rhs_slo.value().index()) {
+								/* rhs_slo is an (immortal) string literal */
+								satisfies_checks = true;
+							} else {
+								/* not enough info to determine an upper bound for the lifetime of the lhs */
+								satisfies_checks = false;
+							}
+							} break;
+						default: {
+							} break;
+					}
 				}
+
 				if (!satisfies_checks) {
 					const std::string error_desc = std::string("Unable to verify that this pointer assignment (of type '")
 						+ LHSEX->getType().getAsString() + "') is safe.";
