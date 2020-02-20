@@ -1280,16 +1280,16 @@ namespace checker {
 					auto VD = dyn_cast<const clang::VarDecl>(D);
 					if (VD) {
 						const auto storage_duration = VD->getStorageDuration();
-						const auto qualified_name = VD->getQualifiedNameAsString();
+						const auto var_qualified_name = VD->getQualifiedNameAsString();
+						const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 
 						if ((clang::StorageDuration::SD_Static == storage_duration) || (clang::StorageDuration::SD_Thread == storage_duration)) {
 							bool satisfies_checks = false;
-							const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 							if (CXXRD) {
-								auto name = CXXRD->getQualifiedNameAsString();
+								auto type_name1 = CXXRD->getQualifiedNameAsString();
 								const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
 								if (tmplt_CXXRD) {
-									name = tmplt_CXXRD->getQualifiedNameAsString();
+									type_name1 = tmplt_CXXRD->getQualifiedNameAsString();
 								}
 
 								DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, g_mse_namespace_str + "::rsv::TStaticImmutableObj");
@@ -1300,13 +1300,13 @@ namespace checker {
 								DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2AtomicFixedPointer_str, g_mse_namespace_str + "::TAsyncSharedV2AtomicFixedPointer");
 								DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, g_mse_namespace_str + "::rsv::TThreadLocalObj");
 
-								if ((name == mse_rsv_static_immutable_obj_str1)
-									|| (name == std_atomic_str)
-									|| (name == mse_AsyncSharedV2ReadWriteAccessRequester_str)
-									|| (name == mse_AsyncSharedV2ReadOnlyAccessRequester_str)
-									|| (name == mse_TAsyncSharedV2ImmutableFixedPointer_str)
-									|| (name == mse_TAsyncSharedV2AtomicFixedPointer_str)
-									|| ((name == mse_rsv_ThreadLocalObj_str) && (clang::StorageDuration::SD_Thread == storage_duration))
+								if ((type_name1 == mse_rsv_static_immutable_obj_str1)
+									|| (type_name1 == std_atomic_str)
+									|| (type_name1 == mse_AsyncSharedV2ReadWriteAccessRequester_str)
+									|| (type_name1 == mse_AsyncSharedV2ReadOnlyAccessRequester_str)
+									|| (type_name1 == mse_TAsyncSharedV2ImmutableFixedPointer_str)
+									|| (type_name1 == mse_TAsyncSharedV2AtomicFixedPointer_str)
+									|| ((type_name1 == mse_rsv_ThreadLocalObj_str) && (clang::StorageDuration::SD_Thread == storage_duration))
 									) {
 									satisfies_checks = true;
 								}
@@ -1318,7 +1318,7 @@ namespace checker {
 										satisfies_checks = true;
 									} else {
 										const std::string error_desc = std::string("Unable to verify the safety of variable '")
-											+ qualified_name + "' of type '" + qtype_str + "' with 'static storage duration'. "
+											+ var_qualified_name + "' of type '" + qtype_str + "' with 'static storage duration'. "
 											+ "'static storage duration' is supported for eligible types wrapped in the "
 											+ "'mse::rsv::TStaticImmutableObj<>' transparent template wrapper. Other supported wrappers include: "
 											+ "mse::rsv::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
@@ -1336,7 +1336,7 @@ namespace checker {
 										satisfies_checks = true;
 									} else {
 										const std::string error_desc = std::string("Unable to verify the safety of variable '")
-											+ qualified_name + "' of type '" + qtype_str + "' with 'thread local storage duration'. "
+											+ var_qualified_name + "' of type '" + qtype_str + "' with 'thread local storage duration'. "
 											+ "'thread local storage duration' is supported for eligible types wrapped in the "
 											+ "'mse::rsv::TThreadLocalObj<>' transparent template wrapper. Other supported wrappers include: "
 											+ "mse::rsv::TStaticImmutableObj<>, mse::rsv::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
@@ -1345,6 +1345,36 @@ namespace checker {
 										if (res.second) {
 											std::cout << (*(res.first)).as_a_string1() << " \n\n";
 										}
+									}
+								}
+							}
+						}
+						if (CXXRD) {
+							auto type_name1 = CXXRD->getQualifiedNameAsString();
+							const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
+							if (tmplt_CXXRD) {
+								type_name1 = tmplt_CXXRD->getQualifiedNameAsString();
+							}
+
+							DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, g_mse_namespace_str + "::rsv::TStaticImmutableObj");
+							DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, g_mse_namespace_str + "::rsv::TThreadLocalObj");
+
+							if (type_name1 == mse_rsv_static_immutable_obj_str1) {
+								if (clang::StorageDuration::SD_Static != storage_duration) {
+									const std::string error_desc = std::string("Variable '") + var_qualified_name + "' of type '"
+										+ mse_rsv_static_immutable_obj_str1 + "' must be declared to have 'static' storage duration.";
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									}
+								}
+							} else if (type_name1 == mse_rsv_ThreadLocalObj_str) {
+								if (clang::StorageDuration::SD_Thread != storage_duration) {
+									const std::string error_desc = std::string("Variable '") + var_qualified_name + "' of type '"
+										+ mse_rsv_ThreadLocalObj_str + "' must be declared to have 'thread_local' storage duration.";
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
 									}
 								}
 							}
@@ -3554,7 +3584,7 @@ namespace checker {
 									/* error: Unable to verify that the member function used here can't access part of
 									the object that hasn't been constructed yet. */
 									const std::string error_desc = std::string("Calling non-static member functions ")
-									+ "(such as '" + CXXMD->getNameAsString() + "') of an object is not supported in "
+									+ "(such as '" + CXXMD->getQualifiedNameAsString() + "') of an object is not supported in "
 									+ "constructor initializers or direct field initializers of the object. Consider "
 									+ "using a static member or free function instead. ";
 									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
