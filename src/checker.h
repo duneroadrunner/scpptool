@@ -65,7 +65,7 @@ extern std::string g_mse_namespace_str;
 #define DEBUG_SET_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, MatchResult1) \
 				source_location_str1 = SourceRange1.getBegin().printToString(*MatchResult1.SourceManager);
 #define DEBUG_SET_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1) \
-				source_text1 = Rewrite1.getRewrittenText(SourceRange1);
+				if ((SourceRange1.getBegin() < SourceRange1.getEnd()) || (SourceRange1.getBegin() == SourceRange1.getEnd())) { source_text1 = Rewrite1.getRewrittenText(SourceRange1); }
 #else /*!NDEBUG*/
 #define DEBUG_SET_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, MatchResult1) ;
 #define DEBUG_SET_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1) ;
@@ -535,13 +535,18 @@ namespace checker {
 			if (qualified_base_class_name == qname) {
 				return true;
 			}
-			for (const auto& base : CXXRD->bases()) {
-				const auto base_qtype = base.getType();
-				const auto base_qtype_str = base_qtype.getAsString();
 
-				if (has_ancestor_base_class(base.getType(), qualified_base_class_name)) {
-					return true;
+			if (CXXRD->hasDefinition()) {
+				for (const auto& base : CXXRD->bases()) {
+					const auto base_qtype = base.getType();
+					const auto base_qtype_str = base_qtype.getAsString();
+
+					if (has_ancestor_base_class(base.getType(), qualified_base_class_name)) {
+						return true;
+					}
 				}
+			} else {
+				int q = 5;
 			}
 		}
 
@@ -1314,7 +1319,13 @@ namespace checker {
 
 							if (!satisfies_checks) {
 								if (clang::StorageDuration::SD_Static == storage_duration) {
+									DECLARE_CACHED_CONST_STRING(const_char_star_str, "const char *");
 									if ((qtype.isConstQualified()) && (is_async_shareable(qtype, (*this).m_state1))) {
+										satisfies_checks = true;
+									} else if (qtype.getAsString() == const_char_star_str) {
+										/* This isn't technically safe, but presumably this is likely
+										to be a string literal, which should be fine, so for now we'll
+										let it go. */
 										satisfies_checks = true;
 									} else {
 										const std::string error_desc = std::string("Unable to verify the safety of variable '")
@@ -1385,12 +1396,17 @@ namespace checker {
 							if (!init_EX) {
 								auto PVD = dyn_cast<const ParmVarDecl>(VD);
 								if (!PVD) {
-									const std::string error_desc = std::string("Uninitialized ")
-										+ "scalar variable '" + VD->getNameAsString() + "' (of type '"
-										+ qtype.getAsString() + "') ";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									if (!VD->isExternallyDeclarable()) {
+										const std::string error_desc = std::string("Uninitialized ")
+											+ "scalar variable '" + VD->getNameAsString() + "' (of type '"
+											+ qtype.getAsString() + "') ";
+										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+										if (res.second) {
+											std::cout << (*(res.first)).as_a_string1() << " \n\n";
+										}
+									} else {
+										/* todo: emit error that (uninitialized) 'extern' variables
+										aren't supported?  */;
 									}
 								}
 							}
@@ -3225,22 +3241,17 @@ namespace checker {
 				auto qtype = VD->getType();
 				std::string qtype_str = VD->getType().getAsString();
 				if (qtype->isPointerType()) {
-					if (clang::StorageDuration::SD_Automatic != VD->getStorageDuration()) {
+					/*
+					if ((clang::StorageDuration::SD_Automatic != VD->getStorageDuration())
+						&& (clang::StorageDuration::SD_Thread != VD->getStorageDuration())) {
 						const std::string error_desc = std::string("Native pointers that are ")
-							+ "not (automatic) local variables (or function parameters) are not supported.";
+							+ "not (automatic or thread) local variables (or function parameters) are not supported.";
 						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 						if (res.second) {
 							std::cout << (*(res.first)).as_a_string1() << " \n\n";
 						}
 					}
-					if (false && (!(qtype.isConstQualified()))) {
-						const std::string error_desc = std::string("Retargetable (aka non-const) native pointers ")
-							+ "are not supported.";
-						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n\n";
-						}
-					}
+					*/
 					const auto* EX = VD->getInit();
 					if (EX) {
 						bool null_initialization = is_nullptr_literal(EX, *(MR.Context));
@@ -3257,11 +3268,16 @@ namespace checker {
 					} else {
 						auto *PVD = dyn_cast<const ParmVarDecl>(VD);
 						if (!PVD) {
-							const std::string error_desc = std::string("Uninitialized ")
-								+ "native pointer variables are not supported.";
-							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
+							if (!VD->isExternallyDeclarable()) {
+								const std::string error_desc = std::string("Uninitialized ")
+									+ "native pointer variables are not supported.";
+								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+								if (res.second) {
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
+								}
+							} else {
+								/* todo: emit error that (uninitialized) 'extern' pointer variables
+								aren't supported?  */;
 							}
 						}
 					}
@@ -3801,7 +3817,7 @@ namespace checker {
 							}
 							} break;
 						case 1: /* lhs_slo is a 'this' pointer expression' */ {
-							auto lhs_slov = std::get<0>(lhs_slo.value());
+							auto lhs_slov = std::get<1>(lhs_slo.value());
 							switch (rhs_slo.value().index()) {
 								case 0: /* rhs_slo is a variable declaration */ {
 									auto rhs_slov = std::get<0>(rhs_slo.value());
