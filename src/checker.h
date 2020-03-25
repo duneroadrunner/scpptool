@@ -101,37 +101,6 @@ namespace checker {
     };
 
 
-
-	class COrderedSourceRange : public SourceRange {
-		public:
-		typedef SourceRange base_class;
-		using base_class::base_class;
-		COrderedSourceRange(const SourceRange& src) : base_class(src.getBegin(), src.getEnd()) {}
-	};
-	inline bool operator==(const COrderedSourceRange &LHS, const COrderedSourceRange &RHS) {
-		return static_cast<const COrderedSourceRange::base_class &>(LHS) == static_cast<const COrderedSourceRange::base_class &>(RHS);
-		//return LHS.getBegin() == RHS.getBegin();
-	}
-	inline bool operator!=(const COrderedSourceRange &LHS, const COrderedSourceRange &RHS) {
-		return !(LHS == RHS);
-	}
-	inline bool operator<(const COrderedSourceRange &LHS, const COrderedSourceRange &RHS) {
-		return (LHS.getBegin() < RHS.getBegin()) || ((LHS.getBegin() == RHS.getBegin()) && (LHS.getEnd() < RHS.getEnd()));
-	}
-	class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
-		public:
-		typedef std::set<COrderedSourceRange> base_class;
-		using base_class::base_class;
-		bool contains(const SourceRange& SR) const {
-			for (auto it = (*this).cbegin(); (*this).cend() != it; it++) {
-				if (first_is_a_subset_of_second(SR, *it)) {
-					return true;
-				}
-			}
-			return false;
-		}
-	};
-
 	class CErrorRecord {
 		public:
 		CErrorRecord() : m_id(next_available_id()) {}
@@ -4374,6 +4343,9 @@ namespace checker {
 		std::vector<size_t> m_converted_version_tu_numbers;
 	};
 
+	/* global variable to store (some of) the information obtained during the "checker" pass */
+	thread_local std::vector<CTUState> g_final_tu_states;
+
 	class MyFrontendAction : public ASTFrontendActionCompatibilityWrapper1
 	{
 	public:
@@ -4382,15 +4354,14 @@ namespace checker {
 		}
 		~MyFrontendAction() {
 			std::cout << "\n" << (*this).m_tu_state.m_error_records.size() << " errors found. \n";
+			std::cout.flush();
 			//llvm::errs() << "\n~MyFrontendAction() " << '\n';
-			if (false && ConvertToSCPP) {
-				auto res = overwriteChangedFiles();
-				int q = 5;
-			}
+
+			/* copy the final states to global storage so the information can be used by subsequent passes */
+			g_final_tu_states.push_back((*this).m_tu_state);
 		}
 
 		bool BeginSourceFileAction(CompilerInstance &ci) override {
-			s_source_file_action_num += 1;
 			std::unique_ptr<MyPPCallbacks> my_pp_callbacks_ptr(new MyPPCallbacks(TheRewriter, ci, (*this).m_tu_state));
 			auto my_pp_callbacks_rawptr = my_pp_callbacks_ptr.get();
 			m_callbacks_stack.push_back(my_pp_callbacks_rawptr);
@@ -4470,115 +4441,11 @@ namespace checker {
 			return llvm::make_unique<MyASTConsumer>(TheRewriter, CI, (*this).m_tu_state);
 		}
 
-		bool overwriteChangedFiles() {
-			std::set<std::pair<std::string, std::string> > filename_info_set;
-			{
-				for (auto  I = TheRewriter.buffer_begin(), E = TheRewriter.buffer_end(); I != E; ++I) {
-					const FileEntry *Entry = TheRewriter.getSourceMgr().getFileEntryForID(I->first);
-
-					std::string pathname = Entry->tryGetRealPathName();
-					auto found_pos = pathname.find_last_of("/\\");
-					std::string path;
-					std::string filename;
-					if (std::string::npos != found_pos) {
-						path = pathname.substr(0, found_pos);
-						if (pathname.length() > found_pos) {
-							filename = pathname.substr(found_pos + 1);
-						}
-					} else {
-						filename = pathname;
-					}
-					std::pair<std::string, std::string> item(path, filename);
-					filename_info_set.insert(item);
-
-					int q = 5;
-				}
-				std::set<std::pair<std::string, std::string> > unbackupable_filename_info_set;
-				for (const auto& filename_info_ref : filename_info_set) {
-					std::string backup_pathname = filename_info_ref.first + "/" + filename_info_ref.second + ".bak.tmp";
-					std::string tmp_pathname = filename_info_ref.first + "/" + filename_info_ref.second + ".tmp";
-					std::string src_pathname = filename_info_ref.first + "/" + filename_info_ref.second;
-
-					std::ifstream src;
-					src.open(src_pathname, std::ios::binary);
-					std::ofstream dst;
-					dst.open(tmp_pathname, std::ios::binary);
-					if (((src.rdstate() & std::ifstream::failbit ) != 0)
-							|| ((dst.rdstate() & std::ofstream::failbit ) != 0)) {
-						unbackupable_filename_info_set.insert(filename_info_ref);
-					} else {
-						dst << src.rdbuf();
-						src.close();
-						dst.close();
-						std::remove(backup_pathname.c_str());
-						std::rename(src_pathname.c_str(), backup_pathname.c_str());
-						std::rename(tmp_pathname.c_str(), src_pathname.c_str());
-					}
-				}
-				for (const auto& filename_info_ref : unbackupable_filename_info_set) {
-					filename_info_set.erase(filename_info_ref);
-				}
-			}
-
-			bool retval = TheRewriter.overwriteChangedFiles();
-
-			{
-				for (const auto& filename_info_ref : filename_info_set) {
-					{
-						std::string converted_version_filename = filename_info_ref.second;
-
-						static const std::string dot_c_str = ".c";
-						bool ends_with_dot_c = string_ends_with(converted_version_filename, dot_c_str);
-						if (ends_with_dot_c) {
-							converted_version_filename = converted_version_filename.substr(0, converted_version_filename.size() - 2);
-							converted_version_filename += ".cpp";
-						}
-
-						{
-							auto found_it = s_file_conversion_record_map.find(filename_info_ref.second);
-							if (s_file_conversion_record_map.end() == found_it) {
-								CFileConversionRecord file_conversion_record;
-							file_conversion_record.m_path = filename_info_ref.first;
-							file_conversion_record.m_original_filename = filename_info_ref.second;
-								file_conversion_record.m_target_filename = converted_version_filename;
-								std::map<std::string, CFileConversionRecord>::value_type item(filename_info_ref.second, file_conversion_record);
-								found_it = s_file_conversion_record_map.insert(item).first;
-								assert(s_file_conversion_record_map.end() != found_it);
-							}
-							CFileConversionRecord& file_conversion_record_ref = (*found_it).second;
-							file_conversion_record_ref.m_converted_version_tu_numbers.push_back(s_source_file_action_num);
-						}
-
-						converted_version_filename += ".converted_" + std::to_string(s_source_file_action_num);
-
-						std::string converted_version_pathname = filename_info_ref.first + "/" + converted_version_filename;
-						std::string src_pathname = filename_info_ref.first + "/" + filename_info_ref.second;
-						std::remove(converted_version_pathname.c_str());
-						std::rename(src_pathname.c_str(), converted_version_pathname.c_str());
-					}
-					{
-						std::string backup_filename = filename_info_ref.second + ".bak.tmp";
-						std::string backup_pathname = filename_info_ref.first + "/" + backup_filename;
-						std::string dst_pathname = filename_info_ref.first + "/" + filename_info_ref.second;
-						//std::remove(dst_pathname.c_str());
-						std::rename(backup_pathname.c_str(), dst_pathname.c_str());
-					}
-				}
-			}
-
-			return retval;
-		}
-
-		static std::map<std::string, CFileConversionRecord> s_file_conversion_record_map;
-
 	private:
 		CTUState m_tu_state;
 		Rewriter TheRewriter;
 		std::vector<PPCallbacks*> m_callbacks_stack;
-		static int s_source_file_action_num;
 	};
-	int MyFrontendAction::s_source_file_action_num = 0;
-	std::map<std::string, CFileConversionRecord> MyFrontendAction::s_file_conversion_record_map;
 
 	auto buildASTs_and_run(ClangTool& Tool, Options options = Options()) {
 

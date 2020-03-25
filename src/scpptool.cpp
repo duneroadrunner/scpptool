@@ -28,7 +28,7 @@ static std::string g_mse_namespace_str = "mse";
 
 #include "checker.h"
 
-#define EXCLUDE_CONVERTER_MODE1
+//define EXCLUDE_CONVERTER_MODE1
 #ifndef EXCLUDE_CONVERTER_MODE1
 #include "converter_mode1.h"
 #endif //!EXCLUDE_CONVERTER_MODE1
@@ -96,8 +96,32 @@ int main(int argc, const char **argv)
 
   int retval = -1;
 
+  if (true) {
+    checker::Options options = {
+          CheckSystemHeader,
+          MainFileOnly,
+          ConvertToSCPP,
+          CTUAnalysis,
+          EnableNamespaceImport,
+          SuppressPrompts,
+          DoNotReplaceOriginalSource,
+          MergeCommand
+      };
+    retval = checker::buildASTs_and_run(Tool, options);
+  }
+
   if (ConvertToSCPP.getValue()) {
 #ifndef EXCLUDE_CONVERTER_MODE1
+
+    /* The "checker" pass, among other things, determined which regions of the code are indicated
+    to be excluded from the checks. The "convert" pass also needs this information. Rather than
+    re-compute it, we'll copy it from the stored "states" of the checker pass. */
+    for (const auto& checker_state : checker::g_final_tu_states) {
+      convm1::CTUState convm1_state;
+      convm1_state.m_suppress_check_region_set = checker_state.m_suppress_check_region_set;
+      convm1::g_prepared_initial_tu_states.push_back(convm1_state);
+    }
+
     convm1::Options options = {
           CheckSystemHeader,
           MainFileOnly,
@@ -110,18 +134,6 @@ int main(int argc, const char **argv)
       };
     retval = convm1::buildASTs_and_run(Tool, options);
 #endif //!EXCLUDE_CONVERTER_MODE1
-  } else {
-    checker::Options options = {
-          CheckSystemHeader,
-          MainFileOnly,
-          ConvertToSCPP,
-          CTUAnalysis,
-          EnableNamespaceImport,
-          SuppressPrompts,
-          DoNotReplaceOriginalSource,
-          MergeCommand
-      };
-    retval = checker::buildASTs_and_run(Tool, options);
   }
 
   return retval;

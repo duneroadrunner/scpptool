@@ -9,6 +9,7 @@
 #define __CONVERTER_MODE1_H
 
 #include "utils1.h"
+#include "checker.h"
 
 /*Standard headers*/
 #include <string>
@@ -1206,6 +1207,10 @@ namespace convm1 {
 
 	class CTUState {
 	public:
+		/* This container holds the locations of regions of code for which checking is
+		(indicated to be) suppressed. */
+		CSuppressCheckRegionSet m_suppress_check_region_set;
+
 		/* This container holds (potential) actions that are meant to be executed if/when
 		* their corresponding item is determined to be a dynamic array. */
 		CArray2ReplacementActionMap m_dynamic_array2_contingent_replacement_map;
@@ -3146,7 +3151,7 @@ namespace convm1 {
 					return void();
 				}
 
-				if (std::string::npos != source_location_str.find("163")) {
+				if (std::string::npos != source_location_str.find("147")) {
 					int q = 5;
 				}
 
@@ -5095,7 +5100,7 @@ namespace convm1 {
 					return void();
 				}
 
-				if (std::string::npos != source_location_str.find("438")) {
+				if (std::string::npos != source_location_str.find("1507")) {
 					int q = 5;
 				}
 
@@ -5317,7 +5322,9 @@ namespace convm1 {
 								}
 								auto rhs_res2 = infer_array_type_info_from_stmt(*arg_EX, "", (*this).m_state1);
 
-								if (rhs_res2.ddecl_cptr && rhs_res2.update_declaration_flag) {
+								if (rhs_res2.ddecl_cptr) {
+									/* update the declaration of the of the variable in the argument
+									expression (whether it needs updating or not) */
 									update_declaration(*(rhs_res2.ddecl_cptr), Rewrite, m_state1);
 								}
 
@@ -6349,7 +6356,8 @@ namespace convm1 {
 
 		Matcher.addMatcher(clang::ast_matchers::recordDecl().bind("mcsssrecorddecl"), &HandlerForSSSRecordDecl);
 
-		//Matcher.addMatcher(clang::ast_matchers::declaratorDecl().bind("mcsssvardecl"), &HandlerForSSSVarDecl2);
+		Matcher.addMatcher(clang::ast_matchers::declaratorDecl().bind("mcsssvardecl"), &HandlerForSSSVarDecl2);
+		/*
 		Matcher.addMatcher(varDecl(anyOf(
 				hasInitializer(anyOf(
 						expr(cStyleCastExpr(hasDescendant(declRefExpr().bind("mcsssvardecl5"))).bind("mcsssvardecl3")).bind("mcsssvardecl2"),
@@ -6357,6 +6365,7 @@ namespace convm1 {
 						)),
 					clang::ast_matchers::anything()
 					)).bind("mcsssvardecl"), &HandlerForSSSVarDecl2);
+		*/
 
 		Matcher.addMatcher(expr(allOf(
 				hasParent(expr(anyOf(
@@ -6702,11 +6711,19 @@ namespace convm1 {
 		std::vector<size_t> m_converted_version_tu_numbers;
 	};
 
+	thread_local std::vector<CTUState> g_prepared_initial_tu_states;
+
 	class MyFrontendAction : public ASTFrontendActionCompatibilityWrapper1
 	{
 	public:
 		MyFrontendAction() {
-			int q = 5;
+			if (1 > g_prepared_initial_tu_states.size()) {
+				//assert(false);
+			} else {
+				/* Initialize the "state" with information computed in the "checker" pass. */
+				(*this).m_tu_state = g_prepared_initial_tu_states.back();
+				g_prepared_initial_tu_states.pop_back();
+			}
 		}
 		~MyFrontendAction() {
 			if (ConvertToSCPP) {

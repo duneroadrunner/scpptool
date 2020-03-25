@@ -79,4 +79,35 @@ bool string_ends_with(const std::string& s1, const std::string& suffix);
  * as the given declaration. (eg.: "int a, b = 3, *c;" ) */
 std::vector<const clang::DeclaratorDecl*> IndividualDeclaratorDecls(const clang::DeclaratorDecl* DD, clang::Rewriter &Rewrite);
 
+
+class COrderedSourceRange : public clang::SourceRange {
+	public:
+	typedef clang::SourceRange base_class;
+	using base_class::base_class;
+	COrderedSourceRange(const clang::SourceRange& src) : base_class(src.getBegin(), src.getEnd()) {}
+};
+inline bool operator==(const COrderedSourceRange &LHS, const COrderedSourceRange &RHS) {
+	return static_cast<const COrderedSourceRange::base_class &>(LHS) == static_cast<const COrderedSourceRange::base_class &>(RHS);
+	//return LHS.getBegin() == RHS.getBegin();
+}
+inline bool operator!=(const COrderedSourceRange &LHS, const COrderedSourceRange &RHS) {
+	return !(LHS == RHS);
+}
+inline bool operator<(const COrderedSourceRange &LHS, const COrderedSourceRange &RHS) {
+	return (LHS.getBegin() < RHS.getBegin()) || ((LHS.getBegin() == RHS.getBegin()) && (LHS.getEnd() < RHS.getEnd()));
+}
+class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
+	public:
+	typedef std::set<COrderedSourceRange> base_class;
+	using base_class::base_class;
+	bool contains(const clang::SourceRange& SR) const {
+		for (auto it = (*this).cbegin(); (*this).cend() != it; it++) {
+			if (first_is_a_subset_of_second(SR, *it)) {
+				return true;
+			}
+		}
+		return false;
+	}
+};
+
 #endif //__UTILS1_H
