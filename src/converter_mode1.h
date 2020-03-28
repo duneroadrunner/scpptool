@@ -2828,35 +2828,18 @@ namespace convm1 {
 				const CastExpr* CE = MR.Nodes.getNodeAs<clang::CastExpr>("mcsssarraytopointerdecay");
 
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
-				SourceLocation SL = SR.getBegin();
-				SourceLocation SLE = SR.getEnd();
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FSL = ASTC->getFullLoc(SL);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				auto source_location_str = SL.printToString(*MR.SourceManager);
-				std::string source_text;
-				if (SL.isValid() && SLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(SL, SLE));
-				} else {
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
-				}
-
-				if (filtered_out_by_location(MR, SL))
-				{
-					/*intentionally left blank*/
-				}
-				else
-				{
-					{
-						if (false) {
-							std::cout << "sss1.2:" << "array to pointer decay:";
-							std::cout << SL.printToString(*MR.SourceManager) << ":" << std::endl;
-
-							//XMLDocOut.XMLAddNode(MR.Context, SL, "sss1.2", "array to pointer decay: ");
-							//JSONDocOUT.JSONAddElement(MR.Context, SL, "sss1.2", "array to pointer decay: ");
-						}
-					}
 				}
 			}
 		}
@@ -2869,7 +2852,8 @@ namespace convm1 {
 	class MCSSSNativePointer : public MatchFinder::MatchCallback
 	{
 	public:
-		MCSSSNativePointer (Rewriter &Rewrite) : Rewrite(Rewrite) {}
+		MCSSSNativePointer (Rewriter &Rewrite, CTUState& state1)
+	: Rewrite(Rewrite), m_state1(state1) {}
 
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
@@ -2878,35 +2862,18 @@ namespace convm1 {
 				const VarDecl *VD = MR.Nodes.getNodeAs<clang::VarDecl>("mcsssnativepointer");
 
 				auto SR = nice_source_range(VD->getSourceRange(), Rewrite);
-				SourceLocation SL = SR.getBegin();
-				SourceLocation SLE = SR.getEnd();
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				ASTContext* const ASTC = MR.Context;
-				FullSourceLoc FSL = ASTC->getFullLoc(SL);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				auto source_location_str = SL.printToString(*MR.SourceManager);
-				std::string source_text;
-				if (SL.isValid() && SLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(SL, SLE));
-				} else {
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
-				}
-
-				if (filtered_out_by_location(MR, SL))
-				{
-					/*intentionally left blank*/
-				}
-				else
-				{
-					{
-						if (false) {
-							std::cout << "sss1.1:" << "native pointer:";
-							std::cout << SL.printToString(*MR.SourceManager) << ":" << std::endl;
-
-							//XMLDocOut.XMLAddNode(MR.Context, SL, "sss1.1", "native pointer: ");
-							//JSONDocOUT.JSONAddElement(MR.Context, SL, "sss1.1", "native pointer: ");
-						}
-					}
 				}
 			}
 		}
@@ -2917,6 +2884,7 @@ namespace convm1 {
 
 	private:
 		Rewriter &Rewrite;
+		CTUState& m_state1;
 	};
 
 	/**********************************************************************************************************************/
@@ -2938,29 +2906,17 @@ namespace convm1 {
 			if ((RD != nullptr))
 			{
 				auto SR = nice_source_range(RD->getSourceRange(), Rewrite);
-				auto decl_source_range = SR;
-				SourceLocation SL = SR.getBegin();
-				SourceLocation SLE = SR.getEnd();
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FSL = ASTC->getFullLoc(SL);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				SourceManager &SM = ASTC->getSourceManager();
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				auto source_location_str = SL.printToString(*MR.SourceManager);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				if (filtered_out_by_location(MR, SL)) {
-					return void();
-				}
-
-				if (std::string::npos != source_location_str.find("163")) {
-					int q = 5;
-				}
-
-				std::string source_text;
-				if (SR.isValid()) {
-					source_text = Rewrite.getRewrittenText(SR);
-				} else {
+				auto ISR = instantiation_source_range(RD->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
 				}
 
@@ -3132,33 +3088,17 @@ namespace convm1 {
 			if ((DD != nullptr))
 			{
 				auto SR = nice_source_range(DD->getSourceRange(), Rewrite);
-				auto decl_source_range = SR;
-				SourceLocation SL = SR.getBegin();
-				SourceLocation SLE = SR.getEnd();
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				QualType QT = DD->getType();
-				const clang::Type* TP = QT.getTypePtr();
-				auto qtype_str = QT.getAsString();
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FSL = ASTC->getFullLoc(SL);
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				SourceManager &SM = ASTC->getSourceManager();
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto source_location_str = SL.printToString(*MR.SourceManager);
-
-				if (filtered_out_by_location(MR, SL)) {
-					return void();
-				}
-
-				if (std::string::npos != source_location_str.find("147")) {
-					int q = 5;
-				}
-
-				std::string source_text;
-				if (SR.isValid()) {
-					source_text = Rewrite.getRewrittenText(SR);
-				} else {
+				auto ISR = instantiation_source_range(DD->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
 				}
 
@@ -3360,28 +3300,18 @@ namespace convm1 {
 				const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcssspointerarithmetic");
 
 				auto SR = nice_source_range(DRE->getSourceRange(), Rewrite);
-				SourceLocation SL = SR.getBegin();
-				SourceLocation SLE = SR.getEnd();
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				QualType QT = DRE->getType();
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				const clang::Type* TP = QT.getTypePtr();
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FSL = ASTC->getFullLoc(SL);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				SourceManager &SM = ASTC->getSourceManager();
-
-				auto source_location_str = SL.printToString(*MR.SourceManager);
-				std::string source_text;
-				if (SL.isValid() && SLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(SL, SLE));
-				} else {
+				auto ISR = instantiation_source_range(DRE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
-				}
-
-				if (filtered_out_by_location(MR, SL)) {
-					return void();
 				}
 
 				auto decl = DRE->getDecl();
@@ -3407,7 +3337,7 @@ namespace convm1 {
 					} else {
 						return;
 					}
-					QT = DD->getType();
+					auto QT = DD->getType();
 					std::string variable_name = DD->getNameAsString();
 
 					auto qualified_name = DD->getQualifiedNameAsString();
@@ -3453,29 +3383,19 @@ namespace convm1 {
 
 			if ((BO != nullptr) && (LHS != nullptr) && (CE != nullptr) && (DRE != nullptr))
 			{
-				auto BOSR = nice_source_range(BO->getSourceRange(), Rewrite);
-				SourceLocation BOSL = BOSR.getBegin();
-				SourceLocation BOSLE = BOSR.getEnd();
+				auto SR = nice_source_range(BO->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FBOSL = ASTC->getFullLoc(BOSL);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				SourceManager &SM = ASTC->getSourceManager();
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				auto source_location_str = BOSL.printToString(*MR.SourceManager);
-				std::string source_text;
-				if (BOSL.isValid() && BOSLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(BOSL, BOSLE));
-				} else {
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(DRE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
-				}
-
-				if (filtered_out_by_location(MR, BOSL)) {
-					return void();
-				}
-
-				if (std::string::npos != source_location_str.find("130")) {
-					int q = 5;
 				}
 
 				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, Rewrite);
@@ -3591,8 +3511,7 @@ namespace convm1 {
 								return;
 							}
 
-							auto BOSR = clang::SourceRange(BOSL, BOSLE);
-							if (ConvertToSCPP && decl_source_range.isValid() && (BOSR.isValid())
+							if (ConvertToSCPP && decl_source_range.isValid() && (SR.isValid())
 									&& (nullptr != res2.ddecl_conversion_state_ptr)) {
 								auto cr_shptr = std::make_shared<CMallocArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), BO, bo_replacement_code);
 
@@ -3630,29 +3549,19 @@ namespace convm1 {
 
 			if ((DS != nullptr) && (CE != nullptr) && (DD != nullptr))
 			{
-				auto DSSR = nice_source_range(DS->getSourceRange(), Rewrite);
-				SourceLocation DSSL = DSSR.getBegin();
-				SourceLocation DSSLE = DSSR.getEnd();
+				auto SR = nice_source_range(DS->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FDSSL = ASTC->getFullLoc(DSSL);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				SourceManager &SM = ASTC->getSourceManager();
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				auto source_location_str = DSSL.printToString(*MR.SourceManager);
-				std::string source_text;
-				if (DSSL.isValid() && DSSLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(DSSL, DSSLE));
-				} else {
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(DS->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
-				}
-
-				if (filtered_out_by_location(MR, DSSL)) {
-					return void();
-				}
-
-				if (std::string::npos != source_location_str.find("288")) {
-					int q = 5;
 				}
 
 				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, Rewrite);
@@ -3759,8 +3668,7 @@ namespace convm1 {
 								return;
 							}
 
-							auto DSSR = clang::SourceRange(DSSL, DSSLE);
-							if (ConvertToSCPP && decl_source_range.isValid() && (DSSR.isValid())) {
+							if (ConvertToSCPP && decl_source_range.isValid() && (SR.isValid())) {
 								auto cr_shptr = std::make_shared<CInitializerArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0/*indirection_level*/), DS, initializer_info_str);
 
 								if (lhs_has_been_determined_to_be_an_array) {
@@ -3799,32 +3707,22 @@ namespace convm1 {
 
 			if ((DS != nullptr) && (RHS != nullptr) && (DD != nullptr))
 			{
-				auto DSSR = nice_source_range(DS->getSourceRange(), Rewrite);
-				SourceLocation DSSL = DSSR.getBegin();
-				SourceLocation DSSLE = DSSR.getEnd();
+				auto SR = nice_source_range(DS->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FDSSL = ASTC->getFullLoc(DSSL);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				SourceManager &SM = ASTC->getSourceManager();
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				auto source_location_str = DSSL.printToString(*MR.SourceManager);
-				std::string source_text;
-				if (DSSL.isValid() && DSSLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(DSSL, DSSLE));
-				} else {
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(DS->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
 				}
 
-				if (filtered_out_by_location(MR, DSSL)) {
-					return void();
-				}
-
-				if (std::string::npos != source_location_str.find("99")) {
-					int q = 5;
-				}
-
-				Expr::NullPointerConstantKind kind = RHS->IgnoreParenCasts()->isNullPointerConstant(*ASTC, Expr::NullPointerConstantValueDependence());
+				Expr::NullPointerConstantKind kind = RHS->IgnoreParenCasts()->isNullPointerConstant(*(MR.Context), Expr::NullPointerConstantValueDependence());
 				if (clang::Expr::NPCK_NotNull != kind) {
 					if (false) {
 						{
@@ -3893,8 +3791,7 @@ namespace convm1 {
 												return;
 											}
 
-											auto DSSR = clang::SourceRange(DSSL, DSSLE);
-											if (ConvertToSCPP && decl_source_range.isValid() && (DSSR.isValid())) {
+											if (ConvertToSCPP && decl_source_range.isValid() && (SR.isValid())) {
 												auto cr_shptr = std::make_shared<CInitializerArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0/*indirection_level*/), DS, initializer_info_str);
 
 												if (ddcs_ref.has_been_determined_to_be_an_array(0)) {
@@ -3942,25 +3839,19 @@ namespace convm1 {
 
 			if ((CE != nullptr) && (DRE != nullptr))
 			{
-				auto CESR = nice_source_range(CE->getSourceRange(), Rewrite);
-				SourceLocation CESL = CESR.getBegin();
-				SourceLocation CESLE = CESR.getEnd();
+				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FCESL = ASTC->getFullLoc(CESL);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				SourceManager &SM = ASTC->getSourceManager();
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				auto source_location_str = CESL.printToString(*MR.SourceManager);
-				std::string source_text;
-				if (CESL.isValid() && CESLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(CESL, CESLE));
-				} else {
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
-				}
-
-				if (filtered_out_by_location(MR, CESL)) {
-					return void();
 				}
 
 				auto function_decl = CE->getDirectCallee();
@@ -4065,28 +3956,22 @@ namespace convm1 {
 
 			if ((BO != nullptr) && (RHS != nullptr) && (LHS != nullptr) && (DRE != nullptr))
 			{
-				auto BOSR = nice_source_range(BO->getSourceRange(), Rewrite);
-				SourceLocation BOSL = BOSR.getBegin();
-				SourceLocation BOSLE = BOSR.getEnd();
+				auto SR = nice_source_range(BO->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FBOSL = ASTC->getFullLoc(BOSL);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				SourceManager &SM = ASTC->getSourceManager();
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				auto source_location_str = BOSL.printToString(*MR.SourceManager);
-				std::string source_text;
-				if (BOSL.isValid() && BOSLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(BOSL, BOSLE));
-				} else {
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(BO->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
 				}
 
-				if (filtered_out_by_location(MR, BOSL)) {
-					return void();
-				}
-
-				Expr::NullPointerConstantKind kind = RHS->isNullPointerConstant(*ASTC, Expr::NullPointerConstantValueDependence());
+				Expr::NullPointerConstantKind kind = RHS->isNullPointerConstant(*(MR.Context), Expr::NullPointerConstantValueDependence());
 				if (false && (clang::Expr::NPCK_NotNull != kind)) {
 					auto lhs_source_range = nice_source_range(LHS->getSourceRange(), Rewrite);
 					std::string lhs_source_text;
@@ -4173,28 +4058,22 @@ namespace convm1 {
 
 			if ((BO != nullptr) && (RHS != nullptr) && (LHS != nullptr) && (DRE != nullptr))
 			{
-				auto BOSR = nice_source_range(BO->getSourceRange(), Rewrite);
-				SourceLocation BOSL = BOSR.getBegin();
-				SourceLocation BOSLE = BOSR.getEnd();
+				auto SR = nice_source_range(BO->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FBOSL = ASTC->getFullLoc(BOSL);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				SourceManager &SM = ASTC->getSourceManager();
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				auto source_location_str = BOSL.printToString(*MR.SourceManager);
-				std::string source_text;
-				if (BOSL.isValid() && BOSLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(BOSL, BOSLE));
-				} else {
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(BO->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
 				}
 
-				if (filtered_out_by_location(MR, BOSL)) {
-					return void();
-				}
-
-				Expr::NullPointerConstantKind kind = RHS->isNullPointerConstant(*ASTC, Expr::NullPointerConstantValueDependence());
+				Expr::NullPointerConstantKind kind = RHS->isNullPointerConstant(*(MR.Context), Expr::NullPointerConstantValueDependence());
 				if (clang::Expr::NPCK_NotNull != kind) {
 					auto lhs_source_range = nice_source_range(LHS->getSourceRange(), Rewrite);
 					std::string lhs_source_text;
@@ -4282,25 +4161,19 @@ namespace convm1 {
 
 			if ((CE != nullptr) && (DRE != nullptr))
 			{
-				auto CESR = nice_source_range(CE->getSourceRange(), Rewrite);
-				SourceLocation CESL = CESR.getBegin();
-				SourceLocation CESLE = CESR.getEnd();
+				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FCESL = ASTC->getFullLoc(CESL);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				SourceManager &SM = ASTC->getSourceManager();
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				auto source_location_str = CESL.printToString(*MR.SourceManager);
-				std::string source_text;
-				if (CESL.isValid() && CESLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(CESL, CESLE));
-				} else {
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
-				}
-
-				if (filtered_out_by_location(MR, CESL)) {
-					return void();
 				}
 
 				auto function_decl = CE->getDirectCallee();
@@ -4413,7 +4286,7 @@ namespace convm1 {
 											ce_replacement_code = "MSE_LH_MEMSET(" + arg_source_text1 + ", " + arg_source_text2 + ", " + arg_source_text3 + ")";
 										}
 
-										if (ConvertToSCPP && decl_source_range.isValid() && (CESR.isValid())
+										if (ConvertToSCPP && decl_source_range.isValid() && (SR.isValid())
 												&& (nullptr != res2.ddecl_conversion_state_ptr)) {
 											auto cr_shptr = std::make_shared<CMemsetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), CE, ce_replacement_code);
 
@@ -4458,25 +4331,19 @@ namespace convm1 {
 
 			if ((CE != nullptr) && (DRE != nullptr))
 			{
-				auto CESR = nice_source_range(CE->getSourceRange(), Rewrite);
-				SourceLocation CESL = CESR.getBegin();
-				SourceLocation CESLE = CESR.getEnd();
+				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FCESL = ASTC->getFullLoc(CESL);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				SourceManager &SM = ASTC->getSourceManager();
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				auto source_location_str = CESL.printToString(*MR.SourceManager);
-				std::string source_text;
-				if (CESL.isValid() && CESLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(CESL, CESLE));
-				} else {
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
-				}
-
-				if (filtered_out_by_location(MR, CESL)) {
-					return void();
 				}
 
 				auto function_decl = CE->getDirectCallee();
@@ -4596,7 +4463,7 @@ namespace convm1 {
 									}
 								}
 
-								if (ConvertToSCPP && (CESR.isValid()) && ("" != ce_replacement_code)) {
+								if (ConvertToSCPP && (SR.isValid()) && ("" != ce_replacement_code)) {
 									auto cr_shptr = std::make_shared<CMemcpyArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), CE, ce_replacement_code);
 									if ((nullptr != res2.ddecl_conversion_state_ptr)) {
 										if (true || (*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(res2.indirection_level)) {
@@ -4649,25 +4516,19 @@ namespace convm1 {
 
 			if ((DS != nullptr) && (LHS != nullptr) && (RHS != nullptr) && (DD != nullptr))
 			{
-				auto DSSR = nice_source_range(DS->getSourceRange(), Rewrite);
-				SourceLocation DSSL = DSSR.getBegin();
-				SourceLocation DSSLE = DSSR.getEnd();
+				auto SR = nice_source_range(DS->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FDSSL = ASTC->getFullLoc(DSSL);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				SourceManager &SM = ASTC->getSourceManager();
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				auto source_location_str = DSSL.printToString(*MR.SourceManager);
-				std::string source_text;
-				if (DSSL.isValid() && DSSLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(DSSL, DSSLE));
-				} else {
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(DS->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
-				}
-
-				if (filtered_out_by_location(MR, DSSL)) {
-					return void();
 				}
 
 				auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
@@ -4885,29 +4746,19 @@ namespace convm1 {
 
 			if ((BO != nullptr) && (LHS != nullptr) && (RHS != nullptr) && (DRE != nullptr))
 			{
-				auto BOSR = nice_source_range(BO->getSourceRange(), Rewrite);
-				SourceLocation BOSL = BOSR.getBegin();
-				SourceLocation BOSLE = BOSR.getEnd();
+				auto SR = nice_source_range(BO->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FBOSL = ASTC->getFullLoc(BOSL);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				SourceManager &SM = ASTC->getSourceManager();
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				auto source_location_str = BOSL.printToString(*MR.SourceManager);
-				std::string source_text;
-				if (BOSL.isValid() && BOSLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(BOSL, BOSLE));
-				} else {
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(BO->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
-				}
-
-				if (filtered_out_by_location(MR, BOSL)) {
-					return void();
-				}
-
-				if (std::string::npos != source_location_str.find("457")) {
-					int q = 5;
 				}
 
 				auto lhs_res2 = infer_array_type_info_from_stmt(*LHS, "", (*this).m_state1);
@@ -5079,29 +4930,19 @@ namespace convm1 {
 
 			if ((CE != nullptr) && (DRE != nullptr))
 			{
-				auto CESR = nice_source_range(CE->getSourceRange(), Rewrite);
-				SourceLocation CESL = CESR.getBegin();
-				SourceLocation CESLE = CESR.getEnd();
+				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FCESL = ASTC->getFullLoc(CESL);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				SourceManager &SM = ASTC->getSourceManager();
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				auto source_location_str = CESL.printToString(*MR.SourceManager);
-				std::string source_text;
-				if (CESL.isValid() && CESLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(CESL, CESLE));
-				} else {
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
-				}
-
-				if (filtered_out_by_location(MR, CESL)) {
-					return void();
-				}
-
-				if (std::string::npos != source_location_str.find("1507")) {
-					int q = 5;
 				}
 
 				auto function_decl1 = CE->getDirectCallee();
@@ -5222,7 +5063,7 @@ namespace convm1 {
 									aux_arg_has_been_determined_to_be_array = true;
 								}
 
-								Expr::NullPointerConstantKind kind = arg_EX->isNullPointerConstant(*ASTC, Expr::NullPointerConstantValueDependence());
+								Expr::NullPointerConstantKind kind = arg_EX->isNullPointerConstant(*(MR.Context), Expr::NullPointerConstantValueDependence());
 								if (false && (clang::Expr::NPCK_NotNull != kind)) {
 
 									if ("" != lhs_element_type_str) {
@@ -5528,27 +5369,22 @@ namespace convm1 {
 
 			if ((FND != nullptr) && (DRE != nullptr) && (RS != nullptr))
 			{
-				auto FNDSR = nice_source_range(FND->getSourceRange(), Rewrite);
-				SourceLocation FNDSL = FNDSR.getBegin();
-				SourceLocation FNDSLE = FNDSR.getEnd();
+				auto SR = nice_source_range(FND->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FFNDSL = ASTC->getFullLoc(FNDSL);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				SourceManager &SM = ASTC->getSourceManager();
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				auto source_location_str = FNDSL.printToString(*MR.SourceManager);
-				std::string source_text;
-				if (FNDSL.isValid() && FNDSLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(FNDSL, FNDSLE));
-				} else {
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(FND->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
 				}
 
-				if (filtered_out_by_location(MR, FNDSL)) {
-					return void();
-				}
-
+				std::string source_location_str = SR.getBegin().printToString(*MR.SourceManager);
 				if (std::string::npos != source_location_str.find("129")) {
 					walkTheAST1(*RS);
 					int q = 5;
@@ -5773,25 +5609,19 @@ namespace convm1 {
 
 			if ((CE != nullptr) && (DRE != nullptr))
 			{
-				auto CESR = nice_source_range(CE->getSourceRange(), Rewrite);
-				SourceLocation CESL = CESR.getBegin();
-				SourceLocation CESLE = CESR.getEnd();
+				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FCESL = ASTC->getFullLoc(CESL);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				SourceManager &SM = ASTC->getSourceManager();
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				auto source_location_str = CESL.printToString(*MR.SourceManager);
-				std::string source_text;
-				if (CESL.isValid() && CESLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(CESL, CESLE));
-				} else {
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
-				}
-
-				if (filtered_out_by_location(MR, CESL)) {
-					return void();
 				}
 
 				auto function_decl = CE->getDirectCallee();
@@ -5912,7 +5742,7 @@ namespace convm1 {
 											+ ", "+ arg_source_text3 + ", "+ arg_source_text4 + ")";
 								}
 
-								if (ConvertToSCPP && (CESR.isValid()) && ("" != ce_replacement_code)) {
+								if (ConvertToSCPP && (SR.isValid()) && ("" != ce_replacement_code)) {
 									auto cr_shptr = std::make_shared<CExprTextReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), CE, ce_replacement_code);
 									if ((nullptr != res2.ddecl_conversion_state_ptr)) {
 										if (true || (*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(res2.indirection_level)) {
@@ -5958,25 +5788,19 @@ namespace convm1 {
 
 			if ((CE != nullptr) && (DRE != nullptr))
 			{
-				auto CESR = nice_source_range(CE->getSourceRange(), Rewrite);
-				SourceLocation CESL = CESR.getBegin();
-				SourceLocation CESLE = CESR.getEnd();
+				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				ASTContext *const ASTC = MR.Context;
-				FullSourceLoc FCESL = ASTC->getFullLoc(CESL);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				SourceManager &SM = ASTC->getSourceManager();
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				auto source_location_str = CESL.printToString(*MR.SourceManager);
-				std::string source_text;
-				if (CESL.isValid() && CESLE.isValid()) {
-					source_text = Rewrite.getRewrittenText(SourceRange(CESL, CESLE));
-				} else {
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
 					return;
-				}
-
-				if (filtered_out_by_location(MR, CESL)) {
-					return void();
 				}
 
 				auto function_decl = CE->getDirectCallee();
@@ -6097,7 +5921,7 @@ namespace convm1 {
 											+ ", "+ arg_source_text3 + ", "+ arg_source_text4 + ")";
 								}
 
-								if (ConvertToSCPP && (CESR.isValid()) && ("" != ce_replacement_code)) {
+								if (ConvertToSCPP && (SR.isValid()) && ("" != ce_replacement_code)) {
 									auto cr_shptr = std::make_shared<CExprTextReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), CE, ce_replacement_code);
 									if ((nullptr != res2.ddecl_conversion_state_ptr)) {
 										if (true || (*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(res2.indirection_level)) {
@@ -6341,7 +6165,7 @@ namespace convm1 {
 	class MyASTConsumer : public ASTConsumer {
 
 	public:
-	MyASTConsumer(Rewriter &R, CompilerInstance &CI, CTUState &tu_state_param) : m_tu_state_ptr(&tu_state_param), HandlerForSSSNativePointer(R), HandlerForSSSArrayToPointerDecay(R, tu_state()),
+	MyASTConsumer(Rewriter &R, CompilerInstance &CI, CTUState &tu_state_param) : m_tu_state_ptr(&tu_state_param), HandlerForSSSNativePointer(R, tu_state()), HandlerForSSSArrayToPointerDecay(R, tu_state()),
 		HandlerForSSSRecordDecl(R, tu_state()), HandlerForSSSVarDecl2(R, tu_state()), HandlerForSSSPointerArithmetic2(R, tu_state()), HandlerForSSSMalloc2(R, tu_state()),
 		HandlerForSSSMallocInitializer2(R, tu_state()), HandlerForSSSNullInitializer(R, tu_state()), HandlerForSSSFree2(R, tu_state()),
 		HandlerForSSSSetToNull2(R, tu_state()), HandlerForSSSCompareWithNull2(R, tu_state()), HandlerForSSSMemset(R, tu_state()), HandlerForSSSMemcpy(R, tu_state()),

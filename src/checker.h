@@ -53,25 +53,6 @@ extern std::string g_mse_namespace_str;
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/IR/Function.h"
 
-#define PP_CONCAT(a, b) a##b
-#define DECLARE_CACHED_CONST_STRING(name, init_value) \
-							thread_local std::string PP_CONCAT(s_, name); \
-							if (PP_CONCAT(s_, name).empty()) { \
-								PP_CONCAT(s_, name) = init_value; \
-							} \
-							const std::string& name = PP_CONCAT(s_, name);
-#ifndef NDEBUG
-#define DEBUG_SET_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, MatchResult1) \
-				source_location_str1 = SourceRange1.getBegin().printToString(*MatchResult1.SourceManager);
-#define DEBUG_SET_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1) \
-				if ((SourceRange1.getBegin() < SourceRange1.getEnd()) || (SourceRange1.getBegin() == SourceRange1.getEnd())) { source_text1 = Rewrite1.getRewrittenText(SourceRange1); }
-#define IF_DEBUG(x) x
-#else /*!NDEBUG*/
-#define DEBUG_SET_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, MatchResult1) ;
-#define DEBUG_SET_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1) ;
-#define IF_DEBUG(x)
-#endif /*!NDEBUG*/
-
 
 namespace checker {
     using namespace llvm;
@@ -172,20 +153,13 @@ namespace checker {
 			if ((CE != nullptr))
 			{
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
-
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
@@ -263,20 +237,13 @@ namespace checker {
 			if ((CXXMD != nullptr))
 			{
 				auto SR = nice_source_range(CXXMD->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
-
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto method_name = CXXMD->getNameAsString();
 				static const std::string suppress_checks_prefix = "mse_suppress_check_directive";
@@ -345,20 +312,13 @@ namespace checker {
 			if ((FD != nullptr))
 			{
 				auto SR = nice_source_range(FD->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
-
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto method_name = FD->getNameAsString();
 				static const std::string suppress_checks_prefix = "mse_suppress_check_directive";
@@ -795,24 +755,17 @@ namespace checker {
 			if (EX != nullptr)
 			{
 				auto SR = nice_source_range(EX->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
-
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 				if (std::string::npos != debug_source_location_str.find(":295:")) {
 					int q = 5;
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto EXISR = instantiation_source_range(EX->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
@@ -1218,24 +1171,17 @@ namespace checker {
 			if ((D != nullptr))
 			{
 				auto SR = nice_source_range(D->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
-
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 				if (std::string::npos != debug_source_location_str.find(":74:")) {
 					int q = 5;
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto DISR = instantiation_source_range(D->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(DISR);
@@ -1633,20 +1579,13 @@ namespace checker {
 			if ((DRE != nullptr))
 			{
 				auto SR = nice_source_range(DRE->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
-
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto DREISR = instantiation_source_range(DRE->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(DREISR);
@@ -1722,20 +1661,13 @@ namespace checker {
 			if ((ST != nullptr)/* && (DRE != nullptr)*/)
 			{
 				auto SR = nice_source_range(ST->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
-
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto STISR = instantiation_source_range(ST->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(STISR);
@@ -1799,20 +1731,13 @@ namespace checker {
 			if ((RD != nullptr))
 			{
 				auto SR = nice_source_range(RD->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
-
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				if (std::string::npos != debug_source_location_str.find(":327:")) {
 					int q = 5;
@@ -2080,20 +2005,13 @@ namespace checker {
 			if ((CE != nullptr)/* && (DRE != nullptr)*/)
 			{
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
-
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto CEISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CEISR);
@@ -2819,20 +2737,13 @@ namespace checker {
 			if ((CE != nullptr)/* && (DRE != nullptr)*/)
 			{
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
-
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto CEISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CEISR);
@@ -2883,20 +2794,13 @@ namespace checker {
 			if ((VD != nullptr))
 			{
 				auto SR = nice_source_range(VD->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
-
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto VDISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(VDISR);
@@ -2950,24 +2854,17 @@ namespace checker {
 			if ((CE != nullptr)/* && (DRE != nullptr)*/)
 			{
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
-
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 				if (std::string::npos != debug_source_location_str.find(":174:")) {
 					int q = 5;
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto CEISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CEISR);
@@ -3056,20 +2953,13 @@ namespace checker {
 			if ((EX != nullptr)/* && (DRE != nullptr)*/)
 			{
 				auto SR = nice_source_range(EX->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
-
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto EXISR = instantiation_source_range(EX->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
@@ -3107,20 +2997,13 @@ namespace checker {
 			if ((EX != nullptr))
 			{
 				auto SR = nice_source_range(EX->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
-
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto EXISR = instantiation_source_range(EX->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
@@ -3174,20 +3057,13 @@ namespace checker {
 			if ((VD != nullptr))
 			{
 				auto SR = nice_source_range(VD->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
-
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto VDISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(VDISR);
@@ -3264,20 +3140,13 @@ namespace checker {
 			if ((EX != nullptr))
 			{
 				auto SR = nice_source_range(EX->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
-
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto EXISR = instantiation_source_range(EX->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
@@ -3369,20 +3238,13 @@ namespace checker {
 			if ((CXXMCE != nullptr)/* && (DRE != nullptr)*/)
 			{
 				auto SR = nice_source_range(CXXMCE->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
-
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto CXXMCEISR = instantiation_source_range(CXXMCE->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CXXMCEISR);
@@ -3509,20 +3371,13 @@ namespace checker {
 			if ((CXXCI != nullptr)/* && (DRE != nullptr)*/)
 			{
 				auto SR = nice_source_range(CXXCI->getSourceRange(), Rewrite);
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
-
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto CXXCIISR = instantiation_source_range(CXXCI->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CXXCIISR);
@@ -3661,24 +3516,17 @@ namespace checker {
 				SourceRange SR = (BO != nullptr) ? nice_source_range(BO->getSourceRange(), Rewrite)
 					: nice_source_range(CXXOCE->getSourceRange(), Rewrite);
 
-				if (!SR.isValid()) {
-					return;
-				}
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				std::string debug_source_location_str;
-				std::string debug_source_text;
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
-				DEBUG_SET_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
-
-				if (filtered_out_by_location(MR, SR.getBegin())) {
-					return void();
-				}
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 				if (std::string::npos != debug_source_location_str.find(":204:")) {
 					int q = 5;
 				}
 
-				DEBUG_SET_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto ISR = (BO != nullptr) ? instantiation_source_range(BO->getSourceRange(), Rewrite)
 					: instantiation_source_range(CXXOCE->getSourceRange(), Rewrite);

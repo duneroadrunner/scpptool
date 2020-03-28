@@ -110,4 +110,44 @@ class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
 	}
 };
 
+
+#define PP_CONCAT(a, b) a##b
+#define DECLARE_CACHED_CONST_STRING(name, init_value) \
+							thread_local std::string PP_CONCAT(s_, name); \
+							if (PP_CONCAT(s_, name).empty()) { \
+								PP_CONCAT(s_, name) = init_value; \
+							} \
+							const std::string& name = PP_CONCAT(s_, name);
+#ifndef NDEBUG
+#define DEBUG_SET_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, MatchResult1) \
+				source_location_str1 = SourceRange1.getBegin().printToString(*MatchResult1.SourceManager);
+#define DEBUG_SET_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1) \
+				if ((SourceRange1.getBegin() < SourceRange1.getEnd()) || (SourceRange1.getBegin() == SourceRange1.getEnd())) { source_text1 = Rewrite1.getRewrittenText(SourceRange1); }
+#define IF_DEBUG(x) x
+#else /*!NDEBUG*/
+#define DEBUG_SET_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, MatchResult1) ;
+#define DEBUG_SET_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1) ;
+#define IF_DEBUG(x)
+#endif /*!NDEBUG*/
+
+#define DEBUG_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, MatchResult1) std::string source_location_str1; DEBUG_SET_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, MatchResult1);
+#define DEBUG_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1) std::string source_text1; DEBUG_SET_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1);
+
+#define RETURN_IF_FILTERED_OUT_BY_LOCATION1 \
+				if (filtered_out_by_location(MR, SR.getBegin())) { \
+					return void(); \
+				}
+
+#define RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1 \
+				if (!SR.isValid()) { \
+					return; \
+				}
+
+#define RETURN_IF_IS_IN_SUPPRESS_CHECK_REGION1(x) \
+                auto ISR = instantiation_source_range(x->getSourceRange(), Rewrite); \
+                auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR); \
+                if (supress_check_flag) { \
+                    return; \
+                }
+
 #endif //__UTILS1_H
