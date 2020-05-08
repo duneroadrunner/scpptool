@@ -5,9 +5,6 @@
 // http://www.boost.org/LICENSE_1_0.txt)
 
 
-#include "scpptool.h"
-#include "utils1.h"
-
 /*Standard headers*/
 #include <string>
 #include <iostream>
@@ -24,7 +21,10 @@
 
 #include <fstream>
 
-static std::string g_mse_namespace_str = "mse";
+/*static */std::string g_mse_namespace_str = "mse";
+
+#include "scpptool.h"
+#include "utils1.h"
 
 #include "checker.h"
 
@@ -72,6 +72,12 @@ cl::opt<bool> EnableNamespaceImport("EnableNamespaceImport", cl::desc("enable im
 cl::opt<bool> SuppressPrompts("SuppressPrompts", cl::desc("suppress prompts before replacing source files"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> DoNotReplaceOriginalSource("DoNotReplaceOriginalSource", cl::desc("prevent replacement/modification of the original source files"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<std::string> MergeCommand("MergeCommand", cl::desc("specify an alternate merge tool to be used"), cl::init(""), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
+cl::opt<std::string> ConvertMode("ConvertMode", cl::desc("specify the code conversion technique to use: \n"
+  "\t Dual \t- The resulting code can be compiled as either safe C++ or (potentially faster) unsafe 'plain' C or C++. \n"
+  "\t SlowAndFlexible \t- (Default) \n"
+  "\t FasterAndStricter \t- The resulting (safe) code should be faster, but code that is not of 'good form' may not translate properly. \n"
+  ), cl::init(""), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
+
 /**********************************************************************************************************************/
 
 class MyDiagConsumer : public DiagnosticConsumer {
@@ -130,7 +136,8 @@ int main(int argc, const char **argv)
           EnableNamespaceImport,
           SuppressPrompts,
           DoNotReplaceOriginalSource,
-          MergeCommand
+          MergeCommand,
+          ConvertMode
       };
     retval = convm1::buildASTs_and_run(Tool, options);
 #endif //!EXCLUDE_CONVERTER_MODE1
