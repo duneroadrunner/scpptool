@@ -66,6 +66,7 @@ namespace convm1 {
     bool SuppressPrompts = false;
     bool DoNotReplaceOriginalSource = false;
     std::string MergeCommand = "";
+    bool DoNotResolveMergeConflicts = false;
     std::string ConvertMode = "";
 
     struct Options {
@@ -77,6 +78,7 @@ namespace convm1 {
         bool SuppressPrompts = false;
         bool DoNotReplaceOriginalSource = false;
         std::string MergeCommand = "";
+        bool DoNotResolveMergeConflicts = false;
         std::string ConvertMode = "";
     };
 
@@ -968,7 +970,8 @@ namespace convm1 {
 				auto EXSR = nice_source_range(EX->getSourceRange(), Rewrite);
 
 				if (ConvertToSCPP && (EXSR.isValid())) {
-					auto res2 = Rewrite.ReplaceText(EXSR, m_replacement_code);
+					state1.m_pending_code_replacement_actions.add_replacement_action(EXSR, m_replacement_code);
+					//auto res2 = Rewrite.ReplaceText(EXSR, m_replacement_code);
 				} else {
 					int q = 7;
 				}
@@ -1207,6 +1210,34 @@ namespace convm1 {
 		*/
 	};
 
+	class CCodeReplacementActions : public std::map<COrderedSourceRange, std::vector<std::string> > {
+		public:
+		typedef std::map<COrderedSourceRange, std::vector<std::string> > base_class;
+		using base_class::base_class;
+
+		std::pair<base_class::iterator, bool> add_replacement_action(const COrderedSourceRange& OSR, const std::string& replacement_code) {
+			auto iter1 = base_class::find(OSR);
+			if (base_class::end() != iter1) {
+				(*iter1).second.push_back(replacement_code);
+				return std::pair<base_class::iterator, bool>(iter1, false);
+			} else {
+				decltype((*iter1).second) string_vector1 { replacement_code };
+				auto res2 = base_class::insert(base_class::value_type(OSR, string_vector1));
+				assert(base_class::end() != res2.first);
+				return std::pair<base_class::iterator, bool>(res2.first, true);
+			}
+		}
+
+		bool contains(const clang::SourceRange& SR) const {
+			for (auto it = (*this).cbegin(); (*this).cend() != it; it++) {
+				if (first_is_a_subset_of_second(SR, (*it).first)) {
+					return true;
+				}
+			}
+			return false;
+		}
+	};
+
 	class CTUState : public CCommonTUState1 {
 	public:
 		/* This container holds (potential) actions that are meant to be executed if/when
@@ -1232,6 +1263,10 @@ namespace convm1 {
 		/* This container holds information about selected expressions' original text and
 		* any modifications we might have made.  */
 		CExprConversionStateMap m_expr_conversion_state_map;
+
+		/* This container holds locations of original source code to be replaced and the code
+		that they'll be replaced with.  */
+		CCodeReplacementActions m_pending_code_replacement_actions;
 	};
 
 	class CTypeIndirectionPrefixAndSuffixItem {
@@ -1358,9 +1393,11 @@ namespace convm1 {
 							if (is_last_indirection) {
 								retval.m_direct_type_must_be_non_const = true;
 							}
+							/*
 							prefix_str = prefix_str + "MSE_LH_FIXED_ARRAY_TYPE_PREFIX(" + size_text + ") ";
 							suffix_str = "MSE_LH_FIXED_ARRAY_TYPE_SUFFIX(" + size_text + ") " + suffix_str;
 							post_name_suffix_str = post_name_suffix_str + " MSE_LH_FIXED_ARRAY_TYPE_POST_NAME_SUFFIX(" + size_text + ")";
+							*/
 
 							if ("Dual" == ConvertMode) {
 								prefix_str = prefix_str + "MSE_LH_FIXED_ARRAY_TYPE_PREFIX(" + size_text + ") ";
@@ -1771,7 +1808,8 @@ namespace convm1 {
 				if (ConvertToSCPP && return_type_source_range.isValid() && (1 <= res.m_replacement_code.size())
 						&& changed_from_original_type) {
 					auto code_to_be_replaced = Rewrite.getRewrittenText(return_type_source_range);
-					auto res2 = Rewrite.ReplaceText(return_type_source_range, res.m_replacement_code);
+					state1.m_pending_code_replacement_actions.add_replacement_action(return_type_source_range, res.m_replacement_code);
+					//auto res2 = Rewrite.ReplaceText(return_type_source_range, res.m_replacement_code);
 				} else {
 					int q = 7;
 				}
@@ -1837,7 +1875,8 @@ namespace convm1 {
 
 				if (ConvertToSCPP && last_decl_source_range.isValid() && (3 <= replacement_code.size())
 						&& changed_from_original_type) {
-					auto res2 = Rewrite.ReplaceText(last_decl_source_range, replacement_code);
+					state1.m_pending_code_replacement_actions.add_replacement_action(last_decl_source_range, replacement_code);
+					//auto res2 = Rewrite.ReplaceText(last_decl_source_range, replacement_code);
 				} else {
 					int q = 7;
 				}
@@ -2168,7 +2207,8 @@ namespace convm1 {
 				//state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, (*this).ddecl_indirection_cref());
 				//state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, (*this).ddecl_indirection_cref());
 
-				auto res2 = Rewrite.ReplaceText(BOSR, m_bo_replacement_code);
+				state1.m_pending_code_replacement_actions.add_replacement_action(BOSR, m_bo_replacement_code);
+				//auto res2 = Rewrite.ReplaceText(BOSR, m_bo_replacement_code);
 				int q = 3;
 			} else {
 				int q = 7;
@@ -2245,7 +2285,8 @@ namespace convm1 {
 				//state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, (*this).ddecl_indirection_cref());
 				//state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, (*this).ddecl_indirection_cref());
 
-				auto res2 = Rewrite.ReplaceText(CESR, m_ce_replacement_code);
+				state1.m_pending_code_replacement_actions.add_replacement_action(CESR, m_ce_replacement_code);
+				//auto res2 = Rewrite.ReplaceText(CESR, m_ce_replacement_code);
 				int q = 3;
 			} else {
 				int q = 7;
@@ -2300,7 +2341,8 @@ namespace convm1 {
 
 				update_declaration(*DD, Rewrite, state1);
 
-				auto res2 = Rewrite.ReplaceText(CESR, m_ce_replacement_code);
+				state1.m_pending_code_replacement_actions.add_replacement_action(CESR, m_ce_replacement_code);
+				//auto res2 = Rewrite.ReplaceText(CESR, m_ce_replacement_code);
 				int q = 3;
 			} else {
 				int q = 7;
@@ -2319,7 +2361,8 @@ namespace convm1 {
 			auto CESR = nice_source_range(CE->getSourceRange(), Rewrite);
 
 			if (ConvertToSCPP && (CESR.isValid())) {
-				auto res2 = Rewrite.ReplaceText(CESR, m_ce_replacement_code);
+				state1.m_pending_code_replacement_actions.add_replacement_action(CESR, m_ce_replacement_code);
+				//auto res2 = Rewrite.ReplaceText(CESR, m_ce_replacement_code);
 
 				if (DD != nullptr) {
 					auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
@@ -2568,7 +2611,8 @@ namespace convm1 {
 					(*excs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 					(*excs_shptr_ref).update_current_text();
 
-					(*this).m_Rewrite.ReplaceText(EXSR, (*excs_shptr_ref).m_current_text_str);
+					state1.m_pending_code_replacement_actions.add_replacement_action(EXSR, (*excs_shptr_ref).m_current_text_str);
+					//(*this).m_Rewrite.ReplaceText(EXSR, (*excs_shptr_ref).m_current_text_str);
 				}
 			}
 		}
@@ -2614,7 +2658,8 @@ namespace convm1 {
 						(*uocs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 						(*uocs_shptr_ref).update_current_text();
 
-						(*this).m_Rewrite.ReplaceText(UOSR, (*uocs_shptr_ref).m_current_text_str);
+						state1.m_pending_code_replacement_actions.add_replacement_action(UOSR, (*uocs_shptr_ref).m_current_text_str);
+						//(*this).m_Rewrite.ReplaceText(UOSR, (*uocs_shptr_ref).m_current_text_str);
 					}
 				}
 
@@ -3145,7 +3190,8 @@ namespace convm1 {
 											/* This is not the proper way to modify an expression. See the function
 											* CConditionalOperatorReconciliation2ReplacementAction::do_replacement() for an example of
 											* the proper way to do it. But for now this is good enough. */
-											auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
+											m_state1.m_pending_code_replacement_actions.add_replacement_action(cast_operation_SR, "");
+											//auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
 
 											static const std::string void_str = "void";
 											auto void_pos = (*rhs_res2.ddecl_conversion_state_ptr).m_initializer_info_str.find(void_str);
@@ -4786,7 +4832,8 @@ namespace convm1 {
 									/* This is not the proper way to modify an expression. See the function
 									* CConditionalOperatorReconciliation2ReplacementAction::do_replacement() for an example of
 									* the proper way to do it. But for now this is good enough. */
-									auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
+									m_state1.m_pending_code_replacement_actions.add_replacement_action(cast_operation_SR, "");
+									//auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
 
 									static const std::string void_str = "void";
 									auto void_pos = (*rhs_res2.ddecl_conversion_state_ptr).m_initializer_info_str.find(void_str);
@@ -5090,7 +5137,8 @@ namespace convm1 {
 										std::string casted_expr_text = Rewrite.getRewrittenText(casted_expr_SR);
 										if (ConvertToSCPP) {
 											std::string replacement_casted_expr_text = "std::addressof(" + casted_expr_text + "[0])";
-											Rewrite.ReplaceText(casted_expr_SR, replacement_casted_expr_text);
+											m_state1.m_pending_code_replacement_actions.add_replacement_action(casted_expr_SR, replacement_casted_expr_text);
+											//Rewrite.ReplaceText(casted_expr_SR, replacement_casted_expr_text);
 										}
 										return;
 									} else {
@@ -5102,7 +5150,8 @@ namespace convm1 {
 												/* This is not the proper way to modify an expression. See the function
 												* CConditionalOperatorReconciliation2ReplacementAction::do_replacement() for an example of
 												* the proper way to do it. But for now this is good enough. */
-												auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
+												m_state1.m_pending_code_replacement_actions.add_replacement_action(cast_operation_SR, "");
+												//auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
 											}
 
 											auto cast_kind_name = CSCE->getCastKindName();
@@ -5402,7 +5451,8 @@ namespace convm1 {
 								/* This is not the proper way to modify an expression. See the function
 								* CConditionalOperatorReconciliation2ReplacementAction::do_replacement() for an example of
 								* the proper way to do it. But for now this is good enough. */
-								auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
+								m_state1.m_pending_code_replacement_actions.add_replacement_action(cast_operation_SR, "");
+								//auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
 							}
 
 							auto cast_kind_name = CSCE->getCastKindName();
@@ -6148,7 +6198,8 @@ namespace convm1 {
 													} else {
 														replacement_code += " = 0/*auto-generated init val*/";
 													}
-													auto res2 = Rewrite.ReplaceText(l_SR, replacement_code);
+													m_state1.m_pending_code_replacement_actions.add_replacement_action(l_SR, replacement_code);
+													//auto res2 = Rewrite.ReplaceText(l_SR, replacement_code);
 												}
 											}
 										}
@@ -6971,6 +7022,16 @@ namespace convm1 {
 		}
 
 		void EndSourceFileAction() override {
+
+			/* Apply all the pending "code replacement actions". */
+			/* It actually seems to not be necessary to queue them up and apply them all at the end like this 
+			rather than just applying them immediately. But this way could be more convenient for any analysis
+			we might want to do in the future. */
+			for (const auto& action : m_tu_state.m_pending_code_replacement_actions) {
+				assert(action.second.size() >= 1);
+				auto res2 = TheRewriter.ReplaceText(action.first, action.second.back());
+			}
+
 			TheRewriter.getEditBuffer(TheRewriter.getSourceMgr().getMainFileID()).write(llvm::outs());
 
 			{
@@ -7149,6 +7210,110 @@ namespace convm1 {
 	int MyFrontendAction::s_source_file_action_num = 0;
 	std::map<std::string, CFileConversionRecord> MyFrontendAction::s_file_conversion_record_map;
 
+	int number_of_instances_of_mse(const std::string& str1) {
+		int mse_count = 0;
+		{
+			static const std::string mse_str = "mse::";
+			auto search_start_index = str1.find(mse_str, 0);
+			while (std::string::npos != search_start_index) {
+				mse_count += 1;
+				search_start_index = str1.find(mse_str, search_start_index + mse_str.size());
+			}
+		}
+		{
+			static const std::string mse_str = "MSE_";
+			auto search_start_index = str1.find(mse_str, 0);
+			while (std::string::npos != search_start_index) {
+				mse_count += 1;
+				search_start_index = str1.find(mse_str, search_start_index + mse_str.size());
+			}
+		}
+		return mse_count;
+	}
+
+	auto& chosen_merge_option_ref(const std::string& first_option, const std::string& second_option) {
+		/* Here we're using a very rudimentary heuristic for guessing which merge option might be the
+		better one. */
+		auto mse_count1 = number_of_instances_of_mse(first_option);
+		auto mse_count2 = number_of_instances_of_mse(second_option);
+		if (mse_count1 > mse_count2) {
+			return first_option;
+		} else if (mse_count2 > mse_count1) {
+			return second_option;
+		} else if (first_option.length() > second_option.length()) {
+			return first_option;
+		} else if (second_option.length() > first_option.length()) {
+			return second_option;
+		}
+		return first_option;
+	}
+
+	auto resolve_merge_conflicts_with_best_guess(const std::string& source_file_text) {
+		std::string retval = source_file_text;
+		auto conflict_start_index = retval.find("<<<<<<< ", 0);
+		while (std::string::npos != conflict_start_index) {
+			auto conflict_start_eol_index = retval.find("\n", conflict_start_index + 1);
+			if (std::string::npos == conflict_start_eol_index) {
+				break;
+			}
+			auto conflict_divider_index = retval.find("=======\n", conflict_start_eol_index + 1);
+			if (std::string::npos == conflict_divider_index) {
+				break;
+			}
+			auto conflict_divider_eol_index = retval.find("\n", conflict_divider_index + 1);
+			auto conflict_end_index = retval.find(">>>>>>> ", conflict_divider_eol_index + 1);
+			if (std::string::npos == conflict_end_index) {
+				break;
+			}
+			auto conflict_end_eol_index = retval.find("\n", conflict_end_index + 1);
+			if (std::string::npos == conflict_end_eol_index) {
+				break;
+			}
+
+			auto first_option = retval.substr(conflict_start_eol_index + 1, conflict_divider_index - (conflict_start_eol_index + 1));
+			auto second_option = retval.substr(conflict_divider_eol_index + 1, conflict_end_index - (conflict_divider_eol_index + 1));
+
+			retval.replace(conflict_start_index, conflict_end_eol_index - conflict_start_index, chosen_merge_option_ref(first_option, second_option));
+
+			conflict_start_index += first_option.size();
+			conflict_start_index = retval.find("<<<<<<< ", conflict_start_index);
+		}
+
+		return retval;
+	}
+
+	/* At some point the source code file will be the result of a merge of other other source code files. (One
+	for each translation unit.) So the file might have merge conflicts in it (making it uncompilable). The
+	following function will "resolve" any merge conflict in the given file by using a (crude) heuristic to
+	choose between the available options. */
+	bool resolve_merge_conflicts_with_best_guess_file(const std::string& filepathname) {
+		std::fstream fs;
+		fs.open(filepathname);
+		if (fs.fail()) {
+			return false;
+		}
+		std::string content;
+
+        std::string line;
+        while (std::getline(fs, line)) {
+			content += line + "\n";
+        }
+
+		fs.close();
+
+		auto resolved_content = resolve_merge_conflicts_with_best_guess(content);
+
+		fs.open(filepathname, std::ios_base::out | std::ios::trunc);
+		if (fs.fail()) {
+			return false;
+		}
+		fs.write(resolved_content.c_str(), resolved_content.size());
+
+		fs.close();
+
+		return true;
+	}
+
 	auto buildASTs_and_run(ClangTool& Tool, Options options = Options()) {
 
         CheckSystemHeader = options.CheckSystemHeader;
@@ -7159,6 +7324,7 @@ namespace convm1 {
         SuppressPrompts = options.SuppressPrompts;
         DoNotReplaceOriginalSource = options.DoNotReplaceOriginalSource;
         MergeCommand = options.MergeCommand;
+		DoNotResolveMergeConflicts = options.DoNotResolveMergeConflicts;
         ConvertMode = options.ConvertMode;
 
 		int Status = Tool.buildASTs(Misc1::s_multi_tu_state_ref().ast_units);
@@ -7223,6 +7389,10 @@ namespace convm1 {
 						merge_command_str += converted_version_pathname;
 						exec(merge_command_str.c_str());
 						std::remove(converted_version_pathname.c_str());
+
+						if (!DoNotResolveMergeConflicts) {
+							resolve_merge_conflicts_with_best_guess_file(merge_target_pathname);
+						}
 					}
 					std::remove(original_pathname.c_str());
 					std::rename(merge_target_pathname.c_str(), original_pathname.c_str());

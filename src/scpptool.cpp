@@ -72,6 +72,7 @@ cl::opt<bool> EnableNamespaceImport("EnableNamespaceImport", cl::desc("enable im
 cl::opt<bool> SuppressPrompts("SuppressPrompts", cl::desc("suppress prompts before replacing source files"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> DoNotReplaceOriginalSource("DoNotReplaceOriginalSource", cl::desc("prevent replacement/modification of the original source files"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<std::string> MergeCommand("MergeCommand", cl::desc("specify an alternate merge tool to be used"), cl::init(""), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
+cl::opt<bool> DoNotResolveMergeConflicts("DoNotResolveMergeConflicts", cl::desc("prevent the automatic resolution of merge conflicts (by heuristic guessing)"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<std::string> ConvertMode("ConvertMode", cl::desc("specify the code conversion technique to use: \n"
   "\t Dual \t- The resulting code can be compiled as either safe C++ or (potentially faster) unsafe 'plain' C or C++. \n"
   "\t SlowAndFlexible \t- (Default) \n"
@@ -106,12 +107,9 @@ int main(int argc, const char **argv)
     checker::Options options = {
           CheckSystemHeader,
           MainFileOnly,
-          ConvertToSCPP,
           CTUAnalysis,
           EnableNamespaceImport,
-          SuppressPrompts,
-          DoNotReplaceOriginalSource,
-          MergeCommand
+          SuppressPrompts
       };
     retval = checker::buildASTs_and_run(Tool, options);
   }
@@ -137,6 +135,7 @@ int main(int argc, const char **argv)
           SuppressPrompts,
           DoNotReplaceOriginalSource,
           MergeCommand,
+          DoNotResolveMergeConflicts,
           ConvertMode
       };
     retval = convm1::buildASTs_and_run(Tool, options);

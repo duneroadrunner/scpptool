@@ -61,22 +61,16 @@ namespace checker {
 
     bool CheckSystemHeader = false;
     bool MainFileOnly = false;
-    bool ConvertToSCPP = true;
     bool CTUAnalysis = false;
     bool EnableNamespaceImport = false;
     bool SuppressPrompts = false;
-    bool DoNotReplaceOriginalSource = false;
-    std::string MergeCommand = "";
 
     struct Options {
         bool CheckSystemHeader = false;
         bool MainFileOnly = false;
-        bool ConvertToSCPP = true;
         bool CTUAnalysis = false;
         bool EnableNamespaceImport = false;
         bool SuppressPrompts = false;
-        bool DoNotReplaceOriginalSource = false;
-        std::string MergeCommand = "";
     };
 
 
@@ -3821,12 +3815,9 @@ namespace checker {
 
         CheckSystemHeader = options.CheckSystemHeader;
         MainFileOnly = options.MainFileOnly;
-        ConvertToSCPP = options.ConvertToSCPP;
         CTUAnalysis = options.CTUAnalysis;
         EnableNamespaceImport = options.EnableNamespaceImport;
         SuppressPrompts = options.SuppressPrompts;
-        DoNotReplaceOriginalSource = options.DoNotReplaceOriginalSource;
-        MergeCommand = options.MergeCommand;
 
 		int Status = Tool.buildASTs(Misc1::s_multi_tu_state_ref().ast_units);
 
