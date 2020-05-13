@@ -1871,6 +1871,7 @@ namespace checker {
 										DECLARE_CACHED_CONST_STRING(xscope_f_ptr_str, g_mse_namespace_str + "::TXScopeFixedPointer");
 										DECLARE_CACHED_CONST_STRING(xscope_f_const_ptr_str, g_mse_namespace_str + "::TXScopeFixedConstPointer");
 										DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, g_mse_namespace_str + "::TXScopeOwnerPointer");
+										static const std::string unique_ptr_str = "std::unique_ptr";
 										auto qname = CXXRD->getQualifiedNameAsString();
 										if ((xscope_item_f_ptr_str == qname) || (xscope_item_f_const_ptr_str == qname)
 											|| (xscope_f_ptr_str == qname) || (xscope_f_const_ptr_str == qname)
@@ -1881,6 +1882,18 @@ namespace checker {
 												retval = dyn_cast<const clang::Expr>(arg_EX);
 											}
 											return retval;
+										} else if (unique_ptr_str == qname) {
+											if (arg_EX_qtype.isConstQualified()) {
+												/* We're treating `const std::unique_ptr<>`s as similar to mse::TXScopeOwnerPointer<>s. */
+												if (arg_EX->isLValue()) {
+													satisfies_checks = true;
+													retval = static_lifetime_owner_of_target_expr_if_any(arg_EX, Ctx, tu_state_cref);
+													if (!retval.has_value()) {
+														retval = dyn_cast<const clang::Expr>(arg_EX);
+													}
+													return retval;
+												}
+											}
 										}
 									} else if (arg_EX->getType()->isReferenceType()) {
 										int q = 5;
