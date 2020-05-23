@@ -146,7 +146,7 @@ namespace checker {
 				if (function_decl) {
 					std::string function_name = function_decl->getNameAsString();
 					std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-					DECLARE_CACHED_CONST_STRING(suppress_check_directive_str, g_mse_namespace_str + "::rsv::suppress_check_directive");
+					DECLARE_CACHED_CONST_STRING(suppress_check_directive_str, mse_namespace_str() + "::rsv::suppress_check_directive");
 					if (suppress_check_directive_str == qualified_function_name) {
 						bool parent_obtained = false;
 						const Stmt* ST = CE;
@@ -468,7 +468,7 @@ namespace checker {
 												name = tmplt_CXXRD->getQualifiedNameAsString();
 											}
 
-											DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, g_mse_namespace_str + "::TXScopeOwnerPointer");
+											DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, mse_namespace_str() + "::TXScopeOwnerPointer");
 											if (name == xscope_owner_ptr_str) {
 												const std::string error_desc = std::string("Explicit use of std::move() on ")
 													+ xscope_owner_ptr_str + "<> " + " is not supported.";
@@ -657,7 +657,7 @@ namespace checker {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (std::string::npos != debug_source_location_str.find(":74:")) {
+				if (std::string::npos != debug_source_location_str.find(":357:")) {
 					int q = 5;
 				}
 
@@ -673,6 +673,7 @@ namespace checker {
 				if (DD) {
 					const auto qtype = DD->getType();
 					const std::string qtype_str = DD->getType().getAsString();
+					const auto TST = DD->getType()->getAs<clang::TemplateSpecializationType>();
 
 					auto VD = dyn_cast<const clang::VarDecl>(D);
 					if (VD) {
@@ -689,13 +690,13 @@ namespace checker {
 									type_name1 = tmplt_CXXRD->getQualifiedNameAsString();
 								}
 
-								DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, g_mse_namespace_str + "::rsv::TStaticImmutableObj");
+								DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, mse_namespace_str() + "::rsv::TStaticImmutableObj");
 								static const std::string std_atomic_str = std::string("std::atomic");
-								DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadWriteAccessRequester_str, g_mse_namespace_str + "::TAsyncSharedV2ReadWriteAccessRequester");
-								DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadOnlyAccessRequester_str, g_mse_namespace_str + "::TAsyncSharedV2ReadOnlyAccessRequester");
-								DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2ImmutableFixedPointer_str, g_mse_namespace_str + "::TAsyncSharedV2ImmutableFixedPointer");
-								DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2AtomicFixedPointer_str, g_mse_namespace_str + "::TAsyncSharedV2AtomicFixedPointer");
-								DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, g_mse_namespace_str + "::rsv::TThreadLocalObj");
+								DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadWriteAccessRequester_str, mse_namespace_str() + "::TAsyncSharedV2ReadWriteAccessRequester");
+								DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadOnlyAccessRequester_str, mse_namespace_str() + "::TAsyncSharedV2ReadOnlyAccessRequester");
+								DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2ImmutableFixedPointer_str, mse_namespace_str() + "::TAsyncSharedV2ImmutableFixedPointer");
+								DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2AtomicFixedPointer_str, mse_namespace_str() + "::TAsyncSharedV2AtomicFixedPointer");
+								DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, mse_namespace_str() + "::rsv::TThreadLocalObj");
 
 								if ((type_name1 == mse_rsv_static_immutable_obj_str1)
 									|| (type_name1 == std_atomic_str)
@@ -759,8 +760,8 @@ namespace checker {
 								type_name1 = tmplt_CXXRD->getQualifiedNameAsString();
 							}
 
-							DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, g_mse_namespace_str + "::rsv::TStaticImmutableObj");
-							DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, g_mse_namespace_str + "::rsv::TThreadLocalObj");
+							DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, mse_namespace_str() + "::rsv::TStaticImmutableObj");
+							DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, mse_namespace_str() + "::rsv::TThreadLocalObj");
 
 							if (type_name1 == mse_rsv_static_immutable_obj_str1) {
 								if (clang::StorageDuration::SD_Static != storage_duration) {
@@ -858,10 +859,10 @@ namespace checker {
 						if (tmplt_CXXRD) {
 							name = tmplt_CXXRD->getQualifiedNameAsString();
 						}
-						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncShareableObj_str1, g_mse_namespace_str + "::rsv::TAsyncShareableObj");
-						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncPassableObj_str1, g_mse_namespace_str + "::rsv::TAsyncPassableObj");
-						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncShareableAndPassableObj_str1, g_mse_namespace_str + "::rsv::TAsyncShareableAndPassableObj");
-						DECLARE_CACHED_CONST_STRING(mse_rsv_TFParam_str, g_mse_namespace_str + "::rsv::TFParam");
+						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncShareableObj_str1, mse_namespace_str() + "::rsv::TAsyncShareableObj");
+						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncPassableObj_str1, mse_namespace_str() + "::rsv::TAsyncPassableObj");
+						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncShareableAndPassableObj_str1, mse_namespace_str() + "::rsv::TAsyncShareableAndPassableObj");
+						DECLARE_CACHED_CONST_STRING(mse_rsv_TFParam_str, mse_namespace_str() + "::rsv::TFParam");
 						static const std::string std_unique_ptr_str = "std::unique_ptr";
 						if (mse_rsv_TAsyncShareableObj_str1 == name) {
 							if (1 == CXXRD->getNumBases()) {
@@ -936,7 +937,7 @@ namespace checker {
 											auto num_args = CE->getNumArgs();
 											if (function_decl) {
 												std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-												DECLARE_CACHED_CONST_STRING(as_an_fparam_str, g_mse_namespace_str + "::rsv::as_an_fparam");
+												DECLARE_CACHED_CONST_STRING(as_an_fparam_str, mse_namespace_str() + "::rsv::as_an_fparam");
 												if ((as_an_fparam_str == qualified_function_name)) {
 													if (1 == num_args) {
 														satisfies_checks = true;
@@ -998,37 +999,32 @@ namespace checker {
 								}
 							}
 						} else {
-							struct CErrDef {
-								std::string m_name_of_unsupported;
-								std::string m_recommended_alternative;
-							};
-							auto err_defs = std::vector<CErrDef>{
-								{"std::thread", "mse::mstd::thread or mse::xscope_thread"}
-								, {"std::async", "mse::mstd::async or mse::xscope_asyc"}
-								, {"std::basic_string_view", "a 'string section' from the SaferCPlusPlus library"}
-								, {"std::span", "a 'random access section' from the SaferCPlusPlus library"}
-								, {"std::array", "a corresponding substitute from the SaferCPlusPlus library"}
-								, {"std::vector", "a corresponding substitute from the SaferCPlusPlus library"}
-								, {"std::basic_string", "a corresponding substitute from the SaferCPlusPlus library"}
-								, {"std::__cxx11::basic_string", "a corresponding substitute from the SaferCPlusPlus library"}
-								, {"std::shared_ptr", "a reference counting pointer or an 'access requester' from the SaferCPlusPlus library"}
-								, {"std::unique_ptr", "mse::TXScopeOwnerPointer<> or a reference counting pointer from the SaferCPlusPlus library"}
-								, {"std::function", "mse::mstd::function or mse::xscope_function"}
-								};
-							for (const auto& err_def : err_defs) {
-								if (name == err_def.m_name_of_unsupported) {
-									std::string error_desc = std::string("'") + name + std::string("' is not ")
-										+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
-									if ("" != err_def.m_recommended_alternative) {
-										error_desc += "Consider using " + err_def.m_recommended_alternative + " instead.";
-									}
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-									break;
+							auto check_for_and_handle_unsupported_element = [&MR, &SR](const clang::QualType& qtype, CTUState& state1) {
+								std::string element_name;
+								const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+								if (l_CXXRD) {
+									element_name = l_CXXRD->getQualifiedNameAsString();
+								} else {
+									element_name = qtype.getAsString();
 								}
-							}
+
+								for (const auto& err_def : unsupported_element_infos()) {
+									if (element_name == err_def.m_name_of_unsupported) {
+										std::string error_desc = std::string("'") + element_name + std::string("' is not ")
+											+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
+										if ("" != err_def.m_recommended_alternative) {
+											error_desc += "Consider using " + err_def.m_recommended_alternative + " instead.";
+										}
+										auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+										if (res.second) {
+											std::cout << (*(res.first)).as_a_string1() << " \n\n";
+										}
+										break;
+									}
+								}
+							};
+							check_for_and_handle_unsupported_element(qtype, (*this).m_state1);
+							apply_to_template_parameters_if_any(qtype, check_for_and_handle_unsupported_element, (*this).m_state1);
 						}
 					} else {
 						std::string unsupported_type_str;
@@ -1053,8 +1049,8 @@ namespace checker {
 						if (ND) {
 							const auto source_namespace_str = ND->getQualifiedNameAsString();
 
-							DECLARE_CACHED_CONST_STRING(mse_namespace_str1, g_mse_namespace_str);
-							DECLARE_CACHED_CONST_STRING(mse_namespace_str2, g_mse_namespace_str + std::string("::"));
+							DECLARE_CACHED_CONST_STRING(mse_namespace_str1, mse_namespace_str());
+							DECLARE_CACHED_CONST_STRING(mse_namespace_str2, mse_namespace_str() + std::string("::"));
 							if ((source_namespace_str == mse_namespace_str1)
 								|| string_begins_with(source_namespace_str, mse_namespace_str2)) {
 
@@ -1128,10 +1124,10 @@ namespace checker {
 						auto qtype = DD->getType();
 						IF_DEBUG(std::string qtype_str = DD->getType().getAsString();)
 						const auto qualified_name = DD->getQualifiedNameAsString();
-						DECLARE_CACHED_CONST_STRING(mse_us_namespace_str1, g_mse_namespace_str + "::us::");
+						DECLARE_CACHED_CONST_STRING(mse_us_namespace_str1, mse_namespace_str() + "::us::");
 						if (string_begins_with(qualified_name, mse_us_namespace_str1)) {
 
-							DECLARE_CACHED_CONST_STRING(mse_us_namespace_str2, std::string("::") + g_mse_namespace_str + "::us::");
+							DECLARE_CACHED_CONST_STRING(mse_us_namespace_str2, std::string("::") + mse_namespace_str() + "::us::");
 							auto l_source_text = Rewrite.getRewrittenText(SR);
 							if (string_begins_with(l_source_text, mse_us_namespace_str1)
 								|| string_begins_with(l_source_text, mse_us_namespace_str2)) {
@@ -1210,7 +1206,7 @@ namespace checker {
 							auto num_args = CE->getNumArgs();
 							if (function_decl) {
 								std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-								DECLARE_CACHED_CONST_STRING(return_value_str, g_mse_namespace_str + "::return_value");
+								DECLARE_CACHED_CONST_STRING(return_value_str, mse_namespace_str() + "::return_value");
 								if (return_value_str == qualified_function_name) {
 									xscope_return_value_wrapper_present = true;
 								}
@@ -1267,7 +1263,7 @@ namespace checker {
 
 #ifndef NDEBUG
 				auto qualified_name = RD->getQualifiedNameAsString();
-				DECLARE_CACHED_CONST_STRING(mse_namespace_str1, g_mse_namespace_str + "::");
+				DECLARE_CACHED_CONST_STRING(mse_namespace_str1, mse_namespace_str() + "::");
 				if (string_begins_with(qualified_name, mse_namespace_str1)) {
 					int q = 5;
 					//return;
@@ -1306,9 +1302,9 @@ namespace checker {
 										MTE->IgnoreImpCasts(), *MR.Context);
 									if (CE) {
 										const auto qname = CE->getDirectCallee()->getQualifiedNameAsString();
-										DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str, g_mse_namespace_str + "::rsv::make_xscope_reference_or_pointer_capture_lambda");
-										DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_non_reference_or_pointer_capture_lambda_str, g_mse_namespace_str + "::rsv::make_xscope_non_reference_or_pointer_capture_lambda");
-										DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_capture_lambda_str, g_mse_namespace_str + "::rsv::make_xscope_capture_lambda");
+										DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_reference_or_pointer_capture_lambda");
+										DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_non_reference_or_pointer_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_non_reference_or_pointer_capture_lambda");
+										DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_capture_lambda");
 										if ((mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str == qname)
 											|| (mse_rsv_make_xscope_non_reference_or_pointer_capture_lambda_str == qname)
 											|| (mse_rsv_make_xscope_capture_lambda_str == qname)) {
@@ -1538,8 +1534,8 @@ namespace checker {
 				auto num_args = CE->getNumArgs();
 				if (function_decl) {
 					std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-					DECLARE_CACHED_CONST_STRING(as_an_fparam_str, g_mse_namespace_str + "::rsv::as_an_fparam");
-					DECLARE_CACHED_CONST_STRING(as_a_returnable_fparam_str, g_mse_namespace_str + "::rsv::as_a_returnable_fparam");
+					DECLARE_CACHED_CONST_STRING(as_an_fparam_str, mse_namespace_str() + "::rsv::as_an_fparam");
+					DECLARE_CACHED_CONST_STRING(as_a_returnable_fparam_str, mse_namespace_str() + "::rsv::as_a_returnable_fparam");
 					if ((as_an_fparam_str == qualified_function_name) || (as_a_returnable_fparam_str == qualified_function_name)) {
 						if (1 == num_args) {
 							auto EX1 = IgnoreParenImpNoopCasts(CE->getArg(0), *(MR.Context));
@@ -1718,8 +1714,7 @@ namespace checker {
 					auto CO = dyn_cast<const clang::ConditionalOperator>(EX);
 					if (CXXCE) {
 						const auto qtype = CXXCE->getType();
-						const auto CXXCE_rw_type_ptr = remove_mse_transparent_wrappers(CXXCE->getType());
-						assert(CXXCE_rw_type_ptr);
+						const auto CXXCE_rw_type_ptr = remove_mse_transparent_wrappers(CXXCE->getType()).getTypePtr();
 						bool is_pointer_or_equivalent = true;
 						if (!CXXCE_rw_type_ptr->isPointerType()) {
 							const auto RD = CXXCE_rw_type_ptr->getAsRecordDecl();
@@ -1729,7 +1724,7 @@ namespace checker {
 								/* `mse::us::impl::TPointerForLegacy<>` is sometimes used as (a functionally
 								equivalent) substitute for native pointers that can act as a base class. */
 								const auto CXXCE_rw_qtype_str = RD->getQualifiedNameAsString();
-								DECLARE_CACHED_CONST_STRING(TPointerForLegacy_str, g_mse_namespace_str + "::us::impl::TPointerForLegacy");
+								DECLARE_CACHED_CONST_STRING(TPointerForLegacy_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
 								if (TPointerForLegacy_str != CXXCE_rw_qtype_str) {
 									is_pointer_or_equivalent = false;
 								}
@@ -1864,13 +1859,13 @@ namespace checker {
 									const auto arg_EX_qtype = arg_EX->getType();
 									IF_DEBUG(const auto arg_EX_qtype_str = arg_EX_qtype.getAsString();)
 
-									const auto CXXRD = remove_mse_transparent_wrappers(*(arg_EX->getType()))->getAsCXXRecordDecl();
+									const auto CXXRD = remove_mse_transparent_wrappers(arg_EX->getType()).getTypePtr()->getAsCXXRecordDecl();
 									if (CXXRD) {
-										DECLARE_CACHED_CONST_STRING(xscope_item_f_ptr_str, g_mse_namespace_str + "::TXScopeItemFixedPointer");
-										DECLARE_CACHED_CONST_STRING(xscope_item_f_const_ptr_str, g_mse_namespace_str + "::TXScopeItemFixedConstPointer");
-										DECLARE_CACHED_CONST_STRING(xscope_f_ptr_str, g_mse_namespace_str + "::TXScopeFixedPointer");
-										DECLARE_CACHED_CONST_STRING(xscope_f_const_ptr_str, g_mse_namespace_str + "::TXScopeFixedConstPointer");
-										DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, g_mse_namespace_str + "::TXScopeOwnerPointer");
+										DECLARE_CACHED_CONST_STRING(xscope_item_f_ptr_str, mse_namespace_str() + "::TXScopeItemFixedPointer");
+										DECLARE_CACHED_CONST_STRING(xscope_item_f_const_ptr_str, mse_namespace_str() + "::TXScopeItemFixedConstPointer");
+										DECLARE_CACHED_CONST_STRING(xscope_f_ptr_str, mse_namespace_str() + "::TXScopeFixedPointer");
+										DECLARE_CACHED_CONST_STRING(xscope_f_const_ptr_str, mse_namespace_str() + "::TXScopeFixedConstPointer");
+										DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, mse_namespace_str() + "::TXScopeOwnerPointer");
 										static const std::string unique_ptr_str = "std::unique_ptr";
 										auto qname = CXXRD->getQualifiedNameAsString();
 										if ((xscope_item_f_ptr_str == qname) || (xscope_item_f_const_ptr_str == qname)
@@ -1938,20 +1933,20 @@ namespace checker {
 								const auto potential_owner_EX_ii_qtype = potential_owner_EX_ii->getType();
 								IF_DEBUG(const auto potential_owner_EX_ii_qtype_str = potential_owner_EX_ii_qtype.getAsString();)
 
-								const auto CXXRD = remove_mse_transparent_wrappers(*(potential_owner_EX_ii->getType()))->getAsCXXRecordDecl();
+								const auto CXXRD = remove_mse_transparent_wrappers(potential_owner_EX_ii->getType()).getTypePtr()->getAsCXXRecordDecl();
 								if (CXXRD) {
 									/* static structure containers */
-									DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, g_mse_namespace_str + "::TXScopeOwnerPointer");
-									DECLARE_CACHED_CONST_STRING(xscope_tuple_str, g_mse_namespace_str + "::xscope_tuple");
+									DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, mse_namespace_str() + "::TXScopeOwnerPointer");
+									DECLARE_CACHED_CONST_STRING(xscope_tuple_str, mse_namespace_str() + "::xscope_tuple");
 
 									static const std::string std_unique_ptr_str = "std::unique_ptr";
 									static const std::string std_tuple_str = "std::tuple";
 									static const std::string std_pair_str = "std::pair";
 									static const std::string std_array_str = "std::array";
 
-									DECLARE_CACHED_CONST_STRING(mstd_tuple_str, g_mse_namespace_str + "::mstd::tuple");
-									DECLARE_CACHED_CONST_STRING(nii_array_str, g_mse_namespace_str + "::nii_array");
-									DECLARE_CACHED_CONST_STRING(mstd_array_str, g_mse_namespace_str + "::mstd::array");
+									DECLARE_CACHED_CONST_STRING(mstd_tuple_str, mse_namespace_str() + "::mstd::tuple");
+									DECLARE_CACHED_CONST_STRING(nii_array_str, mse_namespace_str() + "::nii_array");
+									DECLARE_CACHED_CONST_STRING(mstd_array_str, mse_namespace_str() + "::mstd::array");
 
 									auto qname = CXXRD->getQualifiedNameAsString();
 									if ((xscope_owner_ptr_str == qname) || (xscope_tuple_str == qname)
@@ -2181,13 +2176,13 @@ namespace checker {
 								const auto potential_owner_EX_ii_qtype = potential_owner_EX_ii->getType();
 								IF_DEBUG(const auto potential_owner_EX_ii_qtype_str = potential_owner_EX_ii_qtype.getAsString();)
 
-								const auto CXXRD = remove_mse_transparent_wrappers(*(potential_owner_EX_ii->getType()))->getAsCXXRecordDecl();
+								const auto CXXRD = remove_mse_transparent_wrappers(potential_owner_EX_ii->getType()).getTypePtr()->getAsCXXRecordDecl();
 								if (CXXRD) {
 									/* owning containers (that might contain pointer/reference elements) */
 
-									DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, g_mse_namespace_str + "::TXScopeOwnerPointer");
-									DECLARE_CACHED_CONST_STRING(xscope_optional_str, g_mse_namespace_str + "::xscope_optional");
-									DECLARE_CACHED_CONST_STRING(xscope_tuple_str, g_mse_namespace_str + "::xscope_tuple");
+									DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, mse_namespace_str() + "::TXScopeOwnerPointer");
+									DECLARE_CACHED_CONST_STRING(xscope_optional_str, mse_namespace_str() + "::xscope_optional");
+									DECLARE_CACHED_CONST_STRING(xscope_tuple_str, mse_namespace_str() + "::xscope_tuple");
 
 									static const std::string std_unique_ptr_str = "std::unique_ptr";
 									static const std::string std_shared_ptr_str = "std::shared_ptr";
@@ -2207,14 +2202,14 @@ namespace checker {
 									static const std::string std_unordered_multiset_str = "std::unordered_multiset";
 
 									/*
-									DECLARE_CACHED_CONST_STRING(mstd_optional_str, g_mse_namespace_str + "::mstd::optional");
-									DECLARE_CACHED_CONST_STRING(mstd_tuple_str, g_mse_namespace_str + "::mstd::tuple");
-									DECLARE_CACHED_CONST_STRING(nii_array_str, g_mse_namespace_str + "::nii_array");
-									DECLARE_CACHED_CONST_STRING(mstd_array_str, g_mse_namespace_str + "::mstd::array");
-									DECLARE_CACHED_CONST_STRING(nii_vector_str, g_mse_namespace_str + "::nii_vector");
-									DECLARE_CACHED_CONST_STRING(stnii_vector_str, g_mse_namespace_str + "::stnii_vector");
-									DECLARE_CACHED_CONST_STRING(mtnii_vector_str, g_mse_namespace_str + "::mtnii_vector");
-									DECLARE_CACHED_CONST_STRING(mstd_vector_str, g_mse_namespace_str + "::mstd::vector");
+									DECLARE_CACHED_CONST_STRING(mstd_optional_str, mse_namespace_str() + "::mstd::optional");
+									DECLARE_CACHED_CONST_STRING(mstd_tuple_str, mse_namespace_str() + "::mstd::tuple");
+									DECLARE_CACHED_CONST_STRING(nii_array_str, mse_namespace_str() + "::nii_array");
+									DECLARE_CACHED_CONST_STRING(mstd_array_str, mse_namespace_str() + "::mstd::array");
+									DECLARE_CACHED_CONST_STRING(nii_vector_str, mse_namespace_str() + "::nii_vector");
+									DECLARE_CACHED_CONST_STRING(stnii_vector_str, mse_namespace_str() + "::stnii_vector");
+									DECLARE_CACHED_CONST_STRING(mtnii_vector_str, mse_namespace_str() + "::mtnii_vector");
+									DECLARE_CACHED_CONST_STRING(mstd_vector_str, mse_namespace_str() + "::mstd::vector");
 									*/
 
 									auto qname = CXXRD->getQualifiedNameAsString();
@@ -2284,8 +2279,8 @@ namespace checker {
 				auto num_args = CE->getNumArgs();
 				if (function_decl) {
 					std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-					DECLARE_CACHED_CONST_STRING(make_xscope_pointer_to_str, g_mse_namespace_str + "::rsv::make_xscope_pointer_to");
-					DECLARE_CACHED_CONST_STRING(make_xscope_const_pointer_to_str, g_mse_namespace_str + "::rsv::make_xscope_const_pointer_to");
+					DECLARE_CACHED_CONST_STRING(make_xscope_pointer_to_str, mse_namespace_str() + "::rsv::make_xscope_pointer_to");
+					DECLARE_CACHED_CONST_STRING(make_xscope_const_pointer_to_str, mse_namespace_str() + "::rsv::make_xscope_const_pointer_to");
 					if ((make_xscope_pointer_to_str == qualified_function_name) || (make_xscope_const_pointer_to_str == qualified_function_name)) {
 						if (1 == num_args) {
 							auto EX1 = IgnoreParenImpNoopCasts(CE->getArg(0), *(MR.Context));
@@ -2406,7 +2401,7 @@ namespace checker {
 				if (function_decl) {
 					std::string function_name = function_decl->getNameAsString();
 					std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-					DECLARE_CACHED_CONST_STRING(mse_namespace_str, g_mse_namespace_str + "::");
+					DECLARE_CACHED_CONST_STRING(mse_namespace_str, mse_namespace_str() + "::");
 					static const std::string std_namespace_str = "std::";
 					if (string_begins_with(qualified_function_name, mse_namespace_str)
 						|| string_begins_with(qualified_function_name, std_namespace_str)) {
@@ -2721,7 +2716,7 @@ namespace checker {
 											if (tmplt_CXXRD) {
 												name = tmplt_CXXRD->getQualifiedNameAsString();
 											}
-											DECLARE_CACHED_CONST_STRING(mse_rsv_tfparam_str1, g_mse_namespace_str + "::rsv::TFParam");
+											DECLARE_CACHED_CONST_STRING(mse_rsv_tfparam_str1, mse_namespace_str() + "::rsv::TFParam");
 											if (mse_rsv_tfparam_str1 == name) {
 												if (1 == CXXRD->getNumBases()) {
 													cast_type_str = "Explicit mse::rsv::TFParam<> functional";
@@ -2789,7 +2784,7 @@ namespace checker {
 					auto method_declSR = nice_source_range(method_decl->getSourceRange(), Rewrite);
 					SourceLocation method_declSL = method_declSR.getBegin();
 
-					DECLARE_CACHED_CONST_STRING(mse_ns_prefix, g_mse_namespace_str + std::string("::"));
+					DECLARE_CACHED_CONST_STRING(mse_ns_prefix, mse_namespace_str() + std::string("::"));
 					static const std::string std_ns_prefix = "std::";
 					if (string_begins_with(qmethod_name, mse_ns_prefix)
 						|| string_begins_with(qmethod_name, std_ns_prefix)
@@ -3087,7 +3082,7 @@ namespace checker {
 				}
 
 				IF_DEBUG(const auto LHSEX_qtype_str = LHSEX->getType().getAsString();)
-				const auto LHSEX_rw_type_ptr = remove_mse_transparent_wrappers(LHSEX->getType());
+				const auto LHSEX_rw_type_ptr = remove_mse_transparent_wrappers(LHSEX->getType()).getTypePtr();
 				assert(LHSEX_rw_type_ptr);
 				if (!LHSEX_rw_type_ptr->isPointerType()) {
 					const auto RD = LHSEX_rw_type_ptr->getAsRecordDecl();
@@ -3097,7 +3092,7 @@ namespace checker {
 						/* `mse::us::impl::TPointerForLegacy<>` is sometimes used as (a functionally
 						equivalent) substitute for native pointers that can act as a base class. */
 						const auto LHSEX_rw_qtype_str = RD->getQualifiedNameAsString();
-						DECLARE_CACHED_CONST_STRING(TPointerForLegacy_str, g_mse_namespace_str + "::us::impl::TPointerForLegacy");
+						DECLARE_CACHED_CONST_STRING(TPointerForLegacy_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
 						if (TPointerForLegacy_str != LHSEX_rw_qtype_str) {
 							return;
 						}

@@ -6030,13 +6030,13 @@ namespace convm1 {
 									type_name1 = tmplt_CXXRD->getQualifiedNameAsString();
 								}
 
-								DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, g_mse_namespace_str + "::rsv::TStaticImmutableObj");
+								DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, mse_namespace_str() + "::rsv::TStaticImmutableObj");
 								static const std::string std_atomic_str = std::string("std::atomic");
-								DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadWriteAccessRequester_str, g_mse_namespace_str + "::TAsyncSharedV2ReadWriteAccessRequester");
-								DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadOnlyAccessRequester_str, g_mse_namespace_str + "::TAsyncSharedV2ReadOnlyAccessRequester");
-								DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2ImmutableFixedPointer_str, g_mse_namespace_str + "::TAsyncSharedV2ImmutableFixedPointer");
-								DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2AtomicFixedPointer_str, g_mse_namespace_str + "::TAsyncSharedV2AtomicFixedPointer");
-								DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, g_mse_namespace_str + "::rsv::TThreadLocalObj");
+								DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadWriteAccessRequester_str, mse_namespace_str() + "::TAsyncSharedV2ReadWriteAccessRequester");
+								DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadOnlyAccessRequester_str, mse_namespace_str() + "::TAsyncSharedV2ReadOnlyAccessRequester");
+								DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2ImmutableFixedPointer_str, mse_namespace_str() + "::TAsyncSharedV2ImmutableFixedPointer");
+								DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2AtomicFixedPointer_str, mse_namespace_str() + "::TAsyncSharedV2AtomicFixedPointer");
+								DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, mse_namespace_str() + "::rsv::TThreadLocalObj");
 
 								if ((type_name1 == mse_rsv_static_immutable_obj_str1)
 									|| (type_name1 == std_atomic_str)
@@ -6100,8 +6100,8 @@ namespace convm1 {
 								type_name1 = tmplt_CXXRD->getQualifiedNameAsString();
 							}
 
-							DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, g_mse_namespace_str + "::rsv::TStaticImmutableObj");
-							DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, g_mse_namespace_str + "::rsv::TThreadLocalObj");
+							DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, mse_namespace_str() + "::rsv::TStaticImmutableObj");
+							DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, mse_namespace_str() + "::rsv::TThreadLocalObj");
 
 							if (type_name1 == mse_rsv_static_immutable_obj_str1) {
 								if (clang::StorageDuration::SD_Static != storage_duration) {
@@ -6216,10 +6216,10 @@ namespace convm1 {
 						if (tmplt_CXXRD) {
 							name = tmplt_CXXRD->getQualifiedNameAsString();
 						}
-						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncShareableObj_str1, g_mse_namespace_str + "::rsv::TAsyncShareableObj");
-						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncPassableObj_str1, g_mse_namespace_str + "::rsv::TAsyncPassableObj");
-						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncShareableAndPassableObj_str1, g_mse_namespace_str + "::rsv::TAsyncShareableAndPassableObj");
-						DECLARE_CACHED_CONST_STRING(mse_rsv_TFParam_str, g_mse_namespace_str + "::rsv::TFParam");
+						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncShareableObj_str1, mse_namespace_str() + "::rsv::TAsyncShareableObj");
+						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncPassableObj_str1, mse_namespace_str() + "::rsv::TAsyncPassableObj");
+						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncShareableAndPassableObj_str1, mse_namespace_str() + "::rsv::TAsyncShareableAndPassableObj");
+						DECLARE_CACHED_CONST_STRING(mse_rsv_TFParam_str, mse_namespace_str() + "::rsv::TFParam");
 						if (mse_rsv_TAsyncShareableObj_str1 == name) {
 							if (1 == CXXRD->getNumBases()) {
 								const auto& base = *(CXXRD->bases_begin());
@@ -6293,7 +6293,7 @@ namespace convm1 {
 											auto num_args = CE->getNumArgs();
 											if (function_decl) {
 												std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-												DECLARE_CACHED_CONST_STRING(as_an_fparam_str, g_mse_namespace_str + "::rsv::as_an_fparam");
+												DECLARE_CACHED_CONST_STRING(as_an_fparam_str, mse_namespace_str() + "::rsv::as_an_fparam");
 												if ((as_an_fparam_str == qualified_function_name)) {
 													if (1 == num_args) {
 														satisfies_checks = true;
@@ -6320,24 +6320,7 @@ namespace convm1 {
 								//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 							}
 						} else {
-							struct CErrDef {
-								std::string m_name_of_unsupported;
-								std::string m_recommended_alternative;
-							};
-							auto err_defs = std::vector<CErrDef>{
-								{"std::thread", "mse::mstd::thread or mse::xscope_thread"}
-								, {"std::async", "mse::mstd::async or mse::xscope_asyc"}
-								, {"std::basic_string_view", "a 'string section' from the SaferCPlusPlus library"}
-								, {"std::span", "a 'random access section' from the SaferCPlusPlus library"}
-								, {"std::array", "a corresponding substitute from the SaferCPlusPlus library"}
-								, {"std::vector", "a corresponding substitute from the SaferCPlusPlus library"}
-								, {"std::basic_string", "a corresponding substitute from the SaferCPlusPlus library"}
-								, {"std::__cxx11::basic_string", "a corresponding substitute from the SaferCPlusPlus library"}
-								, {"std::shared_ptr", "a reference counting pointer or an 'access requester' from the SaferCPlusPlus library"}
-								, {"std::unique_ptr", "mse::TXScopeOwnerPointer<> or a reference counting pointer from the SaferCPlusPlus library"}
-								, {"std::function", "mse::mstd::function or mse::xscope_function"}
-								};
-							for (const auto& err_def : err_defs) {
+							for (const auto& err_def : unsupported_element_infos()) {
 								if (name == err_def.m_name_of_unsupported) {
 									std::string error_desc = std::string("'") + name + std::string("' is not ")
 										+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
@@ -6348,6 +6331,27 @@ namespace convm1 {
 									if (res.second) {
 										//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 									}
+
+									if (false) {
+										/* placeholder implementation to be replaced: */
+										auto l_SR = nice_source_range(VD->getSourceRange(), (*this).Rewrite);
+										std::string l_source_text1;
+										if ((l_SR.getBegin() < l_SR.getEnd()) || (l_SR.getBegin() == l_SR.getEnd())) {
+											l_source_text1 = (*this).Rewrite.getRewrittenText(l_SR);
+											if ("" != l_source_text1) {
+												auto replacement_code = l_source_text1;
+												auto index1 = replacement_code.find(name);
+												while (std::string::npos != index1) {
+													replacement_code.replace(index1, name.length(), err_def.m_slow_mode_replacement);
+													index1 = replacement_code.find(name, index1+1);
+												}
+
+												m_state1.m_pending_code_replacement_actions.add_replacement_action(l_SR, replacement_code);
+												//auto res2 = Rewrite.ReplaceText(l_SR, replacement_code);
+											}
+										}
+									}
+
 									break;
 								}
 							}
@@ -6375,8 +6379,8 @@ namespace convm1 {
 						if (ND) {
 							const auto source_namespace_str = ND->getQualifiedNameAsString();
 
-							DECLARE_CACHED_CONST_STRING(mse_namespace_str1, g_mse_namespace_str);
-							DECLARE_CACHED_CONST_STRING(mse_namespace_str2, g_mse_namespace_str + std::string("::"));
+							DECLARE_CACHED_CONST_STRING(mse_namespace_str1, mse_namespace_str());
+							DECLARE_CACHED_CONST_STRING(mse_namespace_str2, mse_namespace_str() + std::string("::"));
 							if ((source_namespace_str == mse_namespace_str1)
 								|| string_begins_with(source_namespace_str, mse_namespace_str2)) {
 
@@ -7248,7 +7252,7 @@ namespace convm1 {
 		return first_option;
 	}
 
-	auto resolve_merge_conflicts_with_best_guess(const std::string& source_file_text) {
+	auto resolve_merge_conflicts_with_best_guess_text(const std::string& source_file_text) {
 		std::string retval = source_file_text;
 		auto conflict_start_index = retval.find("<<<<<<< ", 0);
 		while (std::string::npos != conflict_start_index) {
@@ -7282,7 +7286,7 @@ namespace convm1 {
 		return retval;
 	}
 
-	/* At some point the source code file will be the result of a merge of other other source code files. (One
+	/* At some point the source code file will be the result of a merge of other source code files. (One
 	for each translation unit.) So the file might have merge conflicts in it (making it uncompilable). The
 	following function will "resolve" any merge conflict in the given file by using a (crude) heuristic to
 	choose between the available options. */
@@ -7301,7 +7305,7 @@ namespace convm1 {
 
 		fs.close();
 
-		auto resolved_content = resolve_merge_conflicts_with_best_guess(content);
+		auto resolved_content = resolve_merge_conflicts_with_best_guess_text(content);
 
 		fs.open(filepathname, std::ios_base::out | std::ios::trunc);
 		if (fs.fail()) {

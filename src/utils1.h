@@ -25,8 +25,6 @@
 
 #include <fstream>
 
-extern std::string g_mse_namespace_str;
-
 /*Clang Headers*/
 #include "clang/AST/AST.h"
 #include "clang/AST/ASTConsumer.h"
@@ -49,6 +47,12 @@ extern std::string g_mse_namespace_str;
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/IR/Function.h"
 /**********************************************************************************************************************/
+
+inline const std::string& mse_namespace_str() {
+	/* In the future, this could be specified (at run-time, as a command line parameter). */
+	static const std::string l_mse_namespace_str = "mse";
+	return l_mse_namespace_str;
+}
 
 /* Execute a shell command. */
 std::pair<std::string, bool> exec(const char* cmd);
@@ -383,80 +387,88 @@ class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
 		return retval;
 	}
 
-	inline const clang::Type* remove_fparam_wrappers(const clang::QualType& qtype);
-
-	inline auto remove_fparam_wrappers(const clang::Type& type) {
-		const auto TP = &type;
-		const auto CXXRD = TP->getAsCXXRecordDecl();
+	inline clang::QualType remove_fparam_wrappers(const clang::QualType& qtype) {
+		const auto CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 		if (CXXRD) {
 			auto qname = CXXRD->getQualifiedNameAsString();
-			//DECLARE_CACHED_CONST_STRING(treturnablefparam_str, g_mse_namespace_str + "::rsv::TReturnableFParam");
-			//DECLARE_CACHED_CONST_STRING(tfparam_str, g_mse_namespace_str + "::rsv::TFParam");
-			//DECLARE_CACHED_CONST_STRING(txsifcfparam_str, g_mse_namespace_str + "::rsv::TXScopeItemFixedConstPointerFParam");
-			//DECLARE_CACHED_CONST_STRING(txsiffparam_str, g_mse_namespace_str + "::rsv::TXScopeItemFixedPointerFParam");
+			//DECLARE_CACHED_CONST_STRING(treturnablefparam_str, mse_namespace_str() + "::rsv::TReturnableFParam");
+			//DECLARE_CACHED_CONST_STRING(tfparam_str, mse_namespace_str() + "::rsv::TFParam");
+			//DECLARE_CACHED_CONST_STRING(txsifcfparam_str, mse_namespace_str() + "::rsv::TXScopeItemFixedConstPointerFParam");
+			//DECLARE_CACHED_CONST_STRING(txsiffparam_str, mse_namespace_str() + "::rsv::TXScopeItemFixedPointerFParam");
 
-			DECLARE_CACHED_CONST_STRING(prefix_str, g_mse_namespace_str + "::rsv::");
+			DECLARE_CACHED_CONST_STRING(prefix_str, mse_namespace_str() + "::rsv::");
 			static const std::string suffix_str = "FParam";
 			if (!(string_begins_with(qname, prefix_str) || string_ends_with(qname, suffix_str))) {
-				return TP;
+				return qtype;
 			}
-			for (const auto& base : CXXRD->bases()) {
-				const auto base_qtype = base.getType();
-				IF_DEBUG(const auto base_qtype_str = base_qtype.getAsString();)
-				/* The first base class should be the one we're interested in. */
-				return remove_fparam_wrappers(base_qtype);
+
+			auto CTSD = clang::dyn_cast<const clang::ClassTemplateSpecializationDecl>(CXXRD);
+			if (CTSD) {
+				const auto& template_args = CTSD->getTemplateInstantiationArgs();
+				const auto num_args = template_args.size();
+				for (int i = 0; i < num_args; i += 1) {
+					const auto template_arg = template_args[i];
+					if (clang::TemplateArgument::Type == template_arg.getKind()) {
+						const auto ta_qtype = template_arg.getAsType();
+						IF_DEBUG(const auto ta_qtype_str = ta_qtype.getAsString();)
+						return remove_fparam_wrappers(ta_qtype);
+					}
+					/*unexpected*/
+					int q = 5;
+				}
+				/*unexpected*/
+				int q = 5;
 			}
-			/*unexpected*/
-			int q = 5;
 		}
-		return TP;
-	}
-	inline const clang::Type* remove_fparam_wrappers(const clang::QualType& qtype) {
-		return remove_fparam_wrappers(*(qtype.getTypePtr()));
+		return qtype;
 	}
 
-	inline const clang::Type* remove_mse_transparent_wrappers(const clang::QualType& qtype);
-
-	inline auto remove_mse_transparent_wrappers(const clang::Type& type) {
-		//const auto TP = &type;
-		const auto TP = remove_fparam_wrappers(type);
-		const auto CXXRD = TP->getAsCXXRecordDecl();
+	inline clang::QualType remove_mse_transparent_wrappers(const clang::QualType& qtype) {
+		clang::QualType retval = remove_fparam_wrappers(qtype);
+		const auto CXXRD = retval.getTypePtr()->getAsCXXRecordDecl();
 		if (CXXRD) {
 			auto qname = CXXRD->getQualifiedNameAsString();
 
-			DECLARE_CACHED_CONST_STRING(txscopeobj_str, g_mse_namespace_str + "::TXScopeObj");
-			DECLARE_CACHED_CONST_STRING(tregobj_str, g_mse_namespace_str + "::TRegisteredObj");
-			DECLARE_CACHED_CONST_STRING(tndregobj_str, g_mse_namespace_str + "::TNDRegisteredObj");
-			DECLARE_CACHED_CONST_STRING(tgnoradobj_str, g_mse_namespace_str + "::us::impl::TGNoradObj");
-			DECLARE_CACHED_CONST_STRING(tnoradobj_str, g_mse_namespace_str + "::TNoradObj");
-			DECLARE_CACHED_CONST_STRING(tndnoradobj_str, g_mse_namespace_str + "::TNDNoradObj");
-			DECLARE_CACHED_CONST_STRING(tasyncshareableobj_str, g_mse_namespace_str + "::rsv::TAsyncShareableObj");
-			DECLARE_CACHED_CONST_STRING(tasyncpassableobj_str, g_mse_namespace_str + "::rsv::TAsyncPassableObj");
-			DECLARE_CACHED_CONST_STRING(tasyncshareableandpassableobj_str, g_mse_namespace_str + "::rsv::TAsyncShareableAndPassableObj");
-			DECLARE_CACHED_CONST_STRING(tthreadlocalobj_str, g_mse_namespace_str + "::rsv::TThreadLocalObj");
-			DECLARE_CACHED_CONST_STRING(tstaticimmutableobj_str, g_mse_namespace_str + "::rsv::TStaticImmutableObj");
-			DECLARE_CACHED_CONST_STRING(tstaticatomicobj_str, g_mse_namespace_str + "::rsv::TStaticAtomicObj");
+			DECLARE_CACHED_CONST_STRING(txscopeobj_str, mse_namespace_str() + "::TXScopeObj");
+			DECLARE_CACHED_CONST_STRING(tregobj_str, mse_namespace_str() + "::TRegisteredObj");
+			DECLARE_CACHED_CONST_STRING(tndregobj_str, mse_namespace_str() + "::TNDRegisteredObj");
+			DECLARE_CACHED_CONST_STRING(tgnoradobj_str, mse_namespace_str() + "::us::impl::TGNoradObj");
+			DECLARE_CACHED_CONST_STRING(tnoradobj_str, mse_namespace_str() + "::TNoradObj");
+			DECLARE_CACHED_CONST_STRING(tndnoradobj_str, mse_namespace_str() + "::TNDNoradObj");
+			DECLARE_CACHED_CONST_STRING(tasyncshareableobj_str, mse_namespace_str() + "::rsv::TAsyncShareableObj");
+			DECLARE_CACHED_CONST_STRING(tasyncpassableobj_str, mse_namespace_str() + "::rsv::TAsyncPassableObj");
+			DECLARE_CACHED_CONST_STRING(tasyncshareableandpassableobj_str, mse_namespace_str() + "::rsv::TAsyncShareableAndPassableObj");
+			DECLARE_CACHED_CONST_STRING(tthreadlocalobj_str, mse_namespace_str() + "::rsv::TThreadLocalObj");
+			DECLARE_CACHED_CONST_STRING(tstaticimmutableobj_str, mse_namespace_str() + "::rsv::TStaticImmutableObj");
+			DECLARE_CACHED_CONST_STRING(tstaticatomicobj_str, mse_namespace_str() + "::rsv::TStaticAtomicObj");
 
 			if (!((qname == txscopeobj_str) || (qname == tregobj_str) || (qname == tndregobj_str)
 				|| (qname == tgnoradobj_str) || (qname == tnoradobj_str) || (qname == tndnoradobj_str)
 				|| (qname == tasyncshareableobj_str) || (qname == tasyncpassableobj_str) || (qname == tasyncshareableandpassableobj_str)
 				|| (qname == tthreadlocalobj_str) || (qname == tstaticimmutableobj_str) || (qname == tstaticatomicobj_str)
 				)) {
-				return TP;
+				return retval;
 			}
-			for (const auto& base : CXXRD->bases()) {
-				const auto base_qtype = base.getType();
-				IF_DEBUG(const auto base_qtype_str = base_qtype.getAsString();)
-				/* The first base class should be the one we're interested in. */
-				return remove_mse_transparent_wrappers(base_qtype);
+
+			auto CTSD = clang::dyn_cast<const clang::ClassTemplateSpecializationDecl>(CXXRD);
+			if (CTSD) {
+				const auto& template_args = CTSD->getTemplateInstantiationArgs();
+				const auto num_args = template_args.size();
+				for (int i = 0; i < num_args; i += 1) {
+					const auto template_arg = template_args[i];
+					if (clang::TemplateArgument::Type == template_arg.getKind()) {
+						const auto ta_qtype = template_arg.getAsType();
+						IF_DEBUG(const auto ta_qtype_str = ta_qtype.getAsString();)
+						retval = remove_mse_transparent_wrappers(ta_qtype);
+					}
+					/*unexpected*/
+					int q = 5;
+				}
+				/*unexpected*/
+				int q = 5;
 			}
-			/*unexpected*/
-			int q = 5;
 		}
-		return TP;
-	}
-	inline const clang::Type* remove_mse_transparent_wrappers(const clang::QualType& qtype) {
-		return remove_mse_transparent_wrappers(*(qtype.getTypePtr()));
+		return retval;
 	}
 
 
@@ -485,7 +497,7 @@ class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
 		const auto CXXRD = TP->getAsCXXRecordDecl();
 		if (CXXRD) {
 			IF_DEBUG(auto qname = CXXRD->getQualifiedNameAsString();)
-			DECLARE_CACHED_CONST_STRING(xscope_tag_str, g_mse_namespace_str + "::us::impl::XScopeTagBase");
+			DECLARE_CACHED_CONST_STRING(xscope_tag_str, mse_namespace_str() + "::us::impl::XScopeTagBase");
 			if (has_ancestor_base_class(type, xscope_tag_str)) {
 				return true;
 			} else {
@@ -526,7 +538,7 @@ class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
 
 		auto CXXRD = type.getAsCXXRecordDecl();
 		if (CXXRD) {
-			DECLARE_CACHED_CONST_STRING(ContainsNonOwningScopeReference_tag_str, g_mse_namespace_str + "::us::impl::ContainsNonOwningScopeReferenceTagBase");
+			DECLARE_CACHED_CONST_STRING(ContainsNonOwningScopeReference_tag_str, mse_namespace_str() + "::us::impl::ContainsNonOwningScopeReferenceTagBase");
 			if (has_ancestor_base_class(*(CXXRD->getTypeForDecl()), ContainsNonOwningScopeReference_tag_str)) {
 				return true;
 			}
@@ -553,7 +565,7 @@ class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
 
 		auto CXXRD = type.getAsCXXRecordDecl();
 		if (CXXRD) {
-			DECLARE_CACHED_CONST_STRING(ReferenceableByScopePointer_tag_str, g_mse_namespace_str + "::us::impl::ReferenceableByScopePointerTagBase");
+			DECLARE_CACHED_CONST_STRING(ReferenceableByScopePointer_tag_str, mse_namespace_str() + "::us::impl::ReferenceableByScopePointerTagBase");
 			if (has_ancestor_base_class(*(CXXRD->getTypeForDecl()), ReferenceableByScopePointer_tag_str)) {
 				return true;
 			}
@@ -584,8 +596,8 @@ class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
 			if (has_tag_method(*CXXRD, s_async_shareable_tag_str) || has_tag_method(*CXXRD, s_async_shareable_and_passable_tag_str)) {
 				return true;
 			} else {
-				DECLARE_CACHED_CONST_STRING(async_not_shareable_tag_str, g_mse_namespace_str + "::us::impl::AsyncNotShareableTagBase");
-				DECLARE_CACHED_CONST_STRING(async_not_shareable_and_not_passable_tag_str, g_mse_namespace_str + "::us::impl::AsyncNotShareableAndNotPassableTagBase");
+				DECLARE_CACHED_CONST_STRING(async_not_shareable_tag_str, mse_namespace_str() + "::us::impl::AsyncNotShareableTagBase");
+				DECLARE_CACHED_CONST_STRING(async_not_shareable_and_not_passable_tag_str, mse_namespace_str() + "::us::impl::AsyncNotShareableAndNotPassableTagBase");
 				if (has_ancestor_base_class(type, async_not_shareable_tag_str)
 					|| has_ancestor_base_class(type, async_not_shareable_and_not_passable_tag_str)) {
 					return false;
@@ -641,8 +653,8 @@ class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
 			if (has_tag_method(*CXXRD, s_async_passable_tag_str) || has_tag_method(*CXXRD, s_async_passable_and_passable_tag_str)) {
 				return true;
 			} else {
-				DECLARE_CACHED_CONST_STRING(async_not_passable_tag_str, g_mse_namespace_str + "::us::impl::AsyncNotPassableTagBase");
-				DECLARE_CACHED_CONST_STRING(async_not_shareable_and_not_passable_tag_str, g_mse_namespace_str + "::us::impl::AsyncNotShareableAndNotPassableTagBase");
+				DECLARE_CACHED_CONST_STRING(async_not_passable_tag_str, mse_namespace_str() + "::us::impl::AsyncNotPassableTagBase");
+				DECLARE_CACHED_CONST_STRING(async_not_shareable_and_not_passable_tag_str, mse_namespace_str() + "::us::impl::AsyncNotShareableAndNotPassableTagBase");
 				if (has_ancestor_base_class(type, async_not_passable_tag_str)
 					|| has_ancestor_base_class(type, async_not_shareable_and_not_passable_tag_str)) {
 					return false;
@@ -679,5 +691,85 @@ class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
 		}
 		return retval;
 	}
+
+
+	struct CUnsupportedElementInfo {
+		std::string m_name_of_unsupported;
+		std::string m_slow_mode_replacement;
+		std::string m_fast_mode_replacement;
+		std::string m_recommended_alternative;
+	};
+	inline const std::vector<CUnsupportedElementInfo>& unsupported_element_infos() {
+		/* In the future, this set could be augmented (at run-time, with data read from a file). */
+		static const auto l_unsupported_element_infos = std::vector<CUnsupportedElementInfo> {
+			{"std::thread", "mse::mstd::thread", "mse::xscope_thread", "mse::mstd::thread or mse::xscope_thread"}
+			, {"std::async", "mse::mstd::async", "mse::xscope_asyc", "mse::mstd::async or mse::xscope_asyc"}
+			, {"std::basic_string_view", "mse::mstd::basic_string_view", "mse::TXScopeCSSSXSTEStringSection", "a 'string section' from the SaferCPlusPlus library"}
+			, {"std::span", "mse::TAnyRandomAccessSection", "mse::TXScopeCSSSXSTERandomAccessSection", "a 'random access section' from the SaferCPlusPlus library"}
+			, {"std::array", "mse::mstd::array", "mse::nii_array", "a corresponding substitute from the SaferCPlusPlus library"}
+			, {"std::vector", "mse::mstd::vector", "mse::stnii_vector", "a corresponding substitute from the SaferCPlusPlus library"}
+			, {"std::basic_string", "mse::mstd::basic_string", "mse::stnii_basic_string", "a corresponding substitute from the SaferCPlusPlus library"}
+			, {"std::__cxx11::basic_string", "mse::mstd::basic_string", "mse::stnii_basic_string", "a corresponding substitute from the SaferCPlusPlus library"}
+			, {"std::shared_ptr", "mse::TRefCountingPointer", "mse::TRefCountingPointer", "a reference counting pointer or an 'access requester' from the SaferCPlusPlus library"}
+			, {"std::unique_ptr", "mse::TRefCountingPointer", "mse::TXScopeOwnerPointer", "mse::TXScopeOwnerPointer<> or a reference counting pointer from the SaferCPlusPlus library"}
+			, {"std::function", "mse::mstd::function", "mse::xscope_function", "mse::mstd::function or mse::xscope_function"}
+			, {"std::tuple", "mse::mstd::tuple", "mse::xscope_tuple", "mse::mstd::tuple or mse::xscope_tuple"}
+			};
+		return l_unsupported_element_infos;
+	}
+
+
+	inline std::vector<clang::QualType> types_from_template_arg(const clang::TemplateArgument& template_arg) {
+		std::vector<clang::QualType> retval;
+
+		const auto kind = template_arg.getKind();
+		if (clang::TemplateArgument::Type == template_arg.getKind()) {
+			const auto ta_qtype = template_arg.getAsType();
+			IF_DEBUG(const auto ta_qtype_str = ta_qtype.getAsString();)
+			retval.push_back(ta_qtype);
+		} else if (clang::TemplateArgument::Pack == template_arg.getKind()) {
+			const auto pack_size = template_arg.pack_size();
+			for (const auto& pack_element : template_arg.pack_elements()) {
+				auto res = types_from_template_arg(pack_element);
+				retval.insert(retval.end(), res.begin(), res.end());
+			}
+		} else {
+			int q = 5;
+		}
+
+		return retval;
+	}
+
+	inline std::vector<clang::QualType> shallow_template_parameter_types_if_any(const clang::QualType& qtype) {
+		std::vector<clang::QualType> retval;
+		IF_DEBUG(const auto qtype_str = qtype.getAsString();)
+		//const auto TP = &type;
+		const auto TP = remove_fparam_wrappers(qtype);
+		const auto CXXRD = TP->getAsCXXRecordDecl();
+		if (CXXRD) {
+			IF_DEBUG(auto qname = CXXRD->getQualifiedNameAsString();)
+
+			auto CTSD = clang::dyn_cast<const clang::ClassTemplateSpecializationDecl>(CXXRD);
+			if (CTSD) {
+				const auto& template_args = CTSD->getTemplateInstantiationArgs();
+				const auto num_args = template_args.size();
+				for (int i = 0; i < num_args; i += 1) {
+					const auto template_arg = template_args[i];
+					auto res = types_from_template_arg(template_arg);
+					retval.insert(retval.end(), res.begin(), res.end());
+				}
+			}
+		}
+		return retval;
+	}
+	template<typename TLambda, typename ...Args>
+	inline void apply_to_template_parameters_if_any(const clang::QualType& qtype, const TLambda& lambda, Args&&...args) {
+		const auto tparams = shallow_template_parameter_types_if_any(qtype);
+		for (const auto& tparam : tparams) {
+			apply_to_template_parameters_if_any(tparam, lambda, args...);
+			lambda(tparam, args...);
+		}
+	}
+
 
 #endif //__UTILS1_H

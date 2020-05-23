@@ -21,8 +21,6 @@
 
 #include <fstream>
 
-/*static */std::string g_mse_namespace_str = "mse";
-
 #include "scpptool.h"
 #include "utils1.h"
 
