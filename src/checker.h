@@ -1008,18 +1008,19 @@ namespace checker {
 									element_name = qtype.getAsString();
 								}
 
-								for (const auto& err_def : unsupported_element_infos()) {
-									if (element_name == err_def.m_name_of_unsupported) {
+								{
+									auto uei_ptr = unsupported_element_info_ptr(element_name);
+									if (uei_ptr) {
+										const auto& unsupported_element_info = *uei_ptr;
 										std::string error_desc = std::string("'") + element_name + std::string("' is not ")
 											+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
-										if ("" != err_def.m_recommended_alternative) {
-											error_desc += "Consider using " + err_def.m_recommended_alternative + " instead.";
+										if ("" != unsupported_element_info.m_recommended_alternative) {
+											error_desc += "Consider using " + unsupported_element_info.m_recommended_alternative + " instead.";
 										}
 										auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 										if (res.second) {
 											std::cout << (*(res.first)).as_a_string1() << " \n\n";
 										}
-										break;
 									}
 								}
 							};

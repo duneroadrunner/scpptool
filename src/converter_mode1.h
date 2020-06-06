@@ -15,10 +15,12 @@
 #include <string>
 #include <iostream>
 #include <string>
+#include <functional>
 #include <vector>
 #include <map>
 #include <unordered_map>
 #include <set>
+#include <list>
 #include <algorithm>
 #include <locale>
 
@@ -970,7 +972,7 @@ namespace convm1 {
 				auto EXSR = nice_source_range(EX->getSourceRange(), Rewrite);
 
 				if (ConvertToSCPP && (EXSR.isValid())) {
-					state1.m_pending_code_replacement_actions.add_replacement_action(EXSR, m_replacement_code);
+					state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, EXSR, m_replacement_code);
 					//auto res2 = Rewrite.ReplaceText(EXSR, m_replacement_code);
 				} else {
 					int q = 7;
@@ -1210,22 +1212,50 @@ namespace convm1 {
 		*/
 	};
 
-	class CCodeReplacementActions : public std::map<COrderedSourceRange, std::vector<std::string> > {
+	class CCodeModificationActions : public std::map<COrderedSourceRange, std::list<std::function<void(void)>> > {
 		public:
-		typedef std::map<COrderedSourceRange, std::vector<std::string> > base_class;
+		typedef std::map<COrderedSourceRange, std::list<std::function<void(void)>> > base_class;
 		using base_class::base_class;
 
-		std::pair<base_class::iterator, bool> add_replacement_action(const COrderedSourceRange& OSR, const std::string& replacement_code) {
+		std::pair<base_class::iterator, bool> add_replacement_action(const COrderedSourceRange& OSR, const std::function<void(void)>& modifier) {
 			auto iter1 = base_class::find(OSR);
 			if (base_class::end() != iter1) {
-				(*iter1).second.push_back(replacement_code);
+				(*iter1).second.push_back(modifier);
 				return std::pair<base_class::iterator, bool>(iter1, false);
 			} else {
-				decltype((*iter1).second) string_vector1 { replacement_code };
-				auto res2 = base_class::insert(base_class::value_type(OSR, string_vector1));
+				decltype((*iter1).second) function_list1 { modifier };
+				auto res2 = base_class::insert(base_class::value_type(OSR, function_list1));
 				assert(base_class::end() != res2.first);
 				return std::pair<base_class::iterator, bool>(res2.first, true);
 			}
+		}
+		std::pair<base_class::iterator, bool> add_straight_text_overwrite_action(Rewriter &Rewrite, const COrderedSourceRange& OSR, const std::string& new_text) {
+			auto lambda = [&Rewrite, OSR, new_text]() {
+					if (OSR.isValid()) {
+						Rewrite.ReplaceText(OSR, new_text);
+					}
+				};
+			return add_replacement_action(OSR, lambda);
+		}
+		std::pair<base_class::iterator, bool> add_replacement_of_instances_of_given_string_action(Rewriter &Rewrite, const COrderedSourceRange& OSR, const std::string& old_string, const std::string& new_string) {
+			auto lambda = [&Rewrite, OSR, old_string, new_string]() {
+					if (OSR.isValid()) {
+						std::string l_source_text1 = Rewrite.getRewrittenText(OSR);
+
+						if ("" != l_source_text1) {
+							auto replacement_code = l_source_text1;
+							auto index1 = replacement_code.find(old_string);
+							while (std::string::npos != index1) {
+								replacement_code.replace(index1, old_string.length(), new_string);
+								index1 = replacement_code.find(old_string, index1 + new_string.length());
+							}
+
+							//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, OSR, replacement_code);
+							auto res2 = Rewrite.ReplaceText(OSR, replacement_code);
+						}
+					}
+				};
+			return add_replacement_action(OSR, lambda);
 		}
 
 		bool contains(const clang::SourceRange& SR) const {
@@ -1264,9 +1294,9 @@ namespace convm1 {
 		* any modifications we might have made.  */
 		CExprConversionStateMap m_expr_conversion_state_map;
 
-		/* This container holds locations of original source code to be replaced and the code
-		that they'll be replaced with.  */
-		CCodeReplacementActions m_pending_code_replacement_actions;
+		/* This container holds, in sorted order, locations of original source code to be modified
+		and functions that will execute the modifications. */
+		CCodeModificationActions m_pending_code_modification_actions;
 	};
 
 	class CTypeIndirectionPrefixAndSuffixItem {
@@ -1756,7 +1786,7 @@ namespace convm1 {
 		return retval;
 	}
 
-	static void update_declaration(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1, std::string options_str = "") {
+	static void declaration_modifier(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1, std::string options_str = "") {
 		const DeclaratorDecl* DD = &ddecl;
 		auto SR = nice_source_range(DD->getSourceRange(), Rewrite);
 
@@ -1764,15 +1794,7 @@ namespace convm1 {
 		const clang::Type* TP = QT.getTypePtr();
 		auto qtype_str = QT.getAsString();
 
-		std::string source_text;
-		if (SR.isValid()) {
-			source_text = Rewrite.getRewrittenText(SR);
-			if ("" == source_text) {
-				return;
-			}
-		} else {
-			return;
-		}
+		IF_DEBUG(std::string source_text = SR.isValid() ? Rewrite.getRewrittenText(SR) : std::string("[invalid]");)
 
 		std::string variable_name = DD->getNameAsString();
 
@@ -1807,8 +1829,8 @@ namespace convm1 {
 
 				if (ConvertToSCPP && return_type_source_range.isValid() && (1 <= res.m_replacement_code.size())
 						&& changed_from_original_type) {
-					auto code_to_be_replaced = Rewrite.getRewrittenText(return_type_source_range);
-					state1.m_pending_code_replacement_actions.add_replacement_action(return_type_source_range, res.m_replacement_code);
+					IF_DEBUG(std::string code_to_be_replaced = return_type_source_range.isValid() ? Rewrite.getRewrittenText(return_type_source_range) : std::string("[invalid]");)
+					state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, return_type_source_range, res.m_replacement_code);
 					//auto res2 = Rewrite.ReplaceText(return_type_source_range, res.m_replacement_code);
 				} else {
 					int q = 7;
@@ -1863,19 +1885,11 @@ namespace convm1 {
 				auto last_ddecl = ddecls.back();
 				auto last_decl_source_range = nice_source_range(last_ddecl->getSourceRange(), Rewrite);
 
-				std::string last_decl_source_text;
-				if (last_decl_source_range.isValid()) {
-					last_decl_source_text = Rewrite.getRewrittenText(last_decl_source_range);
-					if ("" == last_decl_source_text) {
-						return;
-					}
-				} else {
-					return;
-				}
+				IF_DEBUG(std::string last_decl_source_text = last_decl_source_range.isValid() ? Rewrite.getRewrittenText(last_decl_source_range) : std::string("[invalid]");)
 
 				if (ConvertToSCPP && last_decl_source_range.isValid() && (3 <= replacement_code.size())
 						&& changed_from_original_type) {
-					state1.m_pending_code_replacement_actions.add_replacement_action(last_decl_source_range, replacement_code);
+					state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, last_decl_source_range, replacement_code);
 					//auto res2 = Rewrite.ReplaceText(last_decl_source_range, replacement_code);
 				} else {
 					int q = 7;
@@ -1883,6 +1897,35 @@ namespace convm1 {
 			} else {
 				int q = 7;
 			}
+		}
+	}
+
+	static void update_declaration(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1, std::string options_str = "") {
+		const DeclaratorDecl* DD = &ddecl;
+		auto SR = nice_source_range(DD->getSourceRange(), Rewrite);
+
+		QualType QT = DD->getType();
+		const clang::Type* TP = QT.getTypePtr();
+		IF_DEBUG(auto qtype_str = QT.getAsString();)
+
+		assert(ddecl.isFunctionOrFunctionTemplate() == QT->isFunctionType());
+		if ((TP->isFunctionType()) || (false)) {
+			const clang::FunctionDecl* FND = dyn_cast<const clang::FunctionDecl>(DD);
+			if (FND) {
+				auto return_type_source_range = nice_source_range(FND->getReturnTypeSourceRange(), Rewrite);
+				if (!(return_type_source_range.isValid())) {
+					return;
+				}
+				SR = return_type_source_range;
+			}
+		}
+		if (SR.isValid()) {
+			auto lambda = [&ddecl, &Rewrite, &state1, options_str]() {
+					declaration_modifier(ddecl, Rewrite, state1, options_str);
+				};
+			/* This modification needs to be queued so that it will be executed after any other
+			modifications that might affect the relevant part of the source text. */
+			state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
 		}
 	}
 
@@ -2166,26 +2209,18 @@ namespace convm1 {
 		if ((BO != nullptr) && (DD != nullptr))
 		{
 			auto BOSR = nice_source_range(BO->getSourceRange(), Rewrite);
-			auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
-			auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
-			std::string decl_source_text;
-			if (decl_source_range.isValid()) {
-				decl_source_text = Rewrite.getRewrittenText(decl_source_range);
-			} else {
-				return;
-			}
 
-			if (ddecl_indirection_cref().m_ddecl_cptr) {
-				auto res1 = state1.m_ddecl_conversion_state_map.insert(*(ddecl_indirection_cref().m_ddecl_cptr));
+			if ((*this).ddecl_indirection_cref().m_ddecl_cptr) {
+				auto res1 = state1.m_ddecl_conversion_state_map.insert(*((*this).ddecl_indirection_cref().m_ddecl_cptr));
 				auto ddcs_map_iter = res1.first;
 				auto& ddcs_ref = (*ddcs_map_iter).second;
 				bool update_declaration_flag = res1.second;
 
-				if (ddcs_ref.m_indirection_state_stack.size() >= ddecl_indirection_cref().m_indirection_level) {
-					if ("inferred array" == ddcs_ref.indirection_current(ddecl_indirection_cref().m_indirection_level)) {
-						ddcs_ref.set_indirection_current(ddecl_indirection_cref().m_indirection_level, "dynamic array");
+				if (ddcs_ref.m_indirection_state_stack.size() >= (*this).ddecl_indirection_cref().m_indirection_level) {
+					if ("inferred array" == ddcs_ref.indirection_current((*this).ddecl_indirection_cref().m_indirection_level)) {
+						ddcs_ref.set_indirection_current((*this).ddecl_indirection_cref().m_indirection_level, "dynamic array");
 						update_declaration_flag |= true;
-						state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, ddecl_indirection_cref());
+						state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, (*this).ddecl_indirection_cref());
 					} else {
 						int q = 5;
 					}
@@ -2194,21 +2229,21 @@ namespace convm1 {
 				}
 
 				if (update_declaration_flag) {
-					//update_declaration(*(ddecl_indirection_cref().m_ddecl_cptr), Rewrite, state1);
+					//update_declaration(*((*this).ddecl_indirection_cref().m_ddecl_cptr), Rewrite, state1);
 				}
 			} else {
 				int q = 7;
 			}
 
-			if (ConvertToSCPP && decl_source_range.isValid() && (BOSR.isValid())) {
-
+			if (ConvertToSCPP && (BOSR.isValid())) {
 				update_declaration(*DD, Rewrite, state1);
 
 				//state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, (*this).ddecl_indirection_cref());
 				//state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, (*this).ddecl_indirection_cref());
 
-				state1.m_pending_code_replacement_actions.add_replacement_action(BOSR, m_bo_replacement_code);
-				//auto res2 = Rewrite.ReplaceText(BOSR, m_bo_replacement_code);
+				state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, BOSR, (*this).m_bo_replacement_code);
+				//auto res2 = Rewrite.ReplaceText(BOSR, (*this).m_bo_replacement_code);
+
 				int q = 3;
 			} else {
 				int q = 7;
@@ -2225,13 +2260,6 @@ namespace convm1 {
 		if ((DS != nullptr) && (DD != nullptr))
 		{
 			auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
-			auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
-			std::string decl_source_text;
-			if (decl_source_range.isValid()) {
-				decl_source_text = Rewrite.getRewrittenText(decl_source_range);
-			} else {
-				return;
-			}
 
 			auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
 			auto ddcs_map_iter = res1.first;
@@ -2270,24 +2298,21 @@ namespace convm1 {
 		{
 			auto CESR = nice_source_range(CE->getSourceRange(), Rewrite);
 			auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
-			auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
 			std::string decl_source_text;
 			if (decl_source_range.isValid()) {
-				decl_source_text = Rewrite.getRewrittenText(decl_source_range);
+				IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
 			} else {
 				return;
 			}
 
 			if (ConvertToSCPP && decl_source_range.isValid() && (CESR.isValid())) {
-
 				update_declaration(*DD, Rewrite, state1);
 
-				//state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, (*this).ddecl_indirection_cref());
-				//state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, (*this).ddecl_indirection_cref());
+				//state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, ddecl_indirection_cref());
+				//state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, ddecl_indirection_cref());
 
-				state1.m_pending_code_replacement_actions.add_replacement_action(CESR, m_ce_replacement_code);
+				state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, CESR, m_ce_replacement_code);
 				//auto res2 = Rewrite.ReplaceText(CESR, m_ce_replacement_code);
-				int q = 3;
 			} else {
 				int q = 7;
 			}
@@ -2328,22 +2353,13 @@ namespace convm1 {
 		if ((CE != nullptr) && (DD != nullptr))
 		{
 			auto CESR = nice_source_range(CE->getSourceRange(), Rewrite);
-			auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
-			auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
-			std::string decl_source_text;
-			if (decl_source_range.isValid()) {
-				decl_source_text = Rewrite.getRewrittenText(decl_source_range);
-			} else {
-				return;
-			}
 
-			if (ConvertToSCPP && decl_source_range.isValid() && (CESR.isValid())) {
+			if (ConvertToSCPP && CESR.isValid()) {
 
 				update_declaration(*DD, Rewrite, state1);
 
-				state1.m_pending_code_replacement_actions.add_replacement_action(CESR, m_ce_replacement_code);
+				state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, CESR, m_ce_replacement_code);
 				//auto res2 = Rewrite.ReplaceText(CESR, m_ce_replacement_code);
-				int q = 3;
 			} else {
 				int q = 7;
 			}
@@ -2361,22 +2377,11 @@ namespace convm1 {
 			auto CESR = nice_source_range(CE->getSourceRange(), Rewrite);
 
 			if (ConvertToSCPP && (CESR.isValid())) {
-				state1.m_pending_code_replacement_actions.add_replacement_action(CESR, m_ce_replacement_code);
+				state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, CESR, m_ce_replacement_code);
 				//auto res2 = Rewrite.ReplaceText(CESR, m_ce_replacement_code);
 
 				if (DD != nullptr) {
-					auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
-					auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
-					std::string decl_source_text;
-					if (decl_source_range.isValid()) {
-						decl_source_text = Rewrite.getRewrittenText(decl_source_range);
-					} else {
-						return;
-					}
-
-					if (decl_source_range.isValid()) {
-						update_declaration(*DD, Rewrite, state1);
-					}
+					update_declaration(*DD, Rewrite, state1);
 				}
 			} else {
 				int q = 7;
@@ -2611,7 +2616,7 @@ namespace convm1 {
 					(*excs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 					(*excs_shptr_ref).update_current_text();
 
-					state1.m_pending_code_replacement_actions.add_replacement_action(EXSR, (*excs_shptr_ref).m_current_text_str);
+					state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, EXSR, (*excs_shptr_ref).m_current_text_str);
 					//(*this).m_Rewrite.ReplaceText(EXSR, (*excs_shptr_ref).m_current_text_str);
 				}
 			}
@@ -2658,7 +2663,7 @@ namespace convm1 {
 						(*uocs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 						(*uocs_shptr_ref).update_current_text();
 
-						state1.m_pending_code_replacement_actions.add_replacement_action(UOSR, (*uocs_shptr_ref).m_current_text_str);
+						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, UOSR, (*uocs_shptr_ref).m_current_text_str);
 						//(*this).m_Rewrite.ReplaceText(UOSR, (*uocs_shptr_ref).m_current_text_str);
 					}
 				}
@@ -2814,19 +2819,6 @@ namespace convm1 {
 				if (m_var_DD) {
 					update_declaration(*m_var_DD, (*this).m_Rewrite, state1);
 				}
-
-				std::string CO_prior_text = (*this).m_Rewrite.getRewrittenText(COSR);
-				std::string CO_replacement_text;
-
-				std::string cond_prior_text = (*this).m_Rewrite.getRewrittenText(cond_SR);
-				std::string cond_replacement_text = cond_prior_text;
-
-				std::string lhs_prior_text = (*this).m_Rewrite.getRewrittenText(lhs_SR);
-				std::string lhs_replacement_text = lhs_prior_text;
-
-				std::string rhs_prior_text = (*this).m_Rewrite.getRewrittenText(rhs_SR);
-				std::string rhs_replacement_text = rhs_prior_text;
-				static const std::string ara_iter_prefix = "mse::TNullableAnyRandomAccessIterator<";
 
 				bool lhs_needs_to_be_wrapped = false;
 				if ((lhs_is_dynamic_array && (!rhs_is_dynamic_array)) || (lhs_is_native_array && (!rhs_is_native_array))) {
@@ -3190,7 +3182,7 @@ namespace convm1 {
 											/* This is not the proper way to modify an expression. See the function
 											* CConditionalOperatorReconciliation2ReplacementAction::do_replacement() for an example of
 											* the proper way to do it. But for now this is good enough. */
-											m_state1.m_pending_code_replacement_actions.add_replacement_action(cast_operation_SR, "");
+											m_state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, "");
 											//auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
 
 											static const std::string void_str = "void";
@@ -3354,7 +3346,7 @@ namespace convm1 {
 					auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
 					std::string decl_source_text;
 					if (decl_source_range.isValid()) {
-						decl_source_text = Rewrite.getRewrittenText(decl_source_range);
+						IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
 					} else {
 						return;
 					}
@@ -3456,7 +3448,7 @@ namespace convm1 {
 						auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
 						std::string decl_source_text;
 						if (decl_source_range.isValid()) {
-							decl_source_text = Rewrite.getRewrittenText(decl_source_range);
+							IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
 						} else {
 							return;
 						}
@@ -3527,7 +3519,7 @@ namespace convm1 {
 							auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
 							std::string decl_source_text;
 							if (decl_source_range.isValid()) {
-								decl_source_text = Rewrite.getRewrittenText(decl_source_range);
+								IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
 							} else {
 								return;
 							}
@@ -3562,7 +3554,7 @@ namespace convm1 {
 		MCSSSMallocInitializer2 (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
-		virtual void run(const MatchFinder::MatchResult &MR)
+		static void modifier(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1)
 		{
 			const DeclStmt* DS = MR.Nodes.getNodeAs<clang::DeclStmt>("mcsssmallocinitializer1");
 			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssmallocinitializer2");
@@ -3580,7 +3572,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto ISR = instantiation_source_range(DS->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
 				if (supress_check_flag) {
 					return;
 				}
@@ -3597,7 +3589,7 @@ namespace convm1 {
 						auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
 						std::string decl_source_text;
 						if (decl_source_range.isValid()) {
-							decl_source_text = Rewrite.getRewrittenText(decl_source_range);
+							IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
 						} else {
 							return;
 						}
@@ -3616,7 +3608,7 @@ namespace convm1 {
 							return;
 						}
 
-						auto res1 = (*this).m_state1.m_ddecl_conversion_state_map.insert(*DD);
+						auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
 						auto ddcs_map_iter = res1.first;
 						auto& ddcs_ref = (*ddcs_map_iter).second;
 						bool update_declaration_flag = res1.second;
@@ -3628,7 +3620,7 @@ namespace convm1 {
 							ddcs_ref.set_indirection_current(0, "dynamic array");
 							lhs_has_been_determined_to_be_an_array = true;
 							//update_declaration_flag = true;
-							m_state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(m_state1, CDDeclIndirection(*DD, 0));
+							state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*DD, 0));
 						} else if ("dynamic array" == ddcs_ref.m_indirection_state_stack.at(0).current()) {
 							lhs_has_been_determined_to_be_an_array = true;
 						} else {
@@ -3684,7 +3676,7 @@ namespace convm1 {
 							auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
 							std::string decl_source_text;
 							if (decl_source_range.isValid()) {
-								decl_source_text = Rewrite.getRewrittenText(decl_source_range);
+								IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
 							} else {
 								return;
 							}
@@ -3693,9 +3685,9 @@ namespace convm1 {
 								auto cr_shptr = std::make_shared<CInitializerArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0/*indirection_level*/), DS, initializer_info_str);
 
 								if (lhs_has_been_determined_to_be_an_array) {
-									(*cr_shptr).do_replacement(m_state1);
+									(*cr_shptr).do_replacement(state1);
 								} else {
-									m_state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+									state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
 								}
 
 								int q = 3;
@@ -3705,6 +3697,45 @@ namespace convm1 {
 						}
 					}
 					int q = 5;
+				}
+			}
+		}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const DeclStmt* DS = MR.Nodes.getNodeAs<clang::DeclStmt>("mcsssmallocinitializer1");
+			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssmallocinitializer2");
+			const DeclaratorDecl* DD = MR.Nodes.getNodeAs<clang::DeclaratorDecl>("mcsssmallocinitializer3");
+
+			if ((DS != nullptr) && (CE != nullptr) && (DD != nullptr))
+			{
+				auto SR = nice_source_range(DS->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(DS->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
+					return;
+				}
+
+				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, Rewrite);
+				if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+					/* The argument is in the form "something * sizeof(something_else)" or
+					* "sizeof(something) * something_else". So we're just going to assume that
+					* this is an instance of an array being allocated. */
+
+					if (ConvertToSCPP && SR.isValid()) {
+						auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
+						/* This modification needs to be queued so that it will be executed after any other
+						modifications that might affect the relevant part of the source text. */
+						(*this).m_state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
+					}
 				}
 			}
 		}
@@ -3754,7 +3785,7 @@ namespace convm1 {
 										auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
 										std::string decl_source_text;
 										if (decl_source_range.isValid()) {
-											decl_source_text = Rewrite.getRewrittenText(decl_source_range);
+											IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
 										} else {
 											return;
 										}
@@ -3807,7 +3838,7 @@ namespace convm1 {
 											auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
 											std::string decl_source_text;
 											if (decl_source_range.isValid()) {
-												decl_source_text = Rewrite.getRewrittenText(decl_source_range);
+												IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
 											} else {
 												return;
 											}
@@ -3852,6 +3883,106 @@ namespace convm1 {
 		MCSSSFree2 (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
+		static void modifier(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1)
+		{
+			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssfree1");
+			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssfree2");
+			const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssfree3");
+
+			if ((CE != nullptr) && (DRE != nullptr))
+			{
+				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
+				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
+					return;
+				}
+
+				auto function_decl = CE->getDirectCallee();
+				auto num_args = CE->getNumArgs();
+				if (function_decl && (1 == num_args)) {
+					{
+						std::string function_name = function_decl->getNameAsString();
+						static const std::string free_str = "free";
+						auto lc_function_name = tolowerstr(function_name);
+						bool ends_with_free = ((lc_function_name.size() >= free_str.size())
+								&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
+						if (ends_with_free) {
+							auto arg_iter = CE->arg_begin();
+							assert((*arg_iter)->getType().getTypePtrOrNull());
+							auto arg_source_range = nice_source_range((*arg_iter)->getSourceRange(), Rewrite);
+							std::string arg_source_text;
+							if (arg_source_range.isValid()) {
+								arg_source_text = Rewrite.getRewrittenText(arg_source_range);
+								//auto arg_source_text_sans_ws = with_whitespace_removed(arg_source_text);
+
+								auto ARG = (*(arg_iter))->IgnoreParenCasts();
+								auto arg_res2 = infer_array_type_info_from_stmt(*ARG, "malloc target", state1);
+								bool arg_is_an_indirect_type = is_an_indirect_type(ARG->getType());
+
+								if (arg_res2.update_declaration_flag) {
+									update_declaration(*(arg_res2.ddecl_cptr), Rewrite, state1);
+								}
+
+								auto arg_QT = ARG->getType();
+								const clang::Type* arg_TP = arg_QT.getTypePtr();
+								auto arg_type_str = arg_QT.getAsString();
+
+								std::string arg_element_type_str;
+								if (arg_TP->isArrayType()) {
+									auto ATP = llvm::cast<const clang::ArrayType>(arg_TP);
+									assert(nullptr != ATP);
+									auto element_type = ATP->getElementType();
+									auto type_str = element_type.getAsString();
+									if (("char" != type_str) && ("const char" != type_str)) {
+										arg_element_type_str = type_str;
+									}
+								} else if (arg_TP->isPointerType()) {
+									auto TPP = llvm::cast<const clang::PointerType>(arg_TP);
+									assert(nullptr != TPP);
+									auto target_type = TPP->getPointeeType();
+									auto type_str = target_type.getAsString();
+									if (("char" != type_str) && ("const char" != type_str)) {
+										arg_element_type_str = type_str;
+									}
+								}
+
+								if ("" != arg_element_type_str) {
+									if (ConvertToSCPP && (arg_res2.ddecl_conversion_state_ptr) && arg_is_an_indirect_type) {
+										auto arg_source_text = Rewrite.getRewrittenText(arg_source_range);
+										//std::string ce_replacement_code = "(" + arg_source_text + ").resize(0)";
+										std::string ce_replacement_code = "MSE_LH_FREE(" + arg_source_text + ")";
+
+										auto cr_shptr = std::make_shared<CFreeDynamicArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(arg_res2.ddecl_cptr), arg_res2.indirection_level), CE, ce_replacement_code);
+
+										if ((*(arg_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(arg_res2.indirection_level)) {
+											(*cr_shptr).do_replacement(state1);
+										} else {
+											state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+											//state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+										}
+									}
+								}
+								int q = 5;
+							} else {
+								int q = 5;
+							}
+							int q = 5;
+						}
+					}
+
+				}
+			}
+		}
+
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
 			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssfree1");
@@ -3890,8 +4021,7 @@ namespace convm1 {
 							auto arg_source_range = nice_source_range((*arg_iter)->getSourceRange(), Rewrite);
 							std::string arg_source_text;
 							if (arg_source_range.isValid()) {
-								arg_source_text = Rewrite.getRewrittenText(arg_source_range);
-								//auto arg_source_text_sans_ws = with_whitespace_removed(arg_source_text);
+								IF_DEBUG(arg_source_text = Rewrite.getRewrittenText(arg_source_range);)
 
 								auto ARG = (*(arg_iter))->IgnoreParenCasts();
 								auto arg_res2 = infer_array_type_info_from_stmt(*ARG, "malloc target", (*this).m_state1);
@@ -3901,45 +4031,11 @@ namespace convm1 {
 									update_declaration(*(arg_res2.ddecl_cptr), Rewrite, m_state1);
 								}
 
-								auto arg_QT = ARG->getType();
-								const clang::Type* arg_TP = arg_QT.getTypePtr();
-								auto arg_type_str = arg_QT.getAsString();
+								auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
+								/* This modification needs to be queued so that it will be executed after any other
+								modifications that might affect the relevant part of the source text. */
+								(*this).m_state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
 
-								std::string arg_element_type_str;
-								if (arg_TP->isArrayType()) {
-									auto ATP = llvm::cast<const clang::ArrayType>(arg_TP);
-									assert(nullptr != ATP);
-									auto element_type = ATP->getElementType();
-									auto type_str = element_type.getAsString();
-									if (("char" != type_str) && ("const char" != type_str)) {
-										arg_element_type_str = type_str;
-									}
-								} else if (arg_TP->isPointerType()) {
-									auto TPP = llvm::cast<const clang::PointerType>(arg_TP);
-									assert(nullptr != TPP);
-									auto target_type = TPP->getPointeeType();
-									auto type_str = target_type.getAsString();
-									if (("char" != type_str) && ("const char" != type_str)) {
-										arg_element_type_str = type_str;
-									}
-								}
-
-								if ("" != arg_element_type_str) {
-									if (ConvertToSCPP && (arg_res2.ddecl_conversion_state_ptr) && arg_is_an_indirect_type) {
-										auto arg_source_text = Rewrite.getRewrittenText(arg_source_range);
-										//std::string ce_replacement_code = "(" + arg_source_text + ").resize(0)";
-										std::string ce_replacement_code = "MSE_LH_FREE(" + arg_source_text + ")";
-
-										auto cr_shptr = std::make_shared<CFreeDynamicArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(arg_res2.ddecl_cptr), arg_res2.indirection_level), CE, ce_replacement_code);
-
-										if ((*(arg_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(arg_res2.indirection_level)) {
-											(*cr_shptr).do_replacement(m_state1);
-										} else {
-											m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
-											//m_state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
-										}
-									}
-								}
 								int q = 5;
 							} else {
 								int q = 5;
@@ -4174,7 +4270,7 @@ namespace convm1 {
 		MCSSSMemset (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
-		virtual void run(const MatchFinder::MatchResult &MR)
+		static void modifier(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1)
 		{
 			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssmemset1");
 			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssmemset2");
@@ -4192,7 +4288,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
 				if (supress_check_flag) {
 					return;
 				}
@@ -4254,7 +4350,7 @@ namespace convm1 {
 									auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
 									std::string decl_source_text;
 									if (decl_source_range.isValid()) {
-										decl_source_text = Rewrite.getRewrittenText(decl_source_range);
+										IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
 									} else {
 										return;
 									}
@@ -4270,10 +4366,10 @@ namespace convm1 {
 										return;
 									}
 
-									auto res2 = infer_array_type_info_from_stmt(*(*(CE->arg_begin())), "memset/cpy target", (*this).m_state1, DD);
+									auto res2 = infer_array_type_info_from_stmt(*(*(CE->arg_begin())), "memset/cpy target", state1, DD);
 
 									if (res2.update_declaration_flag) {
-										update_declaration(*DD, Rewrite, m_state1);
+										update_declaration(*DD, Rewrite, state1);
 									}
 
 									const clang::Type* arg1_TP = QT.getTypePtr();
@@ -4312,9 +4408,9 @@ namespace convm1 {
 											auto cr_shptr = std::make_shared<CMemsetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), CE, ce_replacement_code);
 
 											if (true || (*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(res2.indirection_level)) {
-												(*cr_shptr).do_replacement(m_state1);
+												(*cr_shptr).do_replacement(state1);
 											} else {
-												m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+												state1.m_array2_contingent_replacement_map.insert(cr_shptr);
 											}
 										} else {
 											int q = 7;
@@ -4333,6 +4429,52 @@ namespace convm1 {
 			}
 		}
 
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssmemset1");
+			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssmemset2");
+			const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssmemset3");
+
+			if ((CE != nullptr) && (DRE != nullptr))
+			{
+				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
+					return;
+				}
+
+				auto function_decl = CE->getDirectCallee();
+				auto num_args = CE->getNumArgs();
+				if (function_decl && (3 == num_args)) {
+					{
+						std::string function_name = function_decl->getNameAsString();
+						static const std::string memset_str = "memset";
+						if (memset_str == function_name) {
+							if (ConvertToSCPP && SR.isValid()) {
+
+								auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
+								/* This modification needs to be queued so that it will be executed after any other
+								modifications that might affect the relevant part of the source text. */
+								(*this).m_state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
+							} else {
+								int q = 7;
+							}
+						}
+					}
+
+				}
+			}
+		}
+
 	private:
 		Rewriter &Rewrite;
 		CTUState& m_state1;
@@ -4344,7 +4486,7 @@ namespace convm1 {
 		MCSSSMemcpy (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
-		virtual void run(const MatchFinder::MatchResult &MR)
+		static void modifier(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1)
 		{
 			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssmemcpy1");
 			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssmemcpy2");
@@ -4362,7 +4504,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
 				if (supress_check_flag) {
 					return;
 				}
@@ -4424,7 +4566,7 @@ namespace convm1 {
 									auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
 									std::string decl_source_text;
 									if (decl_source_range.isValid()) {
-										decl_source_text = Rewrite.getRewrittenText(decl_source_range);
+										IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
 									} else {
 										return;
 									}
@@ -4440,10 +4582,10 @@ namespace convm1 {
 										return;
 									}
 
-									res2 = infer_array_type_info_from_stmt(*(*(CE->arg_begin())), "memset/cpy target", (*this).m_state1, DD);
+									res2 = infer_array_type_info_from_stmt(*(*(CE->arg_begin())), "memset/cpy target", state1, DD);
 
 									if (res2.update_declaration_flag) {
-										update_declaration(*DD, Rewrite, m_state1);
+										update_declaration(*DD, Rewrite, state1);
 									}
 								}
 
@@ -4488,12 +4630,12 @@ namespace convm1 {
 									auto cr_shptr = std::make_shared<CMemcpyArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), CE, ce_replacement_code);
 									if ((nullptr != res2.ddecl_conversion_state_ptr)) {
 										if (true || (*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(res2.indirection_level)) {
-											(*cr_shptr).do_replacement(m_state1);
+											(*cr_shptr).do_replacement(state1);
 										} else {
-											m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+											state1.m_array2_contingent_replacement_map.insert(cr_shptr);
 										}
 									} else {
-										(*cr_shptr).do_replacement(m_state1);
+										(*cr_shptr).do_replacement(state1);
 									}
 								} else {
 									int q = 7;
@@ -4503,6 +4645,54 @@ namespace convm1 {
 							} else {
 								int q = 5;
 							}
+							int q = 5;
+						}
+					}
+
+				}
+			}
+		}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssmemcpy1");
+			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssmemcpy2");
+			const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssmemcpy3");
+
+			if ((CE != nullptr) && (DRE != nullptr))
+			{
+				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
+					return;
+				}
+
+				auto function_decl = CE->getDirectCallee();
+				auto num_args = CE->getNumArgs();
+				if (function_decl && (3 == num_args)) {
+					{
+						std::string function_name = function_decl->getNameAsString();
+						static const std::string memcpy_str = "memcpy";
+						if (memcpy_str == function_name) {
+							if (ConvertToSCPP && SR.isValid()) {
+
+								auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
+								/* This modification needs to be queued so that it will be executed after any other
+								modifications that might affect the relevant part of the source text. */
+								(*this).m_state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
+							} else {
+								int q = 7;
+							}
+
 							int q = 5;
 						}
 					}
@@ -4556,7 +4746,7 @@ namespace convm1 {
 				auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
 				std::string decl_source_text;
 				if (decl_source_range.isValid()) {
-					decl_source_text = Rewrite.getRewrittenText(decl_source_range);
+					IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
 				} else {
 					return;
 				}
@@ -4828,11 +5018,11 @@ namespace convm1 {
 								if (ConvertToSCPP) {
 									(*rhs_res2.ddecl_conversion_state_ptr).set_current_direct_qtype(direct_rhs_qtype);
 
-									auto cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);
+									IF_DEBUG(auto cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);)
 									/* This is not the proper way to modify an expression. See the function
 									* CConditionalOperatorReconciliation2ReplacementAction::do_replacement() for an example of
 									* the proper way to do it. But for now this is good enough. */
-									m_state1.m_pending_code_replacement_actions.add_replacement_action(cast_operation_SR, "");
+									m_state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, "");
 									//auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
 
 									static const std::string void_str = "void";
@@ -5030,7 +5220,7 @@ namespace convm1 {
 							auto arg_source_range = nice_source_range(arg_EX->getSourceRange(), Rewrite);
 							std::string arg_source_text;
 							if (arg_source_range.isValid()) {
-								arg_source_text = Rewrite.getRewrittenText(arg_source_range);
+								IF_DEBUG(arg_source_text = Rewrite.getRewrittenText(arg_source_range);)
 							}
 
 							if ((nullptr != param_VD) && (nullptr != arg_EX) && arg_source_range.isValid()) {
@@ -5091,7 +5281,7 @@ namespace convm1 {
 									if ("" != lhs_element_type_str) {
 										auto lhs_source_range = nice_source_range(param_VD->getSourceRange(), Rewrite);
 										if (ConvertToSCPP && lhs_is_an_indirect_type && lhs_source_range.isValid()) {
-											auto lhs_source_text = Rewrite.getRewrittenText(lhs_source_range);
+											IF_DEBUG(auto lhs_source_text = Rewrite.getRewrittenText(lhs_source_range);)
 
 											auto res4 = generate_type_indirection_prefix_and_suffix(ddcs_ref.m_indirection_state_stack, false/*direct_type_is_char_type*/, false/*direct_type_is_function_type*/, true/*is_a_function_parameter*/);
 											if (true) {
@@ -5137,7 +5327,7 @@ namespace convm1 {
 										std::string casted_expr_text = Rewrite.getRewrittenText(casted_expr_SR);
 										if (ConvertToSCPP) {
 											std::string replacement_casted_expr_text = "std::addressof(" + casted_expr_text + "[0])";
-											m_state1.m_pending_code_replacement_actions.add_replacement_action(casted_expr_SR, replacement_casted_expr_text);
+											m_state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, casted_expr_SR, replacement_casted_expr_text);
 											//Rewrite.ReplaceText(casted_expr_SR, replacement_casted_expr_text);
 										}
 										return;
@@ -5147,10 +5337,7 @@ namespace convm1 {
 											auto cast_operation_SR = clang::SourceRange(CSCE->getLParenLoc(), CSCE->getRParenLoc());
 											if (ConvertToSCPP && cast_operation_SR.isValid()) {
 												auto cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);
-												/* This is not the proper way to modify an expression. See the function
-												* CConditionalOperatorReconciliation2ReplacementAction::do_replacement() for an example of
-												* the proper way to do it. But for now this is good enough. */
-												m_state1.m_pending_code_replacement_actions.add_replacement_action(cast_operation_SR, "");
+												m_state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, "");
 												//auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
 											}
 
@@ -5320,7 +5507,7 @@ namespace convm1 {
 						auto DDSR = nice_source_range(DD->getSourceRange(), Rewrite);
 						std::string ddecl_source_text;
 						if (DDSR.isValid()) {
-							ddecl_source_text = Rewrite.getRewrittenText(DDSR);
+							IF_DEBUG(ddecl_source_text = Rewrite.getRewrittenText(DDSR);)
 						} else {
 							return;
 						}
@@ -5328,7 +5515,7 @@ namespace convm1 {
 						auto EXSR = nice_source_range(EX->getSourceRange(), Rewrite);
 						std::string expr_source_text;
 						if (EXSR.isValid()) {
-							expr_source_text = Rewrite.getRewrittenText(EXSR);
+							IF_DEBUG(expr_source_text = Rewrite.getRewrittenText(EXSR);)
 						} else {
 							return;
 						}
@@ -5447,11 +5634,8 @@ namespace convm1 {
 						if (CSCE) {
 							auto cast_operation_SR = clang::SourceRange(CSCE->getLParenLoc(), CSCE->getRParenLoc());
 							if (ConvertToSCPP && cast_operation_SR.isValid()) {
-								auto cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);
-								/* This is not the proper way to modify an expression. See the function
-								* CConditionalOperatorReconciliation2ReplacementAction::do_replacement() for an example of
-								* the proper way to do it. But for now this is good enough. */
-								m_state1.m_pending_code_replacement_actions.add_replacement_action(cast_operation_SR, "");
+								IF_DEBUG(auto cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);)
+								m_state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, "");
 								//auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
 							}
 
@@ -5626,7 +5810,7 @@ namespace convm1 {
 		MCSSSFRead (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
-		virtual void run(const MatchFinder::MatchResult &MR)
+		static void modifier(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1)
 		{
 			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssfread1");
 			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssfread2");
@@ -5644,7 +5828,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
 				if (supress_check_flag) {
 					return;
 				}
@@ -5713,7 +5897,7 @@ namespace convm1 {
 									auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
 									std::string decl_source_text;
 									if (decl_source_range.isValid()) {
-										decl_source_text = Rewrite.getRewrittenText(decl_source_range);
+										IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
 									} else {
 										return;
 									}
@@ -5729,10 +5913,10 @@ namespace convm1 {
 										return;
 									}
 
-									res2 = infer_array_type_info_from_stmt(*(*(CE->arg_begin())), "memset/cpy target", (*this).m_state1, DD);
+									res2 = infer_array_type_info_from_stmt(*(*(CE->arg_begin())), "memset/cpy target", state1, DD);
 
 									if (res2.update_declaration_flag) {
-										update_declaration(*DD, Rewrite, m_state1);
+										update_declaration(*DD, Rewrite, state1);
 									}
 								}
 
@@ -5771,12 +5955,12 @@ namespace convm1 {
 									auto cr_shptr = std::make_shared<CExprTextReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), CE, ce_replacement_code);
 									if ((nullptr != res2.ddecl_conversion_state_ptr)) {
 										if (true || (*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(res2.indirection_level)) {
-											(*cr_shptr).do_replacement(m_state1);
+											(*cr_shptr).do_replacement(state1);
 										} else {
-											m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+											state1.m_array2_contingent_replacement_map.insert(cr_shptr);
 										}
 									} else {
-										(*cr_shptr).do_replacement(m_state1);
+										(*cr_shptr).do_replacement(state1);
 									}
 								} else {
 									int q = 7;
@@ -5787,6 +5971,52 @@ namespace convm1 {
 								int q = 5;
 							}
 							int q = 5;
+						}
+					}
+
+				}
+			}
+		}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssfread1");
+			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssfread2");
+			const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssfread3");
+
+			if ((CE != nullptr) && (DRE != nullptr))
+			{
+				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
+					return;
+				}
+
+				auto function_decl = CE->getDirectCallee();
+				auto num_args = CE->getNumArgs();
+				if (function_decl && (4 == num_args)) {
+					{
+						std::string function_name = function_decl->getNameAsString();
+						static const std::string fread_str = "fread";
+						if (fread_str == function_name) {
+							if (ConvertToSCPP && SR.isValid()) {
+
+								auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
+								/* This modification needs to be queued so that it will be executed after any other
+								modifications that might affect the relevant part of the source text. */
+								(*this).m_state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
+							} else {
+								int q = 7;
+							}
 						}
 					}
 
@@ -5805,7 +6035,7 @@ namespace convm1 {
 		MCSSSFWrite (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
-		virtual void run(const MatchFinder::MatchResult &MR)
+		static void modifier(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1)
 		{
 			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssfwrite1");
 			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssfwrite2");
@@ -5823,7 +6053,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
 				if (supress_check_flag) {
 					return;
 				}
@@ -5892,7 +6122,7 @@ namespace convm1 {
 									auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
 									std::string decl_source_text;
 									if (decl_source_range.isValid()) {
-										decl_source_text = Rewrite.getRewrittenText(decl_source_range);
+										IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
 									} else {
 										return;
 									}
@@ -5908,10 +6138,10 @@ namespace convm1 {
 										return;
 									}
 
-									res2 = infer_array_type_info_from_stmt(*(*(CE->arg_begin())), "memset/cpy target", (*this).m_state1, DD);
+									res2 = infer_array_type_info_from_stmt(*(*(CE->arg_begin())), "memset/cpy target", state1, DD);
 
 									if (res2.update_declaration_flag) {
-										update_declaration(*DD, Rewrite, m_state1);
+										update_declaration(*DD, Rewrite, state1);
 									}
 								}
 
@@ -5950,12 +6180,12 @@ namespace convm1 {
 									auto cr_shptr = std::make_shared<CExprTextReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), CE, ce_replacement_code);
 									if ((nullptr != res2.ddecl_conversion_state_ptr)) {
 										if (true || (*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(res2.indirection_level)) {
-											(*cr_shptr).do_replacement(m_state1);
+											(*cr_shptr).do_replacement(state1);
 										} else {
-											m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+											state1.m_array2_contingent_replacement_map.insert(cr_shptr);
 										}
 									} else {
-										(*cr_shptr).do_replacement(m_state1);
+										(*cr_shptr).do_replacement(state1);
 									}
 								} else {
 									int q = 7;
@@ -5966,6 +6196,52 @@ namespace convm1 {
 								int q = 5;
 							}
 							int q = 5;
+						}
+					}
+
+				}
+			}
+		}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssfwrite1");
+			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssfwrite2");
+			const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssfwrite3");
+
+			if ((CE != nullptr) && (DRE != nullptr))
+			{
+				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
+					return;
+				}
+
+				auto function_decl = CE->getDirectCallee();
+				auto num_args = CE->getNumArgs();
+				if (function_decl && (4 == num_args)) {
+					{
+						std::string function_name = function_decl->getNameAsString();
+						static const std::string fwrite_str = "fwrite";
+						if (fwrite_str == function_name) {
+							if (ConvertToSCPP && SR.isValid()) {
+
+								auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
+								/* This modification needs to be queued so that it will be executed after any other
+								modifications that might affect the relevant part of the source text. */
+								(*this).m_state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
+							} else {
+								int q = 7;
+							}
 						}
 					}
 
@@ -5985,7 +6261,7 @@ namespace convm1 {
 		MCSSSDeclUtil (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
-		virtual void run(const MatchFinder::MatchResult &MR)
+		static void modifier(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1)
 		{
 			const clang::Decl* D = MR.Nodes.getNodeAs<clang::Decl>("mcsssdeclutil1");
 
@@ -5998,14 +6274,14 @@ namespace convm1 {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (std::string::npos != debug_source_location_str.find(":74:")) {
+				if (std::string::npos != debug_source_location_str.find(":204:")) {
 					int q = 5;
 				}
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto DISR = instantiation_source_range(D->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(DISR);
+				auto supress_check_flag = state1.m_suppress_check_region_set.contains(DISR);
 				if (supress_check_flag) {
 					return;
 				}
@@ -6053,7 +6329,7 @@ namespace convm1 {
 							if (!satisfies_checks) {
 								if (clang::StorageDuration::SD_Static == storage_duration) {
 									DECLARE_CACHED_CONST_STRING(const_char_star_str, "const char *");
-									if ((qtype.isConstQualified()) && (is_async_shareable(qtype, (*this).m_state1))) {
+									if ((qtype.isConstQualified()) && (is_async_shareable(qtype, state1))) {
 										satisfies_checks = true;
 									} else if (qtype.getAsString() == const_char_star_str) {
 										/* This isn't technically safe, but presumably this is likely
@@ -6069,14 +6345,14 @@ namespace convm1 {
 											+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>. "
 											+ "Note that objects with 'static storage duration' may be simultaneously accessible from different threads "
 											+ "and so have more stringent safety requirements than objects with 'thread_local storage duration'.";
-										auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+										auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 										if (res.second) {
 											//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 										}
 									}
 								} else {
 									assert(clang::StorageDuration::SD_Thread == storage_duration);
-									if (is_async_shareable(qtype, (*this).m_state1)) {
+									if (is_async_shareable(qtype, state1)) {
 										satisfies_checks = true;
 									} else {
 										const std::string error_desc = std::string("Unable to verify the safety of variable '")
@@ -6085,7 +6361,7 @@ namespace convm1 {
 											+ "'mse::rsv::TThreadLocalObj<>' transparent template wrapper. Other supported wrappers include: "
 											+ "mse::rsv::TStaticImmutableObj<>, mse::rsv::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
 											+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>.";
-										auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+										auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 										if (res.second) {
 											//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 										}
@@ -6107,7 +6383,7 @@ namespace convm1 {
 								if (clang::StorageDuration::SD_Static != storage_duration) {
 									const std::string error_desc = std::string("Variable '") + var_qualified_name + "' of type '"
 										+ mse_rsv_static_immutable_obj_str1 + "' must be declared to have 'static' storage duration.";
-									auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 									if (res.second) {
 										//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 									}
@@ -6116,7 +6392,7 @@ namespace convm1 {
 								if (clang::StorageDuration::SD_Thread != storage_duration) {
 									const std::string error_desc = std::string("Variable '") + var_qualified_name + "' of type '"
 										+ mse_rsv_ThreadLocalObj_str + "' must be declared to have 'thread_local' storage duration.";
-									auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 									if (res.second) {
 										//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 									}
@@ -6133,7 +6409,7 @@ namespace convm1 {
 										const std::string error_desc = std::string("Uninitialized ")
 											+ "scalar variable '" + VD->getNameAsString() + "' (of type '"
 											+ qtype.getAsString() + "') ";
-										auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+										auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 										if (res.second) {
 											//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 										}
@@ -6152,7 +6428,7 @@ namespace convm1 {
 								const std::string error_desc = std::string("Reference to variable '")
 									+ VD->getNameAsString() + "' before the completion of its "
 									+ "construction/initialization is not supported.";
-								auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+								auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 								if (res.second) {
 									//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 								}
@@ -6181,15 +6457,15 @@ namespace convm1 {
 										} else {
 											const std::string error_desc = std::string("(Non-pointer) scalar fields (such those of type '")
 												+ qtype.getAsString() + "') require direct initializers.";
-											auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+											auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 											if (res.second) {
 												//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 											}
 
-											auto l_SR = nice_source_range(FD->getSourceRange(), (*this).Rewrite);
+											auto l_SR = nice_source_range(FD->getSourceRange(), Rewrite);
 											std::string l_source_text1;
 											if ((l_SR.getBegin() < l_SR.getEnd()) || (l_SR.getBegin() == l_SR.getEnd())) {
-												l_source_text1 = (*this).Rewrite.getRewrittenText(l_SR);
+												l_source_text1 = Rewrite.getRewrittenText(l_SR);
 												if ("" != l_source_text1) {
 													auto replacement_code = l_source_text1;
 													if (qtype.getTypePtr()->isEnumeralType()) {
@@ -6198,7 +6474,7 @@ namespace convm1 {
 													} else {
 														replacement_code += " = 0/*auto-generated init val*/";
 													}
-													m_state1.m_pending_code_replacement_actions.add_replacement_action(l_SR, replacement_code);
+													state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, l_SR, replacement_code);
 													//auto res2 = Rewrite.ReplaceText(l_SR, replacement_code);
 												}
 											}
@@ -6225,13 +6501,13 @@ namespace convm1 {
 								const auto& base = *(CXXRD->bases_begin());
 								const auto base_qtype = base.getType();
 								const auto base_qtype_str = base_qtype.getAsString();
-								if (!is_async_shareable(base_qtype, (*this).m_state1)) {
+								if (!is_async_shareable(base_qtype, state1)) {
 									const std::string error_desc = std::string("Unable to verify that the ")
 										+ "given (adjusted) parameter of mse::rsv::TAsyncShareableObj<>, '"
 										+ base_qtype_str + "', is eligible to be safely shared (among threads). "
 										+ "If it is known to be so, then this error can be suppressed with a "
 										+ "'check suppression' directive. ";
-									auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 									if (res.second) {
 										//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 									}
@@ -6244,13 +6520,13 @@ namespace convm1 {
 								const auto& base = *(CXXRD->bases_begin());
 								const auto base_qtype = base.getType();
 								const auto base_qtype_str = base_qtype.getAsString();
-								if (!is_async_passable(base_qtype, (*this).m_state1)) {
+								if (!is_async_passable(base_qtype, state1)) {
 									const std::string error_desc = std::string("Unable to verify that the ")
 										+ "given (adjusted) parameter of mse::rsv::TAsyncPassableObj<>, '"
 										+ base_qtype_str + "', is eligible to be safely passed (between threads). "
 										+ "If it is known to be so, then this error can be suppressed with a "
 										+ "'check suppression' directive. ";
-									auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 									if (res.second) {
 										//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 									}
@@ -6263,13 +6539,13 @@ namespace convm1 {
 								const auto& base = *(CXXRD->bases_begin());
 								const auto base_qtype = base.getType();
 								const auto base_qtype_str = base_qtype.getAsString();
-								if ((!is_async_shareable(base_qtype, (*this).m_state1)) || (!is_async_passable(base_qtype, (*this).m_state1))) {
+								if ((!is_async_shareable(base_qtype, state1)) || (!is_async_passable(base_qtype, state1))) {
 									const std::string error_desc = std::string("Unable to verify that the ")
 										+ "given (adjusted) parameter of mse::rsv::TAsyncShareableAndPassableObj<>, '"
 										+ base_qtype_str + "', is eligible to be safely shared and passed (among threads). "
 										+ "If it is known to be so, then this error can be suppressed with a "
 										+ "'check suppression' directive. ";
-									auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 									if (res.second) {
 										//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 									}
@@ -6307,7 +6583,7 @@ namespace convm1 {
 							if (!satisfies_checks) {
 								const std::string error_desc = std::string("Unsupported use of ")
 									+ "mse::rsv::TFParam<> (in type '" + name + "'). ";
-								auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+								auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 								if (res.second) {
 									//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 								}
@@ -6315,45 +6591,9 @@ namespace convm1 {
 						} else if (qtype.getTypePtr()->isUnionType()) {
 							const std::string error_desc = std::string("Native unions (such as '" + qtype.getAsString() + "') are not ")
 								+ "supported. ";
-							auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+							auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
 								//std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
-						} else {
-							for (const auto& err_def : unsupported_element_infos()) {
-								if (name == err_def.m_name_of_unsupported) {
-									std::string error_desc = std::string("'") + name + std::string("' is not ")
-										+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
-									if ("" != err_def.m_recommended_alternative) {
-										error_desc += "Consider using " + err_def.m_recommended_alternative + " instead.";
-									}
-									auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										//std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-
-									if (false) {
-										/* placeholder implementation to be replaced: */
-										auto l_SR = nice_source_range(VD->getSourceRange(), (*this).Rewrite);
-										std::string l_source_text1;
-										if ((l_SR.getBegin() < l_SR.getEnd()) || (l_SR.getBegin() == l_SR.getEnd())) {
-											l_source_text1 = (*this).Rewrite.getRewrittenText(l_SR);
-											if ("" != l_source_text1) {
-												auto replacement_code = l_source_text1;
-												auto index1 = replacement_code.find(name);
-												while (std::string::npos != index1) {
-													replacement_code.replace(index1, name.length(), err_def.m_slow_mode_replacement);
-													index1 = replacement_code.find(name, index1+1);
-												}
-
-												m_state1.m_pending_code_replacement_actions.add_replacement_action(l_SR, replacement_code);
-												//auto res2 = Rewrite.ReplaceText(l_SR, replacement_code);
-											}
-										}
-									}
-
-									break;
-								}
 							}
 						}
 					} else {
@@ -6366,12 +6606,58 @@ namespace convm1 {
 						if ("" != unsupported_type_str) {
 							const std::string error_desc = unsupported_type_str + std::string("s are not ")
 								+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
-							auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+							auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
 								//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 							}
 						}
 					}
+
+					{
+						/* Here we're replacing unsupported types with supported counterparts. */
+
+						auto check_for_and_handle_unsupported_element = [&MR, &SR, &Rewrite](const clang::QualType& qtype, CTUState& state1) {
+							auto direct_qtype = qtype;
+							while ((direct_qtype.getTypePtr()->isPointerType()) || (direct_qtype.getTypePtr()->isReferenceType())) {
+								direct_qtype = direct_qtype.getTypePtr()->getPointeeType();
+							}
+
+							std::string element_name;
+							const auto* l_CXXRD = direct_qtype.getTypePtr()->getAsCXXRecordDecl();
+							if (l_CXXRD) {
+								element_name = l_CXXRD->getQualifiedNameAsString();
+							} else {
+								element_name = direct_qtype.getAsString();
+							}
+
+							{
+								auto uei_ptr = unsupported_element_info_ptr(element_name);
+								if (uei_ptr) {
+									const auto& unsupported_element_info = *uei_ptr;
+									std::string error_desc = std::string("'") + element_name + std::string("' is not ")
+										+ "supported (in this declaration of type '" + direct_qtype.getAsString() + "'). ";
+									if ("" != unsupported_element_info.m_recommended_alternative) {
+										error_desc += "Consider using " + unsupported_element_info.m_recommended_alternative + " instead.";
+									}
+									auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									if (res.second) {
+										//std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									}
+
+									if (true) {
+										const std::string& replacement_element_name = unsupported_element_info.m_slow_mode_replacement;
+
+										/* This modification needs to be queued so that it will be executed after any other
+										modifications that might affect the relevant part of the source text. */
+										state1.m_pending_code_modification_actions.add_replacement_of_instances_of_given_string_action(Rewrite, SR, element_name, unsupported_element_info.m_slow_mode_replacement);
+									}
+								}
+							}
+						};
+						apply_to_template_parameters_if_any(qtype, check_for_and_handle_unsupported_element, state1);
+						check_for_and_handle_unsupported_element(qtype, state1);
+					}
+
 				} else {
 					auto NAD = dyn_cast<const NamespaceAliasDecl>(D);
 					if (NAD) {
@@ -6392,13 +6678,50 @@ namespace convm1 {
 								const std::string error_desc = std::string("This namespace alias (of namespace '")
 									+ source_namespace_str + "') could be used to subvert some of the checks. "
 									+ "So its use requires a 'check suppression' directive.";
-								auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+								auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 								if (res.second) {
 									//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 								}
 							}
 						}
 					}
+				}
+			}
+		}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const clang::Decl* D = MR.Nodes.getNodeAs<clang::Decl>("mcsssdeclutil1");
+
+			if ((D != nullptr))
+			{
+				auto SR = nice_source_range(D->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				if (std::string::npos != debug_source_location_str.find(":74:")) {
+					int q = 5;
+				}
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto DISR = instantiation_source_range(D->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(DISR);
+				if (supress_check_flag) {
+					return;
+				}
+
+				if (ConvertToSCPP && SR.isValid()) {
+
+					auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
+					/* This modification needs to be queued so that it will be executed after any other
+					modifications that might affect the relevant part of the source text. */
+					(*this).m_state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
+				} else {
+					int q = 7;
 				}
 			}
 		}
@@ -7027,13 +7350,40 @@ namespace convm1 {
 
 		void EndSourceFileAction() override {
 
-			/* Apply all the pending "code replacement actions". */
-			/* It actually seems to not be necessary to queue them up and apply them all at the end like this 
-			rather than just applying them immediately. But this way could be more convenient for any analysis
-			we might want to do in the future. */
-			for (const auto& action : m_tu_state.m_pending_code_replacement_actions) {
-				assert(action.second.size() >= 1);
-				auto res2 = TheRewriter.ReplaceText(action.first, action.second.back());
+			/* Here we're applying all the "queued" code modification actions (in the appropriate order,
+			starting with "leaf" elements that don't contain subelements in their source text). Note that
+			the execution of any code modification action can result in other modification actions being
+			added to the "queue" (in any position). So rather than iterating over the elements in typical
+			fashion, we always process the element that is designated as "first" at the time, then remove
+			the element after processing. */
+
+			auto rit = m_tu_state.m_pending_code_modification_actions.rbegin();
+			while (m_tu_state.m_pending_code_modification_actions.rend() != rit) {
+				/* Note that we may cause the container to be modified as we're iterating over it. (So we can't use
+				a "traditional" loop.) */
+
+				auto retained_it = --(rit.base());
+				assert(std::addressof(*retained_it) == std::addressof(*rit));
+				{
+					auto& action = *retained_it;
+					assert(action.second.size() >= 1);
+					{
+						auto sub_it = action.second.begin();
+						while (action.second.size() >= 1) {
+							/* Note that we may cause the container to be modified as we're iterating over it. (So we can't use
+							a "traditional" loop.) */
+
+							auto& modification_function = *sub_it;
+							modification_function();
+							action.second.erase(sub_it);
+							sub_it = action.second.begin();
+						}
+					}
+				}
+
+				auto res1 = m_tu_state.m_pending_code_modification_actions.erase(retained_it);
+
+				rit = m_tu_state.m_pending_code_modification_actions.rbegin();
 			}
 
 			TheRewriter.getEditBuffer(TheRewriter.getSourceMgr().getMainFileID()).write(llvm::outs());

@@ -100,7 +100,17 @@ inline bool operator!=(const COrderedSourceRange &LHS, const COrderedSourceRange
 	return !(LHS == RHS);
 }
 inline bool operator<(const COrderedSourceRange &LHS, const COrderedSourceRange &RHS) {
-	return (LHS.getBegin() < RHS.getBegin()) || ((LHS.getBegin() == RHS.getBegin()) && (LHS.getEnd() < RHS.getEnd()));
+	if (LHS.getBegin() < RHS.getBegin()) {
+		return true;
+	} else if (LHS.getBegin() == RHS.getBegin()) {
+		if (RHS.getEnd() < LHS.getEnd()) {
+			/* This might be a little counter-intuitive, but we need any source range that contains another
+			source range to "come before" (i.e. "be less than") the other range, even if they begin at the
+			same location. */
+			return true;
+		}
+	}
+	return false;
 }
 class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
 	public:
@@ -459,7 +469,7 @@ class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
 					if (clang::TemplateArgument::Type == template_arg.getKind()) {
 						const auto ta_qtype = template_arg.getAsType();
 						IF_DEBUG(const auto ta_qtype_str = ta_qtype.getAsString();)
-						retval = remove_mse_transparent_wrappers(ta_qtype);
+						return remove_mse_transparent_wrappers(ta_qtype);
 					}
 					/*unexpected*/
 					int q = 5;
@@ -716,6 +726,27 @@ class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
 			, {"std::tuple", "mse::mstd::tuple", "mse::xscope_tuple", "mse::mstd::tuple or mse::xscope_tuple"}
 			};
 		return l_unsupported_element_infos;
+	}
+	namespace impl {
+		inline auto unsupported_element_info_vector_to_unordered_map(const std::vector<CUnsupportedElementInfo>& vec) {
+			std::unordered_map<std::string, CUnsupportedElementInfo> retval;
+			for (const auto& item : vec) {
+				retval.insert(typename std::unordered_map<std::string, CUnsupportedElementInfo>::value_type(item.m_name_of_unsupported, item));
+			}
+			return retval;
+		}
+		inline const std::unordered_map<std::string, CUnsupportedElementInfo>& unsupported_element_infos_uo_map() {
+			static const auto l_unsupported_element_infos_uo_map = unsupported_element_info_vector_to_unordered_map(unsupported_element_infos());
+			return l_unsupported_element_infos_uo_map;
+		}
+	}
+	inline CUnsupportedElementInfo const * unsupported_element_info_ptr(const std::string& name) {
+		CUnsupportedElementInfo const * retval = nullptr;
+		auto iter = impl::unsupported_element_infos_uo_map().find(name);
+		if (impl::unsupported_element_infos_uo_map().end() != iter) {
+			retval = &((*iter).second);
+		}
+		return retval;
 	}
 
 
