@@ -736,7 +736,7 @@ namespace checker {
 									}
 								} else {
 									assert(clang::StorageDuration::SD_Thread == storage_duration);
-									if (is_async_shareable(qtype, (*this).m_state1)) {
+									if (true || is_async_shareable(qtype, (*this).m_state1)) {
 										satisfies_checks = true;
 									} else {
 										const std::string error_desc = std::string("Unable to verify the safety of variable '")
@@ -816,6 +816,15 @@ namespace checker {
 								if (res.second) {
 									std::cout << (*(res.first)).as_a_string1() << " \n\n";
 								}
+							}
+						} else if (false && VD->isExternallyDeclarable()) {
+							const std::string error_desc = std::string("\"External\"/inline ")
+								+ "variable declarations (such as the declaration of "
+								+ VD->getNameAsString() + "' of type '" + qtype.getAsString()
+								+ "') are not currently supported.";
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+							if (res.second) {
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
 							}
 						}
 					} else {

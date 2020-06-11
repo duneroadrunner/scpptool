@@ -1457,9 +1457,9 @@ namespace convm1 {
 						retval.m_action_species = "char*";
 					} else if (is_function_pointer) {
 						l_changed_from_original = true;
-						prefix_str = prefix_str + "std::function<";
+						prefix_str = prefix_str + "mse::mstd::function<";
 						suffix_str = "> " + suffix_str;
-						retval.m_action_species = "function pointer to std::function";
+						retval.m_action_species = "function pointer to mse::mstd::function";
 					} else {
 						if (false/*for now*/) {
 							l_changed_from_original = true;
@@ -6349,6 +6349,50 @@ namespace convm1 {
 										if (res.second) {
 											//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 										}
+
+										{
+											/* Here we're (unjustifiably) assuming that the program is single threaded 
+											and changing variables with static duration to thread_local duration. */
+											std::string l_source_text1 = Rewrite.getRewrittenText(SR);
+											int replace_pos = 0;
+											int replace_length = 0;
+											if (VD->isFileVarDecl()) {
+												{
+													static const std::string extern_and_space_str = "extern ";
+													auto pos1 = l_source_text1.find(extern_and_space_str);
+													if (std::string::npos != pos1) {
+														replace_pos = pos1 + extern_and_space_str.length();
+													}
+												}
+												{
+													static const std::string inline_and_space_str = "inline ";
+													auto pos1 = l_source_text1.find(inline_and_space_str);
+													if ((std::string::npos) != pos1 && (pos1 > replace_pos)) {
+														replace_pos = pos1 + inline_and_space_str.length();
+													}
+												}
+											} else {
+												{
+													static const std::string static_and_space_str = "static ";
+													auto pos1 = l_source_text1.find(static_and_space_str);
+													if (std::string::npos != pos1) {
+														replace_pos = pos1;
+														replace_length = static_and_space_str.length();
+													}
+												}
+												if (0 == replace_length) {
+													static const std::string inline_and_space_str = "inline ";
+													auto pos1 = l_source_text1.find(inline_and_space_str);
+													if ((std::string::npos) != pos1 && (pos1 > replace_pos)) {
+														replace_pos = pos1 + inline_and_space_str.length();
+													}
+												}
+											}
+
+											l_source_text1.replace(replace_pos, replace_length, "thread_local ");
+											auto res2 = Rewrite.ReplaceText(SR, l_source_text1.c_str());
+											int q = 5;
+										}
 									}
 								} else {
 									assert(clang::StorageDuration::SD_Thread == storage_duration);
@@ -6412,6 +6456,25 @@ namespace convm1 {
 										auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 										if (res.second) {
 											//std::cout << (*(res.first)).as_a_string1() << " \n\n";
+										}
+
+										{
+											/* Here we're adding a missing initialization value to the variable declaration. */
+											auto l_DD = VD;
+											auto res1 = state1.m_ddecl_conversion_state_map.insert(*l_DD);
+											auto ddcs_map_iter = res1.first;
+											auto& ddcs_ref = (*ddcs_map_iter).second;
+
+											std::string initializer_info_str;
+											if (qtype.getTypePtr()->isEnumeralType()) {
+												initializer_info_str += " = " + qtype.getAsString();
+												initializer_info_str += "(0)/*auto-generated init val*/";
+											} else {
+												initializer_info_str += " = 0/*auto-generated init val*/";
+											}
+											ddcs_ref.m_initializer_info_str = initializer_info_str;
+
+											update_declaration(*l_DD, Rewrite, state1);
 										}
 									} else {
 										/* todo: emit error that (uninitialized) 'extern' variables
@@ -6645,11 +6708,19 @@ namespace convm1 {
 									}
 
 									if (true) {
-										const std::string& replacement_element_name = unsupported_element_info.m_slow_mode_replacement;
+										const auto& l_replacement_element_name = [&unsupported_element_info]() {
+											if ("Dual" == ConvertMode) {
+												return unsupported_element_info.m_slow_mode_replacement;
+											} else if ("FasterAndStricter" == ConvertMode) {
+												return unsupported_element_info.m_fast_mode_replacement;
+											} else {
+												return unsupported_element_info.m_slow_mode_replacement;
+											}
+										};
 
 										/* This modification needs to be queued so that it will be executed after any other
 										modifications that might affect the relevant part of the source text. */
-										state1.m_pending_code_modification_actions.add_replacement_of_instances_of_given_string_action(Rewrite, SR, element_name, unsupported_element_info.m_slow_mode_replacement);
+										state1.m_pending_code_modification_actions.add_replacement_of_instances_of_given_string_action(Rewrite, SR, element_name, l_replacement_element_name());
 									}
 								}
 							}
@@ -7431,13 +7502,13 @@ namespace convm1 {
 						if (!(fii_ref.m_legacyhelpers_include_directive_found)) {
 							if (fii_ref.m_first_include_directive_loc_is_valid) {
 								TheRewriter.InsertTextBefore(fii_ref.m_first_include_directive_loc,
-										"\n#include \"mselegacyhelpers.h\"\n");
+										"\n#include \"msetl.h\"\n");
 							} else if (fii_ref.m_first_macro_directive_ptr_is_valid) {
 								TheRewriter.InsertTextAfterToken(fii_ref.m_first_macro_directive_ptr->getLocation(),
-										"\n#include \"mselegacyhelpers.h\"\n");
+										"\n#include \"msetl.h\"\n");
 							} else if (fii_ref.m_beginning_of_file_loc_is_valid) {
 								TheRewriter.InsertTextBefore(fii_ref.m_beginning_of_file_loc,
-										"\n#include \"mselegacyhelpers.h\"\n");
+										"\n#include \"msetl.h\"\n");
 							}
 						}
 					}
