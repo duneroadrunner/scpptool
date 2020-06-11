@@ -6525,21 +6525,23 @@ namespace convm1 {
 												//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 											}
 
-											auto l_SR = nice_source_range(FD->getSourceRange(), Rewrite);
-											std::string l_source_text1;
-											if ((l_SR.getBegin() < l_SR.getEnd()) || (l_SR.getBegin() == l_SR.getEnd())) {
-												l_source_text1 = Rewrite.getRewrittenText(l_SR);
-												if ("" != l_source_text1) {
-													auto replacement_code = l_source_text1;
-													if (qtype.getTypePtr()->isEnumeralType()) {
-														replacement_code += " = " + qtype.getAsString();
-														replacement_code += "(0)/*auto-generated init val*/";
-													} else {
-														replacement_code += " = 0/*auto-generated init val*/";
-													}
-													state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, l_SR, replacement_code);
-													//auto res2 = Rewrite.ReplaceText(l_SR, replacement_code);
+											{
+												/* Here we're adding a missing initialization value to the field declaration. */
+												auto l_DD = FD;
+												auto res1 = state1.m_ddecl_conversion_state_map.insert(*l_DD);
+												auto ddcs_map_iter = res1.first;
+												auto& ddcs_ref = (*ddcs_map_iter).second;
+
+												std::string initializer_info_str;
+												if (qtype.getTypePtr()->isEnumeralType()) {
+													initializer_info_str += " = " + qtype.getAsString();
+													initializer_info_str += "(0)/*auto-generated init val*/";
+												} else {
+													initializer_info_str += " = 0/*auto-generated init val*/";
 												}
+												ddcs_ref.m_initializer_info_str = initializer_info_str;
+
+												update_declaration(*l_DD, Rewrite, state1);
 											}
 										}
 									}
