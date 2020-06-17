@@ -771,7 +771,7 @@ class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
 		return retval;
 	}
 
-	inline std::vector<clang::QualType> shallow_template_parameter_types_if_any(const clang::QualType& qtype) {
+	inline std::vector<clang::QualType> shallow_component_types_if_any(const clang::QualType& qtype) {
 		std::vector<clang::QualType> retval;
 		IF_DEBUG(const auto qtype_str = qtype.getAsString();)
 		//const auto TP = &type;
@@ -790,16 +790,77 @@ class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
 					retval.insert(retval.end(), res.begin(), res.end());
 				}
 			}
+		} else if (qtype.getTypePtr()->isReferenceType()) {
+			auto pointee_qtype = qtype.getTypePtr()->getPointeeType();
+			retval.push_back(pointee_qtype);
+		} else if (qtype.getTypePtr()->isPointerType()) {
+			auto pointee_qtype = qtype.getTypePtr()->getPointeeType();
+			retval.push_back(pointee_qtype);
 		}
 		return retval;
 	}
+
 	template<typename TLambda, typename ...Args>
-	inline void apply_to_template_parameters_if_any(const clang::QualType& qtype, const TLambda& lambda, Args&&...args) {
-		const auto tparams = shallow_template_parameter_types_if_any(qtype);
-		for (const auto& tparam : tparams) {
-			apply_to_template_parameters_if_any(tparam, lambda, args...);
-			lambda(tparam, args...);
+	inline void apply_to_component_types_if_any(const clang::QualType& qtype, const TLambda& lambda, Args&&...args) {
+		const auto targs = shallow_component_types_if_any(qtype);
+		for (const auto& targ : targs) {
+			apply_to_component_types_if_any(targ, lambda, args...);
+			lambda(targ, args...);
 		}
+	}
+
+	inline std::vector<clang::TypeLoc> shallow_component_types_if_any(const clang::TypeLoc& typeLoc) {
+		std::vector<clang::TypeLoc> retval;
+		auto qtype = typeLoc.getType();
+		IF_DEBUG(const auto qtype_str = qtype.getAsString();)
+
+		auto Specialization = typeLoc.getAs<clang::TemplateSpecializationTypeLoc>();
+		if (!Specialization) {
+			auto etl = typeLoc.getAs<clang::ElaboratedTypeLoc>();
+			if (etl) {
+				Specialization = etl.getNamedTypeLoc().getAs<clang::TemplateSpecializationTypeLoc>();
+				int q = 5;
+			} else {
+				int q = 5;
+			}
+		}
+
+		if (Specialization) {
+			for (unsigned i = 0; i < Specialization.getNumArgs(); i += 1) {
+				auto ArgumentLoc = Specialization.getArgLoc(i);
+				if (ArgumentLoc.getArgument().getKind() == clang::TemplateArgument::Type) {
+					retval.push_back(ArgumentLoc.getTypeSourceInfo()->getTypeLoc());
+					//retval.push_back(ArgumentLoc);
+				}
+			}
+		} else {
+			auto Reference = typeLoc.getAs<clang::ReferenceTypeLoc>();
+			if (Reference) {
+				auto RefPointeeLoc = Reference.getPointeeLoc();
+				retval.push_back(RefPointeeLoc);
+			} else {
+				auto Pointer = typeLoc.getAs<clang::PointerTypeLoc>();
+				if (Pointer) {
+					auto PointeeLoc = Pointer.getPointeeLoc();
+					retval.push_back(PointeeLoc);
+				}
+			}
+		}
+
+		return retval;
+	}
+
+	template<typename TLambda, typename ...Args>
+	inline void apply_to_component_types_if_any(const clang::TypeLoc& typeLoc, const TLambda& lambda, Args&&...args) {
+		const auto targs = shallow_component_types_if_any(typeLoc);
+		for (const auto& targ : targs) {
+			apply_to_component_types_if_any(targ, lambda, args...);
+			lambda(targ, targ.getSourceRange(), args...);
+		}
+	}
+	template<typename TLambda, typename ...Args>
+	inline void apply_to_component_types_if_any(const clang::DeclaratorDecl& ddecl, const TLambda& lambda, Args&&...args) {
+		apply_to_component_types_if_any(ddecl.getTypeSourceInfo()->getTypeLoc(), lambda, args...);
 	}
 
 

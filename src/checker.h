@@ -1033,8 +1033,40 @@ namespace checker {
 									}
 								}
 							};
-							check_for_and_handle_unsupported_element(qtype, (*this).m_state1);
-							apply_to_template_parameters_if_any(qtype, check_for_and_handle_unsupported_element, (*this).m_state1);
+							//check_for_and_handle_unsupported_element(qtype, (*this).m_state1);
+							//apply_to_component_types_if_any(qtype, check_for_and_handle_unsupported_element, (*this).m_state1);
+
+							auto check_for_and_handle_unsupported_element2 = [&MR](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+								auto qtype = typeLoc.getType();
+								std::string element_name;
+								const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+								if (l_CXXRD) {
+									element_name = l_CXXRD->getQualifiedNameAsString();
+								} else {
+									element_name = qtype.getAsString();
+								}
+
+								{
+									auto uei_ptr = unsupported_element_info_ptr(element_name);
+									if (uei_ptr) {
+										const auto& unsupported_element_info = *uei_ptr;
+										std::string error_desc = std::string("'") + element_name + std::string("' is not ")
+											+ "supported (in type '" + qtype.getAsString() + "' used in this declaration). ";
+										if ("" != unsupported_element_info.m_recommended_alternative) {
+											error_desc += "Consider using " + unsupported_element_info.m_recommended_alternative + " instead.";
+										}
+										auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, typeLoc.getSourceRange().getBegin(), error_desc));
+										if (res.second) {
+											std::cout << (*(res.first)).as_a_string1() << " \n\n";
+										}
+									}
+								}
+							};
+							auto tsi_ptr = DD->getTypeSourceInfo();
+							if (tsi_ptr) {
+								check_for_and_handle_unsupported_element2(tsi_ptr->getTypeLoc(), SR, (*this).m_state1);
+								apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), check_for_and_handle_unsupported_element2, (*this).m_state1);
+							}
 						}
 					} else {
 						std::string unsupported_type_str;

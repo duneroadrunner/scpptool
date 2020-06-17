@@ -3938,19 +3938,31 @@ namespace convm1 {
 
 								std::string arg_element_type_str;
 								if (arg_TP->isArrayType()) {
-									auto ATP = llvm::cast<const clang::ArrayType>(arg_TP);
-									assert(nullptr != ATP);
-									auto element_type = ATP->getElementType();
-									auto type_str = element_type.getAsString();
-									if (("char" != type_str) && ("const char" != type_str)) {
-										arg_element_type_str = type_str;
+									if (llvm::isa<const clang::ArrayType>(arg_TP)) {
+										auto ATP = llvm::cast<const clang::ArrayType>(arg_TP);
+										assert(nullptr != ATP);
+										auto element_type = ATP->getElementType();
+										auto type_str = element_type.getAsString();
+										if (("char" != type_str) && ("const char" != type_str)) {
+											arg_element_type_str = type_str;
+										}
+										auto element_type2 = arg_TP->getArrayElementTypeNoTypeQual();
+										if (element_type.getTypePtr() != element_type2) {
+											int q = 5;
+										}
+									} else {
+										int q = 5;
 									}
 								} else if (arg_TP->isPointerType()) {
-									auto TPP = llvm::cast<const clang::PointerType>(arg_TP);
-									assert(nullptr != TPP);
-									auto target_type = TPP->getPointeeType();
+									if (llvm::isa<const clang::PointerType>(arg_TP)) {
+										auto TPP = llvm::cast<const clang::PointerType>(arg_TP);
+										assert(nullptr != TPP);
+									} else {
+										int q = 5;
+									}
+									auto target_type = arg_TP->getPointeeType();
 									auto type_str = target_type.getAsString();
-									if (("char" != type_str) && ("const char" != type_str)) {
+									if ((("char" != type_str) && ("const char" != type_str)) || (!llvm::isa<const clang::PointerType>(arg_TP))) {
 										arg_element_type_str = type_str;
 									}
 								}
@@ -6291,8 +6303,79 @@ namespace convm1 {
 					const auto qtype = DD->getType();
 					const std::string qtype_str = DD->getType().getAsString();
 
+					{
+						auto l_DD = DD;
+						auto TSSL = l_DD->getTypeSpecStartLoc();
+						auto l_SR = l_DD->getSourceRange();
+						
+						std::string text1 = Rewrite.getRewrittenText({TSSL, l_SR.getEnd()});
+						std::string text2 = Rewrite.getRewrittenText(l_SR);
+						if (text1 != text2) {
+							int q = 5;
+						}
+					}
+
 					auto VD = dyn_cast<const clang::VarDecl>(D);
 					if (VD) {
+						if (false) {
+							auto l_DD = VD;
+							auto TSSL = l_DD->getTypeSpecStartLoc();
+							auto l_SR = l_DD->getSourceRange();
+							
+							std::string text1 = Rewrite.getRewrittenText(l_SR);
+							std::string text1b = Rewrite.getRewrittenText({l_SR.getBegin().getLocWithOffset(+1), l_SR.getEnd()});
+							std::string text2 = Rewrite.getRewrittenText({TSSL, l_SR.getEnd()});
+							std::string text2b = Rewrite.getRewrittenText({TSSL.getLocWithOffset(+1), l_SR.getEnd()});
+							if (text1 != text2) {
+								int q = 5;
+							}
+
+							auto QL = VD->getQualifierLoc();
+							auto QSR = QL.getSourceRange();
+							if (QSR.isValid()) {
+								std::string text3 = Rewrite.getRewrittenText({QSR.getBegin(), l_SR.getEnd()});
+								std::string text4 = Rewrite.getRewrittenText(QSR);
+								int q = 5;
+							}
+							std::string text5 = Rewrite.getRewrittenText({VD->getInnerLocStart(), l_SR.getEnd()});
+							std::string text6 = Rewrite.getRewrittenText({VD->getLocation(), l_SR.getEnd().getLocWithOffset(+1)});
+							std::string text7 = Rewrite.getRewrittenText({VD->getSourceRange().getBegin(), VD->getLocation()});
+							auto SLE0 = VD->getLocation();
+							auto SLE1 = VD->getLocation().getLocWithOffset(-1);
+							auto SLE1b = VD->getLocation().getLocWithOffset(0);
+							auto SLE1c = VD->getLocation().getLocWithOffset(+1);
+							std::string text8;
+							if (VD->getSourceRange().getBegin() < SLE1) {
+								Rewrite.getRewrittenText({VD->getSourceRange().getBegin(), SLE1});
+							}
+							std::string text8b = Rewrite.getRewrittenText({VD->getSourceRange().getBegin(), SLE1b});
+							std::string text8c = Rewrite.getRewrittenText({VD->getSourceRange().getBegin(), SLE1c});
+							auto name = VD->getNameAsString();
+							if ("array1" == name) {
+								int q = 5;
+							} else if ("array2" == name) {
+								int q = 5;
+							} else if ("int_ptr1" == name) {
+								int q = 5;
+							} else if ("str1" == name) {
+								int q = 5;
+							}
+							if (VD->getType()->isArrayType()) {
+								auto SL2 = VD->getLocation().getLocWithOffset(VD->getNameAsString().length());
+								auto SLE2 = SL2;
+								auto init_EX = VD->getAnyInitializer();
+								if (init_EX) {
+									auto init_SL = init_EX->getSourceRange().getBegin();
+									if (init_SL.isValid()) {
+										SLE2 = init_SL.getLocWithOffset(-2);
+									}
+								}
+								std::string text9 = Rewrite.getRewrittenText({SL2, SLE2});
+								int q = 5;
+							}
+							int q = 5;
+						}
+
 						const auto storage_duration = VD->getStorageDuration();
 						const auto var_qualified_name = VD->getQualifiedNameAsString();
 						const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
@@ -6727,10 +6810,63 @@ namespace convm1 {
 								}
 							}
 						};
-						apply_to_template_parameters_if_any(qtype, check_for_and_handle_unsupported_element, state1);
-						check_for_and_handle_unsupported_element(qtype, state1);
-					}
+						//apply_to_component_types_if_any(qtype, check_for_and_handle_unsupported_element, state1);
+						//check_for_and_handle_unsupported_element(qtype, state1);
 
+						auto check_for_and_handle_unsupported_element2 = [&MR, &SR, &Rewrite](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+							auto qtype = typeLoc.getType();
+							std::string element_name;
+							const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+							if (l_CXXRD) {
+								element_name = l_CXXRD->getQualifiedNameAsString();
+							} else {
+								element_name = qtype.getAsString();
+							}
+
+							{
+								auto uei_ptr = unsupported_element_info_ptr(element_name);
+								if (uei_ptr) {
+									const auto& unsupported_element_info = *uei_ptr;
+									std::string error_desc = std::string("'") + element_name + std::string("' is not ")
+											+ "supported (in type '" + qtype.getAsString() + "' used in this declaration). ";
+									if ("" != unsupported_element_info.m_recommended_alternative) {
+										error_desc += "Consider using " + unsupported_element_info.m_recommended_alternative + " instead.";
+									}
+									auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, tsi.getTypeLoc().getSourceRange().getBegin(), error_desc));
+									if (res.second) {
+										//std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									}
+
+									if (true) {
+										const auto& l_replacement_element_name = [&unsupported_element_info]() {
+											if ("Dual" == ConvertMode) {
+												return unsupported_element_info.m_slow_mode_replacement;
+											} else if ("FasterAndStricter" == ConvertMode) {
+												return unsupported_element_info.m_fast_mode_replacement;
+											} else {
+												return unsupported_element_info.m_slow_mode_replacement;
+											}
+										};
+
+										/* This modification needs to be queued so that it will be executed after any other
+										modifications that might affect the relevant part of the source text. */
+										state1.m_pending_code_modification_actions.add_replacement_of_instances_of_given_string_action(Rewrite, SR, element_name, l_replacement_element_name());
+									}
+								}
+							}
+						};
+
+						auto l_PVD = dyn_cast<const ParmVarDecl>(DD);
+						if (l_PVD) {
+							int q = 5;
+						}
+
+						auto tsi_ptr = DD->getTypeSourceInfo();
+						if (tsi_ptr) {
+							check_for_and_handle_unsupported_element2(tsi_ptr->getTypeLoc(), SR, state1);
+							apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), check_for_and_handle_unsupported_element2, state1);
+						}
+					}
 				} else {
 					auto NAD = dyn_cast<const NamespaceAliasDecl>(D);
 					if (NAD) {
@@ -6797,6 +6933,292 @@ namespace convm1 {
 					int q = 7;
 				}
 			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
+	class MCSSSRecordDecl2 : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSRecordDecl2 (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const RecordDecl* RD = MR.Nodes.getNodeAs<clang::RecordDecl>("mcsssrecorddecl");
+
+			if ((RD != nullptr))
+			{
+				auto SR = nice_source_range(RD->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				if (std::string::npos != debug_source_location_str.find(":327:")) {
+					int q = 5;
+				}
+
+				auto RDISR = instantiation_source_range(RD->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(RDISR);
+				if (supress_check_flag) {
+					return;
+				}
+
+#ifndef NDEBUG
+				auto qualified_name = RD->getQualifiedNameAsString();
+				DECLARE_CACHED_CONST_STRING(mse_namespace_str1, mse_namespace_str() + "::");
+				if (string_begins_with(qualified_name, mse_namespace_str1)) {
+					int q = 5;
+					//return;
+				}
+#endif /*!NDEBUG*/
+
+				IF_DEBUG(const auto record_name = RD->getName();)
+				RD->getTypeForDecl();
+				auto CXXRD = RD->getTypeForDecl()->getAsCXXRecordDecl();
+				if (RD->isThisDeclarationADefinition()) {
+					bool is_lambda = false;
+
+					bool has_xscope_tag_base = false;
+					bool has_ContainsNonOwningScopeReference_tag_base = false;
+					bool has_ReferenceableByScopePointer_tag_base = false;
+
+					if (CXXRD) {
+						if (CXXRD->isLambda()) {
+							is_lambda = true;
+
+							auto& context = *MR.Context;
+							const auto* LE = Tget_immediately_containing_element_of_type<clang::LambdaExpr>(CXXRD, *MR.Context);
+							if (LE) {
+								auto* MTE = Tget_immediately_containing_element_of_type<clang::MaterializeTemporaryExpr>(LE, *MR.Context);
+								if (!MTE) {
+									const clang::ImplicitCastExpr* ICE2 = Tget_immediately_containing_element_of_type<clang::ImplicitCastExpr>(LE, *MR.Context);
+									const clang::ImplicitCastExpr* ICE1 = ICE2;
+									do {
+										ICE1 = ICE2;
+										ICE2 = Tget_immediately_containing_element_of_type<clang::ImplicitCastExpr>(ICE1, *MR.Context);
+									} while (ICE2);
+									MTE = Tget_immediately_containing_element_of_type<clang::MaterializeTemporaryExpr>(ICE1, *MR.Context);
+								}
+								if (MTE) {
+									const auto* CE = Tget_immediately_containing_element_of_type<clang::CallExpr>(
+										MTE->IgnoreImpCasts(), *MR.Context);
+									if (CE) {
+										const auto qname = CE->getDirectCallee()->getQualifiedNameAsString();
+										DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_reference_or_pointer_capture_lambda");
+										DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_non_reference_or_pointer_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_non_reference_or_pointer_capture_lambda");
+										DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_capture_lambda");
+										if ((mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str == qname)
+											|| (mse_rsv_make_xscope_non_reference_or_pointer_capture_lambda_str == qname)
+											|| (mse_rsv_make_xscope_capture_lambda_str == qname)) {
+											/* This CXXRecordDecl is a lambda expression being supplied as an argument
+											to an 'mse::rsv::make_xscope_*_capture_lambda()' function. Being a lambda, it
+											cannot inherit from 'mse::us::impl::XScopeTagBase' (or anything else for that
+											matter), but here we'll treat it as if it satisfies that (potential)
+											requirement as it should be safe (and is kind of necessary) here. */
+											has_xscope_tag_base = true;
+
+											/* The safety of the following is premised on the assumption that captured lambda
+											variables(/fields) are not addressable (by scope pointer) from outside the lambda. */
+											has_ReferenceableByScopePointer_tag_base = true;
+
+											if (mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str == qname) {
+												has_ContainsNonOwningScopeReference_tag_base = true;
+											}
+										}
+									}
+								}
+							} else {
+								int q = 5; /* unexpected*/
+							}
+						} else {
+							std::vector<const FieldDecl*> unverified_pointer_fields;
+							for (const auto& field : RD->fields()) {
+								const auto field_qtype = field->getType();
+								IF_DEBUG(auto field_qtype_str = field_qtype.getAsString();)
+								if (field_qtype.getTypePtr()->isPointerType()) {
+									const auto ICIEX = field->getInClassInitializer();
+									if (!ICIEX) {
+										unverified_pointer_fields.push_back(field);
+									} else if (is_nullptr_literal(ICIEX, *(MR.Context))) {
+										auto ICISR = nice_source_range(ICIEX->getSourceRange(), Rewrite);
+										if (!ICISR.isValid()) {
+											ICISR = SR;
+										}
+										const std::string error_desc = std::string("Null initialization of ")
+											+ "native pointer fields (such as '" + field->getNameAsString()
+											+ "') is not supported.";
+										auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, ICISR.getBegin(), error_desc));
+										if (res.second) {
+											//std::cout << (*(res.first)).as_a_string1() << " \n\n";
+										}
+									}
+
+
+									{
+										/*  */
+										auto l_DD = field;
+										auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*l_DD);
+										auto ddcs_map_iter = res1.first;
+										auto& ddcs_ref = (*ddcs_map_iter).second;
+
+										update_declaration(*l_DD, Rewrite, m_state1);
+									}
+
+								}
+							}
+							if (1 <= unverified_pointer_fields.size()) {
+								for (const auto& constructor : CXXRD->ctors()) {
+									if (constructor->isCopyOrMoveConstructor()) {
+										if (constructor->isDefaulted()) {
+											continue;
+										}
+									}
+									auto l_unverified_pointer_fields = unverified_pointer_fields;
+									int num_pointer_constructor_initializers = 0;
+									for (const auto& constructor_initializer : constructor->inits()) {
+										const auto FD = constructor_initializer->getMember();
+										for (auto iter = l_unverified_pointer_fields.begin(); l_unverified_pointer_fields.end() != iter; iter++) {
+											if (FD == *iter) {
+												l_unverified_pointer_fields.erase(iter);
+
+												const auto CIEX = constructor_initializer->getInit();
+												if (!CIEX) {
+													/* unexpected*/
+													int q = 3;
+												} else {
+													if (false && is_nullptr_literal(CIEX, *(MR.Context))) {
+														/* This case is handled in the MCSSSConstructionInitializer handler. */
+													}
+												}
+
+												break;
+											}
+										}
+									}
+									if (1 <= l_unverified_pointer_fields.size()) {
+										auto constructor_SR = nice_source_range(constructor->getSourceRange(), Rewrite);
+										if (!SR.isValid()) {
+											constructor_SR = SR;
+										}
+										const std::string error_desc = std::string("Missing constructor initializer (or ")
+										+ "direct initializer) required for '" + l_unverified_pointer_fields.front()->getNameAsString()
+										+ "' (raw) pointer field.";
+										auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, constructor_SR.getBegin(), error_desc));
+										if (res.second) {
+											//std::cout << (*(res.first)).as_a_string1() << " \n\n";
+										}
+									}
+								}
+							}
+						}
+						if (is_xscope_type(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
+							has_xscope_tag_base = true;
+						}
+						if (contains_non_owning_scope_reference(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
+							has_ContainsNonOwningScopeReference_tag_base = true;
+						}
+						if (referenceable_by_scope_pointer(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
+							has_ReferenceableByScopePointer_tag_base = true;
+						}
+					}
+
+					for (const auto& field : RD->fields()) {
+						const auto field_qtype = field->getType();
+						auto field_qtype_str = field_qtype.getAsString();
+
+						std::string error_desc;
+						if (field_qtype.getTypePtr()->isPointerType()) {
+							if (!(*this).m_state1.raw_pointer_scope_restrictions_are_disabled()) {
+								if (has_xscope_tag_base) {
+									/*
+									error_desc = std::string("Native pointers are not (yet) supported as fields of xscope ")
+										+ "structs or classes.";
+									*/
+								} else {
+									if (is_lambda) {
+										error_desc = std::string("Native pointers (such as those of type '") + field_qtype.getAsString()
+											+ "') are not supported as captures of (non-xscope) lambdas. ";
+									} else {
+										error_desc = std::string("Native pointers (such as those of type '") + field_qtype.getAsString()
+											+"') are not supported as fields of (non-xscope) structs or classes.";
+									}
+								}
+							}
+						} else if (field_qtype.getTypePtr()->isReferenceType()) {
+							if (has_xscope_tag_base) {
+								/*
+								error_desc = std::string("Native references are not (yet) supported as fields of xscope ")
+									+ "structs or classes.";
+								*/
+							} else {
+								if (is_lambda) {
+									error_desc = std::string("Native references (such as those of type '") + field_qtype.getAsString()
+										+ "') are not supported as captures of (non-xscope) lambdas. ";
+								} else {
+									error_desc = std::string("Native references (such as those of type '") + field_qtype.getAsString()
+										+"') are not supported as fields of (non-xscope) structs or classes.";
+								}
+							}
+						}
+
+						if ((!has_xscope_tag_base) && is_xscope_type(field_qtype, (*this).m_state1)) {
+							if (is_lambda) {
+								error_desc = std::string("Lambdas that capture variables of xscope type (such as '")
+									+ field_qtype_str + "') must be scope lambdas (usually created via an "
+									+  "'mse::rsv::make_xscope_*_lambda()' wrapper function).";
+							} else {
+								error_desc = std::string("Structs or classes containing fields of xscope type (such as '")
+									+ field_qtype_str + "') must inherit from mse::rsv::XScopeTagBase.";
+							}
+						}
+						if ((!has_ContainsNonOwningScopeReference_tag_base)
+							&& contains_non_owning_scope_reference(field_qtype, (*this).m_state1)) {
+							if (is_lambda) {
+								error_desc = std::string("Lambdas that capture items (such as those of type '")
+									+ field_qtype_str + "') that are, or contain, non-owning scope references must be "
+									+ "scope 'reference or pointer capture' lambdas (created via the "
+									+ "'mse::rsv::make_xscope_reference_or_pointer_capture_lambda()' "
+									+ "wrapper function).";
+							} else {
+								error_desc = std::string("Structs or classes containing fields (such as those of type '")
+									+ field_qtype_str + "') that are, or contain, non-owning scope references must inherit from "
+									+ "mse::rsv::ContainsNonOwningScopeReferenceTagBase.";
+							}
+						}
+						if ((!has_ReferenceableByScopePointer_tag_base)
+							&& referenceable_by_scope_pointer(field_qtype, (*this).m_state1)) {
+							if (is_lambda) {
+								/* The assumption is that we don't have to worry about scope pointers targeting
+								lambda capture variables(/fields) from outside the lambda, because they're not 
+								directly accessible from outside? */
+							} else {
+								error_desc = std::string("Structs or classes containing fields (such as '") + field_qtype_str
+									+ "') that yield scope pointers (from their overloaded 'operator&'), or contain an element "
+									+ "that does, must inherit from mse::rsv::ReferenceableByScopePointerTagBase.";
+							}
+						}
+						if ("" != error_desc) {
+							auto FDISR = instantiation_source_range(field->getSourceRange(), Rewrite);
+							auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
+							if (res.second) {
+								//std::cout << (*(res.first)).as_a_string1() << " \n\n";
+							}
+						}
+					}
+				}
+			}
+		}
+
+		virtual void onEndOfTranslationUnit()
+		{
 		}
 
 	private:
