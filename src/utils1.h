@@ -67,22 +67,23 @@ bool filtered_out_by_location(const clang::SourceManager &SM, clang::SourceLocat
 
 bool filtered_out_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceLocation SL);
 
-std::string with_whitespace_removed(const std::string& str);
+std::string with_whitespace_removed(const std::string_view str);
 
-std::string with_newlines_removed(const std::string& str);
+std::string with_newlines_removed(const std::string_view str);
 
 /* No longer used. This function extracts the text of individual declarations when multiple
  * pointers are declared in the same declaration statement. */
-std::vector<std::string> f_declared_object_strings(const std::string& decl_stmt_str);
+std::vector<std::string> f_declared_object_strings(const std::string_view decl_stmt_str);
 
-std::string tolowerstr(const std::string& a);
+std::string tolowerstr(const std::string_view a);
 
-bool string_begins_with(const std::string& s1, const std::string& prefix);
-bool string_ends_with(const std::string& s1, const std::string& suffix);
+bool string_begins_with(const std::string_view s1, const std::string_view prefix);
+bool string_ends_with(const std::string_view s1, const std::string_view suffix);
 
 
 /* This function returns a list of individual declarations contained in the same declaration statement
  * as the given declaration. (eg.: "int a, b = 3, *c;" ) */
+std::vector<const clang::DeclaratorDecl*> IndividualDeclaratorDecls(const clang::DeclaratorDecl* DD);
 std::vector<const clang::DeclaratorDecl*> IndividualDeclaratorDecls(const clang::DeclaratorDecl* DD, clang::Rewriter &Rewrite);
 
 
@@ -809,19 +810,19 @@ class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
 		}
 	}
 
-	inline std::vector<clang::TypeLoc> shallow_component_types_if_any(const clang::TypeLoc& typeLoc) {
+	inline std::vector<clang::TypeLoc> shallow_component_types_if_any(clang::TypeLoc typeLoc) {
 		std::vector<clang::TypeLoc> retval;
 		auto qtype = typeLoc.getType();
 		IF_DEBUG(const auto qtype_str = qtype.getAsString();)
 
 		auto Specialization = typeLoc.getAs<clang::TemplateSpecializationTypeLoc>();
-		if (!Specialization) {
+		while (!Specialization) {
 			auto etl = typeLoc.getAs<clang::ElaboratedTypeLoc>();
 			if (etl) {
-				Specialization = etl.getNamedTypeLoc().getAs<clang::TemplateSpecializationTypeLoc>();
-				int q = 5;
+				typeLoc = etl.getNamedTypeLoc();
+				Specialization = typeLoc.getAs<clang::TemplateSpecializationTypeLoc>();
 			} else {
-				int q = 5;
+				break;
 			}
 		}
 

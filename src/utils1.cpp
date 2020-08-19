@@ -77,7 +77,7 @@ clang::SourceRange nice_source_range(const clang::SourceRange& sr, clang::Rewrit
 	}
 	SL = Rewrite.getSourceMgr().getFileLoc(SL);
 	SLE = Rewrite.getSourceMgr().getFileLoc(SLE);
-	if ((SL == SLE) && (sr.getBegin() != sr.getEnd())) {
+	if (false && (SL == SLE) && (sr.getBegin() != sr.getEnd())) {
 		return sr;
 	} else {
 		return SourceRange(SL, SLE);
@@ -180,14 +180,16 @@ bool filtered_out_by_location(const ast_matchers::MatchFinder::MatchResult &MR, 
   return filtered_out_by_location(SM, SL);
 }
 
-std::string with_whitespace_removed(const std::string& str) {
-	std::string retval = str;
+std::string with_whitespace_removed(const std::string_view str) {
+	std::string retval;
+	retval = str;
 	retval.erase(std::remove_if(retval.begin(), retval.end(), isspace), retval.end());
 	return retval;
 }
 
-std::string with_newlines_removed(const std::string& str) {
-	std::string retval = str;
+std::string with_newlines_removed(const std::string_view str) {
+	std::string retval;
+	retval = str;
 	auto riter1 = retval.rbegin();
 	while (retval.rend() != riter1) {
 		if ('\n' == *riter1) {
@@ -216,7 +218,7 @@ std::string with_newlines_removed(const std::string& str) {
 
 /* No longer used. This function extracts the text of individual declarations when multiple
  * pointers are declared in the same declaration statement. */
-std::vector<std::string> f_declared_object_strings(const std::string& decl_stmt_str) {
+std::vector<std::string> f_declared_object_strings(const std::string_view decl_stmt_str) {
 	std::vector<std::string> retval;
 
 	auto nice_decl_stmt_str = with_newlines_removed(decl_stmt_str);
@@ -293,7 +295,7 @@ std::vector<std::string> f_declared_object_strings(const std::string& decl_stmt_
 	return retval;
 }
 
-std::string tolowerstr(const std::string& a) {
+std::string tolowerstr(const std::string_view a) {
 	std::string retval;
 	for (const auto& ch : a) {
 		retval += tolower(ch);
@@ -301,10 +303,10 @@ std::string tolowerstr(const std::string& a) {
 	return retval;
 }
 
-bool string_begins_with(const std::string& s1, const std::string& prefix) {
+bool string_begins_with(const std::string_view s1, const std::string_view prefix) {
 	return (0 == s1.compare(0, prefix.length(), prefix));
 }
-bool string_ends_with(const std::string& s1, const std::string& suffix) {
+bool string_ends_with(const std::string_view s1, const std::string_view suffix) {
 	if (suffix.length() > s1.length()) {
 		return false;
 	}
@@ -314,7 +316,7 @@ bool string_ends_with(const std::string& s1, const std::string& suffix) {
 
 /* This function returns a list of individual declarations contained in the same declaration statement
  * as the given declaration. (eg.: "int a, b = 3, *c;" ) */
-std::vector<const DeclaratorDecl*> IndividualDeclaratorDecls(const DeclaratorDecl* DD, Rewriter &Rewrite) {
+std::vector<const DeclaratorDecl*> IndividualDeclaratorDecls(const DeclaratorDecl* DD) {
 	/* There's probably a more efficient way to do this, but this implementation seems to work. */
 	std::vector<const DeclaratorDecl*> retval;
 
@@ -322,15 +324,11 @@ std::vector<const DeclaratorDecl*> IndividualDeclaratorDecls(const DeclaratorDec
 		assert(false);
 		return retval;
 	}
-	auto SR = nice_source_range(DD->getSourceRange(), Rewrite);
-	SourceLocation SL = SR.getBegin();
-
-	std::string source_text;
-	if (SR.isValid()) {
-		source_text = Rewrite.getRewrittenText(SR);
-	} else {
+	auto SR = DD->getSourceRange();
+	if (!SR.isValid()) {
 		return retval;
 	}
+	SourceLocation SL = SR.getBegin();
 
 	auto decl_context = DD->getDeclContext();
 	if ((!decl_context) || (!SL.isValid())) {
@@ -341,7 +339,7 @@ std::vector<const DeclaratorDecl*> IndividualDeclaratorDecls(const DeclaratorDec
 			auto decl = (*decl_iter);
 			auto l_DD = dyn_cast<const DeclaratorDecl>(decl);
 			if (l_DD) {
-				auto DDSR = nice_source_range(l_DD->getSourceRange(), Rewrite);
+				auto DDSR = l_DD->getSourceRange();
 				if (DDSR.isValid()) {
 					SourceLocation l_SL = DDSR.getBegin();
 					if (l_SL == SL) {
@@ -357,5 +355,19 @@ std::vector<const DeclaratorDecl*> IndividualDeclaratorDecls(const DeclaratorDec
 	}
 
 	return retval;
+}
+
+std::vector<const DeclaratorDecl*> IndividualDeclaratorDecls(const DeclaratorDecl* DD, Rewriter &Rewrite) {
+	if (!DD) {
+		assert(false);
+		return std::vector<const DeclaratorDecl*>{};
+	}
+	auto SR = nice_source_range(DD->getSourceRange(), Rewrite);
+	std::string source_text;
+	if (SR.isValid()) {
+		source_text = Rewrite.getRewrittenText(SR);
+	}
+	SourceLocation SL = SR.getBegin();
+	return IndividualDeclaratorDecls(DD);
 }
 
