@@ -1830,7 +1830,7 @@ namespace convm1 {
 								prefix_str = "mse::TXScopeObj<mse::nii_array<";
 								suffix_str = ", " + size_text + "> > ";
 							} else {
-								prefix_str = "mse::mstd::array<";
+								prefix_str = "mse::lh::TNativeArrayReplacement<";
 								suffix_str = ", " + size_text + "> ";
 							}
 
@@ -2205,7 +2205,7 @@ namespace convm1 {
 														prefix_str = "mse::TXScopeObj<mse::nii_array<";
 														suffix_str = ", " + size_text + "> > ";
 													} else {
-														prefix_str = "mse::mstd::array<";
+														prefix_str = "mse::lh::TNativeArrayReplacement<";
 														suffix_str = ", " + size_text + "> ";
 													}
 
