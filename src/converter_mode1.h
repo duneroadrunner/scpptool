@@ -3052,7 +3052,7 @@ namespace convm1 {
 		}
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":698:")) {
+		if (std::string::npos != debug_source_location_str.find(":540:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -4395,7 +4395,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":842:")) {
+				if (std::string::npos != debug_source_location_str.find(":540:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8712,16 +8712,14 @@ namespace convm1 {
 
 		Matcher.addMatcher(clang::ast_matchers::recordDecl().bind("mcsssrecorddecl"), &HandlerForSSSRecordDecl);
 
-		Matcher.addMatcher(clang::ast_matchers::declaratorDecl().bind("mcsssvardecl"), &HandlerForSSSVarDecl2);
-		/*
+		//Matcher.addMatcher(clang::ast_matchers::declaratorDecl().bind("mcsssvardecl"), &HandlerForSSSVarDecl2);
 		Matcher.addMatcher(varDecl(anyOf(
 				hasInitializer(anyOf(
 						expr(cStyleCastExpr(hasDescendant(declRefExpr().bind("mcsssvardecl5"))).bind("mcsssvardecl3")).bind("mcsssvardecl2"),
 						expr(hasDescendant(declRefExpr().bind("mcsssvardecl5"))).bind("mcsssvardecl2")
 						)),
-					clang::ast_matchers::anything()
-					)).bind("mcsssvardecl"), &HandlerForSSSVarDecl2);
-		*/
+				clang::ast_matchers::anything()
+				)).bind("mcsssvardecl"), &HandlerForSSSVarDecl2);
 
 		Matcher.addMatcher(expr(allOf(
 				hasParent(expr(anyOf(
