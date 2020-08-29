@@ -67,7 +67,6 @@ std::pair<std::string, bool> exec(const char* cmd) {
     return std::pair<std::string, bool>(result, false);
 }
 
-//SourceRange nice_source_range(const SourceRange& sr, Rewriter &Rewrite)
 clang::SourceRange nice_source_range(const clang::SourceRange& sr, clang::Rewriter &Rewrite)
 {
 	SourceLocation SL = sr.getBegin();
@@ -102,6 +101,14 @@ clang::SourceRange instantiation_source_range(const clang::SourceRange& sr, clan
 bool first_is_a_subset_of_second(const clang::SourceRange& first, const clang::SourceRange& second) {
 	bool retval = true;
 	if ((first.getBegin() < second.getBegin()) || (second.getEnd() < first.getEnd())) {
+		retval = false;
+	}
+	return retval;
+}
+
+bool first_is_a_proper_subset_of_second(const clang::SourceRange& first, const clang::SourceRange& second) {
+	bool retval = true;
+	if ((!first_is_a_subset_of_second(first, second)) || (second == first)) {
 		retval = false;
 	}
 	return retval;

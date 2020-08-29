@@ -62,6 +62,7 @@ clang::SourceRange instantiation_source_range(const clang::SourceRange& sr, clan
 
 /* not necessarily a proper subset */
 bool first_is_a_subset_of_second(const clang::SourceRange& first, const clang::SourceRange& second);
+bool first_is_a_proper_subset_of_second(const clang::SourceRange& first, const clang::SourceRange& second);
 
 bool filtered_out_by_location(const clang::SourceManager &SM, clang::SourceLocation SL);
 
@@ -113,13 +114,21 @@ inline bool operator<(const COrderedSourceRange &LHS, const COrderedSourceRange 
 	}
 	return false;
 }
-class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
+class COrderedRegionSet : public std::set<COrderedSourceRange> {
 	public:
 	typedef std::set<COrderedSourceRange> base_class;
 	using base_class::base_class;
 	bool contains(const clang::SourceRange& SR) const {
 		for (auto it = (*this).cbegin(); (*this).cend() != it; it++) {
 			if (first_is_a_subset_of_second(SR, *it)) {
+				return true;
+			}
+		}
+		return false;
+	}
+	bool properly_contains(const clang::SourceRange& SR) const {
+		for (auto it = (*this).cbegin(); (*this).cend() != it; it++) {
+			if (first_is_a_proper_subset_of_second(SR, *it)) {
 				return true;
 			}
 		}
@@ -487,7 +496,7 @@ class CSuppressCheckRegionSet : public std::set<COrderedSourceRange> {
 	public:
 		/* This container holds the locations of regions of code for which checking is
 		(indicated to be) suppressed. */
-		CSuppressCheckRegionSet m_suppress_check_region_set;
+		COrderedRegionSet m_suppress_check_region_set;
 
 		/* Preprocessor symbols of interested. */
 		bool m_MSE_SCOPEPOINTER_DISABLED_defined = false;

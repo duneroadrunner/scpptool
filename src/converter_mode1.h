@@ -113,18 +113,18 @@ namespace convm1 {
 	public:
 		CIndirectionState(const std::optional<clang::TypeLoc>& maybe_typeLoc, const std::string& original, const std::string& current,
 				bool current_is_function_type = false, const std::vector<std::string>& params = std::vector<std::string>())
-			: m_original(original), m_current(current), m_current_is_function_type(current_is_function_type),
+			: m_original_species(original), m_current_species(current), m_current_is_function_type(current_is_function_type),
 				m_params_original(params), m_params_current(params), m_maybe_typeLoc(maybe_typeLoc) {}
 		CIndirectionState(const std::optional<clang::TypeLoc>& maybe_typeLoc, const std::string& original, const std::string& current,
 				const std::string& array_size_expr)
-			: m_original(original), m_current(current), m_array_size_expr(array_size_expr), m_maybe_typeLoc(maybe_typeLoc) {}
+			: m_original_species(original), m_current_species(current), m_array_size_expr(array_size_expr), m_maybe_typeLoc(maybe_typeLoc) {}
 		CIndirectionState(const std::string& original, const std::string& current,
 				bool current_is_function_type = false, const std::vector<std::string>& params = std::vector<std::string>())
-			: m_original(original), m_current(current), m_current_is_function_type(current_is_function_type),
+			: m_original_species(original), m_current_species(current), m_current_is_function_type(current_is_function_type),
 				m_params_original(params), m_params_current(params) {}
 		CIndirectionState(const std::string& original, const std::string& current,
 				const std::string& array_size_expr)
-			: m_original(original), m_current(current), m_array_size_expr(array_size_expr) {}
+			: m_original_species(original), m_current_species(current), m_array_size_expr(array_size_expr) {}
 		CIndirectionState(const CIndirectionState& src) = default;
 
 		bool current_is_function_type() const { return m_current_is_function_type; }
@@ -140,19 +140,31 @@ namespace convm1 {
 			}
 			return retval;
 		}
-		void set_current(const std::string& new_current) {
-			m_current = new_current;
+		void set_current_species(const std::string& new_current) {
+			m_current_species = new_current;
 		}
-		const std::string& current() const {
-			return m_current;
+		const std::string& current_species() const {
+			return m_current_species;
 		}
-		const std::string& original() const {
-			return m_original;
+		const std::string& original_species() const {
+			return m_original_species;
+		}
+		void set_current_pointer_target_state(const std::string& new_current) {
+			m_current_pointer_target_state = new_current;
+		}
+		const std::string& current_pointer_target_state() const {
+			return m_current_pointer_target_state;
+		}
+		const std::string& original_pointer_target_state() const {
+			return m_original_pointer_target_state;
 		}
 
 	private:
-		std::string m_original;
-		std::string m_current;
+		std::string m_original_species;
+		std::string m_current_species;
+
+		std::string m_original_pointer_target_state;
+		std::string m_current_pointer_target_state;
 
 	public:
 		std::string m_array_size_expr;
@@ -165,10 +177,9 @@ namespace convm1 {
 		
 		std::optional<clang::TypeLoc> m_maybe_typeLoc;
 		std::string m_prefix_str;
-		std::variant<bool, clang::SourceRange, clang::SourceLocation> m_prefix_SR_or_insertion_point;
+		std::variant<bool, clang::SourceRange, clang::SourceLocation> m_prefix_SR_or_insert_before_point;
 		std::string m_suffix_str;
-		//std::optional<clang::SourceLocation> m_maybe_embedded_suffix_insertion_point;
-		std::variant<bool, clang::SourceRange, clang::SourceLocation> m_suffix_SR_or_insertion_point;
+		std::variant<bool, clang::SourceRange, clang::SourceLocation> m_suffix_SR_or_insert_before_point;
 		std::optional<clang::SourceRange> m_maybe_source_range;
 		std::optional<clang::SourceRange> m_maybe_source_range_including_any_const_qualifier;
 		std::optional<clang::SourceRange> m_maybe_prefix_source_range;
@@ -185,6 +196,9 @@ namespace convm1 {
 		std::string m_original_str;
 		std::string m_current_str;
 		std::string m_current_params_str;
+
+		std::string m_original_pointer_target_state;
+		std::string m_current_pointer_target_state;
 	};
 
 	/* CIndirectionStateStack holds information about an instance of a type that is composed of
@@ -742,6 +756,7 @@ namespace convm1 {
 			m_current_direct_qtype_str = str;
 		}
 		void set_indirection_current(size_t indirection_level, const std::string& new_current) {
+#ifndef NDEBUG
 			if ((*this).m_ddecl_cptr) {
 				std::string variable_name = m_ddecl_cptr->getNameAsString();
 				if ("buffer" == variable_name) {
@@ -751,17 +766,18 @@ namespace convm1 {
 					}
 				}
 			}
-			(*this).m_indirection_state_stack.at(indirection_level).set_current(new_current);
+#endif /*!NDEBUG*/
+			(*this).m_indirection_state_stack.at(indirection_level).set_current_species(new_current);
 		}
 		const std::string& indirection_current(size_t indirection_level) const {
-			return (*this).m_indirection_state_stack.at(indirection_level).current();
+			return (*this).m_indirection_state_stack.at(indirection_level).current_species();
 		}
 		bool is_an_indirect_type(size_t indirection_level = 0) const { return (m_indirection_state_stack.size() > indirection_level); }
 		bool has_been_determined_to_be_an_array(size_t indirection_level = 0) const {
 			bool retval = false;
 			assert((0 == indirection_level) || (m_indirection_state_stack.size() > indirection_level));
 			if (m_indirection_state_stack.size() > indirection_level) {
-				const auto& current_state = m_indirection_state_stack.at(indirection_level).current();
+				const auto& current_state = m_indirection_state_stack.at(indirection_level).current_species();
 				if (("inferred array" == current_state) || ("dynamic array" == current_state) || ("native array" == current_state)) {
 					retval = true;
 				}
@@ -772,12 +788,30 @@ namespace convm1 {
 			bool retval = false;
 			assert((0 == indirection_level) || (m_indirection_state_stack.size() > indirection_level));
 			if (m_indirection_state_stack.size() > indirection_level) {
-				const auto& current_state = m_indirection_state_stack.at(indirection_level).current();
+				const auto& current_state = m_indirection_state_stack.at(indirection_level).current_species();
 				if ("dynamic array" == current_state) {
 					retval = true;
 				}
 			}
 			return retval;
+		}
+		bool direct_qtype_has_been_changed() const {
+			if (m_current_direct_qtype_is_current && (m_current_direct_qtype != m_original_direct_qtype)) {
+				return true;
+			} else if (m_original_direct_qtype.getAsString() != m_current_direct_qtype_str)  {
+				return true;
+			}
+			return false;
+		}
+		bool initializer_has_been_changed() const {
+			if (m_original_initialization_has_been_noted) {
+				if (m_current_initialization_expr_str != m_original_initialization_expr_str) {
+					return true;
+				}
+			} else if ("" != m_current_initialization_expr_str)  {
+				return true;
+			}
+			return false;
 		}
 
 		const DeclaratorDecl* m_ddecl_cptr = nullptr;
@@ -787,13 +821,11 @@ namespace convm1 {
 		clang::QualType m_current_direct_qtype;
 		std::string m_current_direct_qtype_str;
 
-		std::optional<clang::SourceLocation> m_maybe_embedded_initializer_insertion_point;
-		std::string m_embedded_initializer_str;
+		std::variant<bool, clang::SourceRange, clang::SourceLocation> m_initializer_SR_or_insert_before_point;
 
-		std::string m_initializer_info_str;
+		std::string m_current_initialization_expr_str;
 		bool m_original_initialization_has_been_noted = false;
 		std::string m_original_initialization_expr_str;
-		bool m_original_initialization_expr_is_a_constructor_call = false;
 		bool m_original_source_text_has_been_noted = false;
 		std::string m_original_source_text_str;
 
@@ -1362,7 +1394,7 @@ namespace convm1 {
 		CInitializerArray2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
 				const DeclStmt* DS, const std::string& initializer_info_str) :
 					CDynamicArray2ReplacementAction(Rewrite, MR, ddecl_indirection), m_DS(DS), m_DD(ddecl_indirection.m_ddecl_cptr),
-					m_initializer_info_str(initializer_info_str) {}
+					m_current_initialization_expr_str(initializer_info_str) {}
 		virtual ~CInitializerArray2ReplacementAction() {}
 
 		virtual void do_replacement(CTUState& state1) const;
@@ -1370,7 +1402,7 @@ namespace convm1 {
 		const DeclStmt* m_DS = nullptr;
 		//const CallExpr* m_CE = nullptr;
 		const DeclaratorDecl* m_DD = nullptr;
-		std::string m_initializer_info_str;
+		std::string m_current_initialization_expr_str;
 	};
 
 	class CFreeDynamicArray2ReplacementAction : public CDynamicArray2ReplacementAction {
@@ -1477,6 +1509,31 @@ namespace convm1 {
 		return changed_flag;
 	}
 
+	int source_range_length(const clang::SourceRange& sr)
+	{
+		if (!sr.isValid()) {
+			return 0;
+		}
+		SourceLocation SL = sr.getBegin();
+		SourceLocation SLE = sr.getEnd();
+		int length = 1;
+		if (SL == SLE) {
+			return 1;
+		} else if (SL < SLE) {
+			while (SL < SLE) {
+				length += 1;
+				SL = SL.getLocWithOffset(+1);
+			}
+		} else {
+			assert(SLE < SL);
+			while (SLE < SL) {
+				length -= 1;
+				SL = SL.getLocWithOffset(-1);
+			}
+		}
+		return length;
+	}
+
 	/* A CCodeModificationActions object stores an ordered map of source location ranges to function
 	objects that modify the source text within the corresponding source range. This container is
 	used to (re)order the code modification actions such that any action for a given source range is
@@ -1503,15 +1560,16 @@ namespace convm1 {
 			}
 		}
 		std::pair<base_class::iterator, bool> add_straight_text_overwrite_action(Rewriter &Rewrite, const COrderedSourceRange& OSR, const std::string& new_text) {
-			auto lambda = [&Rewrite, OSR, new_text]() {
+			auto lambda = [this, &Rewrite, OSR, new_text]() {
 					if (OSR.isValid()) {
 						Rewrite.ReplaceText(OSR, new_text);
+						this->m_already_modified_regions.insert(OSR);
 					}
 				};
 			return add_replacement_action(OSR, lambda);
 		}
 		std::pair<base_class::iterator, bool> add_replacement_of_instances_of_given_string_action(Rewriter &Rewrite, const COrderedSourceRange& OSR, const std::string& old_string, const std::string& new_string) {
-			auto lambda = [&Rewrite, OSR, old_string, new_string]() {
+			auto lambda = [this, &Rewrite, OSR, old_string, new_string]() {
 					if (OSR.isValid()) {
 						std::string l_source_text1 = Rewrite.getRewrittenText(OSR);
 
@@ -1529,6 +1587,7 @@ namespace convm1 {
 							if (changed_flag) {
 								//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, OSR, replacement_code);
 								auto res2 = Rewrite.ReplaceText(OSR, replacement_code);
+								this->m_already_modified_regions.insert(OSR);
 							}
 						}
 					}
@@ -1536,7 +1595,7 @@ namespace convm1 {
 			return add_replacement_action(OSR, lambda);
 		}
 		std::pair<base_class::iterator, bool> add_replacement_of_whole_instances_of_given_string_action(Rewriter &Rewrite, const COrderedSourceRange& OSR, const std::string& old_string, const std::string& new_string) {
-			auto lambda = [&Rewrite, OSR, old_string, new_string]() {
+			auto lambda = [this, &Rewrite, OSR, old_string, new_string]() {
 					if (OSR.isValid()) {
 						std::string replacement_code = Rewrite.getRewrittenText(OSR);
 						bool changed_flag = replace_whole_instances_of_given_string(replacement_code, old_string, new_string);
@@ -1544,6 +1603,7 @@ namespace convm1 {
 						if (changed_flag) {
 							//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, OSR, replacement_code);
 							auto res2 = Rewrite.ReplaceText(OSR, replacement_code);
+							this->m_already_modified_regions.insert(OSR);
 						}
 					}
 				};
@@ -1558,6 +1618,8 @@ namespace convm1 {
 			}
 			return false;
 		}
+
+		COrderedRegionSet m_already_modified_regions;
 	};
 
 	class CTUState : public CCommonTUState1 {
@@ -1623,6 +1685,42 @@ namespace convm1 {
 			}
 		}
 		return SL.getLocWithOffset(offset2);
+	}
+
+	clang::SourceRange extended_to_include_west_const_if_any(Rewriter& Rewrite, const clang::SourceRange& SR) {
+		/* look for (west) const qualifier */
+		/* This implementation is currently a quick hack that doesn't work correctly
+		in all cases. */
+		auto cq_SR = SR;
+		static const std::string const_str = "const";
+		auto SL3 = get_previous_non_whitespace_SL(cq_SR.getBegin(), Rewrite);
+		clang::SourceRange SR3 { SL3.getLocWithOffset(1 - int(const_str.length())), cq_SR.getBegin().getLocWithOffset(-1) };
+		auto text3 = Rewrite.getRewrittenText(SR3);
+		if (text3.substr(0, const_str.length()) == const_str) {
+			/* (west) const qualifier found */
+			/* extend the source range(s) to include the const qualifier */
+			cq_SR.setBegin(SR3.getBegin());
+			IF_DEBUG(std::string old_text = Rewrite.getRewrittenText(cq_SR);)
+		}
+		return cq_SR;
+	}
+
+	clang::SourceRange extended_to_include_east_const_if_any(Rewriter& Rewrite, const clang::SourceRange& SR) {
+		/* look for (west) const qualifier */
+		/* This implementation is currently a quick hack that doesn't work correctly
+		in all cases. */
+		auto cq_SR = SR;
+		static const std::string const_str = "const";
+		auto SL3 = get_next_non_whitespace_SL(cq_SR.getEnd(), Rewrite);
+		clang::SourceRange SR3 { SL3, SL3.getLocWithOffset(int(const_str.length()) - 1) };
+		auto text3 = Rewrite.getRewrittenText(SR3);
+		if (const_str == text3) {
+			/* east const qualifier found */
+			/* extend the source range(s) to include the const qualifier */
+			cq_SR.setEnd(SR3.getEnd());
+			IF_DEBUG(std::string old_text = Rewrite.getRewrittenText(cq_SR);)
+		}
+		return cq_SR;
 	}
 
 	/* Finds all the matching parentheses that enclose the given source range. */
@@ -1704,7 +1802,7 @@ namespace convm1 {
 			for (size_t j = 0; j < indirection_state_stack.size(); j += 1)
 			{
 				size_t i = indirection_state_stack.size() - 1 - j;
-				bool l_changed_from_original = (indirection_state_stack[i].current() != indirection_state_stack[i].original());
+				bool l_changed_from_original = (indirection_state_stack[i].current_species() != indirection_state_stack[i].original_species());
 
 				bool is_char_star = false;
 				bool is_function_pointer = false;
@@ -1712,7 +1810,7 @@ namespace convm1 {
 				if (is_last_indirection && (direct_type_is_char_type)) {
 					is_char_star = true;
 					/* For the moment, we  leave "char *" types alone. This will changeat some point. */
-					l_changed_from_original = ("native pointer" != indirection_state_stack[i].original());
+					l_changed_from_original = ("native pointer" != indirection_state_stack[i].original_species());
 				} else if (is_last_indirection && direct_type_is_function_type) {
 					is_function_pointer = true;
 				} else if ((!is_last_indirection) && indirection_state_stack[i+1].current_is_function_type()) {
@@ -1738,7 +1836,7 @@ namespace convm1 {
 					//suffix_str = indirection_state_stack[i].current_params_string() + suffix_str;
 				}
 
-				if ("inferred array" == indirection_state_stack[i].current()) {
+				if ("inferred array" == indirection_state_stack[i].current_species()) {
 					if (is_char_star) {
 						/* We're assuming this is a null terminated string. We'll just leave it as a
 						* char* for now. At some point we'll replace it with an mse::string or whatever. */
@@ -1763,7 +1861,7 @@ namespace convm1 {
 						}
 						retval.m_action_species = "native pointer to MSE_LH_ARRAY_ITERATOR_TYPE";
 					}
-				} else if ("dynamic array" == indirection_state_stack[i].current()) {
+				} else if ("dynamic array" == indirection_state_stack[i].current_species()) {
 					if (is_char_star) {
 						/* We're assuming this is a null terminated string. We'll just leave it as a
 						* char* for now. At some point we'll replace it with an mse::string or whatever. */
@@ -1776,6 +1874,7 @@ namespace convm1 {
 						}
 						if ("Dual" == ConvertMode) {
 							prefix_str = "MSE_LH_DYNAMIC_ARRAY_ITERATOR_TYPE(";
+							//prefix_str = "MSE_LH_ARRAY_ITERATOR_TYPE(";
 							suffix_str = ") ";
 						} else if ("FasterAndStricter" == ConvertMode) {
 							//prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
@@ -1783,6 +1882,7 @@ namespace convm1 {
 							suffix_str = "> ";
 						} else {
 							prefix_str = "mse::lh::TStrongVectorIterator<";
+							//prefix_str = "mse::TNullableAnyRandomAccessIterator<";
 							suffix_str = "> ";
 						}
 						if (is_a_function_parameter) {
@@ -1791,7 +1891,7 @@ namespace convm1 {
 							retval.m_action_species = "native pointer to DYNAMIC_ARRAY_ITERATOR_TYPE";
 						}
 					}
-				} else if ("native array" == indirection_state_stack[i].current()) {
+				} else if ("native array" == indirection_state_stack[i].current_species()) {
 					std::string size_text = indirection_state_stack[i].m_array_size_expr;
 
 					if (is_char_star) {
@@ -1841,7 +1941,7 @@ namespace convm1 {
 							}
 						}
 					}
-				} else if ("native pointer" == indirection_state_stack[i].current()) {
+				} else if ("native pointer" == indirection_state_stack[i].current_species()) {
 					if (is_char_star) {
 						/* We're assuming this is a null terminated string. We'll just leave it as a
 						* char* for now. At some point we'll replace it with an mse::string or whatever. */
@@ -1856,8 +1956,18 @@ namespace convm1 {
 					} else {
 						if (false/*for now*/) {
 							l_changed_from_original = true;
-							prefix_str = "mse::TAnyPointer<";
-							suffix_str = "> ";
+
+							if ("Dual" == ConvertMode) {
+								prefix_str = "MSE_LH_POINTER_TYPE(";
+								suffix_str = ") ";
+							} else if ("FasterAndStricter" == ConvertMode) {
+								prefix_str = "mse::TXScopeAnyPointer<";
+								suffix_str = "> ";
+							} else {
+								prefix_str = "mse::TNullableAnyPointer<";
+								suffix_str = "> ";
+							}
+
 							retval.m_action_species = "native pointer to TAnyPointer";
 						} else {
 							//prefix_str = "";
@@ -1865,27 +1975,35 @@ namespace convm1 {
 							retval.m_action_species = "native pointer";
 						}
 					}
-				} else if ("malloc target" == indirection_state_stack[i].current()) {
+				} else if ("malloc target" == indirection_state_stack[i].current_species()) {
 					if (true) {
 						/* We'll just leaving it as a native pointer for now. Ultimately, this won't be the case. */
-						if ("native pointer" == indirection_state_stack[i].original()) {
+						if ("native pointer" == indirection_state_stack[i].original_species()) {
 							l_changed_from_original = false;
 						}
 						//prefix_str = "";
 						suffix_str = "* ";
 					} else {
 						if ("Dual" == ConvertMode) {
-							prefix_str = "MSE_LH_ARRAY_ITERATOR_TYPE(";
+							//prefix_str = "MSE_LH_ALLOC_POINTER_TYPE(";
+							prefix_str = "MSE_LH_POINTER_TYPE(";
 							suffix_str = ") ";
 						} else if ("FasterAndStricter" == ConvertMode) {
-							prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
+							prefix_str = "mse::TRefCountingPointer<";
 							suffix_str = "> ";
 						} else {
-							prefix_str = "mse::TNullableAnyRandomAccessIterator<";
+							prefix_str = "mse::TNullableAnyPointer<";
 							suffix_str = "> ";
 						}
 					}
 					retval.m_action_species = "malloc target";
+				} else if ("native reference" == indirection_state_stack[i].current_species()) {
+					{
+						l_changed_from_original = false;
+						//prefix_str = "";
+						suffix_str = "& ";
+						retval.m_action_species = "native reference";
+					}
 				} else {
 					int q = 5;
 				}
@@ -1949,35 +2067,36 @@ namespace convm1 {
 											int q = 3;
 										}
 										if (0 == i) {
-											/* This is the last "indirection" to be processed. Now we're going
-											to "blank out"/erase any parentheses and contained items ((pointer)
-											asterisks, bracketed array size expressions, const qualifiers, etc)
-											that are enclosing the variable/field name. Their semantics should
-											now be expressed in the new converted types. */
-											auto SL2 = enclosing_parentheses1.back().getBegin();
-											while (SL2 < name_SR.getBegin()) {
-												/* "Blanking out"/erasing enclosing items to the left of the
-												variable/field name. */
-												std::string text1 = Rewrite.getRewrittenText(clang::SourceRange{ SL2, SL2 });
-												for (auto& ch : text1) {
-													ch = ' ';
+											if (ConvertToSCPP) {
+												/* This is the last "indirection" to be processed. Now we're going
+												to "blank out"/erase any parentheses and contained items ((pointer)
+												asterisks, bracketed array size expressions, const qualifiers, etc)
+												that are enclosing the variable/field name. Their semantics should
+												now be expressed in the new converted types. */
+												auto SL2 = enclosing_parentheses1.back().getBegin();
+												while (SL2 < name_SR.getBegin()) {
+													/* "Blanking out"/erasing enclosing items to the left of the
+													variable/field name. */
+													std::string text1 = Rewrite.getRewrittenText(clang::SourceRange{ SL2, SL2 });
+													for (auto& ch : text1) {
+														ch = ' ';
+													}
+													Rewrite.ReplaceText(clang::SourceRange{ SL2, SL2 }, text1);
+													SL2 = SL2.getLocWithOffset(+1);
 												}
-												Rewrite.ReplaceText(clang::SourceRange{ SL2, SL2 }, text1);
-												SL2 = SL2.getLocWithOffset(+1);
-											}
-											SL2 = name_SR.getEnd().getLocWithOffset(+1);
-											while (!(enclosing_parentheses1.back().getEnd() < SL2)) {
-												/* "Blanking out"/erasing enclosing items to the right of the
-												variable/field name. */
-												std::string text1 = Rewrite.getRewrittenText(clang::SourceRange{ SL2, SL2 });
-												for (auto& ch : text1) {
-													ch = ' ';
+												SL2 = name_SR.getEnd().getLocWithOffset(+1);
+												while (!(enclosing_parentheses1.back().getEnd() < SL2)) {
+													/* "Blanking out"/erasing enclosing items to the right of the
+													variable/field name. */
+													std::string text1 = Rewrite.getRewrittenText(clang::SourceRange{ SL2, SL2 });
+													for (auto& ch : text1) {
+														ch = ' ';
+													}
+													Rewrite.ReplaceText(clang::SourceRange{ SL2, SL2 }, text1);
+													SL2 = SL2.getLocWithOffset(+1);
 												}
-												Rewrite.ReplaceText(clang::SourceRange{ SL2, SL2 }, text1);
-												SL2 = SL2.getLocWithOffset(+1);
+												IF_DEBUG(enclosing_parentheses_text = Rewrite.getRewrittenText(enclosing_parentheses1.back());)
 											}
-											IF_DEBUG(enclosing_parentheses_text = Rewrite.getRewrittenText(enclosing_parentheses1.back());)
-											int q = 5;
 										}
 									} else {
 										auto new_SLE = name_SR.getBegin().getLocWithOffset(-1);
@@ -2046,29 +2165,11 @@ namespace convm1 {
 							auto& cq_pointee_SR = pointee_maybe_stored_source_range_including_any_const_qualifier.value();
 
 							if (pointee_including_any_const_qualifier_needs_processing) {
-								{
-									/* look for (west) const qualifier */
-									/* This implementation is currently a quick hack that doesn't work correctly
-									in all cases. */
-									static const std::string const_str = "const";
-									auto SL3 = get_previous_non_whitespace_SL(cq_pointee_SR.getBegin(), Rewrite);
-									clang::SourceRange SR3 { SL3.getLocWithOffset(1 - int(const_str.length())), cq_pointee_SR.getBegin().getLocWithOffset(-1) };
-									const std::string prefix_and_const_str = indirection_state_stack[i].m_prefix_str + const_str;
-									auto text3 = Rewrite.getRewrittenText(SR3);
-									if (text3.substr(0, const_str.length()) == const_str) {
-										/* (west) const qualifier found */
-										if (SR.getBegin() == cq_pointee_SR.getBegin()) {
-											/* This (west) const qualifier applies to the pointee (or the pointee's pointee, or ...) */
-											/* extend the source range(s) to include the const qualifier */
-											cq_pointee_SR.setBegin(SR3.getBegin());
-											old_pointee_text = Rewrite.getRewrittenText(cq_pointee_SR);
-
-											if (cq_pointee_SR.getBegin() < SR.getBegin()) {
-												SR.setBegin(cq_pointee_SR.getBegin());
-												old_text = Rewrite.getRewrittenText(SR);
-											}
-										}
-									}
+								cq_pointee_SR = extended_to_include_west_const_if_any(Rewrite, cq_pointee_SR);
+								old_pointee_text = Rewrite.getRewrittenText(cq_pointee_SR);
+								if (cq_pointee_SR.getBegin() < SR.getBegin()) {
+									SR.setBegin(cq_pointee_SR.getBegin());
+									old_text = Rewrite.getRewrittenText(SR);
 								}
 							}
 
@@ -2131,15 +2232,10 @@ namespace convm1 {
 								if (pointee_including_any_const_qualifier_needs_processing
 									&& pointee_typeLoc.getType().isConstQualified()) {
 
-									/* look for (east) const qualifier */
-									/* This implementation is currently a quick hack that doesn't work correctly
-									in all cases. */
-									static const std::string const_str = "const";
-									auto index = old_suffix_text.find_last_of(const_str);
-									if (std::string::npos != index) {
+									const auto tmp_SR = extended_to_include_east_const_if_any(Rewrite, lexical_suffix_SR);
+									if (!(tmp_SR == lexical_suffix_SR)) {
 										pointee_east_const_qualifier_found = true;
-										/* extend the source range to include the const qualifier */
-										lexical_suffix_SR.setBegin(lexical_suffix_SR.getBegin().getLocWithOffset(index + const_str.length()));
+										lexical_suffix_SR = tmp_SR;
 									}
 								}
 							}
@@ -2160,7 +2256,7 @@ namespace convm1 {
 
 					if (SR.isValid()) {
 
-						if ("native array" == indirection_state_stack[i].current()) {
+						if ("native array" == indirection_state_stack[i].current_species()) {
 							/* Currently, in the transformation of native array declarations, we blank out
 							the original bracketed size expression and add the size expression to the suffix
 							of the new type (essentially moving the array size expression from the right
@@ -2227,7 +2323,7 @@ namespace convm1 {
 									int q = 3;
 								}
 							}
-						} else if ("native pointer" == indirection_state_stack[i].current()) {
+						} else if ("native pointer" == indirection_state_stack[i].current_species()) {
 							if (is_function_pointer) {
 								auto functionProtoTypeLoc = pointee_typeLoc.getAsAdjusted<clang::FunctionProtoTypeLoc>();
 								if (true && functionProtoTypeLoc) {
@@ -2243,26 +2339,42 @@ namespace convm1 {
 											pointee_params_current_str = parens_text;
 											//pointee_params_current_str = "[params placeholder]";
 
-											/* We've stored the function parameters as a string. Now we're going
-											to "blank out"/erase the original source text of the parameters. */
-											auto SL2 = parens_SR.getBegin();
-											while (!(parens_SR.getEnd() < SL2)) {
-												std::string text1 = Rewrite.getRewrittenText(clang::SourceRange{ SL2, SL2 });
-												for (auto& ch : text1) {
-													ch = ' ';
+											if (ConvertToSCPP) {
+												/* We've stored the function parameters as a string. Now we're going
+												to "blank out"/erase the original source text of the parameters. */
+												auto SL2 = parens_SR.getBegin();
+												while (!(parens_SR.getEnd() < SL2)) {
+													std::string text1 = Rewrite.getRewrittenText(clang::SourceRange{ SL2, SL2 });
+													for (auto& ch : text1) {
+														ch = ' ';
+													}
+													Rewrite.ReplaceText(clang::SourceRange{ SL2, SL2 }, text1);
+													SL2 = SL2.getLocWithOffset(+1);
 												}
-												Rewrite.ReplaceText(clang::SourceRange{ SL2, SL2 }, text1);
-												SL2 = SL2.getLocWithOffset(+1);
+												IF_DEBUG(std::string parens_text2 = Rewrite.getRewrittenText(parens_SR));
 											}
-											IF_DEBUG(std::string parens_text2 = Rewrite.getRewrittenText(parens_SR));
-											int q = 5;
 										}
 										//suffix_str = pointee_params_current_str + suffix_str;
 									}
 								}
 							}
 						}
+					}
 
+#define REGOBJ_TEST1_FLAG false
+
+					if (!is_argv) {
+						if (REGOBJ_TEST1_FLAG && ("" == post_name_suffix_str)) {
+							if ("native reference" != indirection_state_stack[i].current_species()) {
+								prefix_str = "mse::TRegisteredObj<" + prefix_str;
+								suffix_str = suffix_str + " >";
+							} else {
+								int q = 5;
+							}
+						}
+					}
+
+					if (SR.isValid()) {
 						if (state1_ptr) {
 							auto& state1 = *state1_ptr;
 							suffix_str = indirection_state_stack[i].m_params_current_str + suffix_str;
@@ -2270,17 +2382,17 @@ namespace convm1 {
 								indirection_state_stack[i].m_suffix_str = suffix_str;
 								if (maybe_lexical_suffix_SR.has_value()) {
 									//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, maybe_lexical_suffix_SR.value(), suffix_str);
-									indirection_state_stack[i].m_suffix_SR_or_insertion_point = maybe_lexical_suffix_SR.value();
+									indirection_state_stack[i].m_suffix_SR_or_insert_before_point = maybe_lexical_suffix_SR.value();
 								} else {
-									indirection_state_stack[i].m_suffix_SR_or_insertion_point = SR.getEnd().getLocWithOffset(+1);
+									indirection_state_stack[i].m_suffix_SR_or_insert_before_point = SR.getEnd().getLocWithOffset(+1);
 								}
 
 								indirection_state_stack[i].m_prefix_str = prefix_str;
 								if (maybe_prefix_SR.has_value()) {
 									//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, maybe_prefix_SR.value(), prefix_str);
-									indirection_state_stack[i].m_prefix_SR_or_insertion_point = maybe_prefix_SR.value();
+									indirection_state_stack[i].m_prefix_SR_or_insert_before_point = maybe_prefix_SR.value();
 								} else {
-									indirection_state_stack[i].m_prefix_SR_or_insertion_point = SR.getBegin();
+									indirection_state_stack[i].m_prefix_SR_or_insert_before_point = SR.getBegin();
 								}
 
 								auto arrayTypeLoc = typeLoc.getAsAdjusted<clang::ArrayTypeLoc>();
@@ -2341,7 +2453,7 @@ namespace convm1 {
 	public:
 		std::string m_replacement_code;
 		std::string m_action_species;
-		bool m_changed_from_original_type = false;
+		bool m_changed_from_original = false;
 		bool m_individual_from_compound_declaration = false;
 	};
 
@@ -2395,8 +2507,7 @@ namespace convm1 {
 		bool is_a_function_parameter = false;
 		bool is_member = false;
 		bool is_vardecl = false;
-		std::string initialization_expr_str;
-		bool initialization_expr_is_a_constructor_call = false;
+		std::string initialization_expr_str = ddcs_ref.m_current_initialization_expr_str;
 		bool is_function = DD->isFunctionOrFunctionTemplate();
 
 		auto VD = dyn_cast<const clang::VarDecl>(DD);
@@ -2414,28 +2525,22 @@ namespace convm1 {
 			}
 			is_a_function_parameter = (VD->isLocalVarDeclOrParm() && (!VD->isLocalVarDecl()));
 
-			if (ddcs_ref.m_original_initialization_has_been_noted) {
-				initialization_expr_str = ddcs_ref.m_original_initialization_expr_str;
-				if ("" != ddcs_ref.m_original_initialization_expr_str) {
-					int q = 5;
-				}
-			} else {
+			if (!ddcs_ref.m_original_initialization_has_been_noted) {
 				if (VD->hasInit()) {
 					auto pInitExpr = VD->getInit();
 					if (pInitExpr) {
 						auto init_expr_source_range = nice_source_range(pInitExpr->getSourceRange(), Rewrite);
 						if (init_expr_source_range.isValid()) {
 							initialization_expr_str = Rewrite.getRewrittenText(init_expr_source_range);
-							if (pInitExpr->IgnoreImplicit()->getStmtClass() == pInitExpr->CXXConstructExprClass) {
-								initialization_expr_is_a_constructor_call = true;
-								if (string_begins_with(initialization_expr_str, variable_name)) {
-									initialization_expr_str = initialization_expr_str.substr(variable_name.length());
-								} else {
-									int q = 5;
-								}
-							} else if (variable_name == initialization_expr_str) {
-								/* Does this ever occur? */
+							if (variable_name == initialization_expr_str) {
+								/* We encountered a weird bug where the initialization expression sometimes
+								* was indicated as being present and the source range set to the variable name
+								* when actually no initialization expression was present in the original source. */
 								initialization_expr_str = "";
+							} else {
+								ddcs_ref.m_initializer_SR_or_insert_before_point = init_expr_source_range;
+								ddcs_ref.m_original_initialization_expr_str = initialization_expr_str;
+								ddcs_ref.m_current_initialization_expr_str = initialization_expr_str;
 							}
 						} else {
 							int q = 3;
@@ -2443,8 +2548,6 @@ namespace convm1 {
 					} else {
 						int q = 3;
 					}
-					ddcs_ref.m_original_initialization_expr_str = initialization_expr_str;
-					ddcs_ref.m_original_initialization_expr_is_a_constructor_call = initialization_expr_is_a_constructor_call;
 				}
 				ddcs_ref.m_original_initialization_has_been_noted = true;
 			}
@@ -2453,12 +2556,7 @@ namespace convm1 {
 			if (FD) {
 				is_member = true;
 
-				if (ddcs_ref.m_original_initialization_has_been_noted) {
-					initialization_expr_str = ddcs_ref.m_original_initialization_expr_str;
-					if ("" != ddcs_ref.m_original_initialization_expr_str) {
-						int q = 5;
-					}
-				} else {
+				if (!ddcs_ref.m_original_initialization_has_been_noted) {
 					if (FD->hasInClassInitializer()) {
 						auto pInitExpr = FD->getInClassInitializer();
 						if (pInitExpr) {
@@ -2470,6 +2568,10 @@ namespace convm1 {
 									* was indicated as being present and the source range set to the variable name
 									* when actually no initialization expression was present in the original source. */
 									initialization_expr_str = "";
+								} else {
+									ddcs_ref.m_initializer_SR_or_insert_before_point = init_expr_source_range;
+									ddcs_ref.m_original_initialization_expr_str = initialization_expr_str;
+									ddcs_ref.m_current_initialization_expr_str = initialization_expr_str;
 								}
 							} else {
 								int q = 3;
@@ -2477,7 +2579,6 @@ namespace convm1 {
 						} else {
 							int q = 3;
 						}
-						ddcs_ref.m_original_initialization_expr_str = initialization_expr_str;
 					}
 					ddcs_ref.m_original_initialization_has_been_noted = true;
 				}
@@ -2577,7 +2678,7 @@ namespace convm1 {
 		}
 
 		bool direct_type_is_char_type = (("char" == direct_qtype_str) || ("const char" == direct_qtype_str));
-		bool changed_from_original_type = false;
+		bool changed_from_original = false;
 		std::string replacement_code;
 		std::string prefix_str;
 		std::string suffix_str;
@@ -2594,25 +2695,35 @@ namespace convm1 {
 		suffix_str = res4.m_suffix_str;
 		post_name_suffix_str = res4.m_post_name_suffix_str;
 
-		bool discard_initializer_option_flag = (std::string::npos != options_str.find("[discard-initializer]"));
-		std::string initializer_append_str;
-		if (!discard_initializer_option_flag) {
-			initializer_append_str = ddcs_ref.m_initializer_info_str;
-			if (("" == initializer_append_str) && ("" != initialization_expr_str)) {
-				if (ddcs_ref.m_original_initialization_expr_is_a_constructor_call) {
-					initializer_append_str = initialization_expr_str;
+		if ((!FND) && ("" == post_name_suffix_str)) {
+			bool is_char_star = false;
+			if (("char" == direct_qtype_str) || ("const char" == direct_qtype_str)) {
+				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+					is_char_star = true;
+				}
+			}
+			if (!is_char_star) {
+				if (REGOBJ_TEST1_FLAG && (!string_begins_with(ddcs_ref.m_current_direct_qtype_str, "mse::TRegisteredObj<"))) {
+					direct_qtype_str = "mse::TRegisteredObj<" + direct_qtype_str + " >";
+					ddcs_ref.set_current_direct_qtype_str("mse::TRegisteredObj<" + ddcs_ref.m_current_direct_qtype_str + " >");
 				} else {
-					initializer_append_str = " = " + initialization_expr_str;
+					int q = 5;
 				}
 			}
 		}
 
+		bool discard_initializer_option_flag = (std::string::npos != options_str.find("[discard-initializer]"));
+		std::string initializer_append_str;
+		if ((!discard_initializer_option_flag) && ("" != initialization_expr_str)) {
+			initializer_append_str = " = " + initialization_expr_str;
+		}
+
 		bool individual_from_compound_declaration = false;
 		//if (("" != prefix_str) || ("" != suffix_str)/* || ("" != post_name_suffix_str)*/)
-		if (res4.m_changed_from_original) {
-			changed_from_original_type = true;
-		} else if (("" != ddcs_ref.m_initializer_info_str) || (discard_initializer_option_flag)) {
-			changed_from_original_type = true;
+		if (res4.m_changed_from_original || ddcs_ref.direct_qtype_has_been_changed()) {
+			changed_from_original = true;
+		} else if (ddcs_ref.initializer_has_been_changed() || (discard_initializer_option_flag)) {
+			changed_from_original = true;
 		} else if (true && (2 <= IndividualDeclaratorDecls(DD, Rewrite).size())) {
 			/* There is more than one declaration in the declaration statement. We split
 			* them so that each has their own separate declaration statement. This counts
@@ -2622,13 +2733,13 @@ namespace convm1 {
 
 		if (FND) {
 			assert(type_is_function_type);
-			if (changed_from_original_type || individual_from_compound_declaration) {
+			if (changed_from_original || individual_from_compound_declaration) {
 				replacement_code += prefix_str + direct_qtype_str + suffix_str;
 			} else {
 				replacement_code = ddcs_ref.m_function_return_type_original_source_text_str;
 			}
 		} else {
-			if (changed_from_original_type || individual_from_compound_declaration) {
+			if (changed_from_original || individual_from_compound_declaration) {
 				if (is_extern) {
 					if ("" == ddcs_ref.m_original_initialization_expr_str) {
 						replacement_code += "extern ";
@@ -2654,7 +2765,7 @@ namespace convm1 {
 		}
 
 		retval.m_replacement_code = replacement_code;
-		retval.m_changed_from_original_type = changed_from_original_type;
+		retval.m_changed_from_original = changed_from_original;
 		retval.m_individual_from_compound_declaration = individual_from_compound_declaration;
 		return retval;
 	}
@@ -2709,8 +2820,7 @@ namespace convm1 {
 		bool is_a_function_parameter = false;
 		bool is_member = false;
 		bool is_vardecl = false;
-		std::string initialization_expr_str;
-		bool initialization_expr_is_a_constructor_call = false;
+		std::string initialization_expr_str = ddcs_ref.m_current_initialization_expr_str;
 		bool is_function = DD->isFunctionOrFunctionTemplate();
 
 		auto VD = dyn_cast<const clang::VarDecl>(DD);
@@ -2729,28 +2839,22 @@ namespace convm1 {
 			}
 			is_a_function_parameter = (VD->isLocalVarDeclOrParm() && (!VD->isLocalVarDecl()));
 
-			if (ddcs_ref.m_original_initialization_has_been_noted) {
-				initialization_expr_str = ddcs_ref.m_original_initialization_expr_str;
-				if ("" != ddcs_ref.m_original_initialization_expr_str) {
-					int q = 5;
-				}
-			} else {
+			if (!ddcs_ref.m_original_initialization_has_been_noted) {
 				if (VD->hasInit()) {
 					auto pInitExpr = VD->getInit();
 					if (pInitExpr) {
 						auto init_expr_source_range = nice_source_range(pInitExpr->getSourceRange(), Rewrite);
 						if (init_expr_source_range.isValid()) {
 							initialization_expr_str = Rewrite.getRewrittenText(init_expr_source_range);
-							if (pInitExpr->IgnoreImplicit()->getStmtClass() == pInitExpr->CXXConstructExprClass) {
-								initialization_expr_is_a_constructor_call = true;
-								if (string_begins_with(initialization_expr_str, variable_name)) {
-									initialization_expr_str = initialization_expr_str.substr(variable_name.length());
-								} else {
-									int q = 5;
-								}
-							} else if (variable_name == initialization_expr_str) {
-								/* Does this ever occur? */
+							if (variable_name == initialization_expr_str) {
+								/* We encountered a weird bug where the initialization expression sometimes
+								* was indicated as being present and the source range set to the variable name
+								* when actually no initialization expression was present in the original source. */
 								initialization_expr_str = "";
+							} else {
+								ddcs_ref.m_initializer_SR_or_insert_before_point = init_expr_source_range;
+								ddcs_ref.m_original_initialization_expr_str = initialization_expr_str;
+								ddcs_ref.m_current_initialization_expr_str = initialization_expr_str;
 							}
 						} else {
 							int q = 3;
@@ -2758,8 +2862,6 @@ namespace convm1 {
 					} else {
 						int q = 3;
 					}
-					ddcs_ref.m_original_initialization_expr_str = initialization_expr_str;
-					ddcs_ref.m_original_initialization_expr_is_a_constructor_call = initialization_expr_is_a_constructor_call;
 				}
 				ddcs_ref.m_original_initialization_has_been_noted = true;
 			}
@@ -2767,12 +2869,7 @@ namespace convm1 {
 			{
 				is_member = true;
 
-				if (ddcs_ref.m_original_initialization_has_been_noted) {
-					initialization_expr_str = ddcs_ref.m_original_initialization_expr_str;
-					if ("" != ddcs_ref.m_original_initialization_expr_str) {
-						int q = 5;
-					}
-				} else {
+				if (!ddcs_ref.m_original_initialization_has_been_noted) {
 					if (FD->hasInClassInitializer()) {
 						auto pInitExpr = FD->getInClassInitializer();
 						if (pInitExpr) {
@@ -2784,6 +2881,10 @@ namespace convm1 {
 									* was indicated as being present and the source range set to the variable name
 									* when actually no initialization expression was present in the original source. */
 									initialization_expr_str = "";
+								} else {
+									ddcs_ref.m_initializer_SR_or_insert_before_point = init_expr_source_range;
+									ddcs_ref.m_original_initialization_expr_str = initialization_expr_str;
+									ddcs_ref.m_current_initialization_expr_str = initialization_expr_str;
 								}
 							} else {
 								int q = 3;
@@ -2791,7 +2892,6 @@ namespace convm1 {
 						} else {
 							int q = 3;
 						}
-						ddcs_ref.m_original_initialization_expr_str = initialization_expr_str;
 					}
 					ddcs_ref.m_original_initialization_has_been_noted = true;
 				}
@@ -2891,7 +2991,7 @@ namespace convm1 {
 		}
 
 		bool direct_type_is_char_type = (("char" == direct_qtype_str) || ("const char" == direct_qtype_str));
-		bool changed_from_original_type = false;
+		bool changed_from_original = false;
 		std::string replacement_code;
 		std::string prefix_str;
 		std::string suffix_str;
@@ -2930,25 +3030,35 @@ namespace convm1 {
 		suffix_str = res4.m_suffix_str;
 		post_name_suffix_str = res4.m_post_name_suffix_str;
 
-		bool discard_initializer_option_flag = (std::string::npos != options_str.find("[discard-initializer]"));
-		std::string initializer_append_str;
-		if (!discard_initializer_option_flag) {
-			initializer_append_str = ddcs_ref.m_initializer_info_str;
-			if (("" == initializer_append_str) && ("" != initialization_expr_str)) {
-				if (ddcs_ref.m_original_initialization_expr_is_a_constructor_call) {
-					initializer_append_str = initialization_expr_str;
+		if ((!FND) && ("" == post_name_suffix_str)) {
+			bool is_char_star = false;
+			if (("char" == direct_qtype_str) || ("const char" == direct_qtype_str)) {
+				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+					is_char_star = true;
+				}
+			}
+			if (!is_char_star) {
+				if (REGOBJ_TEST1_FLAG && (!string_begins_with(ddcs_ref.m_current_direct_qtype_str, "mse::TRegisteredObj<"))) {
+					direct_qtype_str = "mse::TRegisteredObj<" + direct_qtype_str + " >";
+					ddcs_ref.set_current_direct_qtype_str("mse::TRegisteredObj<" + ddcs_ref.m_current_direct_qtype_str + " >");
 				} else {
-					initializer_append_str = " = " + initialization_expr_str;
+					int q = 5;
 				}
 			}
 		}
 
+		bool discard_initializer_option_flag = (std::string::npos != options_str.find("[discard-initializer]"));
+		std::string initializer_append_str;
+		if ((!discard_initializer_option_flag) && ("" != initialization_expr_str)) {
+			initializer_append_str = " = " + initialization_expr_str;
+		}
+
 		bool individual_from_compound_declaration = false;
 		//if (("" != prefix_str) || ("" != suffix_str)/* || ("" != post_name_suffix_str)*/)
-		if (res4.m_changed_from_original) {
-			changed_from_original_type = true;
-		} else if (("" != ddcs_ref.m_initializer_info_str) || (discard_initializer_option_flag)) {
-			changed_from_original_type = true;
+		if (res4.m_changed_from_original || ddcs_ref.direct_qtype_has_been_changed()) {
+			changed_from_original = true;
+		} else if (ddcs_ref.initializer_has_been_changed() || (discard_initializer_option_flag)) {
+			changed_from_original = true;
 		} else if (true && (2 <= IndividualDeclaratorDecls(DD, Rewrite).size())) {
 			/* There is more than one declaration in the declaration statement. We split
 			* them so that each has their own separate declaration statement. This counts
@@ -2958,13 +3068,13 @@ namespace convm1 {
 
 		if (FND) {
 			assert(type_is_function_type);
-			if (changed_from_original_type || individual_from_compound_declaration) {
+			if (changed_from_original || individual_from_compound_declaration) {
 				replacement_code += prefix_str + direct_qtype_str + suffix_str;
 			} else {
 				replacement_code = ddcs_ref.m_function_return_type_original_source_text_str;
 			}
 		} else {
-			if (changed_from_original_type || individual_from_compound_declaration) {
+			if (changed_from_original || individual_from_compound_declaration) {
 				if (is_extern) {
 					if ("" == ddcs_ref.m_original_initialization_expr_str) {
 						replacement_code += "extern ";
@@ -2984,53 +3094,45 @@ namespace convm1 {
 				}
 
 				replacement_code += initializer_append_str;
-
-				bool discard_initializer_option_flag = (std::string::npos != options_str.find("[discard-initializer]"));
-				std::string initializer_str;
-				if (!discard_initializer_option_flag) {
-					initializer_str = ddcs_ref.m_initializer_info_str;
-					if (("" == initializer_str) && ("" != initialization_expr_str)) {
-						initializer_str = initialization_expr_str;
-					}
-					if (("" != initializer_str) && (ddcs_ref.m_original_initialization_expr_str != initializer_str)) {
-						std::optional<clang::SourceRange> maybe_init_SR;
-						if (VD) {
-							auto init_EX = VD->getInit();
-							if (init_EX) {
-								maybe_init_SR = nice_source_range(init_EX->getSourceRange(), Rewrite);
-							}
-						} else if (FD) {
-							if (FD->hasInClassInitializer()) {
-								auto pInitExpr = FD->getInClassInitializer();
-								if (pInitExpr) {
-									maybe_init_SR = nice_source_range(pInitExpr->getSourceRange(), Rewrite);
-								}
-							}
-						}
-						static const std::string assign_str = " = ";
-						if (maybe_init_SR.has_value()) {
-							IF_DEBUG(std::string old_init_text = Rewrite.getRewrittenText(maybe_init_SR.value());)
-							if (string_begins_with(initializer_str, assign_str)) {
-								initializer_str = initializer_str.substr(assign_str.length());
-							}
-							state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, maybe_init_SR.value(), initializer_str);
-						} else {
-							if (!string_begins_with(initializer_str, assign_str)) {
-								initializer_str = " = " + initializer_str;
-							}
-							ddcs_ref.m_embedded_initializer_str = initializer_str;
-							ddcs_ref.m_maybe_embedded_initializer_insertion_point
-								= ddcs_ref.m_ddecl_cptr->getSourceRange().getEnd().getLocWithOffset(+1);
-						}
-					}
-				}
 			} else {
 				replacement_code = ddcs_ref.m_original_source_text_str;
+			}
+
+			if (0 == ddcs_ref.m_indirection_state_stack.size()) {
+				/* This type is not a (currently) recognized "indirect" type (i.e. a pointer or
+				array, etc.). */
+				if (ddcs_ref.direct_qtype_has_been_changed()) {
+					/* It seems the type component of a declaration can only be reliably (individually
+					/surgically) replaced/modified once (at most), and so is handled at the end of
+					processing (in the EndSourceFileAction() function). Here we're noting the source
+					text location of the type to be replaced. */
+
+					assert(ddcs_ref.m_ddecl_cptr);
+					auto directTypeLoc = ddcs_ref.m_ddecl_cptr->getTypeSourceInfo()->getTypeLoc();
+					auto directTypeSR = nice_source_range(directTypeLoc.getSourceRange(), Rewrite);
+					IF_DEBUG(auto old_text1 = Rewrite.getRewrittenText(directTypeSR);)
+					auto cq_direct_type_SR = extended_to_include_west_const_if_any(Rewrite, directTypeSR);
+					IF_DEBUG(auto old_text2 = Rewrite.getRewrittenText(cq_direct_type_SR);)
+					cq_direct_type_SR = extended_to_include_east_const_if_any(Rewrite, cq_direct_type_SR);
+					IF_DEBUG(auto old_text3 = Rewrite.getRewrittenText(cq_direct_type_SR);)
+
+					auto& direct_type_state = ddcs_ref.m_indirection_state_stack.m_direct_type_state;
+					direct_type_state.m_maybe_source_range_including_any_const_qualifier = cq_direct_type_SR;
+					direct_type_state.m_maybe_source_range = directTypeSR;
+					direct_type_state.m_maybe_typeLoc = directTypeLoc;
+				} else {
+					int q = 7;
+				}
+			} else {
+				/* In this case, where the declaration type is an indirect type, the direct type
+				(component of the indirect type) can only be reliably replaced/modified once (at
+				most), and so is handled at the end of processing (in the EndSourceFileAction()
+				function). */
 			}
 		}
 
 		retval.m_replacement_code = replacement_code;
-		retval.m_changed_from_original_type = changed_from_original_type;
+		retval.m_changed_from_original = changed_from_original;
 		retval.m_individual_from_compound_declaration = individual_from_compound_declaration;
 		return retval;
 	}
@@ -3052,7 +3154,7 @@ namespace convm1 {
 		}
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":540:")) {
+		if (std::string::npos != debug_source_location_str.find(":2612:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -3065,7 +3167,7 @@ namespace convm1 {
 			return;
 		}
 
-		bool changed_from_original_type = false;
+		bool changed_from_original = false;
 
 		assert(ddecl.isFunctionOrFunctionTemplate() == QT->isFunctionType());
 		if ((TP->isFunctionType()) || (false)) {
@@ -3083,7 +3185,7 @@ namespace convm1 {
 				//declaration_modifier_helper1(&ddecl, Rewrite, state1, state1.m_ddecl_conversion_state_map, options_str);
 
 				auto res = generate_declaration_replacement_code(&ddecl, Rewrite, state1.m_ddecl_conversion_state_map, options_str);
-				changed_from_original_type |= res.m_changed_from_original_type;
+				changed_from_original |= res.m_changed_from_original;
 
 				static const std::string const_space_str = "const ";
 				if (string_begins_with(res.m_replacement_code, const_space_str)) {
@@ -3094,7 +3196,7 @@ namespace convm1 {
 				}
 
 				if (ConvertToSCPP && return_type_source_range.isValid() && (1 <= res.m_replacement_code.size())
-						&& changed_from_original_type) {
+						&& changed_from_original) {
 					IF_DEBUG(std::string code_to_be_replaced = return_type_source_range.isValid() ? Rewrite.getRewrittenText(return_type_source_range) : std::string("[invalid]");)
 					state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, return_type_source_range, res.m_replacement_code);
 					//auto res2 = Rewrite.ReplaceText(return_type_source_range, res.m_replacement_code);
@@ -3134,7 +3236,7 @@ namespace convm1 {
 					std::vector<std::string> action_species_list;
 					for (const auto& ddecl_cref : ddecls) {
 						auto res = generate_declaration_replacement_code(ddecl_cref, Rewrite, state1.m_ddecl_conversion_state_map, options_str);
-						changed_from_original_type |= res.m_changed_from_original_type;
+						changed_from_original |= res.m_changed_from_original;
 
 						action_species_list.push_back(res.m_action_species);
 						replacement_code += res.m_replacement_code;
@@ -3151,8 +3253,19 @@ namespace convm1 {
 
 					IF_DEBUG(std::string last_decl_source_text = last_decl_source_range.isValid() ? Rewrite.getRewrittenText(last_decl_source_range) : std::string("[invalid]");)
 
+					{
+						auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
+						auto ddcs_map_iter = res1.first;
+						auto& ddcs_ref = (*ddcs_map_iter).second;
+						/* In this case we're overwriting the whole declaration and including any
+						initializers, so we want to remove any direction to append the initializer to
+						the end of the declaration. */
+						//ddcs_ref.m_maybe_embedded_initializer_insert_before_point = {};
+						ddcs_ref.m_initializer_SR_or_insert_before_point = {};
+					}
+
 					if (ConvertToSCPP && last_decl_source_range.isValid() && (3 <= replacement_code.size())
-							&& changed_from_original_type) {
+							&& changed_from_original) {
 						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, last_decl_source_range, replacement_code);
 						//auto res2 = Rewrite.ReplaceText(last_decl_source_range, replacement_code);
 					} else {
@@ -3204,11 +3317,11 @@ namespace convm1 {
 		bool update_declaration_flag = res1.second;
 
 		if (ddcs_ref.m_indirection_state_stack.size() >= ddecl_indirection.m_indirection_level) {
-			if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(ddecl_indirection.m_indirection_level).current()) {
+			if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(ddecl_indirection.m_indirection_level).current_species()) {
 				ddcs_ref.set_indirection_current(ddecl_indirection.m_indirection_level, "inferred array");
 				update_declaration_flag |= true;
 				state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, ddecl_indirection);
-			} else if ("malloc target" == ddcs_ref.m_indirection_state_stack.at(ddecl_indirection.m_indirection_level).current()) {
+			} else if ("malloc target" == ddcs_ref.m_indirection_state_stack.at(ddecl_indirection.m_indirection_level).current_species()) {
 				ddcs_ref.set_indirection_current(ddecl_indirection.m_indirection_level, "dynamic array");
 				update_declaration_flag |= true;
 				state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, ddecl_indirection);
@@ -3352,7 +3465,7 @@ namespace convm1 {
 				/* We're using the empty string as a generic state for the "terminal level of indirection"
 				* when we don't want to bother specifying a specific state. */
 				retval.indirection_level = i;
-			} else if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(i).current()) {
+			} else if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(i).current_species()) {
 				if (("ArraySubscriptExpr" == stmt_indirection_stack[i])
 						|| ("pointer arithmetic" == stmt_indirection_stack[i])) {
 					ddcs_ref.set_indirection_current(i, "inferred array");
@@ -3365,7 +3478,7 @@ namespace convm1 {
 						("memset/cpy target" == stmt_indirection_stack[i])) {
 					retval.indirection_level = i;
 				}
-			} else if ("malloc target" == ddcs_ref.m_indirection_state_stack.at(i).current()) {
+			} else if ("malloc target" == ddcs_ref.m_indirection_state_stack.at(i).current_species()) {
 				if (("ArraySubscriptExpr" == stmt_indirection_stack[i])
 						|| ("pointer arithmetic" == stmt_indirection_stack[i])) {
 					ddcs_ref.set_indirection_current(i, "dynamic array");
@@ -3373,7 +3486,7 @@ namespace convm1 {
 					state1_ref.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1_ref, CDDeclIndirection(*DD, i));
 					state1_ref.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1_ref, CDDeclIndirection(*DD, i));
 				}
-			} else if ("inferred array" == ddcs_ref.m_indirection_state_stack.at(i).current()) {
+			} else if ("inferred array" == ddcs_ref.m_indirection_state_stack.at(i).current_species()) {
 				if (("malloc target" == stmt_indirection_stack[i]) ||
 						("set to null" == stmt_indirection_stack[i])) {
 					ddcs_ref.set_indirection_current(i, "dynamic array");
@@ -3385,7 +3498,7 @@ namespace convm1 {
 					retval.has_just_been_determined_to_be_an_array_flag = true;
 					retval.indirection_level = i;
 				}
-			} else if ("dynamic array" == ddcs_ref.m_indirection_state_stack.at(i).current()) {
+			} else if ("dynamic array" == ddcs_ref.m_indirection_state_stack.at(i).current_species()) {
 				if (("malloc target" == stmt_indirection_stack[i]) ||
 						("set to null" == stmt_indirection_stack[i])) {
 					retval.has_just_been_determined_to_be_an_array_flag = true;
@@ -3533,14 +3646,14 @@ namespace convm1 {
 			auto& ddcs_ref = (*ddcs_map_iter).second;
 
 			std::string current_direct_qtype_str = ddcs_ref.m_current_direct_qtype_str;
-			std::string initializer_info_str = m_initializer_info_str;
+			std::string initializer_info_str = m_current_initialization_expr_str;
 			static const std::string void_str = "void";
 			auto void_pos = initializer_info_str.find(void_str);
 			if (std::string::npos != void_pos) {
 				initializer_info_str.replace(void_pos, void_str.length(), current_direct_qtype_str);
 			}
 
-			ddcs_ref.m_initializer_info_str = initializer_info_str;
+			ddcs_ref.m_current_initialization_expr_str = initializer_info_str;
 
 			if (ConvertToSCPP && decl_source_range.isValid()) {
 				update_declaration(*DD, Rewrite, state1);
@@ -3666,11 +3779,11 @@ namespace convm1 {
 		bool update_declaration_flag = res1.second;
 
 		if (ddcs_ref.m_indirection_state_stack.size() >= m_ddecl_indirection2.m_indirection_level) {
-			if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(m_ddecl_indirection2.m_indirection_level).current()) {
+			if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(m_ddecl_indirection2.m_indirection_level).current_species()) {
 				ddcs_ref.set_indirection_current(m_ddecl_indirection2.m_indirection_level, "inferred array");
 				update_declaration_flag |= true;
 				state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
-			} else if ("malloc target" == ddcs_ref.m_indirection_state_stack.at(m_ddecl_indirection2.m_indirection_level).current()) {
+			} else if ("malloc target" == ddcs_ref.m_indirection_state_stack.at(m_ddecl_indirection2.m_indirection_level).current_species()) {
 				ddcs_ref.set_indirection_current(m_ddecl_indirection2.m_indirection_level, "dynamic array");
 				update_declaration_flag |= true;
 				state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
@@ -3707,11 +3820,11 @@ namespace convm1 {
 		bool update_declaration_flag = res1.second;
 
 		if (ddcs_ref.m_indirection_state_stack.size() >= m_ddecl_indirection2.m_indirection_level) {
-			if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(m_ddecl_indirection2.m_indirection_level).current()) {
+			if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(m_ddecl_indirection2.m_indirection_level).current_species()) {
 				ddcs_ref.set_indirection_current(m_ddecl_indirection2.m_indirection_level, "inferred array");
 				update_declaration_flag |= true;
 				state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
-			} else if ("malloc target" == ddcs_ref.m_indirection_state_stack.at(m_ddecl_indirection2.m_indirection_level).current()) {
+			} else if ("malloc target" == ddcs_ref.m_indirection_state_stack.at(m_ddecl_indirection2.m_indirection_level).current_species()) {
 				ddcs_ref.set_indirection_current(m_ddecl_indirection2.m_indirection_level, "dynamic array");
 				update_declaration_flag |= true;
 				state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
@@ -4068,13 +4181,13 @@ namespace convm1 {
 				/* At the moment we only support the case where the value option expressions are
 				* just declared variables. */
 				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-					if ("dynamic array" == ddcs_ref.m_indirection_state_stack.at(0).current()) {
+					if ("dynamic array" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
 						lhs_is_dynamic_array = true;
 						lhs_is_array = true;
-					} else if ("native array" == ddcs_ref.m_indirection_state_stack.at(0).current()) {
+					} else if ("native array" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
 						lhs_is_native_array = true;
 						lhs_is_array = true;
-					} else if ("inferred array" == ddcs_ref.m_indirection_state_stack.at(0).current()) {
+					} else if ("inferred array" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
 						lhs_is_array = true;
 					}
 				} else {
@@ -4090,13 +4203,13 @@ namespace convm1 {
 				auto ddcs_map_iter = res1.first;
 				auto& ddcs_ref = (*ddcs_map_iter).second;
 				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-					if ("dynamic array" == ddcs_ref.m_indirection_state_stack.at(0).current()) {
+					if ("dynamic array" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
 						rhs_is_dynamic_array = true;
 						rhs_is_array = true;
-					} else if ("native array" == ddcs_ref.m_indirection_state_stack.at(0).current()) {
+					} else if ("native array" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
 						rhs_is_native_array = true;
 						rhs_is_array = true;
-					} else if ("inferred array" == ddcs_ref.m_indirection_state_stack.at(0).current()) {
+					} else if ("inferred array" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
 						rhs_is_array = true;
 					}
 				} else {
@@ -4177,7 +4290,7 @@ namespace convm1 {
 					auto ddcs_map_iter = res1.first;
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 
-					ddcs_ref.m_initializer_info_str = " = " + cocs_shptr_ref.m_current_text_str;
+					ddcs_ref.m_current_initialization_expr_str = " = " + cocs_shptr_ref.m_current_text_str;
 
 					update_declaration(*m_var_DD, m_Rewrite, state1);
 				}
@@ -4395,7 +4508,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":540:")) {
+				if (std::string::npos != debug_source_location_str.find(":2612:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -4424,7 +4537,7 @@ namespace convm1 {
 					//bool update_declaration_flag = res1.second;
 
 					for (size_t i = 0; (i < ddcs_ref.m_indirection_state_stack.size()); i += 1) {
-						if ("native array" == ddcs_ref.m_indirection_state_stack.at(i).current()) {
+						if ("native array" == ddcs_ref.m_indirection_state_stack.at(i).current_species()) {
 							m_state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(m_state1, CDDeclIndirection(*DD, i));
 						}
 					}
@@ -4480,9 +4593,9 @@ namespace convm1 {
 											//auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
 
 											static const std::string void_str = "void";
-											auto void_pos = (*rhs_res2.ddecl_conversion_state_ptr).m_initializer_info_str.find(void_str);
+											auto void_pos = (*rhs_res2.ddecl_conversion_state_ptr).m_current_initialization_expr_str.find(void_str);
 											if (std::string::npos != void_pos) {
-												(*rhs_res2.ddecl_conversion_state_ptr).m_initializer_info_str.replace(void_pos, void_str.length(), direct_rhs_qtype_str);
+												(*rhs_res2.ddecl_conversion_state_ptr).m_current_initialization_expr_str.replace(void_pos, void_str.length(), direct_rhs_qtype_str);
 											}
 
 											update_declaration(*(rhs_res2.ddecl_cptr), Rewrite, m_state1);
@@ -4671,6 +4784,91 @@ namespace convm1 {
 
 	/**********************************************************************************************************************/
 
+	class MCSSSAddressOf : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSAddressOf (Rewriter &Rewrite, CTUState& state1)
+	: Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssaddressof");
+			const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssaddressof2");
+			const Expr* E = MR.Nodes.getNodeAs<clang::Expr>("mcsssaddressof3");
+
+			if ((DRE != nullptr) && (E != nullptr))
+			{
+				const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssaddressof");
+
+				auto SR = nice_source_range(DRE->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(DRE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
+					return;
+				}
+
+				auto decl = DRE->getDecl();
+				auto DD = dyn_cast<const DeclaratorDecl>(decl);
+
+				const clang::FieldDecl* FD = nullptr;
+				if (nullptr != ME) {
+					auto member_decl = ME->getMemberDecl();
+					FD = dyn_cast<const clang::FieldDecl>(ME->getMemberDecl());
+				}
+				if (nullptr != FD) {
+					DD = FD;
+				}
+
+				if (!DD) {
+					return;
+				} else {
+					auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
+					auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
+					std::string decl_source_text;
+					if (decl_source_range.isValid()) {
+						IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
+					} else {
+						return;
+					}
+					auto QT = DD->getType();
+					std::string variable_name = DD->getNameAsString();
+
+					auto qualified_name = DD->getQualifiedNameAsString();
+					static const std::string mse_namespace_str1 = "mse::";
+					static const std::string mse_namespace_str2 = "::mse::";
+					if ((0 == qualified_name.compare(0, mse_namespace_str1.size(), mse_namespace_str1))
+							|| (0 == qualified_name.compare(0, mse_namespace_str2.size(), mse_namespace_str2))) {
+						return;
+					}
+
+					/*** left off here ***/
+
+					/*
+					auto res2 = infer_array_type_info_from_stmt(*E, "pointer arithmetic", (*this).m_state1, DD);
+
+					if (res2.update_declaration_flag) {
+						update_declaration(*DD, Rewrite, m_state1);
+					}
+					*/
+				}
+			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
+	/**********************************************************************************************************************/
+
 	class MCSSSMalloc2 : public MatchFinder::MatchCallback
 	{
 	public:
@@ -4788,26 +4986,19 @@ namespace convm1 {
 							auto lhs_source_range = nice_source_range(LHS->getSourceRange(), Rewrite);
 							auto lhs_source_text = Rewrite.getRewrittenText(lhs_source_range);
 
-							if (false) {
-								num_elements_text = "(";
-								num_elements_text += alloc_function_info1.m_num_bytes_arg_source_text;
-								num_elements_text += ") / sizeof(";
-								num_elements_text += lhs_element_type_str;
-								num_elements_text += ")";
-
-								bo_replacement_code += "(" + lhs_source_text + ")";
-								bo_replacement_code += ".resize(";
-								bo_replacement_code += num_elements_text;
-								bo_replacement_code += ")";
-							} else {
+							{
 								if (alloc_function_info1.m_seems_to_be_some_kind_of_realloc) {
-									bo_replacement_code = "MSE_LH_REALLOC(";
+									bo_replacement_code = lhs_source_text;
+									bo_replacement_code += " = MSE_LH_REALLOC(";
+									bo_replacement_code += lhs_element_type_str + ", ";
+									bo_replacement_code += alloc_function_info1.m_realloc_pointer_arg_source_text + ", ";
+									bo_replacement_code += alloc_function_info1.m_num_bytes_arg_source_text + ")";
 								} else {
 									bo_replacement_code = "MSE_LH_ALLOC(";
+									bo_replacement_code += lhs_element_type_str + ", ";
+									bo_replacement_code += lhs_source_text + ", ";
+									bo_replacement_code += alloc_function_info1.m_num_bytes_arg_source_text + ")";
 								}
-								bo_replacement_code += lhs_element_type_str + ", ";
-								bo_replacement_code += lhs_source_text + ", ";
-								bo_replacement_code += alloc_function_info1.m_num_bytes_arg_source_text + ")";
 							}
 
 							auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
@@ -4864,7 +5055,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":157:")) {
+				if (std::string::npos != debug_source_location_str.find(":2612:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -4914,17 +5105,17 @@ namespace convm1 {
 						bool update_declaration_flag = res1.second;
 
 						bool lhs_has_been_determined_to_be_an_array = false;
-						if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(0).current()) {
+						if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
 							ddcs_ref.set_indirection_current(0, "malloc target");
-						} else if ("inferred array" == ddcs_ref.m_indirection_state_stack.at(0).current()) {
+						} else if ("inferred array" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
 							ddcs_ref.set_indirection_current(0, "dynamic array");
 							lhs_has_been_determined_to_be_an_array = true;
 							//update_declaration_flag = true;
 							state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*DD, 0));
-						} else if ("dynamic array" == ddcs_ref.m_indirection_state_stack.at(0).current()) {
+						} else if ("dynamic array" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
 							lhs_has_been_determined_to_be_an_array = true;
 						} else {
-							assert("native array" != ddcs_ref.m_indirection_state_stack.at(0).current());
+							assert("native array" != ddcs_ref.m_indirection_state_stack.at(0).current_species());
 						}
 
 						const clang::Type* TP = QT.getTypePtr();
@@ -4952,7 +5143,7 @@ namespace convm1 {
 							std::string initializer_info_str;
 
 							if (alloc_function_info1.m_seems_to_be_some_kind_of_realloc) {
-								initializer_info_str = " = MSE_LH_REALLOC(" + element_type_str + ", " + alloc_function_info1.m_realloc_pointer_arg_source_text;
+								initializer_info_str = "MSE_LH_REALLOC(" + element_type_str + ", " + alloc_function_info1.m_realloc_pointer_arg_source_text;
 								initializer_info_str += ", " + alloc_function_info1.m_num_bytes_arg_source_text + ")";
 							} else {
 								if (false) {
@@ -4968,7 +5159,8 @@ namespace convm1 {
 
 									initializer_info_str = "(" + num_elements_text + ")";
 								} else {
-									initializer_info_str = " = MSE_LH_ALLOC_DYN_ARRAY1(MSE_LH_DYNAMIC_ARRAY_ITERATOR_TYPE(" + element_type_str + ")";
+									initializer_info_str = "MSE_LH_ALLOC_DYN_ARRAY1(MSE_LH_DYNAMIC_ARRAY_ITERATOR_TYPE(" + element_type_str + ")";
+									//initializer_info_str = "MSE_LH_ALLOC_DYN_ARRAY1(MSE_LH_ARRAY_ITERATOR_TYPE(" + element_type_str + ")";
 									initializer_info_str += ", " + alloc_function_info1.m_num_bytes_arg_source_text + ")";
 								}
 							}
@@ -6079,7 +6271,7 @@ namespace convm1 {
 					auto ddcs_map_iter = res1.first;
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-						var_current_state_str = ddcs_ref.m_indirection_state_stack.at(0).current();
+						var_current_state_str = ddcs_ref.m_indirection_state_stack.at(0).current_species();
 					} else {
 						int q = 7;
 					}
@@ -6187,7 +6379,7 @@ namespace convm1 {
 						auto ddcs_map_iter = res1.first;
 						auto& ddcs_ref = (*ddcs_map_iter).second;
 						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-							lhs_current_state_str = ddcs_ref.m_indirection_state_stack.at(0).current();
+							lhs_current_state_str = ddcs_ref.m_indirection_state_stack.at(0).current_species();
 						} else {
 							int q = 7;
 						}
@@ -6198,7 +6390,7 @@ namespace convm1 {
 						auto ddcs_map_iter = res1.first;
 						auto& ddcs_ref = (*ddcs_map_iter).second;
 						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-							rhs_current_state_str = ddcs_ref.m_indirection_state_stack.at(0).current();
+							rhs_current_state_str = ddcs_ref.m_indirection_state_stack.at(0).current_species();
 						} else {
 							int q = 7;
 						}
@@ -6338,9 +6530,9 @@ namespace convm1 {
 									//auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
 
 									static const std::string void_str = "void";
-									auto void_pos = (*rhs_res2.ddecl_conversion_state_ptr).m_initializer_info_str.find(void_str);
+									auto void_pos = (*rhs_res2.ddecl_conversion_state_ptr).m_current_initialization_expr_str.find(void_str);
 									if (std::string::npos != void_pos) {
-										(*rhs_res2.ddecl_conversion_state_ptr).m_initializer_info_str.replace(void_pos, void_str.length(), direct_rhs_qtype_str);
+										(*rhs_res2.ddecl_conversion_state_ptr).m_current_initialization_expr_str.replace(void_pos, void_str.length(), direct_rhs_qtype_str);
 									}
 
 									update_declaration(*(rhs_res2.ddecl_cptr), Rewrite, m_state1);
@@ -7590,7 +7782,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":109:")) {
+				if (std::string::npos != debug_source_location_str.find(":2612:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7607,18 +7799,6 @@ namespace convm1 {
 				if (DD) {
 					const auto qtype = DD->getType();
 					const std::string qtype_str = DD->getType().getAsString();
-
-					{
-						auto l_DD = DD;
-						auto TSSL = l_DD->getTypeSpecStartLoc();
-						auto l_SR = l_DD->getSourceRange();
-						
-						std::string text1 = Rewrite.getRewrittenText({TSSL, l_SR.getEnd()});
-						std::string text2 = Rewrite.getRewrittenText(l_SR);
-						if (text1 != text2) {
-							int q = 5;
-						}
-					}
 
 					auto VD = dyn_cast<const clang::VarDecl>(D);
 					if (VD) {
@@ -7853,14 +8033,23 @@ namespace convm1 {
 											auto ddcs_map_iter = res1.first;
 											auto& ddcs_ref = (*ddcs_map_iter).second;
 
+											/* We're noting that originally there was no initializer. */
+											ddcs_ref.m_original_initialization_expr_str = "";
+											ddcs_ref.m_original_initialization_has_been_noted = true;
+
 											std::string initializer_info_str;
 											if (qtype.getTypePtr()->isEnumeralType()) {
-												initializer_info_str += " = " + qtype.getAsString();
+												initializer_info_str += qtype.getAsString();
 												initializer_info_str += "(0)/*auto-generated init val*/";
 											} else {
-												initializer_info_str += " = 0/*auto-generated init val*/";
+												initializer_info_str += "0/*auto-generated init val*/";
 											}
-											ddcs_ref.m_initializer_info_str = initializer_info_str;
+											ddcs_ref.m_current_initialization_expr_str = initializer_info_str;
+
+											/* Specify that the new initialization string should be
+											inserted at the end of the declaration. */
+											//ddcs_ref.m_maybe_embedded_initializer_insert_before_point = ddcs_ref.m_ddecl_cptr->getSourceRange().getEnd().getLocWithOffset(+1);
+											ddcs_ref.m_initializer_SR_or_insert_before_point = ddcs_ref.m_ddecl_cptr->getSourceRange().getEnd().getLocWithOffset(+1);
 
 											update_declaration(*l_DD, Rewrite, state1);
 										}
@@ -7922,12 +8111,12 @@ namespace convm1 {
 
 												std::string initializer_info_str;
 												if (qtype.getTypePtr()->isEnumeralType()) {
-													initializer_info_str += " = " + qtype.getAsString();
+													initializer_info_str += qtype.getAsString();
 													initializer_info_str += "(0)/*auto-generated init val*/";
 												} else {
-													initializer_info_str += " = 0/*auto-generated init val*/";
+													initializer_info_str += "0/*auto-generated init val*/";
 												}
-												ddcs_ref.m_initializer_info_str = initializer_info_str;
+												ddcs_ref.m_current_initialization_expr_str = initializer_info_str;
 
 												update_declaration(*l_DD, Rewrite, state1);
 											}
@@ -8069,24 +8258,33 @@ namespace convm1 {
 					{
 						/* Here we're replacing unsupported types with supported counterparts. */
 
-						auto check_for_and_handle_unsupported_element2 = [&MR, &Rewrite](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+						struct CUnsupportedElementTypeNameAndReplacement {
+							std::string m_element_type_name;
+							std::string m_replacement_element_type_name;
+							bool operator<(const CUnsupportedElementTypeNameAndReplacement &RHS) const {
+								return (m_element_type_name < RHS.m_element_type_name);
+							}
+						};
+						std::set<CUnsupportedElementTypeNameAndReplacement> unsupported_elements_encounterred;
+
+						auto check_for_and_handle_unsupported_element2 = [&MR, &Rewrite, &unsupported_elements_encounterred](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
 							IF_DEBUG(auto type_SR = nice_source_range(typeLoc.getSourceRange(), Rewrite);)
 							IF_DEBUG(std::string old_text = Rewrite.getRewrittenText(type_SR);)
 
 							auto qtype = typeLoc.getType().getUnqualifiedType();
-							std::string element_name;
+							std::string element_type_name;
 							const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 							if (l_CXXRD) {
-								element_name = l_CXXRD->getQualifiedNameAsString();
+								element_type_name = l_CXXRD->getQualifiedNameAsString();
 							} else {
-								element_name = qtype.getAsString();
+								element_type_name = qtype.getAsString();
 							}
 
 							{
-								auto uei_ptr = unsupported_element_info_ptr(element_name);
+								auto uei_ptr = unsupported_element_info_ptr(element_type_name);
 								if (uei_ptr) {
 									const auto& unsupported_element_info = *uei_ptr;
-									std::string error_desc = std::string("'") + element_name + std::string("' is not ")
+									std::string error_desc = std::string("'") + element_type_name + std::string("' is not ")
 											+ "supported (in type '" + qtype.getAsString() + "' used in this declaration). ";
 									if ("" != unsupported_element_info.m_recommended_alternative) {
 										error_desc += "Consider using " + unsupported_element_info.m_recommended_alternative + " instead.";
@@ -8097,7 +8295,7 @@ namespace convm1 {
 									}
 
 									if (true) {
-										const auto& l_replacement_element_name = [&unsupported_element_info]() {
+										const auto& f_replacement_element_type_name = [&unsupported_element_info]() {
 											if ("Dual" == ConvertMode) {
 												return unsupported_element_info.m_slow_mode_replacement;
 											} else if ("FasterAndStricter" == ConvertMode) {
@@ -8106,10 +8304,13 @@ namespace convm1 {
 												return unsupported_element_info.m_slow_mode_replacement;
 											}
 										};
+										std::string replacement_element_type_name = f_replacement_element_type_name();
 
 										/* This modification needs to be queued so that it will be executed after any other
 										modifications that might affect the relevant part of the source text. */
-										state1.m_pending_code_modification_actions.add_replacement_of_whole_instances_of_given_string_action(Rewrite, l_SR, element_name, l_replacement_element_name());
+										state1.m_pending_code_modification_actions.add_replacement_of_whole_instances_of_given_string_action(Rewrite, l_SR, element_type_name, replacement_element_type_name);
+
+										unsupported_elements_encounterred.insert({element_type_name, replacement_element_type_name});
 									}
 								}
 							}
@@ -8118,6 +8319,18 @@ namespace convm1 {
 						if (tsi_ptr) {
 							check_for_and_handle_unsupported_element2(tsi_ptr->getTypeLoc(), SR, state1);
 							apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), check_for_and_handle_unsupported_element2, state1);
+						}
+
+						{
+							auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
+							auto ddcs_map_iter = res1.first;
+							auto& ddcs_ref = (*ddcs_map_iter).second;
+							for (const auto& unsupported_element_encounterred : unsupported_elements_encounterred) {
+								std::string tmp_str = ddcs_ref.m_current_direct_qtype_str;
+								replace_whole_instances_of_given_string(tmp_str, unsupported_element_encounterred.m_element_type_name, unsupported_element_encounterred.m_replacement_element_type_name);
+								ddcs_ref.set_current_direct_qtype_str(tmp_str);
+								update_declaration(*DD, Rewrite, state1);
+							}
 						}
 					}
 				} else {
@@ -9099,6 +9312,8 @@ namespace convm1 {
 		}
 
 		void EndSourceFileAction() override {
+			auto& Rewrite = (*this).TheRewriter;
+			auto& SM = Rewrite.getSourceMgr();
 
 			/* Here we're applying all the "queued" code modification actions (in the appropriate order,
 			starting with "leaf" elements that don't contain subelements in their source text). Note that
@@ -9136,51 +9351,131 @@ namespace convm1 {
 				rit = m_tu_state.m_pending_code_modification_actions.rbegin();
 			}
 
-			/* There are some elements in the source text that cannot be reliably modified/replaced
-			/updated more than once. So we hold their updated (and updatable) text so that it can be
-			applied (only) once at the end of processing. So here (at the end of processing) we're
-			iterating through all the "declaration state" objects and applying these updates. */
+			if (ConvertToSCPP) {
+				/* There are some elements in the source text that cannot be reliably modified/replaced
+				/updated more than once. So we hold their updated (and updatable) text so that it can be
+				applied (only) once at the end of processing. So here (at the end of processing) we're
+				iterating through all the "declaration state" objects and applying these updates. */
 
-			for (const auto& ddecl_conversion_state : m_tu_state.m_ddecl_conversion_state_map) {
-				auto& ddcs_ref = ddecl_conversion_state.second;
-				if (ddecl_conversion_state.second.m_indirection_state_stack.m_direct_type_state.m_maybe_typeLoc.has_value()) {
-					if (ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_maybe_source_range_including_any_const_qualifier.has_value()) {
-						auto direct_qtype_SR = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_maybe_source_range_including_any_const_qualifier.value();
+				for (const auto& ddecl_conversion_state : m_tu_state.m_ddecl_conversion_state_map) {
+					auto& ddcs_ref = ddecl_conversion_state.second;
+					auto maybe_direct_typeLoc = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_maybe_typeLoc;
 
-						if ((ddcs_ref.m_original_direct_qtype.getAsString() != ddcs_ref.m_current_direct_qtype_str)
-							|| ("" != ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_current_params_str)) {
+					auto SR = nice_source_range(ddcs_ref.m_ddecl_cptr->getSourceRange(), Rewrite);
 
-							TheRewriter.ReplaceText(direct_qtype_SR
-								, ddcs_ref.m_current_direct_qtype_str/* + ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_current_params_str*/);
+					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
+
+#ifndef NDEBUG
+					if (std::string::npos != debug_source_location_str.find(":2612:")) {
+						int q = 5;
+					}
+#endif /*!NDEBUG*/
+
+					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+					auto maybe_direct_qtype_SR = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_maybe_source_range_including_any_const_qualifier;
+					if (false && !maybe_direct_qtype_SR) {
+						if (0 == ddcs_ref.m_indirection_state_stack.size()) {
+							assert(ddcs_ref.m_ddecl_cptr);
+							auto directTypeLoc = ddcs_ref.m_ddecl_cptr->getTypeSourceInfo()->getTypeLoc();
+							auto directTypeSR = nice_source_range(directTypeLoc.getSourceRange(), Rewrite);
+							IF_DEBUG(auto old_text1 = Rewrite.getRewrittenText(directTypeSR);)
+							auto cq_direct_type_SR = extended_to_include_west_const_if_any(Rewrite, directTypeSR);
+							IF_DEBUG(auto old_text2 = Rewrite.getRewrittenText(cq_direct_type_SR);)
+							cq_direct_type_SR = extended_to_include_east_const_if_any(Rewrite, cq_direct_type_SR);
+							IF_DEBUG(auto old_text3 = Rewrite.getRewrittenText(cq_direct_type_SR);)
+							maybe_direct_qtype_SR = cq_direct_type_SR;
 						}
 					}
-				}
-				if (ddecl_conversion_state.second.m_maybe_embedded_initializer_insertion_point.has_value()) {
-					TheRewriter.InsertTextAfterToken(ddecl_conversion_state.second.m_maybe_embedded_initializer_insertion_point.value().getLocWithOffset(-1)
-						, ddecl_conversion_state.second.m_embedded_initializer_str);
-				}
-				const auto& indirection_state_stack = ddecl_conversion_state.second.m_indirection_state_stack;
-				for (int j = 0; j < indirection_state_stack.size(); j+=1) {
-					int i = indirection_state_stack.size() - 1 - j;
+					if (maybe_direct_qtype_SR.has_value()) {
+						auto direct_qtype_SR = maybe_direct_qtype_SR.value();
 
-					{
-						auto suffix_SR_ptr = std::get_if<clang::SourceRange>(&(indirection_state_stack[i].m_suffix_SR_or_insertion_point));
-						auto insertion_point_ptr = std::get_if<clang::SourceLocation>(&(indirection_state_stack[i].m_suffix_SR_or_insertion_point));
-						if (suffix_SR_ptr) {
-							TheRewriter.ReplaceText(*suffix_SR_ptr, indirection_state_stack[i].m_suffix_str);
-						} else if (insertion_point_ptr) {
-							TheRewriter.InsertTextAfterToken((*insertion_point_ptr).getLocWithOffset(-1)
-								, indirection_state_stack[i].m_suffix_str);
+						/* If a superset of the region that would be modified here has already been
+						modified then this region can no longer be (reliably) modified. */
+						if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.properly_contains(direct_qtype_SR)) {
+							if (ddcs_ref.direct_qtype_has_been_changed()
+								|| ("" != ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_current_params_str)) {
+
+								TheRewriter.ReplaceText(direct_qtype_SR
+									, ddcs_ref.m_current_direct_qtype_str/* + ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_current_params_str*/);
+								m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(direct_qtype_SR);
+							}
+						} else {
+							int q = 5;
 						}
 					}
-
 					{
-						auto prefix_SR_ptr = std::get_if<clang::SourceRange>(&(indirection_state_stack[i].m_prefix_SR_or_insertion_point));
-						auto insertion_point_ptr = std::get_if<clang::SourceLocation>(&(indirection_state_stack[i].m_prefix_SR_or_insertion_point));
-						if (prefix_SR_ptr) {
-							TheRewriter.ReplaceText(*prefix_SR_ptr, indirection_state_stack[i].m_prefix_str);
-						} else if (insertion_point_ptr) {
-							TheRewriter.InsertTextBefore(*insertion_point_ptr, indirection_state_stack[i].m_prefix_str);
+						auto initializer_SR_ptr = std::get_if<clang::SourceRange>(&(ddcs_ref.m_initializer_SR_or_insert_before_point));
+						auto insert_before_point_ptr = std::get_if<clang::SourceLocation>(&(ddcs_ref.m_initializer_SR_or_insert_before_point));
+						if (initializer_SR_ptr) {
+							/* If a superset of the region that would be modified here has already been
+							modified then this region can no longer be (reliably) modified. */
+							if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.properly_contains(*initializer_SR_ptr)) {
+								if (ddcs_ref.initializer_has_been_changed()) {
+									std::string initializer_str = ddecl_conversion_state.second.m_current_initialization_expr_str;
+									TheRewriter.ReplaceText(*initializer_SR_ptr, initializer_str);
+									m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(*initializer_SR_ptr);
+								}
+							} else {
+								int q = 5;
+							}
+						} else if (insert_before_point_ptr) {
+							const auto& insert_after_point = (*insert_before_point_ptr).getLocWithOffset(-1);
+							/* If a region that contains (both sides of) the insertion point has already been modified
+							then this insertion point is no longer (reliably) valid. */
+							if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.contains({ insert_after_point, *insert_before_point_ptr })) {
+								std::string initializer_str = " = " + ddecl_conversion_state.second.m_current_initialization_expr_str;
+								TheRewriter.InsertTextAfterToken(insert_after_point, initializer_str);
+							} else {
+								int q = 5;
+							}
+						}
+					}
+					const auto& indirection_state_stack = ddecl_conversion_state.second.m_indirection_state_stack;
+					for (int j = 0; j < indirection_state_stack.size(); j+=1) {
+						int i = indirection_state_stack.size() - 1 - j;
+
+						{
+							auto suffix_SR_ptr = std::get_if<clang::SourceRange>(&(indirection_state_stack[i].m_suffix_SR_or_insert_before_point));
+							auto insert_before_point_ptr = std::get_if<clang::SourceLocation>(&(indirection_state_stack[i].m_suffix_SR_or_insert_before_point));
+							if (suffix_SR_ptr) {
+								/* If a superset of the region that would be modified here has already been
+								modified then this region can no longer be (reliably) modified. */
+								if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.properly_contains(*suffix_SR_ptr)) {
+									TheRewriter.ReplaceText(*suffix_SR_ptr, indirection_state_stack[i].m_suffix_str);
+									DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+									m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(*suffix_SR_ptr);
+								}
+							} else if (insert_before_point_ptr) {
+								const auto& insert_after_point = (*insert_before_point_ptr).getLocWithOffset(-1);
+								/* If a region that contains (both sides of) the insertion point has already been modified
+								then this insertion point is no longer (reliably) valid. */
+								if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.contains({ insert_after_point, *insert_before_point_ptr })) {
+										TheRewriter.InsertTextAfterToken((*insert_before_point_ptr).getLocWithOffset(-1)
+											, indirection_state_stack[i].m_suffix_str);
+								}
+							}
+						}
+
+						{
+							auto prefix_SR_ptr = std::get_if<clang::SourceRange>(&(indirection_state_stack[i].m_prefix_SR_or_insert_before_point));
+							auto insert_before_point_ptr = std::get_if<clang::SourceLocation>(&(indirection_state_stack[i].m_prefix_SR_or_insert_before_point));
+							if (prefix_SR_ptr) {
+								/* If a superset of the region that would be modified here has already been
+								modified then this region can no longer be (reliably) modified. */
+								if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.properly_contains(*prefix_SR_ptr)) {
+									TheRewriter.ReplaceText(*prefix_SR_ptr, indirection_state_stack[i].m_prefix_str);
+									m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(*prefix_SR_ptr);
+								}
+							} else if (insert_before_point_ptr) {
+								const auto& insert_after_point = (*insert_before_point_ptr).getLocWithOffset(-1);
+								/* If a region that contains (both sides of) the insertion point has already been modified
+								then this insertion point is no longer (reliably) valid. */
+								if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.contains({ insert_after_point, *insert_before_point_ptr })) {
+									TheRewriter.InsertTextBefore(*insert_before_point_ptr, indirection_state_stack[i].m_prefix_str);
+									DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+								}
+							}
 						}
 					}
 				}
