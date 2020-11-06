@@ -67,35 +67,58 @@ std::pair<std::string, bool> exec(const char* cmd) {
     return std::pair<std::string, bool>(result, false);
 }
 
-clang::SourceRange nice_source_range(const clang::SourceRange& sr, clang::Rewriter &Rewrite)
-{
-	SourceLocation SL = sr.getBegin();
-	SourceLocation SLE = sr.getEnd();
-	if (SL.isMacroID() || SLE.isMacroID()) {
-		int q = 5;
-	}
-	SL = Rewrite.getSourceMgr().getFileLoc(SL);
-	SLE = Rewrite.getSourceMgr().getFileLoc(SLE);
-	if (false && (SL == SLE) && (sr.getBegin() != sr.getEnd())) {
-		return sr;
-	} else {
-		return SourceRange(SL, SLE);
-	}
-}
-
 clang::SourceRange instantiation_source_range(const clang::SourceRange& sr, clang::Rewriter &Rewrite)
 {
 	SourceLocation SL = sr.getBegin();
 	SourceLocation SLE = sr.getEnd();
-	if (SL.isMacroID() || SLE.isMacroID()) {
-		int q = 5;
-	}
 	SL = Rewrite.getSourceMgr().getFileLoc(SL);
 	SLE = Rewrite.getSourceMgr().getFileLoc(SLE);
 	if ((SL == SLE) && (sr.getBegin() != sr.getEnd())) {
 		int q = 5;
 	}
 	return SourceRange(SL, SLE);
+}
+
+clang::SourceRange nice_source_range(const clang::SourceRange& sr, clang::Rewriter &Rewrite)
+{
+	SourceLocation SL = sr.getBegin();
+	SourceLocation SLE = sr.getEnd();
+
+	if (SL.isMacroID() && SLE.isMacroID() && (!filtered_out_by_location(Rewrite.getSourceMgr(), SL))) {
+		/* If the start and end locations are macro (instantiation) locations, then we'll presume that
+		they are part of the same macro, and we'll attempt to return the corresponding range within the
+		macro definition. */
+		IF_DEBUG(std::string debug_source_location_str = SL.printToString(Rewrite.getSourceMgr());)
+		IF_DEBUG(std::string text1 = Rewrite.getRewrittenText({SL, SLE});)
+		auto SL5 = Rewrite.getSourceMgr().getSpellingLoc(SL);
+		auto SLE5 = Rewrite.getSourceMgr().getSpellingLoc(SLE);
+		clang::SourceRange SR5 = { SL5, SLE5 };
+
+		if ((!(SLE5 < SL5)) && (SR5.isValid())) {
+			auto FLSL5 = Rewrite.getSourceMgr().getFileLoc(SL5);
+			if (!filtered_out_by_location(Rewrite.getSourceMgr(), FLSL5)) {
+				IF_DEBUG(std::string text5 = Rewrite.getRewrittenText(SR5);)
+				return SR5;
+			}
+		} else {
+			int q = 5;
+		}
+	}
+
+	SL = Rewrite.getSourceMgr().getFileLoc(SL);
+	SLE = Rewrite.getSourceMgr().getFileLoc(SLE);
+	clang::SourceRange retSR = { SL, SLE };
+
+#ifndef NDEBUG
+	if ((!(SLE < SL)) && (retSR.isValid())) {
+		std::string text6 = Rewrite.getRewrittenText({SL, SLE});
+		int q = 5;
+	} else {
+		int q = 5;
+	}
+#endif /*!NDEBUG*/
+
+	return retSR;
 }
 
 bool first_is_a_subset_of_second(const clang::SourceRange& first, const clang::SourceRange& second) {

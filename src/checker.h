@@ -177,6 +177,8 @@ namespace checker {
 							for (auto child_iter = ST->child_begin(); child_iter != ST->child_end(); child_iter++) {
 								if (nullptr != (*child_iter)) {
 									auto l_STISR = instantiation_source_range((*child_iter)->getSourceRange(), Rewrite);
+									DEBUG_SOURCE_LOCATION_STR(debug_source_location_str2, l_STISR, MR);
+									DEBUG_SOURCE_TEXT_STR(debug_source_text2, l_STISR, Rewrite);
 									SourceLocation l_STISL = l_STISR.getBegin();
 									SourceLocation l_STISLE = l_STISR.getEnd();
 									if (CEISL == l_STISL) {

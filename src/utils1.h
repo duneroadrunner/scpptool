@@ -92,7 +92,20 @@ class COrderedSourceRange : public clang::SourceRange {
 	public:
 	typedef clang::SourceRange base_class;
 	using base_class::base_class;
-	COrderedSourceRange(const clang::SourceRange& src) : base_class(src.getBegin(), src.getEnd()) {}
+	COrderedSourceRange(const COrderedSourceRange&) = default;
+
+	/* rewritability_t is used to indicate whether this object holds a source range value that remains
+	"valid" after it is used to replace the corresponding source text (via
+	'clang::Rewriter::ReplaceText()'). By "valid" we mean that the source range value properly corresponds
+	to the replacement/updated text even if the new text is a different length than the text it replaced. */
+	enum rewritability_t { WriteOnce, Rewritable };
+	COrderedSourceRange(const base_class& src, rewritability_t rewritability = Rewritable) : base_class(src), m_rewritability(rewritability) {}
+
+	COrderedSourceRange& operator=(const COrderedSourceRange&) = default;
+	COrderedSourceRange& operator=(const base_class& src) { m_rewritability = Rewritable; return (*this); }
+
+	bool is_rewritable() const { return (Rewritable == m_rewritability); }
+	rewritability_t m_rewritability = Rewritable;
 };
 inline bool operator==(const COrderedSourceRange &LHS, const COrderedSourceRange &RHS) {
 	return static_cast<const COrderedSourceRange::base_class &>(LHS) == static_cast<const COrderedSourceRange::base_class &>(RHS);
@@ -114,6 +127,15 @@ inline bool operator<(const COrderedSourceRange &LHS, const COrderedSourceRange 
 	}
 	return false;
 }
+/* write_once_source_range() is used to create a source range value that is marked as one that becomes
+"stale"/"invalid" after it is used to replace the corresponding source text (via
+'clang::Rewriter::ReplaceText()'). */
+inline COrderedSourceRange write_once_source_range(const COrderedSourceRange& src) { return COrderedSourceRange(src, COrderedSourceRange::WriteOnce); }
+/* rewritable_source_range() is used to create a source range value that is marked as one that remains
+valid after it is used to replace the corresponding source text (via 'clang::Rewriter::ReplaceText()').
+This is the default state of COrderedSourceRange. */
+inline COrderedSourceRange rewritable_source_range(const COrderedSourceRange& src) { return COrderedSourceRange(src, COrderedSourceRange::Rewritable); }
+
 class COrderedRegionSet : public std::set<COrderedSourceRange> {
 	public:
 	typedef std::set<COrderedSourceRange> base_class;
@@ -146,9 +168,9 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 							const std::string& name = PP_CONCAT(s_, name);
 #ifndef NDEBUG
 #define DEBUG_SET_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, MatchResult1) \
-				source_location_str1 = SourceRange1.getBegin().printToString(*MatchResult1.SourceManager);
+				if (SourceRange1.isValid()) { source_location_str1 = SourceRange1.getBegin().printToString(*MatchResult1.SourceManager); }
 #define DEBUG_SET_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1) \
-				if ((SourceRange1.getBegin() < SourceRange1.getEnd()) || (SourceRange1.getBegin() == SourceRange1.getEnd())) { source_text1 = Rewrite1.getRewrittenText(SourceRange1); }
+				if (SourceRange1.isValid() && ((SourceRange1.getBegin() < SourceRange1.getEnd()) || (SourceRange1.getBegin() == SourceRange1.getEnd()))) { source_text1 = Rewrite1.getRewrittenText(SourceRange1); }
 #define IF_DEBUG(x) x
 #else /*!NDEBUG*/
 #define DEBUG_SET_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, MatchResult1) ;

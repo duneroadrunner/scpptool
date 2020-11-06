@@ -123,6 +123,7 @@ int main(int argc, const char **argv)
       convm1_state.m_suppress_check_region_set = checker_state.m_suppress_check_region_set;
       convm1::g_prepared_initial_tu_states.push_back(convm1_state);
     }
+    std::reverse(convm1::g_prepared_initial_tu_states.begin(), convm1::g_prepared_initial_tu_states.end());
 
     convm1::Options options = {
           CheckSystemHeader,

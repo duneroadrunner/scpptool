@@ -22,6 +22,7 @@
 #include <set>
 #include <list>
 #include <algorithm>
+#include <limits>
 #include <locale>
 
 #include <cstdio>
@@ -89,7 +90,8 @@ namespace convm1 {
 	* indirection", respectively, relative to var1. */
 	class CDDeclIndirection {
 	public:
-		CDDeclIndirection(const clang::DeclaratorDecl& ddecl_cref, size_t indirection_level = 0) :
+		static const size_t no_indirection = std::numeric_limits<size_t>::max();
+		CDDeclIndirection(const clang::DeclaratorDecl& ddecl_cref, size_t indirection_level) :
 			m_ddecl_cptr(&ddecl_cref), m_indirection_level(indirection_level) {}
 		CDDeclIndirection(const CDDeclIndirection&) = default;
 		bool operator <(const CDDeclIndirection &rhs) const {
@@ -152,6 +154,10 @@ namespace convm1 {
 		void set_current_pointer_target_state(const std::string& new_current) {
 			m_current_pointer_target_state = new_current;
 		}
+		void set_original_pointer_target_state(const std::string& pointer_target_state) {
+			m_original_pointer_target_state = pointer_target_state;
+			set_current_pointer_target_state(pointer_target_state);
+		}
 		const std::string& current_pointer_target_state() const {
 			return m_current_pointer_target_state;
 		}
@@ -162,9 +168,6 @@ namespace convm1 {
 	private:
 		std::string m_original_species;
 		std::string m_current_species;
-
-		std::string m_original_pointer_target_state;
-		std::string m_current_pointer_target_state;
 
 	public:
 		std::string m_array_size_expr;
@@ -184,27 +187,100 @@ namespace convm1 {
 		std::optional<clang::SourceRange> m_maybe_source_range_including_any_const_qualifier;
 		std::optional<clang::SourceRange> m_maybe_prefix_source_range;
 		std::optional<clang::SourceRange> m_maybe_suffix_source_range;
+
+		std::string m_original_pointer_target_state;
+		std::string m_current_pointer_target_state;
 	};
 
 	/* CTypeState1 holds information about a type instance (in the source text) and the type, if
 	any, it may/will be converted to. */
 	class CTypeState1 {
 		public:
+		void set_current_qtype(const clang::QualType& qtype) {
+			m_maybe_current_qtype = qtype;
+			m_current_qtype_is_current = true;
+		}
+		void set_original_qtype(const clang::QualType& qtype) {
+			m_maybe_original_qtype = qtype;
+			set_current_qtype(qtype);
+		}
+		void set_current_qtype_str(const std::string& qtype_str) {
+			m_current_qtype_str = qtype_str;
+			m_current_qtype_is_current = false;
+		}
+		std::string current_qtype_str() const {
+			if (m_current_qtype_is_current) {
+				if (!m_maybe_current_qtype.has_value()) {
+					assert(false);
+				} else {
+					return m_maybe_current_qtype.value().getAsString();
+				}
+			}
+			return m_current_qtype_str;
+		}
+		std::optional<clang::QualType> current_qtype_if_any() const { return m_maybe_current_qtype;}
+		bool current_qtype_is_current() const { return m_current_qtype_is_current; }
+		bool qtype_has_been_changed() const {
+			if (!m_maybe_original_qtype.has_value()) {
+				assert(false);
+				return true;
+			} else {
+				if (m_current_qtype_is_current) {
+					assert(m_maybe_current_qtype.has_value());
+					return (m_maybe_current_qtype.value() != m_maybe_original_qtype.value());
+				} else if (m_maybe_original_qtype.value().getAsString() != m_current_qtype_str)  {
+					return true;
+				}
+			}
+			return false;
+		}
+		void set_current_pointer_target_state(const std::string& pointer_target_state) {
+			m_current_pointer_target_state = pointer_target_state;
+		}
+		void set_original_pointer_target_state(const std::string& pointer_target_state) {
+			m_original_pointer_target_state = pointer_target_state;
+			set_current_pointer_target_state(pointer_target_state);
+		}
+		std::string current_pointer_target_state() const {
+			return m_current_pointer_target_state;
+		}
+		bool is_const() const {
+			if (current_qtype_is_current()) {
+				return current_qtype_if_any().value().isConstQualified();
+			} else if (m_maybe_original_qtype.has_value() && (!qtype_has_been_changed())) {
+				return m_maybe_original_qtype.value().isConstQualified();
+			} else {
+				/* hack alert */
+				auto padded_current_qtype_str = " " + current_qtype_str() + " ";
+				return (std::string::npos != padded_current_qtype_str.find(" const "));
+			}
+		}
+
 		std::optional<clang::SourceRange> m_maybe_source_range;
 		std::optional<clang::SourceRange> m_maybe_source_range_including_any_const_qualifier;
 		std::optional<clang::TypeLoc> m_maybe_typeLoc;
-		std::string m_original_str;
-		std::string m_current_str;
 		std::string m_current_params_str;
 
 		std::string m_original_pointer_target_state;
 		std::string m_current_pointer_target_state;
+
+		private:
+		std::optional<clang::QualType> m_maybe_original_qtype;
+		bool m_current_qtype_is_current = false;
+		std::optional<clang::QualType> m_maybe_current_qtype;
+		std::string m_current_qtype_str;
 	};
 
 	/* CIndirectionStateStack holds information about an instance of a type that is composed of
 	nested "indirect types" (like (native) pointers and/or arrays) and the ultimate direct type.
 	So for example, the type 'int*[3]' would be an array (indirect type) of pointers (indirect
-	type) to ints (direct type). */
+	type) to ints (direct type).
+	Note that currently here we're only supporting indirect types whose dereference operator(s)
+	return exactly one type, which is probably sufficient for C code but not C++ code. For example,
+	tuples could also be considered indirect types with the corresponding 'std::get<>()' functions
+	(potentially returning different types) as their dereference operator(s). In order to support
+	multiple dereference types, this CIndirectionStateStack would probably need to be generalized
+	to a CIndirectionStateTree. */
 	class CIndirectionStateStack : public std::vector<CIndirectionState> {
 	public:
 		std::optional<const clang::DeclaratorDecl*> m_maybe_DD;
@@ -708,8 +784,8 @@ namespace convm1 {
 					int q = 5;
 				}
 			}
-			m_original_direct_qtype = populateQTypeIndirectionStack(m_indirection_state_stack, QT, maybe_typeLoc);
-			set_current_direct_qtype(m_original_direct_qtype);
+			auto original_direct_qtype = populateQTypeIndirectionStack(m_indirection_state_stack, QT, maybe_typeLoc);
+			set_original_direct_qtype(original_direct_qtype);
 			//std::reverse(m_indirection_state_stack.begin(), m_indirection_state_stack.end());
 			m_indirection_state_stack.m_maybe_DD = &ddecl;
 		}
@@ -745,15 +821,6 @@ namespace convm1 {
 				}
 			}
 			return retval;
-		}
-		void set_current_direct_qtype(clang::QualType& new_direct_qtype) {
-			m_current_direct_qtype = new_direct_qtype;
-			m_current_direct_qtype_is_current = true;
-			m_current_direct_qtype_str = m_current_direct_qtype.getAsString();
-		}
-		void set_current_direct_qtype_str(const std::string& str) {
-			m_current_direct_qtype_is_current = false;
-			m_current_direct_qtype_str = str;
 		}
 		void set_indirection_current(size_t indirection_level, const std::string& new_current) {
 #ifndef NDEBUG
@@ -795,13 +862,24 @@ namespace convm1 {
 			}
 			return retval;
 		}
-		bool direct_qtype_has_been_changed() const {
-			if (m_current_direct_qtype_is_current && (m_current_direct_qtype != m_original_direct_qtype)) {
-				return true;
-			} else if (m_original_direct_qtype.getAsString() != m_current_direct_qtype_str)  {
-				return true;
+		bool has_been_determined_to_be_a_pointer_target(size_t indirection_level = 0) const {
+			bool retval = false;
+			assert((0 == indirection_level) || (m_indirection_state_stack.size() > indirection_level));
+			static const std::string pointer_target_str = "pointer target";
+			if (0 == indirection_level) {
+				if (pointer_target_str == direct_type_state_ref().current_pointer_target_state()) {
+					retval = true;
+				}
+			} else if (m_indirection_state_stack.size() >= indirection_level) {
+				const auto& current_state = m_indirection_state_stack.at(indirection_level - 1).current_species();
+				if (pointer_target_str == m_indirection_state_stack.at(indirection_level - 1).current_pointer_target_state()) {
+					retval = true;
+				}
 			}
-			return false;
+			return retval;
+		}
+		bool direct_qtype_has_been_changed() const {
+			return direct_type_state_ref().qtype_has_been_changed();
 		}
 		bool initializer_has_been_changed() const {
 			if (m_original_initialization_has_been_noted) {
@@ -813,13 +891,20 @@ namespace convm1 {
 			}
 			return false;
 		}
+		CTypeState1& direct_type_state_ref() { return m_indirection_state_stack.m_direct_type_state; }
+		const CTypeState1& direct_type_state_ref() const { return m_indirection_state_stack.m_direct_type_state; }
+
+		void set_original_direct_qtype(const clang::QualType& qtype) {
+			direct_type_state_ref().set_original_qtype(qtype);
+		}
+		void set_current_direct_qtype(const clang::QualType& qtype) {
+			direct_type_state_ref().set_current_qtype(qtype);
+		}
+		std::string current_direct_qtype_str() const { return direct_type_state_ref().current_qtype_str(); }
+		void set_current_direct_qtype_str(const std::string& new_qtype_str) { direct_type_state_ref().set_current_qtype_str(new_qtype_str); }
 
 		const DeclaratorDecl* m_ddecl_cptr = nullptr;
 		CIndirectionStateStack m_indirection_state_stack;
-		clang::QualType m_original_direct_qtype;
-		bool m_current_direct_qtype_is_current = false;
-		clang::QualType m_current_direct_qtype;
-		std::string m_current_direct_qtype_str;
 
 		std::variant<bool, clang::SourceRange, clang::SourceLocation> m_initializer_SR_or_insert_before_point;
 
@@ -832,6 +917,9 @@ namespace convm1 {
 		bool m_is_a_function = false;
 		std::vector<const clang::ParmVarDecl*> m_original_function_parameter_decl_cptrs;
 		std::string m_function_return_type_original_source_text_str;
+
+		std::optional<clang::StorageDuration> m_maybe_original_storage_duration;
+		std::optional<clang::StorageDuration> m_maybe_current_storage_duration;
 	};
 
 	class CDDeclConversionStateMap : public std::unordered_map<const clang::DeclaratorDecl*, CDDeclConversionState> {
@@ -936,7 +1024,7 @@ namespace convm1 {
 	class CNullableAnyRandomAccessIterCastExprTextModifier : public CWrapExprTextModifier {
 	public:
 		CNullableAnyRandomAccessIterCastExprTextModifier(const clang::QualType& qtype) :
-			CWrapExprTextModifier("mse::TNullableAnyRandomAccessIterator<" + qtype.getAsString() + " >(", ")"),
+			CWrapExprTextModifier("mse::lh::TLHNullableAnyRandomAccessIterator<" + qtype.getAsString() + " >(", ")"),
 			m_qtype(qtype) {}
 		virtual ~CNullableAnyRandomAccessIterCastExprTextModifier() {}
 		virtual std::string species_str() const {
@@ -1082,12 +1170,12 @@ namespace convm1 {
 		std::shared_ptr<CExprConversionState> m_rhs_shptr;
 	};
 
-	class CAddressofArraySubscriptExprConversionState : public CExprConversionState {
+	class CAddressofExprConversionState : public CExprConversionState {
 	public:
-		CAddressofArraySubscriptExprConversionState(const clang::UnaryOperator& addrofexpr_cref, Rewriter &Rewrite, const clang::ArraySubscriptExpr& arraysubscriptexpr_cref) : CExprConversionState(addrofexpr_cref, Rewrite), m_arraysubscriptexpr_cptr(&arraysubscriptexpr_cref) {
+		CAddressofExprConversionState(const clang::UnaryOperator& addrofexpr_cref, Rewriter &Rewrite, const clang::Expr& expr_cref) : CExprConversionState(addrofexpr_cref, Rewrite), m_expr_cptr(&expr_cref) {
 			assert(clang::UnaryOperatorKind::UO_AddrOf == addrofexpr_cref.getOpcode());
-			m_arraysubscriptexpr_shptr = std::make_shared<CExprConversionState>(*m_arraysubscriptexpr_cptr, Rewrite);
-			m_children_shptrs.push_back(m_arraysubscriptexpr_shptr);
+			m_expr_shptr = std::make_shared<CExprConversionState>(*m_expr_cptr, Rewrite);
+			m_children_shptrs.push_back(m_expr_shptr);
 		}
 		const clang::UnaryOperator& addrofexpr_cref() const {
 			return (*(static_cast<const clang::UnaryOperator *>(m_expr_cptr)));
@@ -1095,25 +1183,25 @@ namespace convm1 {
 		virtual void update_current_text() {
 			if (true) {
 				/* Do we need to update the kids first? */
-				arraysubscriptexpr_shptr()->update_current_text();
+				expr_shptr()->update_current_text();
 			}
-			std::string updated_text = "&(" + arraysubscriptexpr_shptr()->m_current_text_str + ")";
+			std::string updated_text = "&(" + expr_shptr()->m_current_text_str + ")";
 			updated_text = modified_copy(updated_text);
 			m_current_text_str = updated_text;
 		}
 
-		std::shared_ptr<CExprConversionState>& arraysubscriptexpr_shptr() {
+		std::shared_ptr<CExprConversionState>& expr_shptr() {
 			if (1 != m_children_shptrs.size()) {
 				assert(false);
-				return m_arraysubscriptexpr_shptr;
+				return m_expr_shptr;
 			} else {
 				return m_children_shptrs[0];
 			}
 		}
 
 	private:
-		std::shared_ptr<CExprConversionState> m_arraysubscriptexpr_shptr;
-		const clang::ArraySubscriptExpr* m_arraysubscriptexpr_cptr = nullptr;
+		std::shared_ptr<CExprConversionState> m_expr_shptr;
+		const clang::Expr* m_expr_cptr = nullptr;
 	};
 
 	class CExprConversionStateMap : public std::unordered_map<const clang::Expr*, std::shared_ptr<CExprConversionState>> {
@@ -1154,73 +1242,96 @@ namespace convm1 {
 	other replacement actions. */
 	class CReplacementAction {
 	public:
+		CReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR) : m_Rewrite(Rewrite), m_MR(MR) {}
 		virtual ~CReplacementAction() {}
 		virtual void do_replacement(CTUState& state1) const = 0;
-	};
-
-	class CDDecl2ReplacementAction : public CReplacementAction {
-	public:
-		CDDecl2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR,
-				const CDDeclIndirection& ddecl_indirection) : m_Rewrite(Rewrite), m_MR(MR), m_ddecl_indirection(ddecl_indirection) {}
-		virtual ~CDDecl2ReplacementAction() {}
-
-		virtual void do_replacement(CTUState& state1) const = 0;
-		virtual const clang::DeclaratorDecl* get_ddecl_cptr() const { return m_ddecl_indirection.m_ddecl_cptr; }
-		virtual const CDDeclIndirection& ddecl_indirection_cref() const { return m_ddecl_indirection; }
-
-		clang::SourceRange source_range() {
-			clang::SourceRange retval = m_ddecl_indirection.m_ddecl_cptr->getSourceRange();
-			return retval;
-		}
-		clang::SourceLocation start_location() {
-			clang::SourceLocation retval = source_range().getBegin();
-			return retval;
-		}
-		std::string get_var_name() {
-			std::string retval = m_ddecl_indirection.m_ddecl_cptr->getNameAsString();
-			return retval;
-		}
 
 		Rewriter& m_Rewrite;
 		const MatchFinder::MatchResult m_MR;
-		CDDeclIndirection m_ddecl_indirection;
 	};
 
-	class CExprTextReplacementAction : public CDDecl2ReplacementAction {
+	class CExprTextReplacementAction : public CReplacementAction {
 	public:
-		CExprTextReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
-				const Expr* EX, const std::string& replacement_code) :
-					CDDecl2ReplacementAction(Rewrite, MR, ddecl_indirection), m_EX(EX), m_replacement_code(replacement_code) {}
+		CExprTextReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const Expr* EX,
+			const std::string& replacement_code) : CReplacementAction(Rewrite, MR), m_EX(EX), m_replacement_code(replacement_code) {}
 		virtual ~CExprTextReplacementAction() {}
 
 		virtual void do_replacement(CTUState& state1) const;
-		/*
-		{
-			Rewriter &Rewrite = m_Rewrite;
-			const MatchFinder::MatchResult &MR = m_MR;
-			const Expr* EX = m_EX;
-
-			if (EX != nullptr)
-			{
-				auto EXSR = nice_source_range(EX->getSourceRange(), Rewrite);
-
-				if (ConvertToSCPP && (EXSR.isValid())) {
-					state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, EXSR, m_replacement_code);
-					//auto res2 = Rewrite.ReplaceText(EXSR, m_replacement_code);
-				} else {
-					int q = 7;
-				}
-			}
-		}
-		*/
 
 		const Expr* m_EX = nullptr;
 		std::string m_replacement_code;
 	};
 
-	class CArray2ReplacementAction : public CDDecl2ReplacementAction {
+	class CDDeclIndirectionReplacementAction : public CReplacementAction {
 	public:
-		using CDDecl2ReplacementAction::CDDecl2ReplacementAction;
+		CDDeclIndirectionReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR,
+				const CDDeclIndirection& ddecl_indirection) : CReplacementAction(Rewrite, MR), m_ddecl_indirection(ddecl_indirection) {}
+		virtual ~CDDeclIndirectionReplacementAction() {}
+
+		virtual void do_replacement(CTUState& state1) const = 0;
+		virtual const clang::DeclaratorDecl* get_ddecl_cptr() const { return m_ddecl_indirection.m_ddecl_cptr; }
+		virtual const CDDeclIndirection& ddecl_indirection_cref() const { return m_ddecl_indirection; }
+
+		//Rewriter& m_Rewrite;
+		//const MatchFinder::MatchResult m_MR;
+		CDDeclIndirection m_ddecl_indirection;
+	};
+
+	class CExprTextDDIReplacementAction : public CDDeclIndirectionReplacementAction {
+	public:
+		CExprTextDDIReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
+				const Expr* EX, const std::string& replacement_code) :
+					CDDeclIndirectionReplacementAction(Rewrite, MR, ddecl_indirection), m_EX(EX), m_replacement_code(replacement_code) {}
+		virtual ~CExprTextDDIReplacementAction() {}
+
+		virtual void do_replacement(CTUState& state1) const;
+
+		const Expr* m_EX = nullptr;
+		std::string m_replacement_code;
+	};
+
+	class CSameTypeReplacementAction : public CDDeclIndirectionReplacementAction {
+	public:
+		CSameTypeReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection1,
+				const CDDeclIndirection& ddecl_indirection2) : CDDeclIndirectionReplacementAction(Rewrite, MR, ddecl_indirection1), m_ddecl_indirection2(ddecl_indirection2) {}
+		CSameTypeReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const clang::DeclaratorDecl& ddecl_cref1,
+				const clang::DeclaratorDecl& ddecl_cref2) : CDDeclIndirectionReplacementAction(Rewrite, MR, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)), m_ddecl_indirection2(CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)) {}
+		virtual ~CSameTypeReplacementAction() {}
+
+		virtual void do_replacement(CTUState& state1) const;
+
+		CDDeclIndirection m_ddecl_indirection2;
+	};
+
+	class CAddressofArraySubscriptExprReplacementAction : public CDDeclIndirectionReplacementAction {
+	public:
+		CAddressofArraySubscriptExprReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
+				const clang::UnaryOperator& addrofexpr_cref, const clang::ArraySubscriptExpr& arraysubscriptexpr_cref) :
+					CDDeclIndirectionReplacementAction(Rewrite, MR, ddecl_indirection), m_addrofexpr_cptr(&addrofexpr_cref), m_arraysubscriptexpr_cptr(&arraysubscriptexpr_cref) {}
+		virtual ~CAddressofArraySubscriptExprReplacementAction() {}
+
+		virtual void do_replacement(CTUState& state1) const;
+
+		const clang::UnaryOperator* m_addrofexpr_cptr = nullptr;
+		const clang::ArraySubscriptExpr* m_arraysubscriptexpr_cptr = nullptr;
+	};
+
+	class CAddressofSubscriptOperatorCallExprReplacementAction : public CDDeclIndirectionReplacementAction {
+	public:
+		CAddressofSubscriptOperatorCallExprReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
+				const clang::UnaryOperator& addrofexpr_cref, const clang::CXXOperatorCallExpr& arraysubscriptexpr_cref) :
+					CDDeclIndirectionReplacementAction(Rewrite, MR, ddecl_indirection), m_addrofexpr_cptr(&addrofexpr_cref), m_arraysubscriptexpr_cptr(&arraysubscriptexpr_cref) {}
+		virtual ~CAddressofSubscriptOperatorCallExprReplacementAction() {}
+
+		virtual void do_replacement(CTUState& state1) const;
+
+		const clang::UnaryOperator* m_addrofexpr_cptr = nullptr;
+		const clang::CXXOperatorCallExpr* m_arraysubscriptexpr_cptr = nullptr;
+	};
+
+	class CArray2ReplacementAction : public CDDeclIndirectionReplacementAction {
+	public:
+		using CDDeclIndirectionReplacementAction::CDDeclIndirectionReplacementAction;
 		virtual ~CArray2ReplacementAction() {}
 	};
 
@@ -1307,6 +1418,19 @@ namespace convm1 {
 		const clang::ArraySubscriptExpr* m_arraysubscriptexpr_cptr = nullptr;
 	};
 
+	class CAssignmentTargetConstrainsAddressofSubscriptOperatorCallExprArray2ReplacementAction : public CArray2ReplacementAction {
+	public:
+		CAssignmentTargetConstrainsAddressofSubscriptOperatorCallExprArray2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
+				const clang::UnaryOperator& addrofexpr_cref, const clang::CXXOperatorCallExpr& arraysubscriptexpr_cref) :
+					CArray2ReplacementAction(Rewrite, MR, ddecl_indirection), m_addrofexpr_cptr(&addrofexpr_cref), m_arraysubscriptexpr_cptr(&arraysubscriptexpr_cref) {}
+		virtual ~CAssignmentTargetConstrainsAddressofSubscriptOperatorCallExprArray2ReplacementAction() {}
+
+		virtual void do_replacement(CTUState& state1) const;
+
+		const clang::UnaryOperator* m_addrofexpr_cptr = nullptr;
+		const clang::CXXOperatorCallExpr* m_arraysubscriptexpr_cptr = nullptr;
+	};
+
 	class CUpdateIndirectFunctionTypeParamsArray2ReplacementAction : public CArray2ReplacementAction {
 	public:
 		CUpdateIndirectFunctionTypeParamsArray2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
@@ -1323,7 +1447,7 @@ namespace convm1 {
 	/*
 	A CDDeclIndirection specifies an (indirect) component type (like a pointer or array) of the
 	type of a clang::DeclaratorDecl (i.e. a declaration statement) (that may consist of nested
-	indirect types (like a pointer to a pointer)). CDDecl2ReplacementActionMap is a map from 
+	indirect types (like a pointer to a pointer)). CDDeclIndirectionReplacementActionMap is a map from 
 	CDDeclIndirection objects to "replacement action" objects.
 	
 	Conceptually, this map stores "if-then" statements like: "If this given (native) pointer
@@ -1339,10 +1463,10 @@ namespace convm1 {
 	
 	This collection of "if-then" statements is used to help ensure that (for example) all the
 	native pointers are converted to the appropriate counterpart safe types. */
-	class CDDecl2ReplacementActionMap : public std::multimap<CDDeclIndirection, std::shared_ptr<CDDecl2ReplacementAction>> {
+	class CDDeclIndirectionReplacementActionMap : public std::multimap<CDDeclIndirection, std::shared_ptr<CDDeclIndirectionReplacementAction>> {
 	public:
-		typedef std::multimap<CDDeclIndirection, std::shared_ptr<CDDecl2ReplacementAction>> base_class;
-		iterator insert( const std::shared_ptr<CDDecl2ReplacementAction>& cr_shptr ) {
+		typedef std::multimap<CDDeclIndirection, std::shared_ptr<CDDeclIndirectionReplacementAction>> base_class;
+		iterator insert( const std::shared_ptr<CDDeclIndirectionReplacementAction>& cr_shptr ) {
 			iterator retval(end());
 			if (!cr_shptr) { assert(false); } else {
 				value_type val((*cr_shptr).ddecl_indirection_cref(), cr_shptr);
@@ -1451,18 +1575,18 @@ namespace convm1 {
 		const DeclaratorDecl* m_var_DD = nullptr;
 	};
 
-	class CDynamicArray2ReplacementActionMap : public CDDecl2ReplacementActionMap {
+	class CDynamicArray2ReplacementActionMap : public CDDeclIndirectionReplacementActionMap {
 	public:
 		iterator insert( const std::shared_ptr<CDynamicArray2ReplacementAction>& cr_shptr ) {
-			return CDDecl2ReplacementActionMap::insert(static_cast<std::shared_ptr<CDDecl2ReplacementAction> >(cr_shptr));
+			return CDDeclIndirectionReplacementActionMap::insert(static_cast<std::shared_ptr<CDDeclIndirectionReplacementAction> >(cr_shptr));
 		}
 	};
 
-	class CArray2ReplacementActionMap : public CDDecl2ReplacementActionMap {
+	class CArray2ReplacementActionMap : public CDDeclIndirectionReplacementActionMap {
 	public:
 		/*
 		iterator insert( const std::shared_ptr<CArray2ReplacementAction>& cr_shptr ) {
-			return CDDecl2ReplacementActionMap::insert(static_cast<std::shared_ptr<CDDecl2ReplacementAction> >(cr_shptr));
+			return CDDeclIndirectionReplacementActionMap::insert(static_cast<std::shared_ptr<CDDeclIndirectionReplacementAction> >(cr_shptr));
 		}
 		*/
 	};
@@ -1511,6 +1635,7 @@ namespace convm1 {
 
 	int source_range_length(const clang::SourceRange& sr)
 	{
+		/* Note the existence of clang::Rewriter::getRangeSize(). */
 		if (!sr.isValid()) {
 			return 0;
 		}
@@ -1631,6 +1756,10 @@ namespace convm1 {
 		/* This container holds (potential) actions that are meant to be executed if/when
 		* their corresponding item is determined to be an array (dynamic or otherwise). */
 		CArray2ReplacementActionMap m_array2_contingent_replacement_map;
+
+		/* This container holds (potential) actions that are meant to be executed if/when
+		* their corresponding item is determined to be a pointer target. */
+		CDDeclIndirectionReplacementActionMap m_pointer_target_contingent_replacement_map;
 
 		/* This container holds information about each item's original type and which
 		* type it might be converted to.  */
@@ -1787,8 +1916,19 @@ namespace convm1 {
 	any currently indicated changes to the declaration. In any case, it will return an information
 	object that can be used to construct a text string of the currently indicated replacement type. */
 	static CTypeIndirectionPrefixAndSuffixItem type_indirection_prefix_and_suffix_modifier_and_code_generator(CIndirectionStateStack& indirection_state_stack,
-			Rewriter &Rewrite, bool direct_type_is_char_type, bool direct_type_is_function_type, bool is_a_function_parameter, CTUState* state1_ptr = nullptr) {
+			Rewriter &Rewrite, bool is_a_function_parameter, CTUState* state1_ptr = nullptr) {
 		CTypeIndirectionPrefixAndSuffixItem retval;
+
+		auto& direct_type_state_ref = indirection_state_stack.m_direct_type_state;
+		bool direct_type_is_char_type = (("char" == direct_type_state_ref.current_qtype_str()) || ("const char" == direct_type_state_ref.current_qtype_str()));
+		bool direct_type_is_FILE_type = (("FILE" == direct_type_state_ref.current_qtype_str()) || ("const FILE" == direct_type_state_ref.current_qtype_str()));
+		bool direct_type_is_void_type = (("void" == direct_type_state_ref.current_qtype_str()) || ("const void" == direct_type_state_ref.current_qtype_str()));
+		bool direct_type_is_function_type = false;
+		if (direct_type_state_ref.current_qtype_if_any().has_value()) {
+			direct_type_is_function_type = direct_type_state_ref.current_qtype_if_any().value().getTypePtr()->isFunctionType();
+		} else {
+			assert(false);
+		}
 
 		bool changed_from_original = false;
 		std::string replacement_code;
@@ -1805,11 +1945,21 @@ namespace convm1 {
 				bool l_changed_from_original = (indirection_state_stack[i].current_species() != indirection_state_stack[i].original_species());
 
 				bool is_char_star = false;
+				bool is_FILE_star = false;
+				bool is_void_star = false;
 				bool is_function_pointer = false;
 				bool is_last_indirection = (indirection_state_stack.size() == (i+1));
 				if (is_last_indirection && (direct_type_is_char_type)) {
 					is_char_star = true;
-					/* For the moment, we  leave "char *" types alone. This will changeat some point. */
+					/* For the moment, we leave "char *" types alone. This will change at some point. */
+					l_changed_from_original = ("native pointer" != indirection_state_stack[i].original_species());
+				} else if (is_last_indirection && (direct_type_is_FILE_type)) {
+					is_FILE_star = true;
+					/* For the moment, we leave "FILE *" types alone. This may change at some point. */
+					l_changed_from_original = ("native pointer" != indirection_state_stack[i].original_species());
+				} else if (is_last_indirection && (direct_type_is_void_type)) {
+					is_void_star = true;
+					/* For the moment, we leave "void *" types alone. This may change at some point. */
 					l_changed_from_original = ("native pointer" != indirection_state_stack[i].original_species());
 				} else if (is_last_indirection && direct_type_is_function_type) {
 					is_function_pointer = true;
@@ -1842,6 +1992,10 @@ namespace convm1 {
 						* char* for now. At some point we'll replace it with an mse::string or whatever. */
 						suffix_str = "* ";
 						retval.m_action_species = "char*";
+					} else if (is_FILE_star) {
+						/* We'll just leave it as a FILE* for now. */
+						suffix_str = "* ";
+						retval.m_action_species = "FILE*";
 					} else if(is_argv) {
 						suffix_str = "* ";
 						retval.m_action_species = "char** argv";
@@ -1856,7 +2010,7 @@ namespace convm1 {
 							prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
 							suffix_str = "> ";
 						} else {
-							prefix_str = "mse::TNullableAnyRandomAccessIterator<";
+							prefix_str = "mse::lh::TLHNullableAnyRandomAccessIterator<";
 							suffix_str = "> ";
 						}
 						retval.m_action_species = "native pointer to MSE_LH_ARRAY_ITERATOR_TYPE";
@@ -1865,9 +2019,12 @@ namespace convm1 {
 					if (is_char_star) {
 						/* We're assuming this is a null terminated string. We'll just leave it as a
 						* char* for now. At some point we'll replace it with an mse::string or whatever. */
-						//prefix_str = "";
 						suffix_str = "* ";
 						retval.m_action_species = "char*";
+					} else if (is_FILE_star) {
+						/* We'll just leave it as a FILE* for now. */
+						suffix_str = "* ";
+						retval.m_action_species = "FILE*";
 					} else {
 						if (is_last_indirection) {
 							retval.m_direct_type_must_be_non_const = true;
@@ -1882,7 +2039,7 @@ namespace convm1 {
 							suffix_str = "> ";
 						} else {
 							prefix_str = "mse::lh::TStrongVectorIterator<";
-							//prefix_str = "mse::TNullableAnyRandomAccessIterator<";
+							//prefix_str = "mse::lh::TLHNullableAnyRandomAccessIterator<";
 							suffix_str = "> ";
 						}
 						if (is_a_function_parameter) {
@@ -1897,7 +2054,6 @@ namespace convm1 {
 					if (is_char_star) {
 						/* We're assuming this is a null terminated string. We'll just leave it as a
 						* char[] for now. At some point we'll replace it with an mse::string or whatever. */
-						//prefix_str = "";
 						if (1 == indirection_state_stack.size()) {
 							post_name_suffix_str = "[" + size_text + "]";
 						} else {
@@ -1913,7 +2069,7 @@ namespace convm1 {
 								prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
 								suffix_str = "> ";
 							} else {
-								prefix_str = "mse::TNullableAnyRandomAccessIterator<";
+								prefix_str = "mse::lh::TLHNullableAnyRandomAccessIterator<";
 								suffix_str = "> ";
 							}
 							retval.m_action_species = "native array parameter to MSE_LH_ARRAY_ITERATOR_TYPE";
@@ -1945,16 +2101,23 @@ namespace convm1 {
 					if (is_char_star) {
 						/* We're assuming this is a null terminated string. We'll just leave it as a
 						* char* for now. At some point we'll replace it with an mse::string or whatever. */
-						//prefix_str = "";
 						suffix_str = "* ";
 						retval.m_action_species = "char*";
+					} else if (is_FILE_star) {
+						/* We'll just leave it as a FILE* for now. */
+						suffix_str = "* ";
+						retval.m_action_species = "FILE*";
+					} else if (is_void_star) {
+						/* We'll just leave it as a void* for now. */
+						suffix_str = "* ";
+						retval.m_action_species = "void*";
 					} else if (is_function_pointer) {
 						l_changed_from_original = true;
 						prefix_str = "mse::mstd::function<";
 						suffix_str = "> ";
 						retval.m_action_species = "function pointer to mse::mstd::function";
 					} else {
-						if (false/*for now*/) {
+						if (true/*for now*/) {
 							l_changed_from_original = true;
 
 							if ("Dual" == ConvertMode) {
@@ -1964,7 +2127,7 @@ namespace convm1 {
 								prefix_str = "mse::TXScopeAnyPointer<";
 								suffix_str = "> ";
 							} else {
-								prefix_str = "mse::TNullableAnyPointer<";
+								prefix_str = "mse::lh::TLHNullableAnyPointer<";
 								suffix_str = "> ";
 							}
 
@@ -1976,27 +2139,44 @@ namespace convm1 {
 						}
 					}
 				} else if ("malloc target" == indirection_state_stack[i].current_species()) {
-					if (true) {
-						/* We'll just leaving it as a native pointer for now. Ultimately, this won't be the case. */
-						if ("native pointer" == indirection_state_stack[i].original_species()) {
-							l_changed_from_original = false;
-						}
-						//prefix_str = "";
+					if (is_char_star) {
+						/* We're assuming this is a null terminated string. We'll just leave it as a
+						* char* for now. At some point we'll replace it with an mse::string or whatever. */
 						suffix_str = "* ";
+						retval.m_action_species = "char*";
+					} else if (is_FILE_star) {
+						/* We'll just leave it as a FILE* for now. */
+						suffix_str = "* ";
+						retval.m_action_species = "FILE*";
+					} else if (is_void_star) {
+						/* We'll just leave it as a void* for now. */
+						suffix_str = "* ";
+						retval.m_action_species = "void*";
 					} else {
-						if ("Dual" == ConvertMode) {
-							//prefix_str = "MSE_LH_ALLOC_POINTER_TYPE(";
-							prefix_str = "MSE_LH_POINTER_TYPE(";
-							suffix_str = ") ";
-						} else if ("FasterAndStricter" == ConvertMode) {
-							prefix_str = "mse::TRefCountingPointer<";
-							suffix_str = "> ";
+						if (false) {
+							/* We'll just leaving it as a native pointer for now. Ultimately, this won't be the case. */
+							if ("native pointer" == indirection_state_stack[i].original_species()) {
+								l_changed_from_original = false;
+							}
+							//prefix_str = "";
+							suffix_str = "* ";
+							retval.m_action_species = "malloc target";
 						} else {
-							prefix_str = "mse::TNullableAnyPointer<";
-							suffix_str = "> ";
+							if ("Dual" == ConvertMode) {
+								//prefix_str = "MSE_LH_ALLOC_POINTER_TYPE(";
+								prefix_str = "MSE_LH_POINTER_TYPE(";
+								suffix_str = ") ";
+							} else if ("FasterAndStricter" == ConvertMode) {
+								prefix_str = "mse::TRefCountingPointer<";
+								suffix_str = "> ";
+							} else {
+								prefix_str = "mse::lh::TLHNullableAnyPointer<";
+								suffix_str = "> ";
+							}
+
+							retval.m_action_species = "malloc target to TAnyPointer";
 						}
 					}
-					retval.m_action_species = "malloc target";
 				} else if ("native reference" == indirection_state_stack[i].current_species()) {
 					{
 						l_changed_from_original = false;
@@ -2286,6 +2466,7 @@ namespace convm1 {
 											std::string size_text = indirection_state_stack[i].m_array_size_expr;
 
 											if (is_char_star) {
+											} else if (is_FILE_star) {
 											} else {
 												if (is_a_function_parameter) {
 												} else {
@@ -2364,10 +2545,21 @@ namespace convm1 {
 #define REGOBJ_TEST1_FLAG false
 
 					if (!is_argv) {
-						if (REGOBJ_TEST1_FLAG && ("" == post_name_suffix_str)) {
+						if ((REGOBJ_TEST1_FLAG || ("pointer target" == indirection_state_stack[i].current_pointer_target_state()))
+							&& (!string_begins_with(prefix_str, "mse::TRegisteredObj<"))
+							&& (!string_begins_with(prefix_str, "MSE_LH_ADDRESSABLE_TYPE("))
+							&& (!string_begins_with(prefix_str, "const mse::TRegisteredObj<"))
+							&& (!string_begins_with(prefix_str, "const MSE_LH_ADDRESSABLE_TYPE("))
+							&& ("" == post_name_suffix_str)) {
 							if ("native reference" != indirection_state_stack[i].current_species()) {
-								prefix_str = "mse::TRegisteredObj<" + prefix_str;
-								suffix_str = suffix_str + " >";
+								if ("Dual" == ConvertMode) {
+									prefix_str = "MSE_LH_ADDRESSABLE_TYPE(" + prefix_str;
+									suffix_str = suffix_str + ")";
+								} else if ("FasterAndStricter" == ConvertMode) {
+								} else {
+									prefix_str = "mse::TRegisteredObj<" + prefix_str;
+									suffix_str = suffix_str + " >";
+								}
 							} else {
 								int q = 5;
 							}
@@ -2436,17 +2628,17 @@ namespace convm1 {
 	/* This function will modify the source text to reflect any currently indicated changes to the
 	declaration. */
 	static CTypeIndirectionPrefixAndSuffixItem type_indirection_prefix_and_suffix_modifier(CIndirectionStateStack& indirection_state_stack,
-			Rewriter &Rewrite, CTUState& state1, bool direct_type_is_char_type, bool direct_type_is_function_type, bool is_a_function_parameter) {
+			Rewriter &Rewrite, CTUState* state1_ptr, bool is_a_function_parameter) {
 
-			return type_indirection_prefix_and_suffix_modifier_and_code_generator(indirection_state_stack, Rewrite, direct_type_is_char_type, direct_type_is_function_type, is_a_function_parameter, &state1);
+			return type_indirection_prefix_and_suffix_modifier_and_code_generator(indirection_state_stack, Rewrite, is_a_function_parameter, state1_ptr);
 	}
 
 	/* This function will return an information object that can be used to construct a text string 
 	f the currently indicated replacement type. */
 	static CTypeIndirectionPrefixAndSuffixItem generate_type_indirection_prefix_and_suffix(CIndirectionStateStack& indirection_state_stack,
-			Rewriter &Rewrite, bool direct_type_is_char_type, bool direct_type_is_function_type, bool is_a_function_parameter) {
+			Rewriter &Rewrite, bool is_a_function_parameter) {
 
-			return type_indirection_prefix_and_suffix_modifier_and_code_generator(indirection_state_stack, Rewrite, direct_type_is_char_type, direct_type_is_function_type, is_a_function_parameter);
+			return type_indirection_prefix_and_suffix_modifier_and_code_generator(indirection_state_stack, Rewrite, is_a_function_parameter);
 	}
 
 	class CDeclarationReplacementCodeItem {
@@ -2457,321 +2649,8 @@ namespace convm1 {
 		bool m_individual_from_compound_declaration = false;
 	};
 
-	static CDeclarationReplacementCodeItem generate_declaration_replacement_code(const DeclaratorDecl* DD,
-			Rewriter &Rewrite, CDDeclConversionStateMap& ddecl_conversion_state_map, std::string options_str = "") {
-		CDeclarationReplacementCodeItem retval;
-
-		if (!DD) {
-			return retval;
-		}
-		auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
-		if (!(decl_source_range.isValid())) {
-			return retval;
-		}
-
-		auto res1 = ddecl_conversion_state_map.insert(*DD);
-		auto ddcs_map_iter = res1.first;
-		auto& ddcs_ref = (*ddcs_map_iter).second;
-
-		QualType QT = DD->getType();
-
-		const clang::FunctionDecl* FND = nullptr;
-		bool type_is_function_type = false;
-		assert(DD->isFunctionOrFunctionTemplate() == QT->isFunctionType());
-		if (QT->isFunctionType()) {
-			FND = dyn_cast<const clang::FunctionDecl>(DD);
-			if (FND) {
-				type_is_function_type = true;
-				QT = FND->getReturnType();
-			}
-		}
-
-		std::string variable_name = DD->getNameAsString();
-		std::string identifier_name_str;
-		auto pIdentifier = DD->getIdentifier();
-		if (pIdentifier) {
-			identifier_name_str = pIdentifier->getName();
-		}
-		if ("" == variable_name) {
-			int q = 7;
-		} else if ("lodepng_chunk_data_const" == variable_name) {
-			int q = 5;
-		}
-
-		clang::StorageClass storage_class = clang::StorageClass::SC_None;
-		bool is_extern = false;
-		clang::StorageDuration storage_duration = clang::StorageDuration::SD_Automatic;
-		bool has_dynamic_storage_duration = false;
-		bool is_a_temporary = false;
-		bool is_static = false;
-		bool is_a_function_parameter = false;
-		bool is_member = false;
-		bool is_vardecl = false;
-		std::string initialization_expr_str = ddcs_ref.m_current_initialization_expr_str;
-		bool is_function = DD->isFunctionOrFunctionTemplate();
-
-		auto VD = dyn_cast<const clang::VarDecl>(DD);
-		if (VD) {
-			is_vardecl = true;
-			storage_class = VD->getStorageClass();
-			is_extern = (clang::StorageClass::SC_Extern == storage_class);
-			storage_duration = VD->getStorageDuration();
-			has_dynamic_storage_duration = (clang::StorageDuration::SD_Dynamic == storage_duration);
-			is_a_temporary = (clang::StorageDuration::SD_FullExpression == storage_duration);
-			//is_static = (clang::StorageDuration::SD_Static == storage_duration);
-			is_static = (clang::StorageClass::SC_Static == storage_class);
-			if ((clang::StorageDuration::SD_Static == storage_duration) && (!is_static)) {
-				int q = 5;
-			}
-			is_a_function_parameter = (VD->isLocalVarDeclOrParm() && (!VD->isLocalVarDecl()));
-
-			if (!ddcs_ref.m_original_initialization_has_been_noted) {
-				if (VD->hasInit()) {
-					auto pInitExpr = VD->getInit();
-					if (pInitExpr) {
-						auto init_expr_source_range = nice_source_range(pInitExpr->getSourceRange(), Rewrite);
-						if (init_expr_source_range.isValid()) {
-							initialization_expr_str = Rewrite.getRewrittenText(init_expr_source_range);
-							if (variable_name == initialization_expr_str) {
-								/* We encountered a weird bug where the initialization expression sometimes
-								* was indicated as being present and the source range set to the variable name
-								* when actually no initialization expression was present in the original source. */
-								initialization_expr_str = "";
-							} else {
-								ddcs_ref.m_initializer_SR_or_insert_before_point = init_expr_source_range;
-								ddcs_ref.m_original_initialization_expr_str = initialization_expr_str;
-								ddcs_ref.m_current_initialization_expr_str = initialization_expr_str;
-							}
-						} else {
-							int q = 3;
-						}
-					} else {
-						int q = 3;
-					}
-				}
-				ddcs_ref.m_original_initialization_has_been_noted = true;
-			}
-		} else {
-			auto FD = dyn_cast<const clang::FieldDecl>(DD);
-			if (FD) {
-				is_member = true;
-
-				if (!ddcs_ref.m_original_initialization_has_been_noted) {
-					if (FD->hasInClassInitializer()) {
-						auto pInitExpr = FD->getInClassInitializer();
-						if (pInitExpr) {
-							auto init_expr_source_range = nice_source_range(pInitExpr->getSourceRange(), Rewrite);
-							if (init_expr_source_range.isValid()) {
-								initialization_expr_str = Rewrite.getRewrittenText(init_expr_source_range);
-								if (variable_name == initialization_expr_str) {
-									/* We encountered a weird bug where the initialization expression sometimes
-									* was indicated as being present and the source range set to the variable name
-									* when actually no initialization expression was present in the original source. */
-									initialization_expr_str = "";
-								} else {
-									ddcs_ref.m_initializer_SR_or_insert_before_point = init_expr_source_range;
-									ddcs_ref.m_original_initialization_expr_str = initialization_expr_str;
-									ddcs_ref.m_current_initialization_expr_str = initialization_expr_str;
-								}
-							} else {
-								int q = 3;
-							}
-						} else {
-							int q = 3;
-						}
-					}
-					ddcs_ref.m_original_initialization_has_been_noted = true;
-				}
-			}
-		}
-		ddcs_ref.m_original_initialization_has_been_noted = true;
-
-		const clang::Type* TP = QT.getTypePtr();
-		auto qtype_str = QT.getAsString();
-		auto direct_qtype_str = ddcs_ref.m_current_direct_qtype_str;
-
-		auto non_const_direct_qtype_str = ddcs_ref.m_current_direct_qtype_str;
-		if (ddcs_ref.m_current_direct_qtype_is_current) {
-			auto non_const_direct_qtype = ddcs_ref.m_current_direct_qtype;
-			non_const_direct_qtype.removeLocalConst();
-			non_const_direct_qtype_str = non_const_direct_qtype.getAsString();
-		} else {
-			static const std::string const_space_str = "const ";
-			if (string_begins_with(non_const_direct_qtype_str, const_space_str)) {
-				non_const_direct_qtype_str = non_const_direct_qtype_str.substr(const_space_str.size());
-			}
-		}
-
-		if (false && (ddcs_ref.m_current_direct_qtype->isFunctionType())) {
-			if (llvm::isa<const clang::FunctionType>(ddcs_ref.m_current_direct_qtype)) {
-				auto FNQT = llvm::cast<const clang::FunctionType>(ddcs_ref.m_current_direct_qtype);
-				if (FNQT) {
-					direct_qtype_str = FNQT->getReturnType().getAsString();
-
-					auto return_qtype = FNQT->getReturnType();
-					return_qtype.removeLocalConst();
-					non_const_direct_qtype_str = return_qtype.getAsString();
-				}
-			}
-		}
-		IF_DEBUG(auto original_direct_qtype_str = ddcs_ref.m_original_direct_qtype.getAsString();)
-		IF_DEBUG(auto current_direct_qtype_str = ddcs_ref.m_current_direct_qtype.getAsString();)
-		if (false && (ddcs_ref.m_original_direct_qtype.getAsString() == ddcs_ref.m_current_direct_qtype_str)) {
-			/* If the "DDecl conversion state" does not indicate that the "direct qtype" has been changed
-			then, if available, we'll use the current source text of the direct qtype, as it may have been
-			updated and we wouldn't want to overwrite it with the non-updated type. */
-			if (ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_maybe_typeLoc.has_value()) {
-				auto typeLoc = (*(ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_maybe_typeLoc));
-				auto direct_qtype_source_text = Rewrite.getRewrittenText(typeLoc.getSourceRange());
-				if ("" != direct_qtype_source_text) {
-					direct_qtype_str = direct_qtype_source_text;
-					if (ddcs_ref.m_current_direct_qtype.isConstQualified()) {
-						direct_qtype_str = direct_qtype_str + " const";
-					}
-
-					non_const_direct_qtype_str = direct_qtype_source_text;
-					/*
-					static const std::string const_space_str = "const ";
-					static const std::string space_const_str = " const";
-					if (string_begins_with(non_const_direct_qtype_str, const_space_str)) {
-						non_const_direct_qtype_str = non_const_direct_qtype_str.substr(const_space_str.size());
-					} else if (string_ends_with(non_const_direct_qtype_str, space_const_str)) {
-						assert(non_const_direct_qtype_str.size() >= space_const_str.size());
-						non_const_direct_qtype_str = non_const_direct_qtype_str.substr(0, int(non_const_direct_qtype_str.size()) - int(space_const_str.size()));
-					}
-					*/
-				} else {
-					int q = 5;
-				}
-			}
-		}
-		if ("_Bool" == direct_qtype_str) {
-			direct_qtype_str = "bool";
-		} else if ("const _Bool" == direct_qtype_str) {
-			direct_qtype_str = "const bool";
-		}
-		if ("_Bool" == non_const_direct_qtype_str) {
-			non_const_direct_qtype_str = "bool";
-		}
-
-		auto direct_TP = ddcs_ref.m_current_direct_qtype.getTypePtr();
-		if (!direct_TP) {
-			return retval;
-		}
-		bool direct_type_is_function_type = direct_TP->isFunctionType();
-
-		if (!(ddcs_ref.m_original_source_text_has_been_noted)) {
-			ddcs_ref.m_original_source_text_str = Rewrite.getRewrittenText(decl_source_range);
-			if (FND) {
-				assert(type_is_function_type);
-				ddcs_ref.m_is_a_function = true;
-				for (size_t i = 0; i < FND->getNumParams(); i+=1) {
-					ddcs_ref.m_original_function_parameter_decl_cptrs.push_back(FND->getParamDecl(i));
-				}
-				auto return_type_source_range = nice_source_range(FND->getReturnTypeSourceRange(), Rewrite);
-				if (!(return_type_source_range.isValid())) {
-					return retval;
-				}
-				ddcs_ref.m_function_return_type_original_source_text_str = Rewrite.getRewrittenText(return_type_source_range);
-			}
-			ddcs_ref.m_original_source_text_has_been_noted = true;
-		}
-
-		bool direct_type_is_char_type = (("char" == direct_qtype_str) || ("const char" == direct_qtype_str));
-		bool changed_from_original = false;
-		std::string replacement_code;
-		std::string prefix_str;
-		std::string suffix_str;
-		std::string post_name_suffix_str;
-
-		auto res4 = generate_type_indirection_prefix_and_suffix(ddcs_ref.m_indirection_state_stack,
-				Rewrite, direct_type_is_char_type, direct_type_is_function_type, is_a_function_parameter);
-		retval.m_action_species = res4.m_action_species;
-
-		if (res4.m_direct_type_must_be_non_const) {
-			direct_qtype_str = non_const_direct_qtype_str;
-		}
-		prefix_str = res4.m_prefix_str;
-		suffix_str = res4.m_suffix_str;
-		post_name_suffix_str = res4.m_post_name_suffix_str;
-
-		if ((!FND) && ("" == post_name_suffix_str)) {
-			bool is_char_star = false;
-			if (("char" == direct_qtype_str) || ("const char" == direct_qtype_str)) {
-				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-					is_char_star = true;
-				}
-			}
-			if (!is_char_star) {
-				if (REGOBJ_TEST1_FLAG && (!string_begins_with(ddcs_ref.m_current_direct_qtype_str, "mse::TRegisteredObj<"))) {
-					direct_qtype_str = "mse::TRegisteredObj<" + direct_qtype_str + " >";
-					ddcs_ref.set_current_direct_qtype_str("mse::TRegisteredObj<" + ddcs_ref.m_current_direct_qtype_str + " >");
-				} else {
-					int q = 5;
-				}
-			}
-		}
-
-		bool discard_initializer_option_flag = (std::string::npos != options_str.find("[discard-initializer]"));
-		std::string initializer_append_str;
-		if ((!discard_initializer_option_flag) && ("" != initialization_expr_str)) {
-			initializer_append_str = " = " + initialization_expr_str;
-		}
-
-		bool individual_from_compound_declaration = false;
-		//if (("" != prefix_str) || ("" != suffix_str)/* || ("" != post_name_suffix_str)*/)
-		if (res4.m_changed_from_original || ddcs_ref.direct_qtype_has_been_changed()) {
-			changed_from_original = true;
-		} else if (ddcs_ref.initializer_has_been_changed() || (discard_initializer_option_flag)) {
-			changed_from_original = true;
-		} else if (true && (2 <= IndividualDeclaratorDecls(DD, Rewrite).size())) {
-			/* There is more than one declaration in the declaration statement. We split
-			* them so that each has their own separate declaration statement. This counts
-			* as a change from the original source code. */
-			individual_from_compound_declaration = true;
-		}
-
-		if (FND) {
-			assert(type_is_function_type);
-			if (changed_from_original || individual_from_compound_declaration) {
-				replacement_code += prefix_str + direct_qtype_str + suffix_str;
-			} else {
-				replacement_code = ddcs_ref.m_function_return_type_original_source_text_str;
-			}
-		} else {
-			if (changed_from_original || individual_from_compound_declaration) {
-				if (is_extern) {
-					if ("" == ddcs_ref.m_original_initialization_expr_str) {
-						replacement_code += "extern ";
-					}
-				} else if (is_static) {
-					replacement_code += "static ";
-				}
-				if (res4.m_just_a_native_array) {
-					replacement_code += "MSE_LH_FIXED_ARRAY_DECLARATION(" + direct_qtype_str;
-					replacement_code += ", " + res4.m_native_array_size_text;
-					replacement_code += ", " + variable_name + ")";
-				} else {
-					replacement_code += prefix_str + direct_qtype_str + suffix_str;
-					replacement_code += " ";
-					replacement_code += variable_name;
-					replacement_code += post_name_suffix_str;
-				}
-
-				replacement_code += initializer_append_str;
-			} else {
-				replacement_code = ddcs_ref.m_original_source_text_str;
-			}
-		}
-
-		retval.m_replacement_code = replacement_code;
-		retval.m_changed_from_original = changed_from_original;
-		retval.m_individual_from_compound_declaration = individual_from_compound_declaration;
-		return retval;
-	}
-
 	static CDeclarationReplacementCodeItem declaration_modifier_helper1(const DeclaratorDecl* DD,
-			Rewriter &Rewrite, CTUState& state1, CDDeclConversionStateMap& ddecl_conversion_state_map, std::string options_str = "") {
+			Rewriter &Rewrite, CTUState* state1_ptr, CDDeclConversionStateMap& ddecl_conversion_state_map, std::string options_str = "") {
 		CDeclarationReplacementCodeItem retval;
 
 		if (!DD) {
@@ -2813,9 +2692,7 @@ namespace convm1 {
 
 		clang::StorageClass storage_class = clang::StorageClass::SC_None;
 		bool is_extern = false;
-		clang::StorageDuration storage_duration = clang::StorageDuration::SD_Automatic;
-		bool has_dynamic_storage_duration = false;
-		bool is_a_temporary = false;
+		clang::StorageDuration storage_duration = ddcs_ref.m_maybe_current_storage_duration.value_or(clang::StorageDuration::SD_Automatic);
 		bool is_static = false;
 		bool is_a_function_parameter = false;
 		bool is_member = false;
@@ -2829,10 +2706,11 @@ namespace convm1 {
 			is_vardecl = true;
 			storage_class = VD->getStorageClass();
 			is_extern = (clang::StorageClass::SC_Extern == storage_class);
-			storage_duration = VD->getStorageDuration();
-			has_dynamic_storage_duration = (clang::StorageDuration::SD_Dynamic == storage_duration);
-			is_a_temporary = (clang::StorageDuration::SD_FullExpression == storage_duration);
-			//is_static = (clang::StorageDuration::SD_Static == storage_duration);
+
+			ddcs_ref.m_maybe_original_storage_duration = VD->getStorageDuration();
+			if (!ddcs_ref.m_maybe_current_storage_duration.has_value()) { ddcs_ref.m_maybe_current_storage_duration = ddcs_ref.m_maybe_original_storage_duration; }
+			storage_duration = ddcs_ref.m_maybe_current_storage_duration.value();
+
 			is_static = (clang::StorageClass::SC_Static == storage_class);
 			if ((clang::StorageDuration::SD_Static == storage_duration) && (!is_static)) {
 				int q = 5;
@@ -2901,63 +2779,23 @@ namespace convm1 {
 
 		const clang::Type* TP = QT.getTypePtr();
 		auto qtype_str = QT.getAsString();
-		auto direct_qtype_str = ddcs_ref.m_current_direct_qtype_str;
+		auto direct_qtype_str = ddcs_ref.current_direct_qtype_str();
 
-		auto non_const_direct_qtype_str = ddcs_ref.m_current_direct_qtype_str;
-		if (ddcs_ref.m_current_direct_qtype_is_current) {
-			auto non_const_direct_qtype = ddcs_ref.m_current_direct_qtype;
+		auto non_const_direct_qtype_str = direct_qtype_str;
+		if (ddcs_ref.direct_type_state_ref().current_qtype_is_current()) {
+			assert(ddcs_ref.direct_type_state_ref().current_qtype_if_any().has_value());
+			auto current_direct_qtype = ddcs_ref.direct_type_state_ref().current_qtype_if_any().value();
+			auto non_const_direct_qtype = current_direct_qtype;
 			non_const_direct_qtype.removeLocalConst();
 			non_const_direct_qtype_str = non_const_direct_qtype.getAsString();
 		} else {
+			/* hack alert */
 			static const std::string const_space_str = "const ";
 			if (string_begins_with(non_const_direct_qtype_str, const_space_str)) {
 				non_const_direct_qtype_str = non_const_direct_qtype_str.substr(const_space_str.size());
 			}
 		}
 
-		if (false && (ddcs_ref.m_current_direct_qtype->isFunctionType())) {
-			if (llvm::isa<const clang::FunctionType>(ddcs_ref.m_current_direct_qtype)) {
-				auto FNQT = llvm::cast<const clang::FunctionType>(ddcs_ref.m_current_direct_qtype);
-				if (FNQT) {
-					direct_qtype_str = FNQT->getReturnType().getAsString();
-
-					auto return_qtype = FNQT->getReturnType();
-					return_qtype.removeLocalConst();
-					non_const_direct_qtype_str = return_qtype.getAsString();
-				}
-			}
-		}
-		IF_DEBUG(auto original_direct_qtype_str = ddcs_ref.m_original_direct_qtype.getAsString();)
-		IF_DEBUG(auto current_direct_qtype_str = ddcs_ref.m_current_direct_qtype.getAsString();)
-		if (false && (ddcs_ref.m_original_direct_qtype.getAsString() == ddcs_ref.m_current_direct_qtype_str)) {
-			/* If the "DDecl conversion state" does not indicate that the "direct qtype" has been changed
-			then, if available, we'll use the current source text of the direct qtype, as it may have been
-			updated and we wouldn't want to overwrite it with the non-updated type. */
-			if (ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_maybe_typeLoc.has_value()) {
-				auto typeLoc = (*(ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_maybe_typeLoc));
-				auto direct_qtype_source_text = Rewrite.getRewrittenText(typeLoc.getSourceRange());
-				if ("" != direct_qtype_source_text) {
-					direct_qtype_str = direct_qtype_source_text;
-					if (ddcs_ref.m_current_direct_qtype.isConstQualified()) {
-						direct_qtype_str = direct_qtype_str + " const";
-					}
-
-					non_const_direct_qtype_str = direct_qtype_source_text;
-					/*
-					static const std::string const_space_str = "const ";
-					static const std::string space_const_str = " const";
-					if (string_begins_with(non_const_direct_qtype_str, const_space_str)) {
-						non_const_direct_qtype_str = non_const_direct_qtype_str.substr(const_space_str.size());
-					} else if (string_ends_with(non_const_direct_qtype_str, space_const_str)) {
-						assert(non_const_direct_qtype_str.size() >= space_const_str.size());
-						non_const_direct_qtype_str = non_const_direct_qtype_str.substr(0, int(non_const_direct_qtype_str.size()) - int(space_const_str.size()));
-					}
-					*/
-				} else {
-					int q = 5;
-				}
-			}
-		}
 		if ("_Bool" == direct_qtype_str) {
 			direct_qtype_str = "bool";
 		} else if ("const _Bool" == direct_qtype_str) {
@@ -2966,12 +2804,6 @@ namespace convm1 {
 		if ("_Bool" == non_const_direct_qtype_str) {
 			non_const_direct_qtype_str = "bool";
 		}
-
-		auto direct_TP = ddcs_ref.m_current_direct_qtype.getTypePtr();
-		if (!direct_TP) {
-			return retval;
-		}
-		bool direct_type_is_function_type = direct_TP->isFunctionType();
 
 		if (!(ddcs_ref.m_original_source_text_has_been_noted)) {
 			ddcs_ref.m_original_source_text_str = Rewrite.getRewrittenText(decl_source_range);
@@ -2990,36 +2822,14 @@ namespace convm1 {
 			ddcs_ref.m_original_source_text_has_been_noted = true;
 		}
 
-		bool direct_type_is_char_type = (("char" == direct_qtype_str) || ("const char" == direct_qtype_str));
 		bool changed_from_original = false;
 		std::string replacement_code;
 		std::string prefix_str;
 		std::string suffix_str;
 		std::string post_name_suffix_str;
 
-		if (ddcs_ref.m_original_direct_qtype.getAsString() != direct_qtype_str) {
-			if (ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_maybe_typeLoc.has_value()) {
-				auto typeLoc = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_maybe_typeLoc.value();
-				auto direct_type_SR = nice_source_range(typeLoc.getSourceRange(), Rewrite);
-
-				auto functionProtoTypeLoc = typeLoc.getAsAdjusted<clang::FunctionProtoTypeLoc>();
-				if (functionProtoTypeLoc) {
-					typeLoc = functionProtoTypeLoc.getReturnLoc();
-					direct_type_SR = nice_source_range(typeLoc.getSourceRange(), Rewrite);
-				}
-
-				if (direct_type_SR.isValid()) {
-					const std::string old_direct_type_text = Rewrite.getRewrittenText(direct_type_SR);
-					IF_DEBUG(const std::string old_direct_type_text2 = Rewrite.getRewrittenText({ direct_type_SR.getBegin(), direct_type_SR.getBegin() });)
-					if ("" == ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_original_str) {
-						ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_original_str = old_direct_type_text;
-					}
-				}
-			}
-		}
-
 		auto res4 = type_indirection_prefix_and_suffix_modifier(ddcs_ref.m_indirection_state_stack,
-				Rewrite, state1, direct_type_is_char_type, direct_type_is_function_type, is_a_function_parameter);
+				Rewrite, state1_ptr, is_a_function_parameter);
 
 		retval.m_action_species = res4.m_action_species;
 
@@ -3031,16 +2841,44 @@ namespace convm1 {
 		post_name_suffix_str = res4.m_post_name_suffix_str;
 
 		if ((!FND) && ("" == post_name_suffix_str)) {
-			bool is_char_star = false;
+			bool is_char_type = false;
+			bool is_FILE_type = false;
+			bool is_void_type = false;
 			if (("char" == direct_qtype_str) || ("const char" == direct_qtype_str)) {
 				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-					is_char_star = true;
+					is_char_type = true;
+				}
+			} else if (("FILE" == direct_qtype_str) || ("const FILE" == direct_qtype_str)) {
+				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+					is_FILE_type = true;
+				}
+			} else if (("void" == direct_qtype_str) || ("const void" == direct_qtype_str)) {
+				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+					is_void_type = true;
 				}
 			}
-			if (!is_char_star) {
-				if (REGOBJ_TEST1_FLAG && (!string_begins_with(ddcs_ref.m_current_direct_qtype_str, "mse::TRegisteredObj<"))) {
-					direct_qtype_str = "mse::TRegisteredObj<" + direct_qtype_str + " >";
-					ddcs_ref.set_current_direct_qtype_str("mse::TRegisteredObj<" + ddcs_ref.m_current_direct_qtype_str + " >");
+			if ((!is_char_type) && (!is_FILE_type) && (!is_void_type)) {
+				if ((REGOBJ_TEST1_FLAG || ("pointer target" == ddcs_ref.direct_type_state_ref().current_pointer_target_state()))
+					&& (!string_begins_with(ddcs_ref.current_direct_qtype_str(), "mse::TRegisteredObj<"))
+					&& (!string_begins_with(ddcs_ref.current_direct_qtype_str(), "MSE_LH_ADDRESSABLE_TYPE("))
+					&& (!string_begins_with(ddcs_ref.current_direct_qtype_str(), "const mse::TRegisteredObj<"))
+					&& (!string_begins_with(ddcs_ref.current_direct_qtype_str(), "const MSE_LH_ADDRESSABLE_TYPE("))
+					) {
+
+					if ("Dual" == ConvertMode) {
+						direct_qtype_str = "MSE_LH_ADDRESSABLE_TYPE(" + non_const_direct_qtype_str + ")";
+						if (ddcs_ref.direct_type_state_ref().is_const()) {
+							direct_qtype_str = "const " + direct_qtype_str;
+						}
+						ddcs_ref.set_current_direct_qtype_str(direct_qtype_str);
+					} else if ("FasterAndStricter" == ConvertMode) {
+					} else {
+						direct_qtype_str = "mse::TRegisteredObj<" + non_const_direct_qtype_str + " >";
+						if (ddcs_ref.direct_type_state_ref().is_const()) {
+							direct_qtype_str = "const " + direct_qtype_str;
+						}
+						ddcs_ref.set_current_direct_qtype_str(direct_qtype_str);
+					}
 				} else {
 					int q = 5;
 				}
@@ -3111,6 +2949,11 @@ namespace convm1 {
 					auto directTypeLoc = ddcs_ref.m_ddecl_cptr->getTypeSourceInfo()->getTypeLoc();
 					auto directTypeSR = nice_source_range(directTypeLoc.getSourceRange(), Rewrite);
 					IF_DEBUG(auto old_text1 = Rewrite.getRewrittenText(directTypeSR);)
+					if (directTypeSR.getBegin().isMacroID() || ddcs_ref.m_ddecl_cptr->getSourceRange().getBegin().isMacroID()) {
+						auto directTypeSRb = directTypeLoc.getSourceRange();
+						IF_DEBUG(auto old_text1b = Rewrite.getRewrittenText(directTypeSR);)
+						int q = 5;
+					}
 					auto cq_direct_type_SR = extended_to_include_west_const_if_any(Rewrite, directTypeSR);
 					IF_DEBUG(auto old_text2 = Rewrite.getRewrittenText(cq_direct_type_SR);)
 					cq_direct_type_SR = extended_to_include_east_const_if_any(Rewrite, cq_direct_type_SR);
@@ -3137,6 +2980,11 @@ namespace convm1 {
 		return retval;
 	}
 
+	static CDeclarationReplacementCodeItem generate_declaration_replacement_code(const DeclaratorDecl* DD,
+			Rewriter &Rewrite, CDDeclConversionStateMap& ddecl_conversion_state_map, std::string options_str = "") {
+		return declaration_modifier_helper1(DD, Rewrite, nullptr, ddecl_conversion_state_map, options_str);
+	}
+
 	static void declaration_modifier(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1, std::string options_str = "") {
 		const DeclaratorDecl* DD = &ddecl;
 		auto SR = nice_source_range(DD->getSourceRange(), Rewrite);
@@ -3154,14 +3002,33 @@ namespace convm1 {
 		}
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":2612:")) {
+		if (std::string::npos != debug_source_location_str.find(":2803:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
+		auto ISR = instantiation_source_range(DD->getSourceRange(), Rewrite);
+		auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+		if (supress_check_flag) {
+			return;
+		}
+
 		std::string variable_name = DD->getNameAsString();
+
+		auto raw_SR = DD->getSourceRange();
+		auto raw_macro_flag = raw_SR.getBegin().isMacroID() && raw_SR.getEnd().isMacroID();
+		auto macro_flag = SR.getBegin().isMacroID() && SR.getEnd().isMacroID();
+		if (raw_macro_flag || macro_flag) {
+			IF_DEBUG(auto old_text1b = Rewrite.getRewrittenText(raw_SR);)
+			if (raw_macro_flag != macro_flag) {
+				int q = 5;
+			}
+			/* This declaration seems to be a macro, or part of a macro. For now we'll just leave
+			it alone and not attempt any modifications. */
+			return;
+		}
 
 		if (("" == variable_name) || (!TP)) {
 			return;
@@ -3182,7 +3049,7 @@ namespace convm1 {
 					return;
 				}
 
-				//declaration_modifier_helper1(&ddecl, Rewrite, state1, state1.m_ddecl_conversion_state_map, options_str);
+				//declaration_modifier_helper1(&ddecl, Rewrite, &state1, state1.m_ddecl_conversion_state_map, options_str);
 
 				auto res = generate_declaration_replacement_code(&ddecl, Rewrite, state1.m_ddecl_conversion_state_map, options_str);
 				changed_from_original |= res.m_changed_from_original;
@@ -3219,7 +3086,7 @@ namespace convm1 {
 				std::string rd_name = rdcs_ref.recdecl_ptr()->getNameAsString();
 				if ("" != rd_name) {
 					if (rdcs_ref.recdecl_ptr()->isThisDeclarationADefinition()) {
-						replacement_code += rdcs_ref.m_current_text_str + "; \n";
+						replacement_code += rdcs_ref.m_current_text_str + "; ";
 					}
 				} else {
 					/* We are unable to handle this case at the moment. */
@@ -3233,6 +3100,7 @@ namespace convm1 {
 			auto ddecls = IndividualDeclaratorDecls(DD, Rewrite);
 			if ((1 <= ddecls.size())/* && (ddecls.back() == DD)*/) {
 				if (2 <= ddecls.size()) {
+					static const std::string semicolon_space_str = "; ";
 					std::vector<std::string> action_species_list;
 					for (const auto& ddecl_cref : ddecls) {
 						auto res = generate_declaration_replacement_code(ddecl_cref, Rewrite, state1.m_ddecl_conversion_state_map, options_str);
@@ -3240,16 +3108,16 @@ namespace convm1 {
 
 						action_species_list.push_back(res.m_action_species);
 						replacement_code += res.m_replacement_code;
-						replacement_code += "; \n";
+						replacement_code += semicolon_space_str;
 					}
 					if (replacement_code.size() >= 3) {
-						replacement_code = replacement_code.substr(0, replacement_code.size() - 3);
+						replacement_code = replacement_code.substr(0, replacement_code.size() - semicolon_space_str.length());
 					}
 
 					/* (Only) the source range of the last individual declaration in the declaration statement
 					* should encompass the whole statement. */
 					auto last_ddecl = ddecls.back();
-					auto last_decl_source_range = nice_source_range(last_ddecl->getSourceRange(), Rewrite);
+					auto last_decl_source_range = rewritable_source_range(nice_source_range(last_ddecl->getSourceRange(), Rewrite));
 
 					IF_DEBUG(std::string last_decl_source_text = last_decl_source_range.isValid() ? Rewrite.getRewrittenText(last_decl_source_range) : std::string("[invalid]");)
 
@@ -3272,7 +3140,7 @@ namespace convm1 {
 						int q = 7;
 					}
 				} else {
-					declaration_modifier_helper1(&ddecl, Rewrite, state1, state1.m_ddecl_conversion_state_map, options_str);
+					declaration_modifier_helper1(&ddecl, Rewrite, &state1, state1.m_ddecl_conversion_state_map, options_str);
 				}
 			} else {
 				int q = 7;
@@ -3282,7 +3150,7 @@ namespace convm1 {
 
 	static void update_declaration(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1, std::string options_str = "") {
 		const DeclaratorDecl* DD = &ddecl;
-		auto SR = nice_source_range(DD->getSourceRange(), Rewrite);
+		auto SR = rewritable_source_range(nice_source_range(DD->getSourceRange(), Rewrite));
 
 		QualType QT = DD->getType();
 		const clang::Type* TP = QT.getTypePtr();
@@ -3580,6 +3448,79 @@ namespace convm1 {
 		return retval;
 	}
 
+
+	void CExprTextReplacementAction::do_replacement(CTUState& state1) const {
+		Rewriter &Rewrite = m_Rewrite;
+		const MatchFinder::MatchResult &MR = m_MR;
+
+		const Expr* EX = m_EX;
+		if (EX) {
+			auto EXSR = write_once_source_range(nice_source_range(EX->getSourceRange(), (*this).m_Rewrite));
+			if (EXSR.isValid()) {
+				auto excs_iter = state1.m_expr_conversion_state_map.find(EX);
+				if (state1.m_expr_conversion_state_map.end() == excs_iter) {
+					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*EX, m_Rewrite);
+					excs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+				}
+				auto& excs_shptr_ref = (*excs_iter).second;
+
+				if (ConvertToSCPP) {
+					std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>((*this).m_replacement_code);
+					(*excs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
+					(*excs_shptr_ref).update_current_text();
+
+					state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, EXSR, (*excs_shptr_ref).m_current_text_str);
+					//(*this).m_Rewrite.ReplaceText(EXSR, (*excs_shptr_ref).m_current_text_str);
+				}
+			}
+		}
+	}
+
+	void CSameTypeReplacementAction::do_replacement(CTUState& state1) const {
+		Rewriter &Rewrite = m_Rewrite;
+		const MatchFinder::MatchResult &MR = m_MR;
+
+		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(m_ddecl_indirection2.m_ddecl_cptr));
+		auto lhs_ddcs_map_iter = lhs_res1.first;
+		auto& lhs_ddcs_ref = (*lhs_ddcs_map_iter).second;
+		bool lhs_update_declaration_flag = lhs_res1.second;
+
+		auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(m_ddecl_indirection.m_ddecl_cptr));
+		auto rhs_ddcs_map_iter = rhs_res1.first;
+		auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
+		bool rhs_update_declaration_flag = rhs_res1.second;
+
+		{
+			std::string& lhs_pointer_target_state = (CDDeclIndirection::no_indirection == m_ddecl_indirection2.m_indirection_level) ? lhs_ddcs_ref.direct_type_state_ref().m_current_pointer_target_state : lhs_ddcs_ref.m_indirection_state_stack.at(m_ddecl_indirection2.m_indirection_level).m_current_pointer_target_state;
+			std::string& rhs_pointer_target_state = (CDDeclIndirection::no_indirection == m_ddecl_indirection.m_indirection_level) ? rhs_ddcs_ref.direct_type_state_ref().m_current_pointer_target_state : rhs_ddcs_ref.m_indirection_state_stack.at(m_ddecl_indirection.m_indirection_level).m_current_pointer_target_state;
+
+			if ("pointer target" == lhs_pointer_target_state) {
+				if ("" == rhs_pointer_target_state) {
+					rhs_pointer_target_state = lhs_pointer_target_state;
+					rhs_update_declaration_flag |= true;
+					state1.m_pointer_target_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection);
+				}
+			} else if ("" == lhs_pointer_target_state) {
+				if ("pointer target" == rhs_pointer_target_state) {
+					lhs_pointer_target_state = rhs_pointer_target_state;
+					lhs_update_declaration_flag |= true;
+					state1.m_pointer_target_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection);
+				}
+			}
+
+			if ((CDDeclIndirection::no_indirection != m_ddecl_indirection2.m_indirection_level) && (CDDeclIndirection::no_indirection != m_ddecl_indirection.m_indirection_level)) {
+				CSameTypeArray2ReplacementAction(Rewrite, MR, m_ddecl_indirection2, m_ddecl_indirection).do_replacement(state1);
+			}
+		}
+
+		if (lhs_update_declaration_flag) {
+			update_declaration(*(m_ddecl_indirection2.m_ddecl_cptr), Rewrite, state1);
+		}
+		if (rhs_update_declaration_flag) {
+			update_declaration(*(m_ddecl_indirection.m_ddecl_cptr), Rewrite, state1);
+		}
+	}
+
 	void CMallocArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
 		const MatchFinder::MatchResult &MR = m_MR;
@@ -3645,7 +3586,7 @@ namespace convm1 {
 			auto ddcs_map_iter = res1.first;
 			auto& ddcs_ref = (*ddcs_map_iter).second;
 
-			std::string current_direct_qtype_str = ddcs_ref.m_current_direct_qtype_str;
+			std::string current_direct_qtype_str = ddcs_ref.current_direct_qtype_str();
 			std::string initializer_info_str = m_current_initialization_expr_str;
 			static const std::string void_str = "void";
 			auto void_pos = initializer_info_str.find(void_str);
@@ -3678,12 +3619,11 @@ namespace convm1 {
 		{
 			auto CESR = nice_source_range(CE->getSourceRange(), Rewrite);
 			auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
-			std::string decl_source_text;
-			if (decl_source_range.isValid()) {
-				IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
-			} else {
+			if (!decl_source_range.isValid()) {
 				return;
 			}
+			DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, MR);
+			DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 			if (ConvertToSCPP && decl_source_range.isValid() && (CESR.isValid())) {
 				update_declaration(*DD, Rewrite, state1);
@@ -3964,6 +3904,21 @@ namespace convm1 {
 				} else if ("native array" == rhs_current_cref) {
 				}
 			}
+
+			/*
+			if ("pointer target" == lhs_ddcs_ref.direct_type_state_ref().current_pointer_target_state()) {
+				if ("pointer target" == rhs_ddcs_ref.direct_type_state_ref().current_pointer_target_state()) {
+				} else {
+					rhs_ddcs_ref.direct_type_state_ref().set_current_pointer_target_state("pointer target");
+					rhs_update_declaration_flag = true;
+				}
+			} else if ("" == lhs_ddcs_ref.direct_type_state_ref().current_pointer_target_state()) {
+				if ("pointer target" == rhs_ddcs_ref.direct_type_state_ref().current_pointer_target_state()) {
+					lhs_ddcs_ref.direct_type_state_ref().set_current_pointer_target_state("pointer target");
+					lhs_update_declaration_flag = true;
+				}
+			}
+			*/
 		} else {
 			int q = 7;
 		}
@@ -3976,34 +3931,7 @@ namespace convm1 {
 		}
 	}
 
-	void CExprTextReplacementAction::do_replacement(CTUState& state1) const {
-		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
-
-		const Expr* EX = m_EX;
-		if (EX) {
-			auto EXSR = nice_source_range(EX->getSourceRange(), (*this).m_Rewrite);
-			if (EXSR.isValid()) {
-				auto excs_iter = state1.m_expr_conversion_state_map.find(EX);
-				if (state1.m_expr_conversion_state_map.end() == excs_iter) {
-					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*EX, m_Rewrite);
-					excs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
-				}
-				auto& excs_shptr_ref = (*excs_iter).second;
-
-				if (ConvertToSCPP) {
-					std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>((*this).m_replacement_code);
-					(*excs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
-					(*excs_shptr_ref).update_current_text();
-
-					state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, EXSR, (*excs_shptr_ref).m_current_text_str);
-					//(*this).m_Rewrite.ReplaceText(EXSR, (*excs_shptr_ref).m_current_text_str);
-				}
-			}
-		}
-	}
-
-	void CAssignmentTargetConstrainsAddressofArraySubscriptExprArray2ReplacementAction::do_replacement(CTUState& state1) const {
+	void CAddressofArraySubscriptExprReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
 		const MatchFinder::MatchResult &MR = m_MR;
 
@@ -4015,7 +3943,7 @@ namespace convm1 {
 			if ((UOSR.isValid()) && (ase_SR.isValid())) {
 				auto uocs_iter = state1.m_expr_conversion_state_map.find(UO);
 				if (state1.m_expr_conversion_state_map.end() == uocs_iter) {
-					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CAddressofArraySubscriptExprConversionState>(*UO, m_Rewrite, *ASE);
+					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CAddressofExprConversionState>(*UO, m_Rewrite, *ASE);
 					uocs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 				}
 				auto& uocs_shptr_ref = (*uocs_iter).second;
@@ -4052,6 +3980,222 @@ namespace convm1 {
 		}
 	}
 
+	void CAddressofSubscriptOperatorCallExprReplacementAction::do_replacement(CTUState& state1) const {
+		Rewriter &Rewrite = m_Rewrite;
+		const MatchFinder::MatchResult &MR = m_MR;
+
+		const clang::UnaryOperator* UO = m_addrofexpr_cptr;
+		const clang::CXXOperatorCallExpr* ASE = m_arraysubscriptexpr_cptr;
+		if (UO && ASE) {
+			auto UOSR = nice_source_range(UO->getSourceRange(), (*this).m_Rewrite);
+			auto ase_SR = nice_source_range(ASE->getSourceRange(), (*this).m_Rewrite);
+			if ((UOSR.isValid()) && (ase_SR.isValid())) {
+				auto uocs_iter = state1.m_expr_conversion_state_map.find(UO);
+				if (state1.m_expr_conversion_state_map.end() == uocs_iter) {
+					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CAddressofExprConversionState>(*UO, m_Rewrite, *ASE);
+					uocs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+				}
+				auto& uocs_shptr_ref = (*uocs_iter).second;
+
+				const clang::Expr* index_expr_cptr = nullptr;
+				const clang::Expr* array_expr_cptr =  nullptr;
+				int count1 = 0;
+				for (const auto& arg : ASE->arguments()) {
+					if (0 == count1) {
+						array_expr_cptr = arg;
+					} else if (1 == count1) {
+						index_expr_cptr = arg;
+					} else {
+						break;
+					}
+					count1 += 1;
+				}
+				if (!index_expr_cptr) {
+					assert(false);
+					return;
+				}
+				//auto array_expr_cptr = ASE->getCallee();
+				if (index_expr_cptr && array_expr_cptr) {
+					auto index_cs_iter = state1.m_expr_conversion_state_map.find(index_expr_cptr);
+					if (state1.m_expr_conversion_state_map.end() == index_cs_iter) {
+						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*index_expr_cptr, m_Rewrite);
+						index_cs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+					}
+					auto& index_cs_shptr_ref = (*index_cs_iter).second;
+
+					auto array_cs_iter = state1.m_expr_conversion_state_map.find(array_expr_cptr);
+					if (state1.m_expr_conversion_state_map.end() == array_cs_iter) {
+						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*array_expr_cptr, m_Rewrite);
+						array_cs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+					}
+					auto& array_cs_shptr_ref = (*array_cs_iter).second;
+
+					std::string UO_replacement_text;
+					if ("Dual" == ConvertMode) {
+						UO_replacement_text = "(mse::make_nullable_any_random_access_iterator(std::begin(" + (*array_cs_shptr_ref).m_current_text_str + ")) + (" + (*index_cs_shptr_ref).m_current_text_str + "))";
+					} else if ("FasterAndStricter" == ConvertMode) {
+						if (true) {
+							return;
+						} else {
+							UO_replacement_text = (*this).m_Rewrite.getRewrittenText(UOSR);
+							if ("" == UO_replacement_text) {
+								UO_replacement_text = "&(" + (*array_cs_shptr_ref).m_current_text_str + "[" + (*index_cs_shptr_ref).m_current_text_str + "])";
+							}
+						}
+					} else {
+						UO_replacement_text = "(mse::make_nullable_any_random_access_iterator(std::begin(" + (*array_cs_shptr_ref).m_current_text_str + ")) + (" + (*index_cs_shptr_ref).m_current_text_str + "))";
+					}
+
+					if (ConvertToSCPP) {
+						std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(UO_replacement_text);
+						(*uocs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
+						(*uocs_shptr_ref).update_current_text();
+
+						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, UOSR, (*uocs_shptr_ref).m_current_text_str);
+						//(*this).m_Rewrite.ReplaceText(UOSR, (*uocs_shptr_ref).m_current_text_str);
+					}
+				}
+
+			}
+		}
+	}
+
+	void CExprTextDDIReplacementAction::do_replacement(CTUState& state1) const {
+		Rewriter &Rewrite = m_Rewrite;
+		const MatchFinder::MatchResult &MR = m_MR;
+		const Expr* EX = m_EX;
+		CExprTextReplacementAction(Rewrite, MR, EX, (*this).m_replacement_code).do_replacement(state1);
+	}
+
+	void CAssignmentTargetConstrainsAddressofArraySubscriptExprArray2ReplacementAction::do_replacement(CTUState& state1) const {
+		Rewriter &Rewrite = m_Rewrite;
+		const MatchFinder::MatchResult &MR = m_MR;
+
+		const clang::UnaryOperator* UO = m_addrofexpr_cptr;
+		const ArraySubscriptExpr* ASE = m_arraysubscriptexpr_cptr;
+		if (false && UO && ASE) {
+			auto UOSR = nice_source_range(UO->getSourceRange(), (*this).m_Rewrite);
+			auto ase_SR = nice_source_range(ASE->getSourceRange(), (*this).m_Rewrite);
+			if ((UOSR.isValid()) && (ase_SR.isValid())) {
+				auto uocs_iter = state1.m_expr_conversion_state_map.find(UO);
+				if (state1.m_expr_conversion_state_map.end() == uocs_iter) {
+					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CAddressofExprConversionState>(*UO, m_Rewrite, *ASE);
+					uocs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+				}
+				auto& uocs_shptr_ref = (*uocs_iter).second;
+
+				auto index_expr_cptr = ASE->getIdx();
+				auto array_expr_cptr = ASE->getBase();
+				if (index_expr_cptr && array_expr_cptr) {
+					auto index_cs_iter = state1.m_expr_conversion_state_map.find(index_expr_cptr);
+					if (state1.m_expr_conversion_state_map.end() == index_cs_iter) {
+						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*index_expr_cptr, m_Rewrite);
+						index_cs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+					}
+					auto& index_cs_shptr_ref = (*index_cs_iter).second;
+
+					auto array_cs_iter = state1.m_expr_conversion_state_map.find(array_expr_cptr);
+					if (state1.m_expr_conversion_state_map.end() == array_cs_iter) {
+						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*array_expr_cptr, m_Rewrite);
+						array_cs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+					}
+					auto& array_cs_shptr_ref = (*array_cs_iter).second;
+
+					std::string UO_replacement_text = "((" + (*array_cs_shptr_ref).m_current_text_str + ") + (" + (*index_cs_shptr_ref).m_current_text_str + "))";
+					if (ConvertToSCPP) {
+						std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(UO_replacement_text);
+						(*uocs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
+						(*uocs_shptr_ref).update_current_text();
+
+						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, UOSR, (*uocs_shptr_ref).m_current_text_str);
+						//(*this).m_Rewrite.ReplaceText(UOSR, (*uocs_shptr_ref).m_current_text_str);
+					}
+				}
+
+			}
+		}
+	}
+
+	void CAssignmentTargetConstrainsAddressofSubscriptOperatorCallExprArray2ReplacementAction::do_replacement(CTUState& state1) const {
+		Rewriter &Rewrite = m_Rewrite;
+		const MatchFinder::MatchResult &MR = m_MR;
+
+		const clang::UnaryOperator* UO = m_addrofexpr_cptr;
+		const clang::CXXOperatorCallExpr* ASE = m_arraysubscriptexpr_cptr;
+		if (UO && ASE) {
+			auto UOSR = nice_source_range(UO->getSourceRange(), (*this).m_Rewrite);
+			auto ase_SR = nice_source_range(ASE->getSourceRange(), (*this).m_Rewrite);
+			if ((UOSR.isValid()) && (ase_SR.isValid())) {
+				auto uocs_iter = state1.m_expr_conversion_state_map.find(UO);
+				if (state1.m_expr_conversion_state_map.end() == uocs_iter) {
+					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CAddressofExprConversionState>(*UO, m_Rewrite, *ASE);
+					uocs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+				}
+				auto& uocs_shptr_ref = (*uocs_iter).second;
+
+				const clang::Expr* index_expr_cptr = nullptr;
+				const clang::Expr* array_expr_cptr =  nullptr;
+				int count1 = 0;
+				for (const auto& arg : ASE->arguments()) {
+					if (0 == count1) {
+						array_expr_cptr = arg;
+					} else if (1 == count1) {
+						index_expr_cptr = arg;
+					} else {
+						break;
+					}
+					count1 += 1;
+				}
+				if (!index_expr_cptr) {
+					assert(false);
+					return;
+				}
+				//auto array_expr_cptr = ASE->getCallee();
+				if (index_expr_cptr && array_expr_cptr) {
+					auto index_cs_iter = state1.m_expr_conversion_state_map.find(index_expr_cptr);
+					if (state1.m_expr_conversion_state_map.end() == index_cs_iter) {
+						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*index_expr_cptr, m_Rewrite);
+						index_cs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+					}
+					auto& index_cs_shptr_ref = (*index_cs_iter).second;
+
+					auto array_cs_iter = state1.m_expr_conversion_state_map.find(array_expr_cptr);
+					if (state1.m_expr_conversion_state_map.end() == array_cs_iter) {
+						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*array_expr_cptr, m_Rewrite);
+						array_cs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+					}
+					auto& array_cs_shptr_ref = (*array_cs_iter).second;
+
+					std::string UO_replacement_text;
+					if ("Dual" == ConvertMode) {
+						UO_replacement_text = "(mse::make_nullable_any_random_access_iterator(std::begin(" + (*array_cs_shptr_ref).m_current_text_str + ")) + (" + (*index_cs_shptr_ref).m_current_text_str + "))";
+					} else if ("FasterAndStricter" == ConvertMode) {
+						if (true) {
+							return;
+						} else {
+							UO_replacement_text = (*this).m_Rewrite.getRewrittenText(UOSR);
+							if ("" == UO_replacement_text) {
+								UO_replacement_text = "&(" + (*array_cs_shptr_ref).m_current_text_str + "[" + (*index_cs_shptr_ref).m_current_text_str + "])";
+							}
+						}
+					} else {
+						UO_replacement_text = "(mse::make_nullable_any_random_access_iterator(std::begin(" + (*array_cs_shptr_ref).m_current_text_str + ")) + (" + (*index_cs_shptr_ref).m_current_text_str + "))";
+					}
+
+					if (ConvertToSCPP) {
+						std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(UO_replacement_text);
+						(*uocs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
+						(*uocs_shptr_ref).update_current_text();
+
+						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, UOSR, (*uocs_shptr_ref).m_current_text_str);
+						//(*this).m_Rewrite.ReplaceText(UOSR, (*uocs_shptr_ref).m_current_text_str);
+					}
+				}
+
+			}
+		}
+	}
+
 	void CUpdateIndirectFunctionTypeParamsArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
 		const MatchFinder::MatchResult &MR = m_MR;
@@ -4061,10 +4205,11 @@ namespace convm1 {
 			auto res1 = state1.m_ddecl_conversion_state_map.insert(*((*this).m_indirect_function_DD));
 			auto ddcs_map_iter = res1.first;
 			auto& ddcs_ref = (*ddcs_map_iter).second;
-			//ddcs_ref.m_current_direct_qtype;
+			//ddcs_ref.current_direct_qtype_ref();
 
-			if (llvm::isa<const clang::FunctionType>(ddcs_ref.m_current_direct_qtype)) {
-				auto FNQT = llvm::cast<const clang::FunctionType>(ddcs_ref.m_current_direct_qtype);
+			assert(ddcs_ref.direct_type_state_ref().current_qtype_if_any().has_value());
+			if (llvm::isa<const clang::FunctionType>(ddcs_ref.direct_type_state_ref().current_qtype_if_any().value())) {
+				auto FNQT = llvm::cast<const clang::FunctionType>(ddcs_ref.direct_type_state_ref().current_qtype_if_any().value());
 				std::string new_function_type_code = FNQT->getReturnType().getAsString();
 				new_function_type_code += "(";
 
@@ -4081,60 +4226,50 @@ namespace convm1 {
 					}
 
 					if (rhs_res2.ddecl_cptr && rhs_res2.ddecl_conversion_state_ptr) {
-						CIndirectionStateStack indirection_state_stack;
-						for (size_t i = rhs_res2.indirection_level; (*(rhs_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack.size() > i; i += 1) {
-							indirection_state_stack.push_back((*(rhs_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack.at(i));
-						}
-						auto rhs_direct_qtype = (*(rhs_res2.ddecl_conversion_state_ptr)).m_current_direct_qtype;
-
-						bool rhs_direct_type_is_function_type = rhs_direct_qtype->isFunctionType();
-						bool rhs_is_a_function_parameter = true;
-
-						std::string rhs_direct_qtype_str = (*(rhs_res2.ddecl_conversion_state_ptr)).m_current_direct_qtype_str;
-						{
-							auto& ddcs_ref = (*(rhs_res2.ddecl_conversion_state_ptr));
-							if (true && (ddcs_ref.m_original_direct_qtype.getAsString() == ddcs_ref.m_current_direct_qtype_str)) {
-								/* If the "DDecl conversion state" does not indicate that the "direct qtype" has been changed
-								then, if available, we'll use the current source text of the direct qtype, as it may have been
-								updated and we wouldn't want to overwrite it with the non-updated type. */
-								if (ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_maybe_typeLoc.has_value()) {
-									auto typeLoc = (*(ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_maybe_typeLoc));
-									auto direct_type_source_text = Rewrite.getRewrittenText(typeLoc.getSourceRange());
-									if ("" != direct_type_source_text) {
-										rhs_direct_qtype_str = direct_type_source_text;
-										if ((*(rhs_res2.ddecl_conversion_state_ptr)).m_current_direct_qtype.isConstQualified()) {
-											rhs_direct_qtype_str += " const";
-										}
-									} else {
-										int q = 5;
-									}
-								}
+						if (false) {
+							CIndirectionStateStack indirection_state_stack;
+							for (size_t i = rhs_res2.indirection_level; (*(rhs_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack.size() > i; i += 1) {
+								indirection_state_stack.push_back((*(rhs_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack.at(i));
 							}
+							assert((*(rhs_res2.ddecl_conversion_state_ptr)).direct_type_state_ref().current_qtype_if_any().has_value());
+							auto rhs_direct_qtype = (*(rhs_res2.ddecl_conversion_state_ptr)).direct_type_state_ref().current_qtype_if_any().value();
+
+							bool rhs_is_a_function_parameter = true;
+
+							std::string rhs_direct_qtype_str = (*(rhs_res2.ddecl_conversion_state_ptr)).current_direct_qtype_str();
+
+							if ("_Bool" == rhs_direct_qtype_str) {
+								rhs_direct_qtype_str = "bool";
+							} else if ("const _Bool" == rhs_direct_qtype_str) {
+								rhs_direct_qtype_str = "const bool";
+							}
+							auto rhs_non_const_direct_qtype = rhs_direct_qtype;
+							rhs_non_const_direct_qtype.removeLocalConst();
+							std::string rhs_non_const_direct_qtype_str = rhs_non_const_direct_qtype.getAsString();
+							if ("_Bool" == rhs_non_const_direct_qtype_str) {
+								rhs_non_const_direct_qtype_str = "bool";
+							}
+
+							auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack, Rewrite, 
+								rhs_is_a_function_parameter);
+
+							if (res3.m_direct_type_must_be_non_const) {
+								rhs_direct_qtype_str = rhs_non_const_direct_qtype_str;
+							}
+
+							std::string new_param_type_str = res3.m_prefix_str + rhs_direct_qtype_str + res3.m_suffix_str;
+
+							new_function_type_code += new_param_type_str;
+						} else {
+							auto res3 = generate_type_indirection_prefix_and_suffix((*rhs_res2.ddecl_conversion_state_ptr).m_indirection_state_stack, Rewrite, 
+								true/*rhs_is_a_function_parameter*/);
+
+							auto rhs_direct_qtype_str = (*rhs_res2.ddecl_conversion_state_ptr).current_direct_qtype_str();
+
+							std::string new_param_type_str = res3.m_prefix_str + rhs_direct_qtype_str + res3.m_suffix_str;
+
+							new_function_type_code += new_param_type_str;
 						}
-
-						if ("_Bool" == rhs_direct_qtype_str) {
-							rhs_direct_qtype_str = "bool";
-						} else if ("const _Bool" == rhs_direct_qtype_str) {
-							rhs_direct_qtype_str = "const bool";
-						}
-						bool rhs_direct_type_is_char_type = (("char" == rhs_direct_qtype_str) || ("const char" == rhs_direct_qtype_str));
-						auto rhs_non_const_direct_qtype = rhs_direct_qtype;
-						rhs_non_const_direct_qtype.removeLocalConst();
-						std::string rhs_non_const_direct_qtype_str = rhs_non_const_direct_qtype.getAsString();
-						if ("_Bool" == rhs_non_const_direct_qtype_str) {
-							rhs_non_const_direct_qtype_str = "bool";
-						}
-
-						auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack, Rewrite, 
-							rhs_direct_type_is_char_type, rhs_direct_type_is_function_type, rhs_is_a_function_parameter);
-
-						if (res3.m_direct_type_must_be_non_const) {
-							rhs_direct_qtype_str = rhs_non_const_direct_qtype_str;
-						}
-
-						std::string new_param_type_str = res3.m_prefix_str + rhs_direct_qtype_str + res3.m_suffix_str;
-
-						new_function_type_code += new_param_type_str;
 					} else {
 						new_function_type_code += arg->getType().getAsString();
 						int q = 7;
@@ -4290,7 +4425,7 @@ namespace convm1 {
 					auto ddcs_map_iter = res1.first;
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 
-					ddcs_ref.m_current_initialization_expr_str = " = " + cocs_shptr_ref.m_current_text_str;
+					ddcs_ref.m_current_initialization_expr_str = cocs_shptr_ref.m_current_text_str;
 
 					update_declaration(*m_var_DD, m_Rewrite, state1);
 				}
@@ -4508,7 +4643,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":2612:")) {
+				if (std::string::npos != debug_source_location_str.find(":56:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -4575,7 +4710,7 @@ namespace convm1 {
 										&& (1 <= (*rhs_res2.ddecl_conversion_state_ptr).m_indirection_state_stack.size())
 										&& (nullptr != casted_expr_ptr)) {
 
-									std::string rhs_ddecl_current_direct_qtype_str = (*rhs_res2.ddecl_conversion_state_ptr).m_current_direct_qtype_str;
+									std::string rhs_ddecl_current_direct_qtype_str = (*rhs_res2.ddecl_conversion_state_ptr).current_direct_qtype_str();
 									auto casted_expr_SR = nice_source_range(casted_expr_ptr->getSourceRange(), Rewrite);
 									auto CCESR = nice_source_range(CCE->getSourceRange(), Rewrite);
 									auto cast_operation_SR = clang::SourceRange(CCE->getLParenLoc(), CCE->getRParenLoc());
@@ -4630,7 +4765,9 @@ namespace convm1 {
 								assert(llvm::isa<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr));
 								array_subscript_expr_cptr = llvm::cast<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr);
 							}
-							if (ConvertToSCPP && array_subscript_expr_cptr) {
+							if (false && ConvertToSCPP && array_subscript_expr_cptr) {
+								/* This case is now handled in the MCSSSAddressof handler instead. */
+
 								std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CAssignmentTargetConstrainsAddressofArraySubscriptExprArray2ReplacementAction>(Rewrite, MR,
 										CDDeclIndirection(*DD, 0), *(rhs_res3.addressof_unary_operator_cptr), *array_subscript_expr_cptr);
 
@@ -4726,6 +4863,12 @@ namespace convm1 {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(":1558:")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto ISR = instantiation_source_range(DRE->getSourceRange(), Rewrite);
@@ -4750,13 +4893,12 @@ namespace convm1 {
 					return;
 				} else {
 					auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
-					auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
-					std::string decl_source_text;
-					if (decl_source_range.isValid()) {
-						IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
-					} else {
+					if (!decl_source_range.isValid()) {
 						return;
 					}
+					DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, MR);
+					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
+
 					auto QT = DD->getType();
 					std::string variable_name = DD->getNameAsString();
 
@@ -4784,6 +4926,196 @@ namespace convm1 {
 
 	/**********************************************************************************************************************/
 
+	class MCSSSNullToPointer : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSNullToPointer (Rewriter &Rewrite, CTUState& state1)
+	: Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const Expr* E = MR.Nodes.getNodeAs<clang::Expr>("a");
+
+			if ((E != nullptr))
+			{
+				auto SR = nice_source_range(E->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(":2288:")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(E->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
+					return;
+				}
+
+				if (ConvertToSCPP) {
+					std::string null_value_str;
+					if ("Dual" == ConvertMode) {
+						null_value_str = "MSE_LH_NULL_POINTER";
+					} else {
+						null_value_str = "nullptr";
+					}
+					CExprTextReplacementAction(Rewrite, MR, E, null_value_str).do_replacement(m_state1);
+				}
+			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
+	/**********************************************************************************************************************/
+
+	/* Ensure that the given declarations are the same type (give or take a reference). */
+	void homogenize_types(CTUState& state1, Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const clang::DeclaratorDecl& ddecl_cref1,
+		const clang::DeclaratorDecl& ddecl_cref2) {
+
+		/* homogenize the direct types (i.e. the types with any pointer/reference/array/etc indirections removed) */
+		CSameTypeReplacementAction(Rewrite, MR, CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)
+			, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)).do_replacement(state1);
+
+		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref2);
+		auto lhs_ddcs_map_iter = lhs_res1.first;
+		auto& lhs_ddcs_ref = (*lhs_ddcs_map_iter).second;
+		bool lhs_update_declaration_flag = lhs_res1.second;
+
+		auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref1);
+		auto rhs_ddcs_map_iter = rhs_res1.first;
+		auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
+		bool rhs_update_declaration_flag = rhs_res1.second;
+
+		size_t lhs_indirection_level_adjustment = 0;
+		if (1 <= lhs_ddcs_ref.m_indirection_state_stack.size()) {
+			if ("native reference" == lhs_ddcs_ref.m_indirection_state_stack.front().current_species()) {
+				lhs_indirection_level_adjustment = 1;
+			}
+		}
+		size_t rhs_indirection_level_adjustment = 0;
+		if (1 <= rhs_ddcs_ref.m_indirection_state_stack.size()) {
+			if ("native reference" == rhs_ddcs_ref.m_indirection_state_stack.front().current_species()) {
+				rhs_indirection_level_adjustment = 1;
+			}
+		}
+
+		if ((lhs_ddcs_ref.m_indirection_state_stack.size() + rhs_indirection_level_adjustment) != (rhs_ddcs_ref.m_indirection_state_stack.size() + lhs_indirection_level_adjustment)) {
+			return;
+		} else {
+			/* homogenize the types of all the indirections */
+			size_t adjusted_num_indirection_levels = lhs_ddcs_ref.m_indirection_state_stack.size() - lhs_indirection_level_adjustment;
+			for (size_t i = 0; i < adjusted_num_indirection_levels; i += 1) {
+				CSameTypeReplacementAction(Rewrite, MR, CDDeclIndirection(ddecl_cref2, i + lhs_indirection_level_adjustment)
+					, CDDeclIndirection(ddecl_cref1, i + rhs_indirection_level_adjustment)).do_replacement(state1);
+
+				CSameTypeArray2ReplacementAction(Rewrite, MR, CDDeclIndirection(*(lhs_ddcs_ref.m_ddecl_cptr), i + lhs_indirection_level_adjustment)
+					, CDDeclIndirection(*(rhs_ddcs_ref.m_ddecl_cptr), i + rhs_indirection_level_adjustment)).do_replacement(state1);
+			}
+		}
+	}
+
+	/* Ensure that all the (re)declarations of the same variable are the same type. */
+	void homogenize_redeclaration_types(const clang::DeclaratorDecl* ddecl_cptr, CTUState& state1, Rewriter &Rewrite, const MatchFinder::MatchResult &MR, int ttl = -1) {
+		//m_Rewrite(Rewrite), m_MR(MR), m_ddecl_cptr(ddecl_cptr), m_ddecl_cptr2(ddecl_cptr2)
+
+		auto PVD = dyn_cast<const clang::ParmVarDecl>(ddecl_cptr);
+		if (PVD) {
+			auto DC = PVD->getDeclContext();
+			const clang::FunctionDecl* function_decl1 = DC ? dyn_cast<const clang::FunctionDecl>(DC) : nullptr;
+			if (function_decl1) {
+				std::string function_name = function_decl1->getNameAsString();
+				auto lc_function_name = tolowerstr(function_name);
+
+				std::vector<const clang::ParmVarDecl*> param_decls_of_first_function_decl;
+				for (auto param_PVD : function_decl1->parameters()) {
+					param_decls_of_first_function_decl.push_back(param_PVD);
+				}
+
+				auto function_decls_range = function_decl1->redecls();
+				for (const auto& function_decl : function_decls_range) {
+					auto fdecl_source_range = nice_source_range(function_decl->getSourceRange(), Rewrite);
+					auto fdecl_source_location_str = fdecl_source_range.getBegin().printToString(*MR.SourceManager);
+
+					auto param_index = PVD->getFunctionScopeIndex();
+					auto PVD2 = function_decl->getParamDecl(param_index);
+					if (PVD2) {
+						if (PVD2 != PVD) {
+							homogenize_types(state1, Rewrite, MR, *PVD2, *PVD);
+
+							IF_DEBUG(std::string PVD2_qtype_str = PVD2->getType().getAsString();)
+							if (PVD2->getType()->isReferenceType()) {
+								if (!(PVD2->getType()->getPointeeType().isConstQualified())) {
+									/* This parameter is of non-const reference type, so it's
+									initialization value (if any) must be of the same type. */
+									auto init_EX2 = PVD2->getInit();
+									if (init_EX2) {
+										auto DRE2 = dyn_cast<const clang::DeclRefExpr>(init_EX2->IgnoreParenImpCasts());
+										if (DRE2) {
+											auto init_VD2 = dyn_cast<const clang::VarDecl>(DRE2->getDecl());
+											if (init_VD2) {
+												homogenize_types(state1, Rewrite, MR, *init_VD2, *PVD2);
+
+												/* A non-negative ttl parameter specifies a maximum permitted number of
+												recursive calls (to ensure no infinite recursion). */
+												if (0 != ttl) {
+													auto new_ttl = (0 < ttl) ? (ttl - 1) : ttl;
+													homogenize_redeclaration_types(init_VD2, state1, Rewrite, MR, new_ttl);
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		auto VD = dyn_cast<const clang::VarDecl>(ddecl_cptr);
+		if (VD) {
+			for (auto redecl : VD->redecls()) {
+				/* this part hasn't been tested yet */
+				if (redecl != VD) {
+					homogenize_types(state1, Rewrite, MR, *redecl, *VD);
+				}
+			}
+
+			IF_DEBUG(std::string VD_qtype_str = VD->getType().getAsString();)
+			if (VD->getType()->isReferenceType()) {
+				if (!(VD->getType()->getPointeeType().isConstQualified())) {
+					/* This variable is of non-const reference type, so it's
+					initialization value (if any) must be of the same type. */
+					auto init_EX2 = VD->getInit();
+					if (init_EX2) {
+						auto DRE2 = dyn_cast<const clang::DeclRefExpr>(init_EX2->IgnoreParenImpCasts());
+						if (DRE2) {
+							auto init_VD2 = dyn_cast<const clang::VarDecl>(DRE2->getDecl());
+							if (init_VD2) {
+								homogenize_types(state1, Rewrite, MR, *init_VD2, *VD);
+
+								if (0 != ttl) {
+									auto new_ttl = (0 < ttl) ? (ttl - 1) : ttl;
+									homogenize_redeclaration_types(init_VD2, state1, Rewrite, MR, new_ttl);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	class MCSSSAddressOf : public MatchFinder::MatchCallback
 	{
 	public:
@@ -4795,6 +5127,7 @@ namespace convm1 {
 			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssaddressof");
 			const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssaddressof2");
 			const Expr* E = MR.Nodes.getNodeAs<clang::Expr>("mcsssaddressof3");
+			const UnaryOperator* UO = MR.Nodes.getNodeAs<clang::UnaryOperator>("mcsssaddressof4");
 
 			if ((DRE != nullptr) && (E != nullptr))
 			{
@@ -4807,12 +5140,73 @@ namespace convm1 {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(":1558:")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto ISR = instantiation_source_range(DRE->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
 				if (supress_check_flag) {
 					return;
+				}
+
+				DEBUG_SOURCE_LOCATION_STR(expr_debug_source_location_str, E->getSourceRange(), MR);
+				DEBUG_SOURCE_TEXT_STR(expr_debug_source_text, E->getSourceRange(), Rewrite);
+				const clang::Expr* subE = nullptr;
+				if (UO) {
+					DEBUG_SOURCE_LOCATION_STR(uo_debug_source_location_str, UO->getSourceRange(), MR);
+					DEBUG_SOURCE_TEXT_STR(uo_debug_source_text, UO->getSourceRange(), Rewrite);
+
+					subE = UO->getSubExpr();
+					if (subE) {
+						if (subE->getSourceRange() == UO->getSourceRange()) {
+							/* If the ('&') unary operator has the same source location as its
+							subexpression, then we're going to assume this is just some implicit use of
+							the operator (that doesn't concern us). We're doing this check for now
+							because we don't know the proper way to determine if this use of the
+							operator is implicit or not. */
+							return;
+						}
+					} else {
+						int q = 5;
+					}
+
+					auto D_UO = UO->getReferencedDeclOfCallee();
+					if (D_UO) {
+						DEBUG_SOURCE_LOCATION_STR(decl_uo_debug_source_location_str, D_UO->getSourceRange(), MR);
+						DEBUG_SOURCE_TEXT_STR(decl_uo_debug_source_text, D_UO->getSourceRange(), Rewrite);
+						IF_DEBUG(auto b1 = D_UO->isImplicit();)
+						/* We assume this means that the ('&') operator has been explicitly overloaded.
+						(This assumption needs to be verified.) We'll just leave this case alone for
+						now. */
+						return;
+					}
+				}
+				if (subE) {
+					auto DD = dyn_cast<const clang::DeclaratorDecl>(DRE->getDecl());
+					if (DD) {
+						auto subE_ii = subE->IgnoreParenImpCasts();
+						assert(subE_ii);
+						if (clang::Stmt::StmtClass::ArraySubscriptExprClass == subE_ii->getStmtClass()) {
+							assert(llvm::isa<const clang::ArraySubscriptExpr>(subE_ii));
+							auto ASE = dyn_cast<const clang::ArraySubscriptExpr>(subE_ii);
+							CAddressofArraySubscriptExprReplacementAction(Rewrite, MR,
+									CDDeclIndirection(*DD, 0), *UO, *ASE).do_replacement(m_state1);
+							return;
+						} else if (clang::Stmt::StmtClass::CXXOperatorCallExprClass == subE_ii->getStmtClass()) {
+							assert(llvm::isa<const clang::CXXOperatorCallExpr>(subE_ii));
+							auto operator_subscript_expr_cptr = llvm::cast<const clang::CXXOperatorCallExpr>(subE_ii);
+							if (clang::OverloadedOperatorKind::OO_Subscript == operator_subscript_expr_cptr->getOperator()) {
+								CAddressofSubscriptOperatorCallExprReplacementAction(Rewrite, MR,
+										CDDeclIndirection(*DD, 0), *UO, *operator_subscript_expr_cptr).do_replacement(m_state1);
+								return;
+							}
+						}
+					}
 				}
 
 				auto decl = DRE->getDecl();
@@ -4831,13 +5225,18 @@ namespace convm1 {
 					return;
 				} else {
 					auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
-					auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
-					std::string decl_source_text;
-					if (decl_source_range.isValid()) {
-						IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
-					} else {
+					if (!decl_source_range.isValid()) {
 						return;
 					}
+					DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, MR);
+					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
+
+#ifndef NDEBUG
+					if (std::string::npos != decl_debug_source_location_str.find(":6086:")) {
+						int q = 5;
+					}
+#endif /*!NDEBUG*/
+
 					auto QT = DD->getType();
 					std::string variable_name = DD->getNameAsString();
 
@@ -4849,15 +5248,27 @@ namespace convm1 {
 						return;
 					}
 
-					/*** left off here ***/
-
-					/*
-					auto res2 = infer_array_type_info_from_stmt(*E, "pointer arithmetic", (*this).m_state1, DD);
-
-					if (res2.update_declaration_flag) {
-						update_declaration(*DD, Rewrite, m_state1);
+					if (DRE != E) {
+						/* for now we'll only support the case where the "address of" operator is
+						applied directly to the DeclRefExpr (as opposed to, say, a dereference of the
+						DeclRefExpr). */
+						return;
 					}
-					*/
+
+					auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*DD);
+					auto ddcs_map_iter = res1.first;
+					auto& ddcs_ref = (*ddcs_map_iter).second;
+					bool update_declaration_flag = res1.second;
+
+					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+						ddcs_ref.m_indirection_state_stack.back().set_original_pointer_target_state("native pointer target");
+						ddcs_ref.m_indirection_state_stack.back().set_current_pointer_target_state("pointer target");
+					} else {
+						ddcs_ref.direct_type_state_ref().set_original_pointer_target_state("native pointer target");
+						ddcs_ref.direct_type_state_ref().set_current_pointer_target_state("pointer target");
+					}
+
+					homogenize_redeclaration_types(ddcs_ref.m_ddecl_cptr, m_state1, Rewrite, MR);
 				}
 			}
 		}
@@ -4937,13 +5348,12 @@ namespace convm1 {
 
 					if (nullptr != DD) {
 						auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
-						auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
-						std::string decl_source_text;
-						if (decl_source_range.isValid()) {
-							IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
-						} else {
+						if (!decl_source_range.isValid()) {
 							return;
 						}
+						DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, MR);
+						DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
+
 						QT = DD->getType();
 						variable_name = DD->getNameAsString();
 
@@ -4986,16 +5396,36 @@ namespace convm1 {
 							auto lhs_source_range = nice_source_range(LHS->getSourceRange(), Rewrite);
 							auto lhs_source_text = Rewrite.getRewrittenText(lhs_source_range);
 
-							{
-								if (alloc_function_info1.m_seems_to_be_some_kind_of_realloc) {
+							if (alloc_function_info1.m_seems_to_be_some_kind_of_realloc) {
+								if ("Dual" == ConvertMode) {
 									bo_replacement_code = lhs_source_text;
 									bo_replacement_code += " = MSE_LH_REALLOC(";
 									bo_replacement_code += lhs_element_type_str + ", ";
 									bo_replacement_code += alloc_function_info1.m_realloc_pointer_arg_source_text + ", ";
 									bo_replacement_code += alloc_function_info1.m_num_bytes_arg_source_text + ")";
+								} else if ("FasterAndStricter" == ConvertMode) {
+									bo_replacement_code = lhs_source_text;
+									bo_replacement_code += " = mse::lh::reallocate(";
+									bo_replacement_code += alloc_function_info1.m_realloc_pointer_arg_source_text + ", ";
+									bo_replacement_code += alloc_function_info1.m_num_bytes_arg_source_text + ")";
 								} else {
+									bo_replacement_code = lhs_source_text;
+									bo_replacement_code += " = mse::lh::reallocate(";
+									bo_replacement_code += alloc_function_info1.m_realloc_pointer_arg_source_text + ", ";
+									bo_replacement_code += alloc_function_info1.m_num_bytes_arg_source_text + ")";
+								}
+							} else {
+								if ("Dual" == ConvertMode) {
 									bo_replacement_code = "MSE_LH_ALLOC(";
 									bo_replacement_code += lhs_element_type_str + ", ";
+									bo_replacement_code += lhs_source_text + ", ";
+									bo_replacement_code += alloc_function_info1.m_num_bytes_arg_source_text + ")";
+								} else if ("FasterAndStricter" == ConvertMode) {
+									bo_replacement_code = "mse::lh::allocate(";
+									bo_replacement_code += lhs_source_text + ", ";
+									bo_replacement_code += alloc_function_info1.m_num_bytes_arg_source_text + ")";
+								} else {
+									bo_replacement_code = "mse::lh::allocate(";
 									bo_replacement_code += lhs_source_text + ", ";
 									bo_replacement_code += alloc_function_info1.m_num_bytes_arg_source_text + ")";
 								}
@@ -5013,7 +5443,7 @@ namespace convm1 {
 									&& (nullptr != res2.ddecl_conversion_state_ptr)) {
 								auto cr_shptr = std::make_shared<CMallocArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), BO, bo_replacement_code);
 
-								if ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(res2.indirection_level)) {
+								if (true || ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(res2.indirection_level))) {
 									(*cr_shptr).do_replacement(m_state1);
 								} else {
 									m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
@@ -5055,7 +5485,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":2612:")) {
+				if (std::string::npos != debug_source_location_str.find(":2803:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5077,13 +5507,12 @@ namespace convm1 {
 
 					if (nullptr != DD) {
 						auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
-						auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
-						std::string decl_source_text;
-						if (decl_source_range.isValid()) {
-							IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
-						} else {
+						if (!decl_source_range.isValid()) {
 							return;
 						}
+						DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, MR);
+						DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
+
 						QualType QT = DD->getType();
 						auto variable_name = DD->getNameAsString();
 
@@ -5140,28 +5569,46 @@ namespace convm1 {
 							}
 						}
 						if ("" != element_type_str) {
-							std::string initializer_info_str;
+							std::string array_initializer_info_str;
+							std::string pointer_initializer_info_str;
 
 							if (alloc_function_info1.m_seems_to_be_some_kind_of_realloc) {
-								initializer_info_str = "MSE_LH_REALLOC(" + element_type_str + ", " + alloc_function_info1.m_realloc_pointer_arg_source_text;
-								initializer_info_str += ", " + alloc_function_info1.m_num_bytes_arg_source_text + ")";
-							} else {
-								if (false) {
-									num_elements_text = "(";
-									num_elements_text += alloc_function_info1.m_num_bytes_arg_source_text;
-									if (true || (("void" != element_type_str) && ("const void" != element_type_str))) {
-										num_elements_text += ") / sizeof(";
-										num_elements_text += element_type_str;
-									} else {
-										/* todo: something */
-									}
-									num_elements_text += ")";
+								array_initializer_info_str = "MSE_LH_REALLOC(" + element_type_str + ", " + alloc_function_info1.m_realloc_pointer_arg_source_text;
+								array_initializer_info_str += ", " + alloc_function_info1.m_num_bytes_arg_source_text + ")";
 
-									initializer_info_str = "(" + num_elements_text + ")";
+								if ("Dual" == ConvertMode) {
+									array_initializer_info_str = "MSE_LH_REALLOC(" + element_type_str + ", " + alloc_function_info1.m_realloc_pointer_arg_source_text;
+									array_initializer_info_str += ", " + alloc_function_info1.m_num_bytes_arg_source_text + ")";
+								} else if ("FasterAndStricter" == ConvertMode) {
+									array_initializer_info_str = "mse::lh::reallocate(" + alloc_function_info1.m_realloc_pointer_arg_source_text;
+									array_initializer_info_str += ", " + alloc_function_info1.m_num_bytes_arg_source_text + ")";
 								} else {
-									initializer_info_str = "MSE_LH_ALLOC_DYN_ARRAY1(MSE_LH_DYNAMIC_ARRAY_ITERATOR_TYPE(" + element_type_str + ")";
-									//initializer_info_str = "MSE_LH_ALLOC_DYN_ARRAY1(MSE_LH_ARRAY_ITERATOR_TYPE(" + element_type_str + ")";
-									initializer_info_str += ", " + alloc_function_info1.m_num_bytes_arg_source_text + ")";
+									array_initializer_info_str = "mse::lh::reallocate(" + alloc_function_info1.m_realloc_pointer_arg_source_text;
+									array_initializer_info_str += ", " + alloc_function_info1.m_num_bytes_arg_source_text + ")";
+								}
+
+								/* We're going to assume here that any "realloc()"ed memory is a (dynamic)
+								array. */
+								pointer_initializer_info_str = array_initializer_info_str;
+							} else {
+								if ("Dual" == ConvertMode) {
+									array_initializer_info_str = "MSE_LH_ALLOC_DYN_ARRAY1(MSE_LH_DYNAMIC_ARRAY_ITERATOR_TYPE(" + element_type_str + ")";
+									//array_initializer_info_str = "MSE_LH_ALLOC_DYN_ARRAY1(MSE_LH_ARRAY_ITERATOR_TYPE(" + element_type_str + ")";
+									array_initializer_info_str += ", " + alloc_function_info1.m_num_bytes_arg_source_text + ")";
+
+									pointer_initializer_info_str = "MSE_LH_ALLOC_POINTER1(" + element_type_str + ")";
+								} else if ("FasterAndStricter" == ConvertMode) {
+									array_initializer_info_str = "mse::lh::allocate_dyn_array1<mse::lh::TStrongVectorIterator<" + element_type_str + "> >(";
+									//array_initializer_info_str = "mse::lh::allocate_dyn_array1<mse::lh::TLHNullableAnyRandomAccessIterator<" + element_type_str + "> >(";
+									array_initializer_info_str += alloc_function_info1.m_num_bytes_arg_source_text + ")";
+
+									pointer_initializer_info_str = "mse::TRefCountingPointer<" + element_type_str + ">()";
+								} else {
+									array_initializer_info_str = "mse::lh::allocate_dyn_array1<mse::lh::TStrongVectorIterator<" + element_type_str + "> >(";
+									//array_initializer_info_str = "mse::lh::allocate_dyn_array1<mse::lh::TLHNullableAnyRandomAccessIterator<" + element_type_str + "> >(";
+									array_initializer_info_str += alloc_function_info1.m_num_bytes_arg_source_text + ")";
+
+									pointer_initializer_info_str = "mse::lh::allocate<mse::TNullableAnyPointer<" + element_type_str + "> >()";
 								}
 							}
 
@@ -5174,11 +5621,17 @@ namespace convm1 {
 							}
 
 							if (ConvertToSCPP && decl_source_range.isValid() && (SR.isValid())) {
-								auto cr_shptr = std::make_shared<CInitializerArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0/*indirection_level*/), DS, initializer_info_str);
+								auto cr_shptr = std::make_shared<CInitializerArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0/*indirection_level*/), DS, array_initializer_info_str);
 
 								if (lhs_has_been_determined_to_be_an_array) {
 									(*cr_shptr).do_replacement(state1);
 								} else {
+									/* lhs has not (yet) been determined to be an array iterator. Here we apply the
+									"replacement action" for non-array iterators. */
+									CInitializerArray2ReplacementAction(Rewrite, MR, CDDeclIndirection(*DD, 0/*indirection_level*/), DS, pointer_initializer_info_str).do_replacement(state1);
+
+									/* But we'll queue up an action to overwrite that action if lhs is subsequently determined
+									to be an array iterator. */
 									state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
 								}
 
@@ -5274,13 +5727,12 @@ namespace convm1 {
 								if (true) {
 									if (nullptr != DD) {
 										auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
-										auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
-										std::string decl_source_text;
-										if (decl_source_range.isValid()) {
-											IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
-										} else {
+										if (!decl_source_range.isValid()) {
 											return;
 										}
+										DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, MR);
+										DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
+
 										QualType QT = DD->getType();
 										auto variable_name = DD->getNameAsString();
 
@@ -5323,10 +5775,6 @@ namespace convm1 {
 											}
 										}
 										if ("" != element_type_str) {
-											/* We use a space here because we are currently using the empty string to
-											* indicate that the initializer_info_str should be ignored. */
-											std::string initializer_info_str = " ";
-
 											auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
 											std::string decl_source_text;
 											if (decl_source_range.isValid()) {
@@ -5336,9 +5784,15 @@ namespace convm1 {
 											}
 
 											if (ConvertToSCPP && decl_source_range.isValid() && (SR.isValid())) {
-												auto cr_shptr = std::make_shared<CInitializerArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0/*indirection_level*/), DS, initializer_info_str);
+												std::string null_value_str;
+												if ("Dual" == ConvertMode) {
+													null_value_str = "MSE_LH_NULL_POINTER";
+												} else {
+													null_value_str = "nullptr";
+												}
+												auto cr_shptr = std::make_shared<CInitializerArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0/*indirection_level*/), DS, null_value_str);
 
-												if (ddcs_ref.has_been_determined_to_be_an_array(0)) {
+												if (true || (ddcs_ref.has_been_determined_to_be_an_array(0))) {
 													(*cr_shptr).do_replacement(m_state1);
 												} else {
 													m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
@@ -5389,6 +5843,12 @@ namespace convm1 {
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(":3021:")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -5463,11 +5923,19 @@ namespace convm1 {
 									if (ConvertToSCPP && (arg_res2.ddecl_conversion_state_ptr) && arg_is_an_indirect_type) {
 										auto arg_source_text = Rewrite.getRewrittenText(arg_source_range);
 										//std::string ce_replacement_code = "(" + arg_source_text + ").resize(0)";
-										std::string ce_replacement_code = "MSE_LH_FREE(" + arg_source_text + ")";
+										std::string ce_replacement_code;
+
+										if ("Dual" == ConvertMode) {
+											ce_replacement_code = "MSE_LH_FREE(" + arg_source_text + ")";
+										} else if ("FasterAndStricter" == ConvertMode) {
+											ce_replacement_code = "mse::lh::CAllocF<typename std::remove_reference<decltype(" + arg_source_text + ")>::type>::free(" + arg_source_text + ")";
+										} else {
+											ce_replacement_code = "mse::lh::CAllocF<typename std::remove_reference<decltype(" + arg_source_text + ")>::type>::free(" + arg_source_text + ")";
+										}
 
 										auto cr_shptr = std::make_shared<CFreeDynamicArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(arg_res2.ddecl_cptr), arg_res2.indirection_level), CE, ce_replacement_code);
 
-										if ((*(arg_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(arg_res2.indirection_level)) {
+										if (true || ((*(arg_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(arg_res2.indirection_level))) {
 											(*cr_shptr).do_replacement(state1);
 										} else {
 											state1.m_array2_contingent_replacement_map.insert(cr_shptr);
@@ -5635,7 +6103,7 @@ namespace convm1 {
 								auto lhs_source_text = Rewrite.getRewrittenText(lhs_source_range);
 								std::string bo_replacement_code = "( (" + lhs_source_text + ") = typename std::remove_reference<decltype(" + lhs_source_text + ")>::type() )";
 
-								auto cr_shptr = std::make_shared<CExprTextReplacementAction>(Rewrite, MR, CDDeclIndirection(*(lhs_res2.ddecl_cptr), lhs_res2.indirection_level), BO, bo_replacement_code);
+								auto cr_shptr = std::make_shared<CExprTextDDIReplacementAction>(Rewrite, MR, CDDeclIndirection(*(lhs_res2.ddecl_cptr), lhs_res2.indirection_level), BO, bo_replacement_code);
 
 								if ((*(lhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(lhs_res2.indirection_level)) {
 									(*cr_shptr).do_replacement(m_state1);
@@ -5677,7 +6145,7 @@ namespace convm1 {
 			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcssscomparewithnull3");
 			const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcssscomparewithnull4");
 
-			if ((BO != nullptr) && (RHS != nullptr) && (LHS != nullptr) && (DRE != nullptr))
+			if (false && (BO != nullptr) && (RHS != nullptr) && (LHS != nullptr) && (DRE != nullptr))
 			{
 				auto SR = nice_source_range(BO->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
@@ -5742,9 +6210,14 @@ namespace convm1 {
 								} else { assert("!=" == opcode_str); }
 
 								auto lhs_source_text = Rewrite.getRewrittenText(lhs_source_range);
-								bo_replacement_code += "bool(" + lhs_source_text + ")";
 
-								auto cr_shptr = std::make_shared<CExprTextReplacementAction>(Rewrite, MR, CDDeclIndirection(*(lhs_res2.ddecl_cptr), lhs_res2.indirection_level), BO, bo_replacement_code);
+								if ("Dual" == ConvertMode) {
+									bo_replacement_code += "MSE_LH_CAST(bool, " + lhs_source_text + ")";
+								} else {
+									bo_replacement_code += "bool(" + lhs_source_text + ")";
+								}
+
+								auto cr_shptr = std::make_shared<CExprTextDDIReplacementAction>(Rewrite, MR, CDDeclIndirection(*(lhs_res2.ddecl_cptr), lhs_res2.indirection_level), BO, bo_replacement_code);
 
 								if ((*(lhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(lhs_res2.indirection_level)) {
 									(*cr_shptr).do_replacement(m_state1);
@@ -5851,13 +6324,12 @@ namespace convm1 {
 
 								if (nullptr != DD) {
 									auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
-									auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
-									std::string decl_source_text;
-									if (decl_source_range.isValid()) {
-										IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
-									} else {
+									if (!decl_source_range.isValid()) {
 										return;
 									}
+									DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, MR);
+									DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
+
 									QT = DD->getType();
 									auto qtype_str = QT.getAsString();
 									variable_name = DD->getNameAsString();
@@ -5898,13 +6370,12 @@ namespace convm1 {
 										}
 									}
 									if ("" != arg1_element_type_str) {
-										if (false) {
-											ce_replacement_code = "for (size_t i = 0; i < (" + arg_source_text3
-													+ ")/sizeof(" + arg1_element_type_str + "); i += 1) { ";
-											ce_replacement_code += "(" + arg_source_text1 + ")[i] = " + arg_source_text2 + "; ";
-											ce_replacement_code += "}";
-										} else {
+										if ("Dual" == ConvertMode) {
 											ce_replacement_code = "MSE_LH_MEMSET(" + arg_source_text1 + ", " + arg_source_text2 + ", " + arg_source_text3 + ")";
+										} else if ("FasterAndStricter" == ConvertMode) {
+											ce_replacement_code = "mse::lh::memset(" + arg_source_text1 + ", " + arg_source_text2 + ", " + arg_source_text3 + ")";
+										} else {
+											ce_replacement_code = "mse::lh::memset(" + arg_source_text1 + ", " + arg_source_text2 + ", " + arg_source_text3 + ")";
 										}
 
 										if (ConvertToSCPP && decl_source_range.isValid() && (SR.isValid())
@@ -6128,6 +6599,14 @@ namespace convm1 {
 									} else {
 										ce_replacement_code = "MSE_LH_MEMCPY(" + arg_source_text1 + ", " + arg_source_text2 + ", " + arg_source_text3 + ")";
 									}
+
+									if ("Dual" == ConvertMode) {
+										ce_replacement_code = "MSE_LH_MEMCPY(" + arg_source_text1 + ", " + arg_source_text2 + ", " + arg_source_text3 + ")";
+									} else if ("FasterAndStricter" == ConvertMode) {
+										ce_replacement_code = "mse::lh::memcpy(" + arg_source_text1 + ", " + arg_source_text2 + ", " + arg_source_text3 + ")";
+									} else {
+										ce_replacement_code = "mse::lh::memcpy(" + arg_source_text1 + ", " + arg_source_text2 + ", " + arg_source_text3 + ")";
+									}
 								}
 
 								if (ConvertToSCPP && (SR.isValid()) && ("" != ce_replacement_code)) {
@@ -6247,13 +6726,12 @@ namespace convm1 {
 				}
 
 				auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
-				auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
-				std::string decl_source_text;
-				if (decl_source_range.isValid()) {
-					IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
-				} else {
+				if (!decl_source_range.isValid()) {
 					return;
 				}
+				DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, MR);
+				DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
+
 				QualType QT = DD->getType();
 				auto variable_name = DD->getNameAsString();
 
@@ -6450,18 +6928,28 @@ namespace convm1 {
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
 			const clang::BinaryOperator* BO = MR.Nodes.getNodeAs<clang::BinaryOperator>("mcsssassignment1");
+			const clang::Expr* LHS = MR.Nodes.getNodeAs<clang::Expr>("mcsssassignment5");
+			const clang::Expr* RHS = MR.Nodes.getNodeAs<clang::Expr>("mcsssassignment6");
+			/*
 			const Expr* LHS = nullptr;
 			const Expr* RHS = nullptr;
 			if (BO) {
 				LHS = BO->getLHS();
 				RHS = BO->getRHS();
 			}
-			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssassignment2");
+			*/
+			const clang::VarDecl* VD = MR.Nodes.getNodeAs<clang::VarDecl>("mcsssassignment7");
+			const clang::DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssassignment2");
 			const clang::CStyleCastExpr* CCE = MR.Nodes.getNodeAs<clang::CStyleCastExpr>("mcsssassignment4");
 
-			if ((BO != nullptr) && (LHS != nullptr) && (RHS != nullptr) && (DRE != nullptr))
+			if ((RHS != nullptr) && (
+				((LHS != nullptr) && (DRE != nullptr))
+				|| (VD != nullptr)
+				))
 			{
-				auto SR = nice_source_range(BO->getSourceRange(), Rewrite);
+				auto SR = BO ? nice_source_range(BO->getSourceRange(), Rewrite) : 
+							VD ? nice_source_range(VD->getSourceRange(), Rewrite) :
+							nice_source_range(LHS->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
@@ -6470,15 +6958,47 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(BO->getSourceRange(), Rewrite);
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(":5408:")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
+				auto ISR = BO ? instantiation_source_range(BO->getSourceRange(), Rewrite) :
+							VD ? instantiation_source_range(VD->getSourceRange(), Rewrite) :
+							instantiation_source_range(LHS->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
 				if (supress_check_flag) {
 					return;
 				}
 
-				auto lhs_res2 = infer_array_type_info_from_stmt(*LHS, "", (*this).m_state1);
+				CArrayInferenceInfo lhs_res2;
+				if (LHS) {
+					lhs_res2 = infer_array_type_info_from_stmt(*LHS, "", (*this).m_state1);
+				} else {
+					const DeclaratorDecl* lhs_DD = llvm::cast<const clang::DeclaratorDecl>(VD);
+					if (lhs_DD) {
+						auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*lhs_DD);
+						auto ddcs_map_iter = res1.first;
+						auto& ddcs_ref = (*ddcs_map_iter).second;
+						bool update_declaration_flag = res1.second;
+
+						lhs_res2.ddecl_cptr = lhs_DD;
+						lhs_res2.ddecl_conversion_state_ptr = &ddcs_ref;
+						lhs_res2.indirection_level = ddcs_ref.m_indirection_state_stack.size();
+						if (1 <= lhs_res2.indirection_level) {
+							lhs_res2.indirection_level -= 1;
+						}
+						lhs_res2.update_declaration_flag = update_declaration_flag;
+					} else {
+						assert(false);
+						return;
+					}
+				}
+
+				//auto lhs_res2 = infer_array_type_info_from_stmt(*LHS, "", (*this).m_state1);
 				auto rhs_res2 = infer_array_type_info_from_stmt(*RHS, "", (*this).m_state1);
-				bool lhs_is_an_indirect_type = is_an_indirect_type(LHS->getType());
+				bool lhs_is_an_indirect_type = LHS ? is_an_indirect_type(LHS->getType()) : is_an_indirect_type(VD->getType());
 				bool rhs_is_an_indirect_type = is_an_indirect_type(RHS->getType());
 				assert(lhs_is_an_indirect_type == rhs_is_an_indirect_type);
 
@@ -6512,7 +7032,7 @@ namespace convm1 {
 								&& (1 <= (*rhs_res2.ddecl_conversion_state_ptr).m_indirection_state_stack.size())
 								&& (nullptr != casted_expr_ptr)) {
 
-							std::string rhs_ddecl_current_direct_qtype_str = (*rhs_res2.ddecl_conversion_state_ptr).m_current_direct_qtype_str;
+							std::string rhs_ddecl_current_direct_qtype_str = (*rhs_res2.ddecl_conversion_state_ptr).current_direct_qtype_str();
 							auto casted_expr_SR = nice_source_range(casted_expr_ptr->getSourceRange(), Rewrite);
 							auto CCESR = nice_source_range(CCE->getSourceRange(), Rewrite);
 							auto cast_operation_SR = clang::SourceRange(CCE->getLParenLoc(), CCE->getRParenLoc());
@@ -6567,7 +7087,9 @@ namespace convm1 {
 						assert(llvm::isa<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr));
 						array_subscript_expr_cptr = llvm::cast<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr);
 					}
-					if (ConvertToSCPP && array_subscript_expr_cptr) {
+					if (false && ConvertToSCPP && array_subscript_expr_cptr) {
+						/* This case is now handled in the MCSSSAddressof handler instead. */
+
 						std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CAssignmentTargetConstrainsAddressofArraySubscriptExprArray2ReplacementAction>(Rewrite, MR,
 								CDDeclIndirection(*(lhs_res2.ddecl_cptr), 0), *(rhs_res3.addressof_unary_operator_cptr), *array_subscript_expr_cptr);
 
@@ -6631,10 +7153,10 @@ namespace convm1 {
 		CTUState& m_state1;
 	};
 
-	class MCSSSParameterPassing : public MatchFinder::MatchCallback
+	class MCSSSParameterPassingArray2 : public MatchFinder::MatchCallback
 	{
 	public:
-		MCSSSParameterPassing (Rewriter &Rewrite, CTUState& state1) :
+		MCSSSParameterPassingArray2 (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
 		virtual void run(const MatchFinder::MatchResult &MR)
@@ -6652,6 +7174,12 @@ namespace convm1 {
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(":1558:")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -6699,11 +7227,13 @@ namespace convm1 {
 					for (const auto& function_decl : function_decls_range) {
 						auto fdecl_source_range = nice_source_range(function_decl->getSourceRange(), Rewrite);
 						auto fdecl_source_location_str = fdecl_source_range.getBegin().printToString(*MR.SourceManager);
+#ifndef NDEBUG
 						if (std::string::npos != fdecl_source_location_str.find("lodepng.cpp")) {
 							int q = 5;
 						} else if (std::string::npos != fdecl_source_location_str.find("lodepng_util.cpp")) {
 							int q = 5;
 						}
+#endif /*!NDEBUG*/
 
 						bool std_vector_insert_flag = false;
 						bool std_vector_insert_range_flag = false;
@@ -6779,38 +7309,6 @@ namespace convm1 {
 									aux_arg_has_been_determined_to_be_array = true;
 								}
 
-								Expr::NullPointerConstantKind kind = arg_EX->isNullPointerConstant(*(MR.Context), Expr::NullPointerConstantValueDependence());
-								if (false && (clang::Expr::NPCK_NotNull != kind)) {
-
-									if ("" != lhs_element_type_str) {
-										auto lhs_source_range = nice_source_range(param_VD->getSourceRange(), Rewrite);
-										if (ConvertToSCPP && lhs_is_an_indirect_type && lhs_source_range.isValid()) {
-											IF_DEBUG(auto lhs_source_text = Rewrite.getRewrittenText(lhs_source_range);)
-
-											auto res4 = generate_type_indirection_prefix_and_suffix(ddcs_ref.m_indirection_state_stack, Rewrite
-												, false/*direct_type_is_char_type*/, false/*direct_type_is_function_type*/, true/*is_a_function_parameter*/);
-											if (true) {
-												auto direct_qtype = ddcs_ref.m_current_direct_qtype;
-												if (res4.m_direct_type_must_be_non_const) {
-													direct_qtype.removeLocalConst();
-												}
-												std::string direct_qtype_str = direct_qtype.getAsString();
-												std::string arg_replacement_code = res4.m_prefix_str + direct_qtype_str + res4.m_suffix_str + "()";
-
-												auto cr_shptr = std::make_shared<CExprTextReplacementAction>(Rewrite, MR, CDDeclIndirection(*(param_VD), 0/*indirection_level*/), arg_EX, arg_replacement_code);
-
-												if (ddcs_ref.has_been_determined_to_be_an_array()) {
-													(*cr_shptr).do_replacement(m_state1);
-												} else {
-													m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
-													//m_state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
-												}
-											}
-										}
-									}
-									return;
-								}
-
 								auto argii_EX = arg_EX->IgnoreParenImpCasts();
 								auto argii_stmt_class = argii_EX->getStmtClass();
 								if (rhs_is_an_indirect_type && (argii_EX->getStmtClass() == clang::Stmt::StmtClass::CStyleCastExprClass)) {
@@ -6860,20 +7358,40 @@ namespace convm1 {
 									arg_EX = rhs_res3.without_leading_addressof_operator_expr_cptr;
 									lhs_indirection_level_adjustment += 1;
 
-									const clang::ArraySubscriptExpr* array_subscript_expr_cptr = nullptr;
 									auto without_leading_addressof_operator_expr_cptr = rhs_res3.without_leading_addressof_operator_expr_cptr->IgnoreParenCasts();
+									IF_DEBUG(std::string stmt_class_name = (*(without_leading_addressof_operator_expr_cptr)).getStmtClassName();)
 									if (clang::Stmt::StmtClass::ArraySubscriptExprClass == (*(without_leading_addressof_operator_expr_cptr)).getStmtClass()) {
 										assert(llvm::isa<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr));
-										array_subscript_expr_cptr = llvm::cast<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr);
-									}
-									if (ConvertToSCPP && array_subscript_expr_cptr) {
-										std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CAssignmentTargetConstrainsAddressofArraySubscriptExprArray2ReplacementAction>(Rewrite, MR,
-												CDDeclIndirection(*param_VD, 0), *(rhs_res3.addressof_unary_operator_cptr), *array_subscript_expr_cptr);
+										const clang::ArraySubscriptExpr* array_subscript_expr_cptr = llvm::cast<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr);
 
-										if (ddcs_ref.has_been_determined_to_be_an_array() || aux_arg_has_been_determined_to_be_array) {
-											(*cr_shptr).do_replacement(m_state1);
-										} else {
-											m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+										if (false && ConvertToSCPP && array_subscript_expr_cptr) {
+											/* This case is now handled in the MCSSSAddressof handler instead. */
+
+											std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CAssignmentTargetConstrainsAddressofArraySubscriptExprArray2ReplacementAction>(Rewrite, MR,
+													CDDeclIndirection(*param_VD, 0), *(rhs_res3.addressof_unary_operator_cptr), *array_subscript_expr_cptr);
+
+											if (ddcs_ref.has_been_determined_to_be_an_array() || aux_arg_has_been_determined_to_be_array) {
+												(*cr_shptr).do_replacement(m_state1);
+											} else {
+												m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+											}
+										}
+									} else if (clang::Stmt::StmtClass::CXXOperatorCallExprClass == (*(without_leading_addressof_operator_expr_cptr)).getStmtClass()) {
+										assert(llvm::isa<const clang::CXXOperatorCallExpr>(without_leading_addressof_operator_expr_cptr));
+										const clang::CXXOperatorCallExpr* array_subscript_expr_cptr = llvm::cast<const clang::CXXOperatorCallExpr>(without_leading_addressof_operator_expr_cptr);
+										if (clang::OverloadedOperatorKind::OO_Subscript == array_subscript_expr_cptr->getOperator()) {
+											if (false && ConvertToSCPP && array_subscript_expr_cptr) {
+												/* This case is now handled in the MCSSSAddressof handler instead. */
+
+												std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CAssignmentTargetConstrainsAddressofSubscriptOperatorCallExprArray2ReplacementAction>(Rewrite, MR,
+														CDDeclIndirection(*param_VD, 0), *(rhs_res3.addressof_unary_operator_cptr), *array_subscript_expr_cptr);
+
+												if (ddcs_ref.has_been_determined_to_be_an_array() || aux_arg_has_been_determined_to_be_array) {
+													(*cr_shptr).do_replacement(m_state1);
+												} else {
+													m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+												}
+											}
 										}
 									}
 								}
@@ -7071,6 +7589,157 @@ namespace convm1 {
 		CTUState& m_state1;
 	};
 
+	class MCSSSParameterPassingReference : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSParameterPassingReference (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssparameterpassing1");
+			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssparameterpassing2");
+			const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssparameterpassing3");
+			const clang::CStyleCastExpr* CCE = MR.Nodes.getNodeAs<clang::CStyleCastExpr>("mcsssparameterpassing4");
+
+			if ((CE != nullptr) && (DRE != nullptr))
+			{
+				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(":122:")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
+				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (supress_check_flag) {
+					return;
+				}
+
+				auto function_decl1 = CE->getDirectCallee();
+				auto num_args = CE->getNumArgs();
+				if (function_decl1) {
+					std::string function_name = function_decl1->getNameAsString();
+					auto lc_function_name = tolowerstr(function_name);
+
+					static const std::string free_str = "free";
+					bool ends_with_free = ((lc_function_name.size() >= free_str.size())
+							&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
+
+					static const std::string alloc_str = "alloc";
+					static const std::string realloc_str = "realloc";
+					bool ends_with_alloc = ((lc_function_name.size() >= alloc_str.size())
+							&& (0 == lc_function_name.compare(lc_function_name.size() - alloc_str.size(), alloc_str.size(), alloc_str)));
+					bool ends_with_realloc = (ends_with_alloc && (lc_function_name.size() >= realloc_str.size())
+							&& (0 == lc_function_name.compare(lc_function_name.size() - realloc_str.size(), realloc_str.size(), realloc_str)));
+
+					bool begins_with__builtin_ = string_begins_with(function_name, "__builtin_");
+					bool is_memcpy = ("memcpy" == function_name);
+					bool is_memset = ("memset" == function_name);
+
+					if (ends_with_free || ends_with_alloc || ends_with_realloc || is_memcpy || is_memset || begins_with__builtin_) {
+						return void();
+					}
+
+					if ("insert" == function_name) {
+						int q = 5;
+					}
+
+					std::vector<const clang::ParmVarDecl*> param_decls_of_first_function_decl;
+					for (auto param_VD : function_decl1->parameters()) {
+						param_decls_of_first_function_decl.push_back(param_VD);
+					}
+
+					auto function_decls_range = function_decl1->redecls();
+					for (const auto& function_decl : function_decls_range) {
+						auto fdecl_source_range = nice_source_range(function_decl->getSourceRange(), Rewrite);
+						auto fdecl_source_location_str = fdecl_source_range.getBegin().printToString(*MR.SourceManager);
+#ifndef NDEBUG
+						if (std::string::npos != fdecl_source_location_str.find("lodepng.cpp")) {
+							int q = 5;
+						} else if (std::string::npos != fdecl_source_location_str.find("lodepng_util.cpp")) {
+							int q = 5;
+						}
+#endif /*!NDEBUG*/
+
+						bool std_vector_insert_flag = false;
+						bool std_vector_insert_range_flag = false;
+						if (filtered_out_by_location(MR, fdecl_source_range.getBegin())) {
+							std::string qualified_function_name = function_decl1->getQualifiedNameAsString();
+							if (string_begins_with(qualified_function_name, "std::vector") && ("insert" == function_name)) {
+								std_vector_insert_flag = true;
+							} else {
+								return void();
+							}
+						}
+
+						for (size_t arg_index = 0; (CE->getNumArgs() > arg_index) && (function_decl->getNumParams() > arg_index); arg_index += 1) {
+							auto param_VD = function_decl->getParamDecl(arg_index);
+							auto arg_EX = CE->getArg(arg_index);
+
+							assert(arg_EX->getType().getTypePtrOrNull());
+							auto arg_source_range = nice_source_range(arg_EX->getSourceRange(), Rewrite);
+							std::string arg_source_text;
+							if (arg_source_range.isValid()) {
+								IF_DEBUG(arg_source_text = Rewrite.getRewrittenText(arg_source_range);)
+							}
+
+							if ((nullptr != param_VD) && (nullptr != arg_EX) && arg_source_range.isValid()) {
+								IF_DEBUG(std::string param_VD_qtype_str = param_VD->getType().getAsString();)
+								if (param_VD->getType()->isReferenceType()) {
+									if (!(param_VD->getType()->getPointeeType().isConstQualified())) {
+										/* This parameter is of non-const reference type, so the
+										passed argument must be of the same type. */
+										{
+											auto DRE2 = dyn_cast<const clang::DeclRefExpr>(arg_EX->IgnoreParenImpCasts());
+											if (DRE2) {
+												auto arg_VD2 = dyn_cast<const clang::VarDecl>(DRE2->getDecl());
+												if (arg_VD2) {
+													if (ConvertToSCPP) {
+														std::shared_ptr<CDDeclIndirectionReplacementAction> cr_shptr = std::make_shared<CSameTypeReplacementAction>(Rewrite, MR, *arg_VD2, *param_VD);
+
+														auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*param_VD);
+														auto ddcs_map_iter = res1.first;
+														auto& ddcs_ref = (*ddcs_map_iter).second;
+														bool update_declaration_flag = res1.second;
+
+														if (ddcs_ref.has_been_determined_to_be_a_pointer_target()) {
+															(*cr_shptr).do_replacement(m_state1);
+														} else {
+															m_state1.m_pointer_target_contingent_replacement_map.insert(cr_shptr);
+														}
+													}
+												}
+											}
+										}
+									}
+								}
+							} else {
+								int q = 5;
+							}
+							int q = 5;
+						}
+					}
+				} else {
+					int q = 5;
+				}
+			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
 	class MCSSSReturnValue : public MatchFinder::MatchCallback
 	{
 	public:
@@ -7185,7 +7854,9 @@ namespace convm1 {
 								assert(llvm::isa<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr));
 								array_subscript_expr_cptr = llvm::cast<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr);
 							}
-							if (array_subscript_expr_cptr) {
+							if (false && array_subscript_expr_cptr) {
+								/* This case is now handled in the MCSSSAddressof handler instead. */
+
 								std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CAssignmentTargetConstrainsAddressofArraySubscriptExprArray2ReplacementAction>(Rewrite, MR,
 										CDDeclIndirection(*function_decl, 0), *(rhs_res3.addressof_unary_operator_cptr), *array_subscript_expr_cptr);
 
@@ -7454,12 +8125,20 @@ namespace convm1 {
 								}
 								std::string ce_replacement_code;
 								if (("" != arg1_element_type_str) && ("void" != arg1_element_type_str) && ("const void" != arg1_element_type_str)) {
-									ce_replacement_code = "MSE_LH_FREAD(" + arg_source_text1 + ", " + arg_source_text2
-											+ ", "+ arg_source_text3 + ", "+ arg_source_text4 + ")";
+									if ("Dual" == ConvertMode) {
+										ce_replacement_code = "MSE_LH_FREAD(" + arg_source_text1 + ", " + arg_source_text2
+												+ ", "+ arg_source_text3 + ", "+ arg_source_text4 + ")";
+									} else if ("FasterAndStricter" == ConvertMode) {
+										ce_replacement_code = "mse::lh::fread(" + arg_source_text1 + ", " + arg_source_text2
+												+ ", "+ arg_source_text3 + ", "+ arg_source_text4 + ")";
+									} else {
+										ce_replacement_code = "mse::lh::fread(" + arg_source_text1 + ", " + arg_source_text2
+												+ ", "+ arg_source_text3 + ", "+ arg_source_text4 + ")";
+									}
 								}
 
 								if (ConvertToSCPP && (SR.isValid()) && ("" != ce_replacement_code)) {
-									auto cr_shptr = std::make_shared<CExprTextReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), CE, ce_replacement_code);
+									auto cr_shptr = std::make_shared<CExprTextDDIReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), CE, ce_replacement_code);
 									if ((nullptr != res2.ddecl_conversion_state_ptr)) {
 										if (true || (*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(res2.indirection_level)) {
 											(*cr_shptr).do_replacement(state1);
@@ -7679,12 +8358,20 @@ namespace convm1 {
 								}
 								std::string ce_replacement_code;
 								if (("" != arg1_element_type_str) && ("void" != arg1_element_type_str) && ("const void" != arg1_element_type_str)) {
-									ce_replacement_code = "MSE_LH_FWRITE(" + arg_source_text1 + ", " + arg_source_text2
-											+ ", "+ arg_source_text3 + ", "+ arg_source_text4 + ")";
+									if ("Dual" == ConvertMode) {
+										ce_replacement_code = "MSE_LH_FWRITE(" + arg_source_text1 + ", " + arg_source_text2
+												+ ", "+ arg_source_text3 + ", "+ arg_source_text4 + ")";
+									} else if ("FasterAndStricter" == ConvertMode) {
+										ce_replacement_code = "mse::lh::fwrite(" + arg_source_text1 + ", " + arg_source_text2
+												+ ", "+ arg_source_text3 + ", "+ arg_source_text4 + ")";
+									} else {
+										ce_replacement_code = "mse::lh::fwrite(" + arg_source_text1 + ", " + arg_source_text2
+												+ ", "+ arg_source_text3 + ", "+ arg_source_text4 + ")";
+									}
 								}
 
 								if (ConvertToSCPP && (SR.isValid()) && ("" != ce_replacement_code)) {
-									auto cr_shptr = std::make_shared<CExprTextReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), CE, ce_replacement_code);
+									auto cr_shptr = std::make_shared<CExprTextDDIReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), CE, ce_replacement_code);
 									if ((nullptr != res2.ddecl_conversion_state_ptr)) {
 										if (true || (*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(res2.indirection_level)) {
 											(*cr_shptr).do_replacement(state1);
@@ -7724,6 +8411,12 @@ namespace convm1 {
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(":2803:")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -7782,7 +8475,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":2612:")) {
+				if (std::string::npos != debug_source_location_str.find(":56:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7918,7 +8611,7 @@ namespace convm1 {
 											//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 										}
 
-										{
+										if (false) {
 											/* Here we're (unjustifiably) assuming that the program is single threaded 
 											and changing variables with static duration to thread_local duration. */
 											std::string l_source_text1 = Rewrite.getRewrittenText(SR);
@@ -8041,6 +8734,12 @@ namespace convm1 {
 											if (qtype.getTypePtr()->isEnumeralType()) {
 												initializer_info_str += qtype.getAsString();
 												initializer_info_str += "(0)/*auto-generated init val*/";
+											} else if (qtype.getTypePtr()->isPointerType()) {
+												if ("Dual" == ConvertMode) {
+													initializer_info_str += "MSE_LH_NULL_POINTER/*auto-generated init val*/";
+												} else {
+													initializer_info_str += "nullptr/*auto-generated init val*/";
+												}
 											} else {
 												initializer_info_str += "0/*auto-generated init val*/";
 											}
@@ -8113,6 +8812,12 @@ namespace convm1 {
 												if (qtype.getTypePtr()->isEnumeralType()) {
 													initializer_info_str += qtype.getAsString();
 													initializer_info_str += "(0)/*auto-generated init val*/";
+												} else if (qtype.getTypePtr()->isPointerType()) {
+													if ("Dual" == ConvertMode) {
+														initializer_info_str += "MSE_LH_NULL_POINTER/*auto-generated init val*/";
+													} else {
+														initializer_info_str += "nullptr/*auto-generated init val*/";
+													}
 												} else {
 													initializer_info_str += "0/*auto-generated init val*/";
 												}
@@ -8326,7 +9031,7 @@ namespace convm1 {
 							auto ddcs_map_iter = res1.first;
 							auto& ddcs_ref = (*ddcs_map_iter).second;
 							for (const auto& unsupported_element_encounterred : unsupported_elements_encounterred) {
-								std::string tmp_str = ddcs_ref.m_current_direct_qtype_str;
+								std::string tmp_str = ddcs_ref.current_direct_qtype_str();
 								replace_whole_instances_of_given_string(tmp_str, unsupported_element_encounterred.m_element_type_name, unsupported_element_encounterred.m_replacement_element_type_name);
 								ddcs_ref.set_current_direct_qtype_str(tmp_str);
 								update_declaration(*DD, Rewrite, state1);
@@ -8910,12 +9615,13 @@ namespace convm1 {
 
 	public:
 	MyASTConsumer(Rewriter &R, CompilerInstance &CI, CTUState &tu_state_param) : m_tu_state_ptr(&tu_state_param),
-		HandlerForSSSRecordDecl(R, tu_state()), HandlerForSSSVarDecl2(R, tu_state()), HandlerForSSSPointerArithmetic2(R, tu_state()), HandlerForSSSMalloc2(R, tu_state()),
+		HandlerForSSSRecordDecl(R, tu_state()), HandlerForSSSVarDecl2(R, tu_state()), HandlerForSSSPointerArithmetic2(R, tu_state()), 
+		HandlerForSSSNullToPointer(R, tu_state()), HandlerForSSSMalloc2(R, tu_state()),
 		HandlerForSSSMallocInitializer2(R, tu_state()), HandlerForSSSNullInitializer(R, tu_state()), HandlerForSSSFree2(R, tu_state()),
 		HandlerForSSSSetToNull2(R, tu_state()), HandlerForSSSCompareWithNull2(R, tu_state()), HandlerForSSSMemset(R, tu_state()), HandlerForSSSMemcpy(R, tu_state()),
-		HandlerForSSSConditionalInitializer(R, tu_state()), HandlerForSSSAssignment(R, tu_state()), HandlerForSSSParameterPassing(R, tu_state()),
-		HandlerForSSSReturnValue(R, tu_state()), HandlerForSSSFRead(R, tu_state()), HandlerForSSSFWrite(R, tu_state()), HandlerMisc1(R, tu_state(), CI),
-		HandlerForSSSDeclUtil(R, tu_state())
+		HandlerForSSSConditionalInitializer(R, tu_state()), HandlerForSSSAssignment(R, tu_state()), HandlerForSSSParameterPassingArray2(R, tu_state()),
+		HandlerForSSSParameterPassingReference(R, tu_state()), HandlerForSSSReturnValue(R, tu_state()), HandlerForSSSFRead(R, tu_state()), HandlerForSSSFWrite(R, tu_state()), 
+		HandlerMisc1(R, tu_state(), CI),HandlerForSSSAddressOf(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state())
 	{
 		//Matcher.addMatcher(varDecl(hasType(pointerType())).bind("mcsssnativepointer"), &HandlerForSSSNativePointer);
 
@@ -8953,6 +9659,8 @@ namespace convm1 {
 							hasDescendant(declRefExpr().bind("mcssspointerarithmetic"))
 					)
 					)).bind("mcssspointerarithmetic3"), &HandlerForSSSPointerArithmetic2);
+
+		Matcher.addMatcher(integerLiteral(equals(0), hasParent(expr(hasType(pointerType())).bind("a"))).bind("b"), &HandlerForSSSNullToPointer);
 
 		Matcher.addMatcher(binaryOperator(allOf(
 				hasOperatorName("="),
@@ -9052,15 +9760,21 @@ namespace convm1 {
 		Matcher.addMatcher(binaryOperator(allOf(
 				anyOf(hasOperatorName("="), hasOperatorName("=="), hasOperatorName("!="),
 						hasOperatorName("<"), hasOperatorName(">"), hasOperatorName("<="), hasOperatorName(">=")),
-				hasLHS(anyOf(
+				hasLHS(expr(anyOf(
 						hasDescendant(declRefExpr().bind("mcsssassignment2")),
 						declRefExpr().bind("mcsssassignment2")
-							)),
-				hasRHS(anyOf(
+						)).bind("mcsssassignment5")),
+				hasRHS(expr(anyOf(
 						cStyleCastExpr(hasDescendant(declRefExpr().bind("mcsssassignment3"))).bind("mcsssassignment4"),
 						expr(hasDescendant(declRefExpr().bind("mcsssassignment3")))
-						))
+						)).bind("mcsssassignment6"))
 					)).bind("mcsssassignment1"), &HandlerForSSSAssignment);
+
+		Matcher.addMatcher(declStmt(hasDescendant(
+				varDecl(hasInitializer(ignoringParens(
+						expr(anything()).bind("mcsssassignment6")
+				))).bind("mcsssassignment7")
+					)), &HandlerForSSSAssignment);
 
 		Matcher.addMatcher(
 				callExpr(allOf(
@@ -9079,7 +9793,26 @@ namespace convm1 {
 								))
 							)),
 							hasAnyArgument(hasType(pointerType()))
-				)).bind("mcsssparameterpassing1"), &HandlerForSSSParameterPassing);
+				)).bind("mcsssparameterpassing1"), &HandlerForSSSParameterPassingArray2);
+
+		Matcher.addMatcher(
+				callExpr(allOf(
+						hasAnyArgument(anyOf(
+								cStyleCastExpr(anyOf(
+										memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3"),
+											declRefExpr().bind("mcsssparameterpassing2"),
+											hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
+											hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
+								)).bind("mcsssparameterpassing4"),
+								expr(anyOf(
+										memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3"),
+											declRefExpr().bind("mcsssparameterpassing2"),
+											hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
+											hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
+								))
+							)),
+							anything()
+				)).bind("mcsssparameterpassing1"), &HandlerForSSSParameterPassingReference);
 
 		Matcher.addMatcher(returnStmt(allOf(
 				hasAncestor(functionDecl().bind("mcsssreturnvalue1")),
@@ -9113,6 +9846,18 @@ namespace convm1 {
 				)).bind("mcsssfwrite1"), &HandlerForSSSFWrite);
 
 		Matcher.addMatcher(decl().bind("mcsssdeclutil1"), &HandlerForSSSDeclUtil);
+
+		Matcher.addMatcher(expr(allOf(
+				hasParent(expr(
+						unaryOperator(hasOperatorName("&")).bind("mcsssaddressof4"))),
+					anyOf(
+							memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssaddressof")))).bind("mcsssaddressof2"),
+							declRefExpr().bind("mcsssaddressof"),
+							hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssaddressof")))).bind("mcsssaddressof2")),
+							hasDescendant(declRefExpr().bind("mcsssaddressof"))
+					)
+					)).bind("mcsssaddressof3"), &HandlerForSSSAddressOf);
+
 	}
 
 	void HandleTranslationUnit(ASTContext &Context) override 
@@ -9128,6 +9873,7 @@ namespace convm1 {
 	MCSSSRecordDecl HandlerForSSSRecordDecl;
 	MCSSSVarDecl2 HandlerForSSSVarDecl2;
 	MCSSSPointerArithmetic2 HandlerForSSSPointerArithmetic2;
+	MCSSSNullToPointer HandlerForSSSNullToPointer;
 	MCSSSMalloc2 HandlerForSSSMalloc2;
 	MCSSSMallocInitializer2 HandlerForSSSMallocInitializer2;
 	MCSSSNullInitializer HandlerForSSSNullInitializer;
@@ -9138,11 +9884,13 @@ namespace convm1 {
 	MCSSSMemcpy HandlerForSSSMemcpy;
 	MCSSSConditionalInitializer HandlerForSSSConditionalInitializer;
 	MCSSSAssignment HandlerForSSSAssignment;
-	MCSSSParameterPassing HandlerForSSSParameterPassing;
+	MCSSSParameterPassingArray2 HandlerForSSSParameterPassingArray2;
+	MCSSSParameterPassingReference HandlerForSSSParameterPassingReference;
 	MCSSSReturnValue HandlerForSSSReturnValue;
 	MCSSSFRead HandlerForSSSFRead;
 	MCSSSFWrite HandlerForSSSFWrite;
 	MCSSSDeclUtil HandlerForSSSDeclUtil;
+	MCSSSAddressOf HandlerForSSSAddressOf;
 	Misc1 HandlerMisc1;
 
 	MatchFinder Matcher;
@@ -9156,14 +9904,14 @@ namespace convm1 {
 
 		bool m_legacyhelpers_include_directive_found = false;
 
-	bool m_first_include_directive_loc_is_valid = false;
-	SourceLocation m_first_include_directive_loc;
+		bool m_first_include_directive_loc_is_valid = false;
+		SourceLocation m_first_include_directive_loc;
 
-	bool m_first_macro_directive_ptr_is_valid = false;
-	const MacroDirective* m_first_macro_directive_ptr = nullptr;
+		bool m_first_macro_directive_ptr_is_valid = false;
+		const MacroDirective* m_first_macro_directive_ptr = nullptr;
 
-	SourceLocation m_beginning_of_file_loc;
-	bool m_beginning_of_file_loc_is_valid = false;
+		SourceLocation m_beginning_of_file_loc;
+		bool m_beginning_of_file_loc_is_valid = false;
 	};
 
 	class MyPPCallbacks : public PPCallbacks
@@ -9197,7 +9945,7 @@ namespace convm1 {
 			}
 
 			std::string file_name_str = file_name;
-			if ("mselegacyhelpers.h" == file_name_str) {
+			if (("msetl.h" == file_name_str) || ("mselegacyhelpers.h" == file_name_str)) {
 				current_fii_shptr()->m_legacyhelpers_include_directive_found = true;
 			}
 			int q = 5;
@@ -9205,6 +9953,20 @@ namespace convm1 {
 	}
 
 	void MacroDefined(const Token &MacroNameTok, const MacroDirective *MD) override {
+		{
+			auto MNTSL = MacroNameTok.getLocation();
+			auto MNTSLE = MacroNameTok.getEndLoc();
+			std::string macro_name = m_Rewriter_ref.getRewrittenText(SourceRange(MNTSL, MNTSLE));
+			if ("MSE_SCOPEPOINTER_DISABLED" == macro_name) {
+				(*this).tu_state().m_MSE_SCOPEPOINTER_DISABLED_defined = true;
+			} else if ("MSE_SOME_NON_XSCOPE_POINTER_TYPE_IS_DISABLED" == macro_name) {
+				(*this).tu_state().m_MSE_SOME_NON_XSCOPE_POINTER_TYPE_IS_DISABLED_defined = true;
+			} else if ("MSE_DISABLE_RAW_POINTER_SCOPE_RESTRICTIONS" == macro_name) {
+				(*this).tu_state().m_MSE_DISABLE_RAW_POINTER_SCOPE_RESTRICTIONS_defined = true;
+			}
+			MD->getDefinition();
+		}
+
 		if (current_fii_shptr()) {
 			if (!(current_fii_shptr()->m_first_macro_directive_ptr_is_valid)) {
 				if (MD) {
@@ -9332,7 +10094,8 @@ namespace convm1 {
 				{
 					auto& action = *retained_it;
 					assert(action.second.size() >= 1);
-					{
+					if (action.first.is_rewritable()) {
+						/* Execute and discard all source code text modification functions associated with this source range. */
 						auto sub_it = action.second.begin();
 						while (action.second.size() >= 1) {
 							/* Note that we may cause the container to be modified as we're iterating over it. (So we can't use
@@ -9343,6 +10106,13 @@ namespace convm1 {
 							action.second.erase(sub_it);
 							sub_it = action.second.begin();
 						}
+					} else
+					{
+						/* This source range is marked as supporting only one text replacement operation before
+						becoming "stale"/"invalid". So here we execute only the last associated source code text
+						modification function (and hope that any other ones, if present, are redundant). */
+						auto& modification_function = action.second.back();
+						modification_function();
 					}
 				}
 
@@ -9366,7 +10136,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find(":2612:")) {
+					if (std::string::npos != debug_source_location_str.find(":2803:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -9397,7 +10167,7 @@ namespace convm1 {
 								|| ("" != ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_current_params_str)) {
 
 								TheRewriter.ReplaceText(direct_qtype_SR
-									, ddcs_ref.m_current_direct_qtype_str/* + ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_current_params_str*/);
+									, ddcs_ref.current_direct_qtype_str()/* + ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_current_params_str*/);
 								m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(direct_qtype_SR);
 							}
 						} else {
