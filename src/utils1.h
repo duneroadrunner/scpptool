@@ -98,7 +98,7 @@ class COrderedSourceRange : public clang::SourceRange {
 	"valid" after it is used to replace the corresponding source text (via
 	'clang::Rewriter::ReplaceText()'). By "valid" we mean that the source range value properly corresponds
 	to the replacement/updated text even if the new text is a different length than the text it replaced. */
-	enum rewritability_t { WriteOnce, Rewritable };
+	enum rewritability_t : bool { WriteOnce, Rewritable };
 	COrderedSourceRange(const base_class& src, rewritability_t rewritability = Rewritable) : base_class(src), m_rewritability(rewritability) {}
 
 	COrderedSourceRange& operator=(const COrderedSourceRange&) = default;

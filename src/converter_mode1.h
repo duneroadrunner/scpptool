@@ -1444,6 +1444,18 @@ namespace convm1 {
 		const clang::CallExpr* m_CE = nullptr;
 	};
 
+	class CTargetConstrainsCStyleCastExprArray2ReplacementAction : public CArray2ReplacementAction {
+	public:
+		CTargetConstrainsCStyleCastExprArray2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
+				const clang::CStyleCastExpr& c_style_cast_expr_cref) :
+					CArray2ReplacementAction(Rewrite, MR, ddecl_indirection), m_c_style_cast_expr_cptr(&c_style_cast_expr_cref) {}
+		virtual ~CTargetConstrainsCStyleCastExprArray2ReplacementAction() {}
+
+		virtual void do_replacement(CTUState& state1) const;
+
+		const clang::CStyleCastExpr* m_c_style_cast_expr_cptr = nullptr;
+	};
+
 	/*
 	A CDDeclIndirection specifies an (indirect) component type (like a pointer or array) of the
 	type of a clang::DeclaratorDecl (i.e. a declaration statement) (that may consist of nested
@@ -2644,6 +2656,7 @@ namespace convm1 {
 	class CDeclarationReplacementCodeItem {
 	public:
 		std::string m_replacement_code;
+		std::string m_replacement_type_str;
 		std::string m_action_species;
 		bool m_changed_from_original = false;
 		bool m_individual_from_compound_declaration = false;
@@ -2824,6 +2837,7 @@ namespace convm1 {
 
 		bool changed_from_original = false;
 		std::string replacement_code;
+		std::string replacement_type_str;
 		std::string prefix_str;
 		std::string suffix_str;
 		std::string post_name_suffix_str;
@@ -2907,10 +2921,11 @@ namespace convm1 {
 		if (FND) {
 			assert(type_is_function_type);
 			if (changed_from_original || individual_from_compound_declaration) {
-				replacement_code += prefix_str + direct_qtype_str + suffix_str;
+				replacement_type_str += prefix_str + direct_qtype_str + suffix_str;
 			} else {
-				replacement_code = ddcs_ref.m_function_return_type_original_source_text_str;
+				replacement_type_str = ddcs_ref.m_function_return_type_original_source_text_str;
 			}
+			replacement_code = replacement_type_str;
 		} else {
 			if (changed_from_original || individual_from_compound_declaration) {
 				if (is_extern) {
@@ -2935,6 +2950,7 @@ namespace convm1 {
 			} else {
 				replacement_code = ddcs_ref.m_original_source_text_str;
 			}
+			replacement_type_str = prefix_str + direct_qtype_str + suffix_str + post_name_suffix_str;
 
 			if (0 == ddcs_ref.m_indirection_state_stack.size()) {
 				/* This type is not a (currently) recognized "indirect" type (i.e. a pointer or
@@ -2975,6 +2991,7 @@ namespace convm1 {
 		}
 
 		retval.m_replacement_code = replacement_code;
+		retval.m_replacement_type_str = replacement_type_str;
 		retval.m_changed_from_original = changed_from_original;
 		retval.m_individual_from_compound_declaration = individual_from_compound_declaration;
 		return retval;
@@ -4288,6 +4305,102 @@ namespace convm1 {
 		}
 	}
 
+	void CTargetConstrainsCStyleCastExprArray2ReplacementAction::do_replacement(CTUState& state1) const {
+		Rewriter &Rewrite = m_Rewrite;
+		const MatchFinder::MatchResult &MR = m_MR;
+
+		assert((*this).m_ddecl_indirection.m_ddecl_cptr);
+		assert((*this).m_c_style_cast_expr_cptr);
+		auto res1 = generate_declaration_replacement_code((*this).m_ddecl_indirection.m_ddecl_cptr, Rewrite, state1.m_ddecl_conversion_state_map);
+
+		if (true || res1.m_changed_from_original) {
+			auto whole_cast_expression_SR = write_once_source_range({ m_c_style_cast_expr_cptr->getBeginLoc(), m_c_style_cast_expr_cptr->getEndLoc() });
+			auto cast_operation_SR = write_once_source_range({ m_c_style_cast_expr_cptr->getLParenLoc(), m_c_style_cast_expr_cptr->getRParenLoc() });
+			auto cast_target_expression_SR = write_once_source_range({ m_c_style_cast_expr_cptr->getRParenLoc().getLocWithOffset(+1), m_c_style_cast_expr_cptr->getEndLoc() });
+
+			if (whole_cast_expression_SR.isValid()) {
+				if (ConvertToSCPP) {
+					IF_DEBUG(auto cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);)
+					IF_DEBUG(auto whole_cast_expression_text = Rewrite.getRewrittenText(whole_cast_expression_SR);)
+					auto cast_target_expression_text = Rewrite.getRewrittenText(cast_target_expression_SR);
+
+					auto replacement_qtype_str = res1.m_replacement_type_str;
+					/* remove trailing whitespace */
+					while (!replacement_qtype_str.empty()) {
+						if (isspace(replacement_qtype_str.back())) {
+							replacement_qtype_str.pop_back();
+						} else {
+							break;
+						}
+					}
+
+					std::string whole_cast_expression_replacement_text;
+					std::string cast_target_expression_extra_prefix;
+					std::string cast_target_expression_extra_suffix;
+					if ((*this).m_ddecl_indirection.m_ddecl_cptr->getType()->isPointerType() && m_c_style_cast_expr_cptr->getSubExpr()->getType()->isPointerType()) {
+						const std::string og_target_pointee_qtype_str = (*this).m_ddecl_indirection.m_ddecl_cptr->getType()->getPointeeType().getAsString();
+						const std::string og_csce_pointee_qtype_str = m_c_style_cast_expr_cptr->getSubExpr()->getType()->getPointeeType().getAsString();
+						const bool og_target_is_char_star = ("char" == og_target_pointee_qtype_str) || ("const char" == og_target_pointee_qtype_str);
+						const bool og_target_is_unsigned_char_star = ("unsigned char" == og_target_pointee_qtype_str) || ("const unsigned char" == og_target_pointee_qtype_str);
+						const bool og_csce_is_char_star = ("char" == og_csce_pointee_qtype_str) || ("const char" == og_csce_pointee_qtype_str);
+						const bool og_csce_is_unsigned_char_star = ("unsigned char" == og_csce_pointee_qtype_str) || ("const unsigned char" == og_csce_pointee_qtype_str);
+
+						/* Currently, we leave 'char*'s as raw pointers, so (C-style) casting between them
+						and pointers that have been converted to (safe) pointer/iterator objects might not
+						work without some massaging. */
+						if (og_target_is_unsigned_char_star && og_csce_is_char_star) {
+							/* We're casting from a 'char*' to a (safe) pointer object to an 'unsigned char'. */
+							if ("Dual" == ConvertMode) {
+								cast_target_expression_extra_prefix = "MSE_LH_CAST(MSE_LH_ARRAY_ITERATOR_TYPE(";
+								if (m_c_style_cast_expr_cptr->getSubExpr()->getType()->getPointeeType().isConstQualified()) {
+									cast_target_expression_extra_prefix += "const ";
+								}
+								cast_target_expression_extra_prefix += "char), ";
+							} else if ("FasterAndStricter" == ConvertMode) {
+								cast_target_expression_extra_prefix = "mse::TXScopeCSSSXSTERAIterator<char>(";
+							} else {
+								cast_target_expression_extra_prefix = "mse::lh::TLHNullableAnyRandomAccessIterator<char>(";
+							}
+							cast_target_expression_extra_suffix = ")";
+						} else if (og_target_is_char_star) {
+							/* We're casting to a 'char*'. */
+							std::string addressof_str;
+							if ("Dual" == ConvertMode) {
+								addressof_str = "MSE_LH_UNSAFE_MAKE_RAW_POINTER_TO";
+							} else {
+								addressof_str = "std::addressof";
+							}
+							if (og_csce_is_char_star) {
+								addressof_str = "&";
+							}
+							whole_cast_expression_replacement_text = "(" + og_target_pointee_qtype_str
+								+ "*)" + addressof_str + "(*(" + cast_target_expression_text + "))";
+						}
+					}
+					if (whole_cast_expression_replacement_text.empty()) {
+						if ("Dual" == ConvertMode) {
+							whole_cast_expression_replacement_text = "MSE_LH_UNSAFE_CAST(" + replacement_qtype_str
+								+ ", " + cast_target_expression_extra_prefix + cast_target_expression_text
+								+ cast_target_expression_extra_suffix + ")";
+						} else {
+							whole_cast_expression_replacement_text = "(" + replacement_qtype_str
+								+ "&)" + cast_target_expression_extra_prefix + cast_target_expression_text
+								+ cast_target_expression_extra_suffix;
+						}
+					}
+					/* This is not the proper way to modify an expression. See the function
+					* CConditionalOperatorReconciliation2ReplacementAction::do_replacement() for an example of
+					* the proper way to do it. But for now this is good enough. */
+					state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite
+						, whole_cast_expression_SR, whole_cast_expression_replacement_text);
+				}
+			} else {
+				int q = 5;
+				assert(false);
+			}
+		}
+	}
+
 	void CConditionalOperatorReconciliation2ReplacementAction::do_replacement(CTUState& state1) const {
 		const clang::ConditionalOperator* CO = m_CO;
 		const Expr* COND = nullptr;
@@ -4946,7 +5059,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":2288:")) {
+				if (std::string::npos != debug_source_location_str.find(":889:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5141,7 +5254,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":1558:")) {
+				if (std::string::npos != debug_source_location_str.find(":91:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5186,28 +5299,6 @@ namespace convm1 {
 						return;
 					}
 				}
-				if (subE) {
-					auto DD = dyn_cast<const clang::DeclaratorDecl>(DRE->getDecl());
-					if (DD) {
-						auto subE_ii = subE->IgnoreParenImpCasts();
-						assert(subE_ii);
-						if (clang::Stmt::StmtClass::ArraySubscriptExprClass == subE_ii->getStmtClass()) {
-							assert(llvm::isa<const clang::ArraySubscriptExpr>(subE_ii));
-							auto ASE = dyn_cast<const clang::ArraySubscriptExpr>(subE_ii);
-							CAddressofArraySubscriptExprReplacementAction(Rewrite, MR,
-									CDDeclIndirection(*DD, 0), *UO, *ASE).do_replacement(m_state1);
-							return;
-						} else if (clang::Stmt::StmtClass::CXXOperatorCallExprClass == subE_ii->getStmtClass()) {
-							assert(llvm::isa<const clang::CXXOperatorCallExpr>(subE_ii));
-							auto operator_subscript_expr_cptr = llvm::cast<const clang::CXXOperatorCallExpr>(subE_ii);
-							if (clang::OverloadedOperatorKind::OO_Subscript == operator_subscript_expr_cptr->getOperator()) {
-								CAddressofSubscriptOperatorCallExprReplacementAction(Rewrite, MR,
-										CDDeclIndirection(*DD, 0), *UO, *operator_subscript_expr_cptr).do_replacement(m_state1);
-								return;
-							}
-						}
-					}
-				}
 
 				auto decl = DRE->getDecl();
 				auto DD = dyn_cast<const DeclaratorDecl>(decl);
@@ -5245,14 +5336,34 @@ namespace convm1 {
 					static const std::string mse_namespace_str2 = "::mse::";
 					if ((0 == qualified_name.compare(0, mse_namespace_str1.size(), mse_namespace_str1))
 							|| (0 == qualified_name.compare(0, mse_namespace_str2.size(), mse_namespace_str2))) {
-						return;
+						//return;
+					}
+
+					if (subE) {
+						auto subE_ii = subE->IgnoreParenImpCasts();
+						assert(subE_ii);
+						if (clang::Stmt::StmtClass::ArraySubscriptExprClass == subE_ii->getStmtClass()) {
+							assert(llvm::isa<const clang::ArraySubscriptExpr>(subE_ii));
+							auto ASE = dyn_cast<const clang::ArraySubscriptExpr>(subE_ii);
+							CAddressofArraySubscriptExprReplacementAction(Rewrite, MR,
+									CDDeclIndirection(*DD, 0), *UO, *ASE).do_replacement(m_state1);
+							return;
+						} else if (clang::Stmt::StmtClass::CXXOperatorCallExprClass == subE_ii->getStmtClass()) {
+							assert(llvm::isa<const clang::CXXOperatorCallExpr>(subE_ii));
+							auto operator_subscript_expr_cptr = llvm::cast<const clang::CXXOperatorCallExpr>(subE_ii);
+							if (clang::OverloadedOperatorKind::OO_Subscript == operator_subscript_expr_cptr->getOperator()) {
+								CAddressofSubscriptOperatorCallExprReplacementAction(Rewrite, MR,
+										CDDeclIndirection(*DD, 0), *UO, *operator_subscript_expr_cptr).do_replacement(m_state1);
+								return;
+							}
+						}
 					}
 
 					if (DRE != E) {
 						/* for now we'll only support the case where the "address of" operator is
 						applied directly to the DeclRefExpr (as opposed to, say, a dereference of the
 						DeclRefExpr). */
-						return;
+						//return;
 					}
 
 					auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*DD);
@@ -7176,7 +7287,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":1558:")) {
+				if (std::string::npos != debug_source_location_str.find(":5061:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7312,41 +7423,76 @@ namespace convm1 {
 								auto argii_EX = arg_EX->IgnoreParenImpCasts();
 								auto argii_stmt_class = argii_EX->getStmtClass();
 								if (rhs_is_an_indirect_type && (argii_EX->getStmtClass() == clang::Stmt::StmtClass::CStyleCastExprClass)) {
-									bool special_case1_flag = false;
-									auto casted_expr = argii_EX->IgnoreParenCasts();
-									std::string casted_expr_type_str = casted_expr->getType().getAsString();
-									if ("const unsigned char" == lhs_element_type_str) {
-										if (("char *" == casted_expr_type_str) || ("const char *" == casted_expr_type_str)) {
-											special_case1_flag = true;
+									auto CSCE = dyn_cast<const clang::CStyleCastExpr>(argii_EX);
+									assert(CSCE);
+									auto cast_qtype = CSCE->getTypeAsWritten();
+									if ((cast_qtype->isPointerType() && param_VD->getType()->isPointerType()) 
+										|| ((cast_qtype->isReferenceType() && param_VD->getType()->isReferenceType()))) {
+										auto cast_pointee_qtype = cast_qtype->getPointeeType();
+										auto param_VD_pointee_qtype = param_VD->getType()->getPointeeType();
+
+										auto const_adjusted_cast_pointee_qtype = cast_pointee_qtype;
+										auto const_cast_pointee_qtype = const_adjusted_cast_pointee_qtype;
+										const_cast_pointee_qtype.addConst();
+										if (const_cast_pointee_qtype == param_VD_pointee_qtype) {
+											const_adjusted_cast_pointee_qtype = const_cast_pointee_qtype;
 										}
-									} else if (lhs_element_type_is_const_char) {
-										//lhs_element_type_str = "const char";
-										if (("unsigned char *" == casted_expr_type_str) || ("const unsigned char *" == casted_expr_type_str)) {
-											special_case1_flag = true;
-										}
-									}
-									if (special_case1_flag) {
-										auto casted_expr_SR = nice_source_range(casted_expr->getSourceRange(), Rewrite);
-										std::string casted_expr_text = Rewrite.getRewrittenText(casted_expr_SR);
-										if (ConvertToSCPP) {
-											std::string replacement_casted_expr_text = "std::addressof(" + casted_expr_text + "[0])";
-											m_state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, casted_expr_SR, replacement_casted_expr_text);
-											//Rewrite.ReplaceText(casted_expr_SR, replacement_casted_expr_text);
-										}
-										return;
-									} else {
-										auto CSCE = llvm::cast<const clang::CStyleCastExpr>(argii_EX);
-										if (CSCE) {
-											auto cast_operation_SR = clang::SourceRange(CSCE->getLParenLoc(), CSCE->getRParenLoc());
-											if (ConvertToSCPP && cast_operation_SR.isValid()) {
-												auto cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);
-												m_state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, "");
-												//auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
+										IF_DEBUG(std::string const_adjusted_cast_pointee_qtype_str = const_adjusted_cast_pointee_qtype.getAsString();)
+										IF_DEBUG(std::string const_cast_pointee_qtype_str = const_cast_pointee_qtype.getAsString();)
+										IF_DEBUG(std::string param_VD_qtype_str = param_VD->getType().getAsString();)
+										if (param_VD_pointee_qtype == const_adjusted_cast_pointee_qtype) {
+											if (ConvertToSCPP) {
+												for (size_t i = 0; i < ddcs_ref.m_indirection_state_stack.size(); ++i) {
+													std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CTargetConstrainsCStyleCastExprArray2ReplacementAction>(Rewrite, MR,
+															CDDeclIndirection(*param_VD, i), *CSCE);
+
+													if (ddcs_ref.has_been_determined_to_be_an_array()) {
+														(*cr_shptr).do_replacement(m_state1);
+													} else {
+														m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+													}
+												}
 											}
 
-											auto cast_kind_name = CSCE->getCastKindName();
-											auto cast_kind = CSCE->getCastKind();
-										} else { assert(false); }
+											if (false) {
+												bool special_case1_flag = false;
+												auto casted_expr = argii_EX->IgnoreParenCasts();
+												std::string casted_expr_type_str = casted_expr->getType().getAsString();
+												if ("const unsigned char" == lhs_element_type_str) {
+													if (("char *" == casted_expr_type_str) || ("const char *" == casted_expr_type_str)) {
+														special_case1_flag = true;
+													}
+												} else if (lhs_element_type_is_const_char) {
+													//lhs_element_type_str = "const char";
+													if (("unsigned char *" == casted_expr_type_str) || ("const unsigned char *" == casted_expr_type_str)) {
+														special_case1_flag = true;
+													}
+												}
+												if (special_case1_flag) {
+													auto casted_expr_SR = nice_source_range(casted_expr->getSourceRange(), Rewrite);
+													std::string casted_expr_text = Rewrite.getRewrittenText(casted_expr_SR);
+													if (ConvertToSCPP) {
+														std::string replacement_casted_expr_text = "std::addressof(" + casted_expr_text + "[0])";
+														m_state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, casted_expr_SR, replacement_casted_expr_text);
+														//Rewrite.ReplaceText(casted_expr_SR, replacement_casted_expr_text);
+													}
+													return;
+												} else {
+													auto CSCE = llvm::cast<const clang::CStyleCastExpr>(argii_EX);
+													if (CSCE) {
+														auto cast_operation_SR = clang::SourceRange(CSCE->getLParenLoc(), CSCE->getRParenLoc());
+														if (ConvertToSCPP && cast_operation_SR.isValid()) {
+															auto cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);
+															m_state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, "");
+															//auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
+														}
+
+														auto cast_kind_name = CSCE->getCastKindName();
+														auto cast_kind = CSCE->getCastKind();
+													} else { assert(false); }
+												}
+											}
+										}
 									}
 								}
 
@@ -9660,7 +9806,11 @@ namespace convm1 {
 					)
 					)).bind("mcssspointerarithmetic3"), &HandlerForSSSPointerArithmetic2);
 
-		Matcher.addMatcher(integerLiteral(equals(0), hasParent(expr(hasType(pointerType())).bind("a"))).bind("b"), &HandlerForSSSNullToPointer);
+		Matcher.addMatcher(expr(anyOf(gnuNullExpr(), cxxNullPtrLiteralExpr(), 
+				integerLiteral(equals(0), hasParent(expr(allOf(
+					hasType(pointerType()), clang::ast_matchers::implicitCastExpr()
+					)))))).bind("a"),
+			&HandlerForSSSNullToPointer);
 
 		Matcher.addMatcher(binaryOperator(allOf(
 				hasOperatorName("="),
