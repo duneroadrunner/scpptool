@@ -76,6 +76,10 @@ cl::opt<std::string> ConvertMode("ConvertMode", cl::desc("specify the code conve
   "\t SlowAndFlexible \t- (Default) \n"
   "\t FasterAndStricter \t- The resulting (safe) code should be faster, but code that is not of 'good form' may not translate properly. \n"
   ), cl::init(""), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
+cl::opt<bool> ScopeTypeFunctionParameters("ScopeTypeFunctionParameters", cl::desc("Use 'scope' types when converting pointer and iterator function parameters. \n"
+  "\t This can result in invalid code (that may need to be fixed manually) in some cases, but the resulting \n"
+  "\t functions may support arguments of scope type (including raw pointers). "), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
+cl::opt<bool> ScopeTypePointerFunctionParameters("ScopeTypePointerFunctionParameters", cl::desc("same as 'ScopeTypeFunctionParameters', but only applies to pointers, not iterators"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 
 /**********************************************************************************************************************/
 
@@ -135,7 +139,9 @@ int main(int argc, const char **argv)
           DoNotReplaceOriginalSource,
           MergeCommand,
           DoNotResolveMergeConflicts,
-          ConvertMode
+          ConvertMode,
+          ScopeTypeFunctionParameters,
+          ScopeTypePointerFunctionParameters
       };
     retval = convm1::buildASTs_and_run(Tool, options);
 #endif //!EXCLUDE_CONVERTER_MODE1

@@ -71,6 +71,8 @@ namespace convm1 {
     std::string MergeCommand = "";
     bool DoNotResolveMergeConflicts = false;
     std::string ConvertMode = "";
+    bool ScopeTypeFunctionParameters = false;
+    bool ScopeTypePointerFunctionParameters = false;
 
     struct Options {
         bool CheckSystemHeader = false;
@@ -83,6 +85,8 @@ namespace convm1 {
         std::string MergeCommand = "";
         bool DoNotResolveMergeConflicts = false;
         std::string ConvertMode = "";
+        bool ScopeTypeFunctionParameters = false;
+        bool ScopeTypePointerFunctionParameters = false;
     };
 
 	/* This class specifies a declaration and a level of "indirection"(/"dereference") relative to the declared
@@ -1292,15 +1296,19 @@ namespace convm1 {
 
 	class CSameTypeReplacementAction : public CDDeclIndirectionReplacementAction {
 	public:
+		enum class apply_to_redeclarations_t : bool { no, yes };
 		CSameTypeReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection1,
-				const CDDeclIndirection& ddecl_indirection2) : CDDeclIndirectionReplacementAction(Rewrite, MR, ddecl_indirection1), m_ddecl_indirection2(ddecl_indirection2) {}
+				const CDDeclIndirection& ddecl_indirection2, apply_to_redeclarations_t apply_to_redeclarations = apply_to_redeclarations_t::yes)
+				: CDDeclIndirectionReplacementAction(Rewrite, MR, ddecl_indirection1), m_ddecl_indirection2(ddecl_indirection2), m_apply_to_redeclarations(apply_to_redeclarations) {}
 		CSameTypeReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const clang::DeclaratorDecl& ddecl_cref1,
-				const clang::DeclaratorDecl& ddecl_cref2) : CDDeclIndirectionReplacementAction(Rewrite, MR, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)), m_ddecl_indirection2(CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)) {}
+				const clang::DeclaratorDecl& ddecl_cref2, apply_to_redeclarations_t apply_to_redeclarations = apply_to_redeclarations_t::yes)
+				: CDDeclIndirectionReplacementAction(Rewrite, MR, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)), m_ddecl_indirection2(CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)), m_apply_to_redeclarations(apply_to_redeclarations) {}
 		virtual ~CSameTypeReplacementAction() {}
 
 		virtual void do_replacement(CTUState& state1) const;
 
 		CDDeclIndirection m_ddecl_indirection2;
+		apply_to_redeclarations_t m_apply_to_redeclarations = apply_to_redeclarations_t::yes;
 	};
 
 	class CAddressofArraySubscriptExprReplacementAction : public CDDeclIndirectionReplacementAction {
@@ -1931,6 +1939,20 @@ namespace convm1 {
 			Rewriter &Rewrite, bool is_a_function_parameter, CTUState* state1_ptr = nullptr) {
 		CTypeIndirectionPrefixAndSuffixItem retval;
 
+#ifndef NDEBUG
+		if (indirection_state_stack.m_maybe_DD.has_value()) {
+			auto& SM = Rewrite.getSourceMgr();
+			auto SR = indirection_state_stack.m_maybe_DD.value()->getSourceRange();
+			IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
+
+			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+			if (std::string::npos != debug_source_location_str.find(":689:")) {
+				int q = 5;
+			}
+		}
+#endif /*!NDEBUG*/
+
 		auto& direct_type_state_ref = indirection_state_stack.m_direct_type_state;
 		bool direct_type_is_char_type = (("char" == direct_type_state_ref.current_qtype_str()) || ("const char" == direct_type_state_ref.current_qtype_str()));
 		bool direct_type_is_FILE_type = (("FILE" == direct_type_state_ref.current_qtype_str()) || ("const FILE" == direct_type_state_ref.current_qtype_str()));
@@ -2015,15 +2037,27 @@ namespace convm1 {
 						if (is_last_indirection) {
 							//retval.m_direct_type_must_be_non_const = true;
 						}
-						if ("Dual" == ConvertMode) {
-							prefix_str = "MSE_LH_ARRAY_ITERATOR_TYPE(";
-							suffix_str = ") ";
-						} else if ("FasterAndStricter" == ConvertMode) {
+						if ("FasterAndStricter" == ConvertMode) {
 							prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
 							suffix_str = "> ";
 						} else {
-							prefix_str = "mse::lh::TLHNullableAnyRandomAccessIterator<";
-							suffix_str = "> ";
+							if (is_a_function_parameter && ScopeTypeFunctionParameters) {
+								if ("Dual" == ConvertMode) {
+									prefix_str = "MSE_LH_PARAM_ONLY_ARRAY_ITERATOR_TYPE(";
+									suffix_str = ") ";
+								} else {
+									prefix_str = "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<";
+									suffix_str = "> ";
+								}
+							} else {
+								if ("Dual" == ConvertMode) {
+									prefix_str = "MSE_LH_ARRAY_ITERATOR_TYPE(";
+									suffix_str = ") ";
+								} else {
+									prefix_str = "mse::lh::TLHNullableAnyRandomAccessIterator<";
+									suffix_str = "> ";
+								}
+							}
 						}
 						retval.m_action_species = "native pointer to MSE_LH_ARRAY_ITERATOR_TYPE";
 					}
@@ -2074,15 +2108,27 @@ namespace convm1 {
 					} else {
 						l_changed_from_original = true;
 						if (is_a_function_parameter) {
-							if ("Dual" == ConvertMode) {
-								prefix_str = "MSE_LH_ARRAY_ITERATOR_TYPE(";
-								suffix_str = ") ";
-							} else if ("FasterAndStricter" == ConvertMode) {
+							if ("FasterAndStricter" == ConvertMode) {
 								prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
 								suffix_str = "> ";
 							} else {
-								prefix_str = "mse::lh::TLHNullableAnyRandomAccessIterator<";
-								suffix_str = "> ";
+								if (ScopeTypeFunctionParameters) {
+									if ("Dual" == ConvertMode) {
+										prefix_str = "MSE_LH_PARAM_ONLY_ARRAY_ITERATOR_TYPE(";
+										suffix_str = ") ";
+									} else {
+										prefix_str = "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<";
+										suffix_str = "> ";
+									}
+								} else {
+									if ("Dual" == ConvertMode) {
+										prefix_str = "MSE_LH_ARRAY_ITERATOR_TYPE(";
+										suffix_str = ") ";
+									} else {
+										prefix_str = "mse::lh::TLHNullableAnyRandomAccessIterator<";
+										suffix_str = "> ";
+									}
+								}
 							}
 							retval.m_action_species = "native array parameter to MSE_LH_ARRAY_ITERATOR_TYPE";
 						} else {
@@ -2132,15 +2178,27 @@ namespace convm1 {
 						if (true/*for now*/) {
 							l_changed_from_original = true;
 
-							if ("Dual" == ConvertMode) {
-								prefix_str = "MSE_LH_POINTER_TYPE(";
-								suffix_str = ") ";
-							} else if ("FasterAndStricter" == ConvertMode) {
+							if ("FasterAndStricter" == ConvertMode) {
 								prefix_str = "mse::TXScopeAnyPointer<";
 								suffix_str = "> ";
 							} else {
-								prefix_str = "mse::lh::TLHNullableAnyPointer<";
-								suffix_str = "> ";
+								if (is_a_function_parameter && (ScopeTypePointerFunctionParameters || ScopeTypeFunctionParameters)) {
+									if ("Dual" == ConvertMode) {
+										prefix_str = "MSE_LH_PARAM_ONLY_POINTER_TYPE(";
+										suffix_str = ") ";
+									} else {
+										prefix_str = "mse::lh::TXScopeLHNullableAnyPointer<";
+										suffix_str = "> ";
+									}
+								} else {
+									if ("Dual" == ConvertMode) {
+										prefix_str = "MSE_LH_POINTER_TYPE(";
+										suffix_str = ") ";
+									} else {
+										prefix_str = "mse::lh::TLHNullableAnyPointer<";
+										suffix_str = "> ";
+									}
+								}
 							}
 
 							retval.m_action_species = "native pointer to TAnyPointer";
@@ -3493,6 +3551,174 @@ namespace convm1 {
 		}
 	}
 
+	/* Ensure that the given declarations are the same type (give or take a reference). */
+	void homogenize_types(CTUState& state1, Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const clang::DeclaratorDecl& ddecl_cref1,
+		const clang::DeclaratorDecl& ddecl_cref2) {
+
+#ifndef NDEBUG
+		auto SR = nice_source_range(ddecl_cref1.getSourceRange(), Rewrite);
+		//RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+
+		//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+		if (std::string::npos != debug_source_location_str.find(":612")) {
+			int q = 5;
+		}
+#endif /*!NDEBUG*/
+
+		/* homogenize the direct types (i.e. the types with any pointer/reference/array/etc indirections removed) */
+		CSameTypeReplacementAction(Rewrite, MR, CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)
+			, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection), CSameTypeReplacementAction::apply_to_redeclarations_t::no).do_replacement(state1);
+
+		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref2);
+		auto lhs_ddcs_map_iter = lhs_res1.first;
+		auto& lhs_ddcs_ref = (*lhs_ddcs_map_iter).second;
+		bool lhs_update_declaration_flag = lhs_res1.second;
+
+		auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref1);
+		auto rhs_ddcs_map_iter = rhs_res1.first;
+		auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
+		bool rhs_update_declaration_flag = rhs_res1.second;
+
+		size_t lhs_indirection_level_adjustment = 0;
+		if (1 <= lhs_ddcs_ref.m_indirection_state_stack.size()) {
+			if ("native reference" == lhs_ddcs_ref.m_indirection_state_stack.front().current_species()) {
+				lhs_indirection_level_adjustment = 1;
+			}
+		}
+		size_t rhs_indirection_level_adjustment = 0;
+		if (1 <= rhs_ddcs_ref.m_indirection_state_stack.size()) {
+			if ("native reference" == rhs_ddcs_ref.m_indirection_state_stack.front().current_species()) {
+				rhs_indirection_level_adjustment = 1;
+			}
+		}
+
+		if ((lhs_ddcs_ref.m_indirection_state_stack.size() + rhs_indirection_level_adjustment) != (rhs_ddcs_ref.m_indirection_state_stack.size() + lhs_indirection_level_adjustment)) {
+			return;
+		} else {
+			/* homogenize the types of all the indirections */
+			size_t adjusted_num_indirection_levels = lhs_ddcs_ref.m_indirection_state_stack.size() - lhs_indirection_level_adjustment;
+			for (size_t i = 0; i < adjusted_num_indirection_levels; i += 1) {
+				CSameTypeReplacementAction(Rewrite, MR, CDDeclIndirection(ddecl_cref2, i + lhs_indirection_level_adjustment)
+					, CDDeclIndirection(ddecl_cref1, i + rhs_indirection_level_adjustment), CSameTypeReplacementAction::apply_to_redeclarations_t::no).do_replacement(state1);
+
+				CSameTypeArray2ReplacementAction(Rewrite, MR, CDDeclIndirection(*(lhs_ddcs_ref.m_ddecl_cptr), i + lhs_indirection_level_adjustment)
+					, CDDeclIndirection(*(rhs_ddcs_ref.m_ddecl_cptr), i + rhs_indirection_level_adjustment)).do_replacement(state1);
+			}
+		}
+	}
+
+	/* Ensure that all the (re)declarations of the same variable are the same type. */
+	void homogenize_redeclaration_types(const clang::DeclaratorDecl* ddecl_cptr, CTUState& state1, Rewriter &Rewrite, const MatchFinder::MatchResult &MR, int ttl = -1) {
+		if (!ddecl_cptr) { return; }
+
+#ifndef NDEBUG
+		auto SR = nice_source_range(ddecl_cptr->getSourceRange(), Rewrite);
+		//RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+
+		//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+		if (std::string::npos != debug_source_location_str.find(":612")) {
+			int q = 5;
+		}
+#endif /*!NDEBUG*/
+
+		auto PVD = dyn_cast<const clang::ParmVarDecl>(ddecl_cptr);
+		if (PVD) {
+			auto DC = PVD->getDeclContext();
+			const clang::FunctionDecl* function_decl1 = DC ? dyn_cast<const clang::FunctionDecl>(DC) : nullptr;
+			if (function_decl1) {
+				std::string function_name = function_decl1->getNameAsString();
+				auto lc_function_name = tolowerstr(function_name);
+
+				std::vector<const clang::ParmVarDecl*> param_decls_of_first_function_decl;
+				for (auto param_PVD : function_decl1->parameters()) {
+					param_decls_of_first_function_decl.push_back(param_PVD);
+				}
+
+				auto function_decls_range = function_decl1->redecls();
+				for (const auto& function_decl : function_decls_range) {
+					auto fdecl_source_range = nice_source_range(function_decl->getSourceRange(), Rewrite);
+					auto fdecl_source_location_str = fdecl_source_range.getBegin().printToString(*MR.SourceManager);
+
+					auto param_index = PVD->getFunctionScopeIndex();
+					auto PVD2 = function_decl->getParamDecl(param_index);
+					if (PVD2) {
+						if (PVD2 != PVD) {
+							homogenize_types(state1, Rewrite, MR, *PVD2, *PVD);
+
+							IF_DEBUG(std::string PVD2_qtype_str = PVD2->getType().getAsString();)
+							if (PVD2->getType()->isReferenceType()) {
+								if (!(PVD2->getType()->getPointeeType().isConstQualified())) {
+									/* This parameter is of non-const reference type, so it's
+									initialization value (if any) must be of the same type. */
+									auto init_EX2 = PVD2->getInit();
+									if (init_EX2) {
+										auto DRE2 = dyn_cast<const clang::DeclRefExpr>(init_EX2->IgnoreParenImpCasts());
+										if (DRE2) {
+											auto init_VD2 = dyn_cast<const clang::VarDecl>(DRE2->getDecl());
+											if (init_VD2) {
+												homogenize_types(state1, Rewrite, MR, *init_VD2, *PVD2);
+
+												/* A non-negative ttl parameter specifies a maximum permitted number of
+												recursive calls (to ensure no infinite recursion). */
+												if (0 != ttl) {
+													auto new_ttl = (0 < ttl) ? (ttl - 1) : ttl;
+													homogenize_redeclaration_types(init_VD2, state1, Rewrite, MR, new_ttl);
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		auto VD = dyn_cast<const clang::VarDecl>(ddecl_cptr);
+		if (VD) {
+			for (auto redecl : VD->redecls()) {
+				/* this part hasn't been tested yet */
+				if (redecl != VD) {
+					homogenize_types(state1, Rewrite, MR, *redecl, *VD);
+				}
+			}
+
+			IF_DEBUG(std::string VD_qtype_str = VD->getType().getAsString();)
+			if (VD->getType()->isReferenceType()) {
+				if (!(VD->getType()->getPointeeType().isConstQualified())) {
+					/* This variable is of non-const reference type, so it's
+					initialization value (if any) must be of the same type. */
+					auto init_EX2 = VD->getInit();
+					if (init_EX2) {
+						auto DRE2 = dyn_cast<const clang::DeclRefExpr>(init_EX2->IgnoreParenImpCasts());
+						if (DRE2) {
+							auto init_VD2 = dyn_cast<const clang::VarDecl>(DRE2->getDecl());
+							if (init_VD2) {
+								homogenize_types(state1, Rewrite, MR, *init_VD2, *VD);
+
+								if (0 != ttl) {
+									auto new_ttl = (0 < ttl) ? (ttl - 1) : ttl;
+									homogenize_redeclaration_types(init_VD2, state1, Rewrite, MR, new_ttl);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	void CSameTypeReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
 		const MatchFinder::MatchResult &MR = m_MR;
@@ -3528,6 +3754,11 @@ namespace convm1 {
 			if ((CDDeclIndirection::no_indirection != m_ddecl_indirection2.m_indirection_level) && (CDDeclIndirection::no_indirection != m_ddecl_indirection.m_indirection_level)) {
 				CSameTypeArray2ReplacementAction(Rewrite, MR, m_ddecl_indirection2, m_ddecl_indirection).do_replacement(state1);
 			}
+		}
+
+		if (apply_to_redeclarations_t::yes == m_apply_to_redeclarations) {
+			homogenize_redeclaration_types(m_ddecl_indirection2.m_ddecl_cptr, state1, Rewrite, MR);
+			homogenize_redeclaration_types(m_ddecl_indirection.m_ddecl_cptr, state1, Rewrite, MR);
 		}
 
 		if (lhs_update_declaration_flag) {
@@ -5091,144 +5322,6 @@ namespace convm1 {
 
 	/**********************************************************************************************************************/
 
-	/* Ensure that the given declarations are the same type (give or take a reference). */
-	void homogenize_types(CTUState& state1, Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const clang::DeclaratorDecl& ddecl_cref1,
-		const clang::DeclaratorDecl& ddecl_cref2) {
-
-		/* homogenize the direct types (i.e. the types with any pointer/reference/array/etc indirections removed) */
-		CSameTypeReplacementAction(Rewrite, MR, CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)
-			, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)).do_replacement(state1);
-
-		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref2);
-		auto lhs_ddcs_map_iter = lhs_res1.first;
-		auto& lhs_ddcs_ref = (*lhs_ddcs_map_iter).second;
-		bool lhs_update_declaration_flag = lhs_res1.second;
-
-		auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref1);
-		auto rhs_ddcs_map_iter = rhs_res1.first;
-		auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
-		bool rhs_update_declaration_flag = rhs_res1.second;
-
-		size_t lhs_indirection_level_adjustment = 0;
-		if (1 <= lhs_ddcs_ref.m_indirection_state_stack.size()) {
-			if ("native reference" == lhs_ddcs_ref.m_indirection_state_stack.front().current_species()) {
-				lhs_indirection_level_adjustment = 1;
-			}
-		}
-		size_t rhs_indirection_level_adjustment = 0;
-		if (1 <= rhs_ddcs_ref.m_indirection_state_stack.size()) {
-			if ("native reference" == rhs_ddcs_ref.m_indirection_state_stack.front().current_species()) {
-				rhs_indirection_level_adjustment = 1;
-			}
-		}
-
-		if ((lhs_ddcs_ref.m_indirection_state_stack.size() + rhs_indirection_level_adjustment) != (rhs_ddcs_ref.m_indirection_state_stack.size() + lhs_indirection_level_adjustment)) {
-			return;
-		} else {
-			/* homogenize the types of all the indirections */
-			size_t adjusted_num_indirection_levels = lhs_ddcs_ref.m_indirection_state_stack.size() - lhs_indirection_level_adjustment;
-			for (size_t i = 0; i < adjusted_num_indirection_levels; i += 1) {
-				CSameTypeReplacementAction(Rewrite, MR, CDDeclIndirection(ddecl_cref2, i + lhs_indirection_level_adjustment)
-					, CDDeclIndirection(ddecl_cref1, i + rhs_indirection_level_adjustment)).do_replacement(state1);
-
-				CSameTypeArray2ReplacementAction(Rewrite, MR, CDDeclIndirection(*(lhs_ddcs_ref.m_ddecl_cptr), i + lhs_indirection_level_adjustment)
-					, CDDeclIndirection(*(rhs_ddcs_ref.m_ddecl_cptr), i + rhs_indirection_level_adjustment)).do_replacement(state1);
-			}
-		}
-	}
-
-	/* Ensure that all the (re)declarations of the same variable are the same type. */
-	void homogenize_redeclaration_types(const clang::DeclaratorDecl* ddecl_cptr, CTUState& state1, Rewriter &Rewrite, const MatchFinder::MatchResult &MR, int ttl = -1) {
-		//m_Rewrite(Rewrite), m_MR(MR), m_ddecl_cptr(ddecl_cptr), m_ddecl_cptr2(ddecl_cptr2)
-
-		auto PVD = dyn_cast<const clang::ParmVarDecl>(ddecl_cptr);
-		if (PVD) {
-			auto DC = PVD->getDeclContext();
-			const clang::FunctionDecl* function_decl1 = DC ? dyn_cast<const clang::FunctionDecl>(DC) : nullptr;
-			if (function_decl1) {
-				std::string function_name = function_decl1->getNameAsString();
-				auto lc_function_name = tolowerstr(function_name);
-
-				std::vector<const clang::ParmVarDecl*> param_decls_of_first_function_decl;
-				for (auto param_PVD : function_decl1->parameters()) {
-					param_decls_of_first_function_decl.push_back(param_PVD);
-				}
-
-				auto function_decls_range = function_decl1->redecls();
-				for (const auto& function_decl : function_decls_range) {
-					auto fdecl_source_range = nice_source_range(function_decl->getSourceRange(), Rewrite);
-					auto fdecl_source_location_str = fdecl_source_range.getBegin().printToString(*MR.SourceManager);
-
-					auto param_index = PVD->getFunctionScopeIndex();
-					auto PVD2 = function_decl->getParamDecl(param_index);
-					if (PVD2) {
-						if (PVD2 != PVD) {
-							homogenize_types(state1, Rewrite, MR, *PVD2, *PVD);
-
-							IF_DEBUG(std::string PVD2_qtype_str = PVD2->getType().getAsString();)
-							if (PVD2->getType()->isReferenceType()) {
-								if (!(PVD2->getType()->getPointeeType().isConstQualified())) {
-									/* This parameter is of non-const reference type, so it's
-									initialization value (if any) must be of the same type. */
-									auto init_EX2 = PVD2->getInit();
-									if (init_EX2) {
-										auto DRE2 = dyn_cast<const clang::DeclRefExpr>(init_EX2->IgnoreParenImpCasts());
-										if (DRE2) {
-											auto init_VD2 = dyn_cast<const clang::VarDecl>(DRE2->getDecl());
-											if (init_VD2) {
-												homogenize_types(state1, Rewrite, MR, *init_VD2, *PVD2);
-
-												/* A non-negative ttl parameter specifies a maximum permitted number of
-												recursive calls (to ensure no infinite recursion). */
-												if (0 != ttl) {
-													auto new_ttl = (0 < ttl) ? (ttl - 1) : ttl;
-													homogenize_redeclaration_types(init_VD2, state1, Rewrite, MR, new_ttl);
-												}
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-
-		auto VD = dyn_cast<const clang::VarDecl>(ddecl_cptr);
-		if (VD) {
-			for (auto redecl : VD->redecls()) {
-				/* this part hasn't been tested yet */
-				if (redecl != VD) {
-					homogenize_types(state1, Rewrite, MR, *redecl, *VD);
-				}
-			}
-
-			IF_DEBUG(std::string VD_qtype_str = VD->getType().getAsString();)
-			if (VD->getType()->isReferenceType()) {
-				if (!(VD->getType()->getPointeeType().isConstQualified())) {
-					/* This variable is of non-const reference type, so it's
-					initialization value (if any) must be of the same type. */
-					auto init_EX2 = VD->getInit();
-					if (init_EX2) {
-						auto DRE2 = dyn_cast<const clang::DeclRefExpr>(init_EX2->IgnoreParenImpCasts());
-						if (DRE2) {
-							auto init_VD2 = dyn_cast<const clang::VarDecl>(DRE2->getDecl());
-							if (init_VD2) {
-								homogenize_types(state1, Rewrite, MR, *init_VD2, *VD);
-
-								if (0 != ttl) {
-									auto new_ttl = (0 < ttl) ? (ttl - 1) : ttl;
-									homogenize_redeclaration_types(init_VD2, state1, Rewrite, MR, new_ttl);
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
 	class MCSSSAddressOf : public MatchFinder::MatchCallback
 	{
 	public:
@@ -5254,7 +5347,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":91:")) {
+				if (std::string::npos != debug_source_location_str.find(":6039:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5371,9 +5464,19 @@ namespace convm1 {
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 					bool update_declaration_flag = res1.second;
 
+					int target_indirection_index = -1;
 					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-						ddcs_ref.m_indirection_state_stack.back().set_original_pointer_target_state("native pointer target");
-						ddcs_ref.m_indirection_state_stack.back().set_current_pointer_target_state("pointer target");
+						target_indirection_index = int(ddcs_ref.m_indirection_state_stack.size()) - 1;
+						while ((0 <= target_indirection_index)
+							&& ("native reference" == ddcs_ref.m_indirection_state_stack.at(target_indirection_index).current_species())) {
+							/* Since taking the address of a native reference actually takes the address of the
+							reference's target, we adjust the indirection_index accordingly. */
+							target_indirection_index -= 1;
+						}
+					}
+					if (0 <= target_indirection_index) {
+						ddcs_ref.m_indirection_state_stack.at(target_indirection_index).set_original_pointer_target_state("native pointer target");
+						ddcs_ref.m_indirection_state_stack.at(target_indirection_index).set_current_pointer_target_state("pointer target");
 					} else {
 						ddcs_ref.direct_type_state_ref().set_original_pointer_target_state("native pointer target");
 						ddcs_ref.direct_type_state_ref().set_current_pointer_target_state("pointer target");
@@ -7553,6 +7656,16 @@ namespace convm1 {
 									update_declaration(*(ddcs_ref.m_ddecl_cptr), Rewrite, m_state1);
 								}
 
+								auto CXXTE = dyn_cast<const clang::CXXThisExpr>(arg_EX->IgnoreParenImpCasts());
+								if (false && CXXTE) {
+									if (ConvertToSCPP) {
+										if ("FasterAndStricter" == ConvertMode) {
+										} else {
+											std::string replacement_code = "mse::us::unsafe_make_any_pointer_to(this)";
+										}
+									}
+								}
+
 								if (ConvertToSCPP && lhs_is_an_indirect_type) {
 									if (rhs_res2.ddecl_conversion_state_ptr) {
 										int max_indirection_level1 = int((*(rhs_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack.size())
@@ -7758,7 +7871,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":122:")) {
+				if (std::string::npos != debug_source_location_str.find(":6125:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10600,6 +10713,27 @@ namespace convm1 {
 		return mse_count;
 	}
 
+	int number_of_instances_of_iterator(const std::string& str1) {
+		int iterator_count = 0;
+		{
+			static const std::string iterator_str = "Iterator";
+			auto search_start_index = str1.find(iterator_str, 0);
+			while (std::string::npos != search_start_index) {
+				iterator_count += 1;
+				search_start_index = str1.find(iterator_str, search_start_index + iterator_str.size());
+			}
+		}
+		{
+			static const std::string iterator_str = "_ITERATOR";
+			auto search_start_index = str1.find(iterator_str, 0);
+			while (std::string::npos != search_start_index) {
+				iterator_count += 1;
+				search_start_index = str1.find(iterator_str, search_start_index + iterator_str.size());
+			}
+		}
+		return iterator_count;
+	}
+
 	auto& chosen_merge_option_ref(const std::string& first_option, const std::string& second_option) {
 		/* Here we're using a very rudimentary heuristic for guessing which merge option might be the
 		better one. */
@@ -10609,10 +10743,18 @@ namespace convm1 {
 			return first_option;
 		} else if (mse_count2 > mse_count1) {
 			return second_option;
-		} else if (first_option.length() > second_option.length()) {
-			return first_option;
-		} else if (second_option.length() > first_option.length()) {
-			return second_option;
+		} else {
+			auto iterator_count1 = number_of_instances_of_iterator(first_option);
+			auto iterator_count2 = number_of_instances_of_iterator(second_option);
+			if (iterator_count1 > iterator_count2) {
+				return first_option;
+			} else if (iterator_count2 > iterator_count1) {
+				return second_option;
+			} else if (first_option.length() > second_option.length()) {
+				return first_option;
+			} else if (second_option.length() > first_option.length()) {
+				return second_option;
+			}
 		}
 		return first_option;
 	}
@@ -10695,6 +10837,8 @@ namespace convm1 {
         MergeCommand = options.MergeCommand;
 		DoNotResolveMergeConflicts = options.DoNotResolveMergeConflicts;
         ConvertMode = options.ConvertMode;
+        ScopeTypeFunctionParameters = options.ScopeTypeFunctionParameters;
+        ScopeTypePointerFunctionParameters = options.ScopeTypePointerFunctionParameters || options.ScopeTypeFunctionParameters;
 
 		int Status = Tool.buildASTs(Misc1::s_multi_tu_state_ref().ast_units);
 
