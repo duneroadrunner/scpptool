@@ -245,7 +245,7 @@ namespace convm1 {
 			m_original_pointer_target_state = pointer_target_state;
 			set_current_pointer_target_state(pointer_target_state);
 		}
-		std::string current_pointer_target_state() const {
+		const std::string& current_pointer_target_state() const {
 			return m_current_pointer_target_state;
 		}
 		bool is_const() const {
@@ -843,10 +843,13 @@ namespace convm1 {
 		const std::string& indirection_current(size_t indirection_level) const {
 			return (*this).m_indirection_state_stack.at(indirection_level).current_species();
 		}
-		bool is_an_indirect_type(size_t indirection_level = 0) const { return (m_indirection_state_stack.size() > indirection_level); }
-		bool has_been_determined_to_be_an_array(size_t indirection_level = 0) const {
+		bool is_an_indirect_type(size_t indirection_level = CDDeclIndirection::no_indirection) const {
+			int i_indirection_level = (CDDeclIndirection::no_indirection == indirection_level) ? -1 : int(indirection_level);
+			return (int(m_indirection_state_stack.size()) > (i_indirection_level + 1));
+		}
+		bool has_been_determined_to_be_an_array(size_t indirection_level) const {
 			bool retval = false;
-			assert((0 == indirection_level) || (m_indirection_state_stack.size() > indirection_level));
+			assert((CDDeclIndirection::no_indirection != indirection_level) && (m_indirection_state_stack.size() > indirection_level));
 			if (m_indirection_state_stack.size() > indirection_level) {
 				const auto& current_state = m_indirection_state_stack.at(indirection_level).current_species();
 				if (("inferred array" == current_state) || ("dynamic array" == current_state) || ("native array" == current_state)) {
@@ -855,9 +858,9 @@ namespace convm1 {
 			}
 			return retval;
 		}
-		bool has_been_determined_to_be_a_dynamic_array(size_t indirection_level = 0) const {
+		bool has_been_determined_to_be_a_dynamic_array(size_t indirection_level) const {
 			bool retval = false;
-			assert((0 == indirection_level) || (m_indirection_state_stack.size() > indirection_level));
+			assert((CDDeclIndirection::no_indirection != indirection_level) && (m_indirection_state_stack.size() > indirection_level));
 			if (m_indirection_state_stack.size() > indirection_level) {
 				const auto& current_state = m_indirection_state_stack.at(indirection_level).current_species();
 				if ("dynamic array" == current_state) {
@@ -866,19 +869,14 @@ namespace convm1 {
 			}
 			return retval;
 		}
-		bool has_been_determined_to_be_a_pointer_target(size_t indirection_level = 0) const {
+		bool has_been_determined_to_be_a_pointer_target(size_t indirection_level = CDDeclIndirection::no_indirection) const {
 			bool retval = false;
-			assert((0 == indirection_level) || (m_indirection_state_stack.size() > indirection_level));
+			assert((CDDeclIndirection::no_indirection == indirection_level) || (m_indirection_state_stack.size() > indirection_level));
 			static const std::string pointer_target_str = "pointer target";
-			if (0 == indirection_level) {
-				if (pointer_target_str == direct_type_state_ref().current_pointer_target_state()) {
-					retval = true;
-				}
-			} else if (m_indirection_state_stack.size() >= indirection_level) {
-				const auto& current_state = m_indirection_state_stack.at(indirection_level - 1).current_species();
-				if (pointer_target_str == m_indirection_state_stack.at(indirection_level - 1).current_pointer_target_state()) {
-					retval = true;
-				}
+			const auto& current_pointer_target_state_cref = (CDDeclIndirection::no_indirection == indirection_level)
+				? direct_type_state_ref().current_pointer_target_state() : m_indirection_state_stack.at(indirection_level).current_pointer_target_state();
+			if (pointer_target_str == current_pointer_target_state_cref) {
+				retval = true;
 			}
 			return retval;
 		}
@@ -3733,6 +3731,21 @@ namespace convm1 {
 		auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
 		bool rhs_update_declaration_flag = rhs_res1.second;
 
+#ifndef NDEBUG
+		auto SR = nice_source_range(m_ddecl_indirection.m_ddecl_cptr->getSourceRange(), Rewrite);
+		//RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+
+		//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+		if (std::string::npos != debug_source_location_str.find(":207:")) {
+			int q = 5;
+		}
+#endif /*!NDEBUG*/
+
 		{
 			std::string& lhs_pointer_target_state = (CDDeclIndirection::no_indirection == m_ddecl_indirection2.m_indirection_level) ? lhs_ddcs_ref.direct_type_state_ref().m_current_pointer_target_state : lhs_ddcs_ref.m_indirection_state_stack.at(m_ddecl_indirection2.m_indirection_level).m_current_pointer_target_state;
 			std::string& rhs_pointer_target_state = (CDDeclIndirection::no_indirection == m_ddecl_indirection.m_indirection_level) ? rhs_ddcs_ref.direct_type_state_ref().m_current_pointer_target_state : rhs_ddcs_ref.m_indirection_state_stack.at(m_ddecl_indirection.m_indirection_level).m_current_pointer_target_state;
@@ -5102,25 +5115,6 @@ namespace convm1 {
 							RHS = rhs_res3.without_leading_addressof_operator_expr_cptr;
 							rhs_res2 = infer_array_type_info_from_stmt(*RHS, "", (*this).m_state1);
 							lhs_indirection_level_adjustment += 1;
-
-							const clang::ArraySubscriptExpr* array_subscript_expr_cptr = nullptr;
-							auto without_leading_addressof_operator_expr_cptr = rhs_res3.without_leading_addressof_operator_expr_cptr->IgnoreParenCasts();
-							if (clang::Stmt::StmtClass::ArraySubscriptExprClass == (*(without_leading_addressof_operator_expr_cptr)).getStmtClass()) {
-								assert(llvm::isa<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr));
-								array_subscript_expr_cptr = llvm::cast<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr);
-							}
-							if (false && ConvertToSCPP && array_subscript_expr_cptr) {
-								/* This case is now handled in the MCSSSAddressof handler instead. */
-
-								std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CAssignmentTargetConstrainsAddressofArraySubscriptExprArray2ReplacementAction>(Rewrite, MR,
-										CDDeclIndirection(*DD, 0), *(rhs_res3.addressof_unary_operator_cptr), *array_subscript_expr_cptr);
-
-								if (ddcs_ref.has_been_determined_to_be_an_array()) {
-									(*cr_shptr).do_replacement(m_state1);
-								} else {
-									m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
-								}
-							}
 						}
 
 						if (llvm::isa<const clang::CallExpr>(RHS->IgnoreParenCasts())) {
@@ -5449,14 +5443,20 @@ namespace convm1 {
 										CDDeclIndirection(*DD, 0), *UO, *operator_subscript_expr_cptr).do_replacement(m_state1);
 								return;
 							}
+						} else {
+							auto adjusted_DRE_ii = DRE->IgnoreParenImpCasts();
+							if (ME) {
+								adjusted_DRE_ii = ME->IgnoreParenImpCasts();
+							}
+							if (adjusted_DRE_ii != subE_ii) {
+								/* for now we'll only support the case where the "address of" operator is
+								applied directly to the DeclRefExpr (as opposed to, say, a dereference of the
+								DeclRefExpr). */
+								std::string adjusted_DRE_ii_source_text =  Rewrite.getRewrittenText(adjusted_DRE_ii->IgnoreParenImpCasts()->getSourceRange());
+								std::string subE_ii_source_text =  Rewrite.getRewrittenText(subE_ii->getSourceRange());
+								return;
+							}
 						}
-					}
-
-					if (DRE != E) {
-						/* for now we'll only support the case where the "address of" operator is
-						applied directly to the DeclRefExpr (as opposed to, say, a dereference of the
-						DeclRefExpr). */
-						//return;
 					}
 
 					auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*DD);
@@ -5464,23 +5464,28 @@ namespace convm1 {
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 					bool update_declaration_flag = res1.second;
 
-					int target_indirection_index = -1;
+					int i_target_indirection_index = -1;
 					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-						target_indirection_index = int(ddcs_ref.m_indirection_state_stack.size()) - 1;
-						while ((0 <= target_indirection_index)
-							&& ("native reference" == ddcs_ref.m_indirection_state_stack.at(target_indirection_index).current_species())) {
+						i_target_indirection_index = int(ddcs_ref.m_indirection_state_stack.size()) - 1;
+						while ((0 <= i_target_indirection_index)
+							&& ("native reference" == ddcs_ref.m_indirection_state_stack.at(i_target_indirection_index).current_species())) {
 							/* Since taking the address of a native reference actually takes the address of the
 							reference's target, we adjust the indirection_index accordingly. */
-							target_indirection_index -= 1;
+							i_target_indirection_index -= 1;
 						}
 					}
-					if (0 <= target_indirection_index) {
-						ddcs_ref.m_indirection_state_stack.at(target_indirection_index).set_original_pointer_target_state("native pointer target");
-						ddcs_ref.m_indirection_state_stack.at(target_indirection_index).set_current_pointer_target_state("pointer target");
+					if (0 <= i_target_indirection_index) {
+						ddcs_ref.m_indirection_state_stack.at(i_target_indirection_index).set_original_pointer_target_state("native pointer target");
+						ddcs_ref.m_indirection_state_stack.at(i_target_indirection_index).set_current_pointer_target_state("pointer target");
 					} else {
 						ddcs_ref.direct_type_state_ref().set_original_pointer_target_state("native pointer target");
 						ddcs_ref.direct_type_state_ref().set_current_pointer_target_state("pointer target");
 					}
+
+					size_t target_indirection_index = (0 <= i_target_indirection_index) ? i_target_indirection_index : CDDeclIndirection::no_indirection;
+					m_state1.m_pointer_target_contingent_replacement_map.do_and_dispose_matching_replacements(m_state1, CDDeclIndirection(*ddcs_ref.m_ddecl_cptr, target_indirection_index));
+
+					update_declaration(*ddcs_ref.m_ddecl_cptr, Rewrite, m_state1);
 
 					homogenize_redeclaration_types(ddcs_ref.m_ddecl_cptr, m_state1, Rewrite, MR);
 				}
@@ -7294,25 +7299,6 @@ namespace convm1 {
 					RHS = rhs_res3.without_leading_addressof_operator_expr_cptr;
 					rhs_res2 = infer_array_type_info_from_stmt(*RHS, "", (*this).m_state1);
 					lhs_indirection_level_adjustment += 1;
-
-					const clang::ArraySubscriptExpr* array_subscript_expr_cptr = nullptr;
-					auto without_leading_addressof_operator_expr_cptr = rhs_res3.without_leading_addressof_operator_expr_cptr->IgnoreParenCasts();
-					if (clang::Stmt::StmtClass::ArraySubscriptExprClass == (*(without_leading_addressof_operator_expr_cptr)).getStmtClass()) {
-						assert(llvm::isa<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr));
-						array_subscript_expr_cptr = llvm::cast<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr);
-					}
-					if (false && ConvertToSCPP && array_subscript_expr_cptr) {
-						/* This case is now handled in the MCSSSAddressof handler instead. */
-
-						std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CAssignmentTargetConstrainsAddressofArraySubscriptExprArray2ReplacementAction>(Rewrite, MR,
-								CDDeclIndirection(*(lhs_res2.ddecl_cptr), 0), *(rhs_res3.addressof_unary_operator_cptr), *array_subscript_expr_cptr);
-
-						if ((*(lhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array()) {
-							(*cr_shptr).do_replacement(m_state1);
-						} else {
-							m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
-						}
-					}
 				}
 
 				if (llvm::isa<const clang::CallExpr>(RHS->IgnoreParenCasts())) {
@@ -7367,10 +7353,11 @@ namespace convm1 {
 		CTUState& m_state1;
 	};
 
-	class MCSSSParameterPassingArray2 : public MatchFinder::MatchCallback
+	/* This class handles cases where (possibly array iterator) pointers are passed as function arguments. */
+	class MCSSSArgToParameterPassingArray2 : public MatchFinder::MatchCallback
 	{
 	public:
-		MCSSSParameterPassingArray2 (Rewriter &Rewrite, CTUState& state1) :
+		MCSSSArgToParameterPassingArray2 (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
 		virtual void run(const MatchFinder::MatchResult &MR)
@@ -7437,6 +7424,7 @@ namespace convm1 {
 						param_decls_of_first_function_decl.push_back(param_VD);
 					}
 
+					/* The constraint(s) need to be applied to all (re)declarations of the function. */
 					auto function_decls_range = function_decl1->redecls();
 					for (const auto& function_decl : function_decls_range) {
 						auto fdecl_source_range = nice_source_range(function_decl->getSourceRange(), Rewrite);
@@ -7549,50 +7537,11 @@ namespace convm1 {
 													std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CTargetConstrainsCStyleCastExprArray2ReplacementAction>(Rewrite, MR,
 															CDDeclIndirection(*param_VD, i), *CSCE);
 
-													if (ddcs_ref.has_been_determined_to_be_an_array()) {
+													if (ddcs_ref.has_been_determined_to_be_an_array(i)) {
 														(*cr_shptr).do_replacement(m_state1);
 													} else {
 														m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
 													}
-												}
-											}
-
-											if (false) {
-												bool special_case1_flag = false;
-												auto casted_expr = argii_EX->IgnoreParenCasts();
-												std::string casted_expr_type_str = casted_expr->getType().getAsString();
-												if ("const unsigned char" == lhs_element_type_str) {
-													if (("char *" == casted_expr_type_str) || ("const char *" == casted_expr_type_str)) {
-														special_case1_flag = true;
-													}
-												} else if (lhs_element_type_is_const_char) {
-													//lhs_element_type_str = "const char";
-													if (("unsigned char *" == casted_expr_type_str) || ("const unsigned char *" == casted_expr_type_str)) {
-														special_case1_flag = true;
-													}
-												}
-												if (special_case1_flag) {
-													auto casted_expr_SR = nice_source_range(casted_expr->getSourceRange(), Rewrite);
-													std::string casted_expr_text = Rewrite.getRewrittenText(casted_expr_SR);
-													if (ConvertToSCPP) {
-														std::string replacement_casted_expr_text = "std::addressof(" + casted_expr_text + "[0])";
-														m_state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, casted_expr_SR, replacement_casted_expr_text);
-														//Rewrite.ReplaceText(casted_expr_SR, replacement_casted_expr_text);
-													}
-													return;
-												} else {
-													auto CSCE = llvm::cast<const clang::CStyleCastExpr>(argii_EX);
-													if (CSCE) {
-														auto cast_operation_SR = clang::SourceRange(CSCE->getLParenLoc(), CSCE->getRParenLoc());
-														if (ConvertToSCPP && cast_operation_SR.isValid()) {
-															auto cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);
-															m_state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, "");
-															//auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
-														}
-
-														auto cast_kind_name = CSCE->getCastKindName();
-														auto cast_kind = CSCE->getCastKind();
-													} else { assert(false); }
 												}
 											}
 										}
@@ -7606,43 +7555,6 @@ namespace convm1 {
 
 									arg_EX = rhs_res3.without_leading_addressof_operator_expr_cptr;
 									lhs_indirection_level_adjustment += 1;
-
-									auto without_leading_addressof_operator_expr_cptr = rhs_res3.without_leading_addressof_operator_expr_cptr->IgnoreParenCasts();
-									IF_DEBUG(std::string stmt_class_name = (*(without_leading_addressof_operator_expr_cptr)).getStmtClassName();)
-									if (clang::Stmt::StmtClass::ArraySubscriptExprClass == (*(without_leading_addressof_operator_expr_cptr)).getStmtClass()) {
-										assert(llvm::isa<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr));
-										const clang::ArraySubscriptExpr* array_subscript_expr_cptr = llvm::cast<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr);
-
-										if (false && ConvertToSCPP && array_subscript_expr_cptr) {
-											/* This case is now handled in the MCSSSAddressof handler instead. */
-
-											std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CAssignmentTargetConstrainsAddressofArraySubscriptExprArray2ReplacementAction>(Rewrite, MR,
-													CDDeclIndirection(*param_VD, 0), *(rhs_res3.addressof_unary_operator_cptr), *array_subscript_expr_cptr);
-
-											if (ddcs_ref.has_been_determined_to_be_an_array() || aux_arg_has_been_determined_to_be_array) {
-												(*cr_shptr).do_replacement(m_state1);
-											} else {
-												m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
-											}
-										}
-									} else if (clang::Stmt::StmtClass::CXXOperatorCallExprClass == (*(without_leading_addressof_operator_expr_cptr)).getStmtClass()) {
-										assert(llvm::isa<const clang::CXXOperatorCallExpr>(without_leading_addressof_operator_expr_cptr));
-										const clang::CXXOperatorCallExpr* array_subscript_expr_cptr = llvm::cast<const clang::CXXOperatorCallExpr>(without_leading_addressof_operator_expr_cptr);
-										if (clang::OverloadedOperatorKind::OO_Subscript == array_subscript_expr_cptr->getOperator()) {
-											if (false && ConvertToSCPP && array_subscript_expr_cptr) {
-												/* This case is now handled in the MCSSSAddressof handler instead. */
-
-												std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CAssignmentTargetConstrainsAddressofSubscriptOperatorCallExprArray2ReplacementAction>(Rewrite, MR,
-														CDDeclIndirection(*param_VD, 0), *(rhs_res3.addressof_unary_operator_cptr), *array_subscript_expr_cptr);
-
-												if (ddcs_ref.has_been_determined_to_be_an_array() || aux_arg_has_been_determined_to_be_array) {
-													(*cr_shptr).do_replacement(m_state1);
-												} else {
-													m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
-												}
-											}
-										}
-									}
 								}
 								auto rhs_res2 = infer_array_type_info_from_stmt(*arg_EX, "", (*this).m_state1);
 
@@ -7848,10 +7760,11 @@ namespace convm1 {
 		CTUState& m_state1;
 	};
 
-	class MCSSSParameterPassingReference : public MatchFinder::MatchCallback
+	/* This class handles cases where arguments are passed to non-const reference parameters. */
+	class MCSSSArgToReferenceParameterPassing : public MatchFinder::MatchCallback
 	{
 	public:
-		MCSSSParameterPassingReference (Rewriter &Rewrite, CTUState& state1) :
+		MCSSSArgToReferenceParameterPassing (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
 		virtual void run(const MatchFinder::MatchResult &MR)
@@ -7871,7 +7784,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":6125:")) {
+				if (std::string::npos != debug_source_location_str.find(":113:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7964,7 +7877,14 @@ namespace convm1 {
 												auto arg_VD2 = dyn_cast<const clang::VarDecl>(DRE2->getDecl());
 												if (arg_VD2) {
 													if (ConvertToSCPP) {
-														std::shared_ptr<CDDeclIndirectionReplacementAction> cr_shptr = std::make_shared<CSameTypeReplacementAction>(Rewrite, MR, *arg_VD2, *param_VD);
+														/* Here we imposing that the passed argument be of the same type as the (non-const) reference
+														parameter. In particular, if the reference parameter is converted to a "safely addressable"
+														type (that has its '&' operator overloaded), then any passed argument must also be converted
+														to the same "safely addressable" type. Technically, the constraint shouldn't be reciprocal
+														(i.e. a "safely addressable" argument does not require that the reference parameter also be
+														a "safely addressable" type) but CSameTypeReplacementAction we're using here (due to laziness)
+														does apply the constraint both ways. */
+														std::shared_ptr<CDDeclIndirectionReplacementAction> cr_shptr = std::make_shared<CSameTypeReplacementAction>(Rewrite, MR, *param_VD, *arg_VD2);
 
 														auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*param_VD);
 														auto ddcs_map_iter = res1.first;
@@ -9700,137 +9620,137 @@ namespace convm1 {
 	}
 
 	void import_other_TUs(CMultiTUState* multi_tu_state_ptr, CompilerInstance &CI, int current_tu_num = 0) {
-	if (multi_tu_state_ptr) {
-		errs() << "EXECUTE ACTION\n";
-		//CompilerInstance &CI = getCompilerInstance();
+		if (multi_tu_state_ptr) {
+			errs() << "EXECUTE ACTION\n";
+			//CompilerInstance &CI = getCompilerInstance();
 
-		IntrusiveRefCntPtr<DiagnosticIDs> DiagIDs(CI.getDiagnostics().getDiagnosticIDs());
-		IntrusiveRefCntPtr<DiagnosticsEngine> DiagEngine(new DiagnosticsEngine(DiagIDs, &CI.getDiagnosticOpts(),
-				new IgnoringDiagConsumer(),/*ShouldOwnClient=*/true));
-		CDiag diag(DiagIDs, DiagEngine);
-		multi_tu_state_ptr->diags.push_back(diag);
-		//CI.setDiagnostics(DiagEngine.get());
+			IntrusiveRefCntPtr<DiagnosticIDs> DiagIDs(CI.getDiagnostics().getDiagnosticIDs());
+			IntrusiveRefCntPtr<DiagnosticsEngine> DiagEngine(new DiagnosticsEngine(DiagIDs, &CI.getDiagnosticOpts(),
+					new IgnoringDiagConsumer(),/*ShouldOwnClient=*/true));
+			CDiag diag(DiagIDs, DiagEngine);
+			multi_tu_state_ptr->diags.push_back(diag);
+			//CI.setDiagnostics(DiagEngine.get());
 
-		//CI.getPreprocessor().setDiagnostics(*DiagEngine);
+			//CI.getPreprocessor().setDiagnostics(*DiagEngine);
 
-		//CI.getDiagnostics().setClient(new IgnoringDiagConsumer(), true/*take ownership*/);
+			//CI.getDiagnostics().setClient(new IgnoringDiagConsumer(), true/*take ownership*/);
 
-		//CI.getDiagnostics().getClient()->BeginSourceFile(CI.getASTContext().getLangOpts());
-		//CI.getDiagnostics().SetArgToStringFn(&FormatASTNodeDiagnosticArgument, &CI.getASTContext());
+			//CI.getDiagnostics().getClient()->BeginSourceFile(CI.getASTContext().getLangOpts());
+			//CI.getDiagnostics().SetArgToStringFn(&FormatASTNodeDiagnosticArgument, &CI.getASTContext());
 
-		//llvm::raw_fd_ostream *output = CI.createOutputFile("test.ast",true,false,"","",true);
-		//auto output = CI.createOutputFile("test.ast",true,false,"","",true);
-		//*output << "Test\n";
-		//TheRewriter.setSourceMgr(CI.getASTContext().getSourceManager(), CI.getASTContext().getLangOpts());
+			//llvm::raw_fd_ostream *output = CI.createOutputFile("test.ast",true,false,"","",true);
+			//auto output = CI.createOutputFile("test.ast",true,false,"","",true);
+			//*output << "Test\n";
+			//TheRewriter.setSourceMgr(CI.getASTContext().getSourceManager(), CI.getASTContext().getLangOpts());
 
-		errs() << multi_tu_state_ptr->ast_units.size() << "\n";
-		for (unsigned I = 0, N = multi_tu_state_ptr->ast_units.size(); I != N; ++I) {
-			if (current_tu_num - 1 == int(I)) {
-				continue;
-			}
-			errs() << "LOOP\n";
-			//IntrusiveRefCntPtr<DiagnosticsEngine> DiagEngine(new DiagnosticsEngine(DiagIDs, &CI.getDiagnosticOpts(),
-			//		new ForwardingDiagnosticConsumer(*CI.getDiagnostics().getClient()),/*ShouldOwnClient=*/true));
-			IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts = new DiagnosticOptions();
-			TextDiagnosticPrinter *DiagClient = new TextDiagnosticPrinter(llvm::errs(), &*DiagOpts);
-			IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
-			IntrusiveRefCntPtr<DiagnosticsEngine> DiagEngine(new DiagnosticsEngine(DiagID, &*DiagOpts, DiagClient));
-			//multi_tu_state_ptr->ast_units.at(I)->getDiagnostics().setClient(DiagClient, true/*take ownership*/);
+			errs() << multi_tu_state_ptr->ast_units.size() << "\n";
+			for (unsigned I = 0, N = multi_tu_state_ptr->ast_units.size(); I != N; ++I) {
+				if (current_tu_num - 1 == int(I)) {
+					continue;
+				}
+				errs() << "LOOP\n";
+				//IntrusiveRefCntPtr<DiagnosticsEngine> DiagEngine(new DiagnosticsEngine(DiagIDs, &CI.getDiagnosticOpts(),
+				//		new ForwardingDiagnosticConsumer(*CI.getDiagnostics().getClient()),/*ShouldOwnClient=*/true));
+				IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts = new DiagnosticOptions();
+				TextDiagnosticPrinter *DiagClient = new TextDiagnosticPrinter(llvm::errs(), &*DiagOpts);
+				IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
+				IntrusiveRefCntPtr<DiagnosticsEngine> DiagEngine(new DiagnosticsEngine(DiagID, &*DiagOpts, DiagClient));
+				//multi_tu_state_ptr->ast_units.at(I)->getDiagnostics().setClient(DiagClient, true/*take ownership*/);
 
-			//CI.getDiagnostics().Reset();
-			//CI.getDiagnostics().setSourceManager(&(multi_tu_state_ptr->ast_units.at(I)->getASTContext().getSourceManager()));
+				//CI.getDiagnostics().Reset();
+				//CI.getDiagnostics().setSourceManager(&(multi_tu_state_ptr->ast_units.at(I)->getASTContext().getSourceManager()));
 
-			if (!multi_tu_state_ptr->ast_units.at(I))
-				continue;
+				if (!multi_tu_state_ptr->ast_units.at(I))
+					continue;
 
-			if (true) {
-				ASTImporter Importer(CI.getASTContext(),
-						CI.getFileManager(),
-							multi_tu_state_ptr->ast_units.at(I)->getASTContext(),
-							multi_tu_state_ptr->ast_units.at(I)->getFileManager(),
-							/* MinimalImport=*/false);
+				if (true) {
+					ASTImporter Importer(CI.getASTContext(),
+							CI.getFileManager(),
+								multi_tu_state_ptr->ast_units.at(I)->getASTContext(),
+								multi_tu_state_ptr->ast_units.at(I)->getFileManager(),
+								/* MinimalImport=*/false);
 
-				clang::Rewriter localRewriter;
-				localRewriter.setSourceMgr(multi_tu_state_ptr->ast_units.at(I)->getASTContext().getSourceManager(), multi_tu_state_ptr->ast_units.at(I)->getASTContext().getLangOpts());
+					clang::Rewriter localRewriter;
+					localRewriter.setSourceMgr(multi_tu_state_ptr->ast_units.at(I)->getASTContext().getSourceManager(), multi_tu_state_ptr->ast_units.at(I)->getASTContext().getLangOpts());
 
-				TranslationUnitDecl *TU = multi_tu_state_ptr->ast_units.at(I)->getASTContext().getTranslationUnitDecl();
-				for (auto *D : TU->decls()) {
-					assert(D);
-					//D->dump();
+					TranslationUnitDecl *TU = multi_tu_state_ptr->ast_units.at(I)->getASTContext().getTranslationUnitDecl();
+					for (auto *D : TU->decls()) {
+						assert(D);
+						//D->dump();
 
-					auto SR = nice_source_range(D->getSourceRange(), localRewriter);
-					if (!SR.isValid()) {
-						continue;
-					}
-					if (filtered_out_by_location(localRewriter.getSourceMgr(), SR.getBegin())) {
-						continue;
-					}
-
-					auto SL = SR.getBegin();
-					std::string source_location_str = SL.printToString(localRewriter.getSourceMgr());
-
-					if (std::string::npos != source_location_str.find("lodepng.cpp")) {
-						int q = 5;
-					} else if (std::string::npos != source_location_str.find("lodepng_util.cpp")) {
-						int q = 5;
-					} else {
-						int q = 5;
-					}
-
-					auto *ND = dyn_cast<const NamedDecl>(D);
-					if (!ND) {
-						continue;
-					}
-					std::string name = ND->getNameAsString();
-
-					// Don't re-import __va_list_tag, __builtin_va_list.
-					//if (const auto *ND = dyn_cast<NamedDecl>(D))
-						if (IdentifierInfo *II = ND->getIdentifier())
-							if (II->isStr("__va_list_tag") || II->isStr("__builtin_va_list") || II->isStr("main"))
-								continue;
-
-					if (nullptr == Importer.GetAlreadyImportedOrNull(D)) {
-						auto FD = D->getAsFunction();
-						if (FD) {
-							std::string function_name = FD->getNameAsString();
-						} else if (llvm::isa<clang::NamespaceDecl>(D)) {
-							auto NSD = llvm::cast<clang::NamespaceDecl>(D);
-							assert(NSD);
-							auto NNS = clang::NestedNameSpecifier::Create(multi_tu_state_ptr->ast_units.at(I)->getASTContext(), nullptr, NSD);
-							if (false && NNS) {
-								auto *NNSToDecl = Importer.Import(NNS);
-								if (NNSToDecl) {
-								int q = 5;
-							} else {
-								int q = 7;
-								}
-							} else {
-								int q = 7;
-							}
-
-							if (EnableNamespaceImport) {
-								for (auto *D : NSD->decls()) {
-									D->dump();
-									import_decl(Importer, *D, localRewriter, CI);
-								}
-							}
+						auto SR = nice_source_range(D->getSourceRange(), localRewriter);
+						if (!SR.isValid()) {
 							continue;
+						}
+						if (filtered_out_by_location(localRewriter.getSourceMgr(), SR.getBegin())) {
+							continue;
+						}
+
+						auto SL = SR.getBegin();
+						std::string source_location_str = SL.printToString(localRewriter.getSourceMgr());
+
+						if (std::string::npos != source_location_str.find("lodepng.cpp")) {
+							int q = 5;
+						} else if (std::string::npos != source_location_str.find("lodepng_util.cpp")) {
+							int q = 5;
 						} else {
 							int q = 5;
 						}
 
-						import_decl(Importer, *D, localRewriter, CI);
-					} else {
-						int q = 5;
+						auto *ND = dyn_cast<const NamedDecl>(D);
+						if (!ND) {
+							continue;
+						}
+						std::string name = ND->getNameAsString();
+
+						// Don't re-import __va_list_tag, __builtin_va_list.
+						//if (const auto *ND = dyn_cast<NamedDecl>(D))
+							if (IdentifierInfo *II = ND->getIdentifier())
+								if (II->isStr("__va_list_tag") || II->isStr("__builtin_va_list") || II->isStr("main"))
+									continue;
+
+						if (nullptr == Importer.GetAlreadyImportedOrNull(D)) {
+							auto FD = D->getAsFunction();
+							if (FD) {
+								std::string function_name = FD->getNameAsString();
+							} else if (llvm::isa<clang::NamespaceDecl>(D)) {
+								auto NSD = llvm::cast<clang::NamespaceDecl>(D);
+								assert(NSD);
+								auto NNS = clang::NestedNameSpecifier::Create(multi_tu_state_ptr->ast_units.at(I)->getASTContext(), nullptr, NSD);
+								if (false && NNS) {
+									auto *NNSToDecl = Importer.Import(NNS);
+									if (NNSToDecl) {
+									int q = 5;
+								} else {
+									int q = 7;
+									}
+								} else {
+									int q = 7;
+								}
+
+								if (EnableNamespaceImport) {
+									for (auto *D : NSD->decls()) {
+										D->dump();
+										import_decl(Importer, *D, localRewriter, CI);
+									}
+								}
+								continue;
+							} else {
+								int q = 5;
+							}
+
+							import_decl(Importer, *D, localRewriter, CI);
+						} else {
+							int q = 5;
+						}
 					}
 				}
-			}
 
+			}
+			//CI.createDefaultOutputFile()->flush();
+			//CI.createDefaultOutputFile()->close();
+			//CI.getDiagnostics().getClient()->EndSourceFile();
 		}
-		//CI.createDefaultOutputFile()->flush();
-		//CI.createDefaultOutputFile()->close();
-		//CI.getDiagnostics().getClient()->EndSourceFile();
-	}
 	}
 
 	class Misc1 : public MatchFinder::MatchCallback
@@ -9878,8 +9798,8 @@ namespace convm1 {
 		HandlerForSSSNullToPointer(R, tu_state()), HandlerForSSSMalloc2(R, tu_state()),
 		HandlerForSSSMallocInitializer2(R, tu_state()), HandlerForSSSNullInitializer(R, tu_state()), HandlerForSSSFree2(R, tu_state()),
 		HandlerForSSSSetToNull2(R, tu_state()), HandlerForSSSCompareWithNull2(R, tu_state()), HandlerForSSSMemset(R, tu_state()), HandlerForSSSMemcpy(R, tu_state()),
-		HandlerForSSSConditionalInitializer(R, tu_state()), HandlerForSSSAssignment(R, tu_state()), HandlerForSSSParameterPassingArray2(R, tu_state()),
-		HandlerForSSSParameterPassingReference(R, tu_state()), HandlerForSSSReturnValue(R, tu_state()), HandlerForSSSFRead(R, tu_state()), HandlerForSSSFWrite(R, tu_state()), 
+		HandlerForSSSConditionalInitializer(R, tu_state()), HandlerForSSSAssignment(R, tu_state()), HandlerForSSSArgToParameterPassingArray2(R, tu_state()),
+		HandlerForSSSArgToReferenceParameterPassing(R, tu_state()), HandlerForSSSReturnValue(R, tu_state()), HandlerForSSSFRead(R, tu_state()), HandlerForSSSFWrite(R, tu_state()), 
 		HandlerMisc1(R, tu_state(), CI),HandlerForSSSAddressOf(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state())
 	{
 		//Matcher.addMatcher(varDecl(hasType(pointerType())).bind("mcsssnativepointer"), &HandlerForSSSNativePointer);
@@ -10056,7 +9976,7 @@ namespace convm1 {
 								))
 							)),
 							hasAnyArgument(hasType(pointerType()))
-				)).bind("mcsssparameterpassing1"), &HandlerForSSSParameterPassingArray2);
+				)).bind("mcsssparameterpassing1"), &HandlerForSSSArgToParameterPassingArray2);
 
 		Matcher.addMatcher(
 				callExpr(allOf(
@@ -10075,7 +9995,7 @@ namespace convm1 {
 								))
 							)),
 							anything()
-				)).bind("mcsssparameterpassing1"), &HandlerForSSSParameterPassingReference);
+				)).bind("mcsssparameterpassing1"), &HandlerForSSSArgToReferenceParameterPassing);
 
 		Matcher.addMatcher(returnStmt(allOf(
 				hasAncestor(functionDecl().bind("mcsssreturnvalue1")),
@@ -10147,8 +10067,8 @@ namespace convm1 {
 	MCSSSMemcpy HandlerForSSSMemcpy;
 	MCSSSConditionalInitializer HandlerForSSSConditionalInitializer;
 	MCSSSAssignment HandlerForSSSAssignment;
-	MCSSSParameterPassingArray2 HandlerForSSSParameterPassingArray2;
-	MCSSSParameterPassingReference HandlerForSSSParameterPassingReference;
+	MCSSSArgToParameterPassingArray2 HandlerForSSSArgToParameterPassingArray2;
+	MCSSSArgToReferenceParameterPassing HandlerForSSSArgToReferenceParameterPassing;
 	MCSSSReturnValue HandlerForSSSReturnValue;
 	MCSSSFRead HandlerForSSSFRead;
 	MCSSSFWrite HandlerForSSSFWrite;
