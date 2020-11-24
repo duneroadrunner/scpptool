@@ -4593,21 +4593,24 @@ namespace convm1 {
 						and pointers that have been converted to (safe) pointer/iterator objects might not
 						work without some massaging. */
 						if (og_target_is_unsigned_char_star && og_csce_is_char_star) {
-							/* We're casting from a 'char*' to a (safe) pointer object to an 'unsigned char'. */
+							/* We're (unsafely) casting from a 'char*' to a (safe) pointer object to an 'unsigned char'. */
+							std::string const_qual_str;
+							if (m_c_style_cast_expr_cptr->getSubExpr()->getType()->getPointeeType().isConstQualified()) {
+								const_qual_str += "const ";
+							}
 							if ("Dual" == ConvertMode) {
 								cast_target_expression_extra_prefix = "MSE_LH_CAST(MSE_LH_ARRAY_ITERATOR_TYPE(";
-								if (m_c_style_cast_expr_cptr->getSubExpr()->getType()->getPointeeType().isConstQualified()) {
-									cast_target_expression_extra_prefix += "const ";
-								}
-								cast_target_expression_extra_prefix += "char), ";
+								cast_target_expression_extra_prefix += const_qual_str + "char), ";
 							} else if ("FasterAndStricter" == ConvertMode) {
-								cast_target_expression_extra_prefix = "mse::TXScopeCSSSXSTERAIterator<char>(";
+								cast_target_expression_extra_prefix = "mse::TXScopeCSSSXSTERAIterator<";
+								cast_target_expression_extra_prefix += const_qual_str + "char>(";
 							} else {
-								cast_target_expression_extra_prefix = "mse::lh::TLHNullableAnyRandomAccessIterator<char>(";
+								cast_target_expression_extra_prefix = "mse::lh::TLHNullableAnyRandomAccessIterator<";
+								cast_target_expression_extra_prefix += const_qual_str + "char>(";
 							}
 							cast_target_expression_extra_suffix = ")";
 						} else if (og_target_is_char_star) {
-							/* We're casting to a 'char*'. */
+							/* We're (unsafely) casting to a 'char*'. */
 							std::string addressof_str;
 							if ("Dual" == ConvertMode) {
 								addressof_str = "MSE_LH_UNSAFE_MAKE_RAW_POINTER_TO";
@@ -4627,9 +4630,9 @@ namespace convm1 {
 								+ ", " + cast_target_expression_extra_prefix + cast_target_expression_text
 								+ cast_target_expression_extra_suffix + ")";
 						} else {
-							whole_cast_expression_replacement_text = "(" + replacement_qtype_str
-								+ "&)" + cast_target_expression_extra_prefix + cast_target_expression_text
-								+ cast_target_expression_extra_suffix;
+							whole_cast_expression_replacement_text = "mse::us::lh::impl::unsafe_cast<" + replacement_qtype_str
+								+ ">(" + cast_target_expression_extra_prefix + cast_target_expression_text
+								+ cast_target_expression_extra_suffix+ ")";
 						}
 					}
 					/* This is not the proper way to modify an expression. See the function
@@ -6147,9 +6150,9 @@ namespace convm1 {
 										if ("Dual" == ConvertMode) {
 											ce_replacement_code = "MSE_LH_FREE(" + arg_source_text + ")";
 										} else if ("FasterAndStricter" == ConvertMode) {
-											ce_replacement_code = "mse::lh::CAllocF<typename std::remove_reference<decltype(" + arg_source_text + ")>::type>::free(" + arg_source_text + ")";
+											ce_replacement_code = "mse::lh::impl::CAllocF<typename std::remove_reference<decltype(" + arg_source_text + ")>::type>::free(" + arg_source_text + ")";
 										} else {
-											ce_replacement_code = "mse::lh::CAllocF<typename std::remove_reference<decltype(" + arg_source_text + ")>::type>::free(" + arg_source_text + ")";
+											ce_replacement_code = "mse::lh::impl::CAllocF<typename std::remove_reference<decltype(" + arg_source_text + ")>::type>::free(" + arg_source_text + ")";
 										}
 
 										auto cr_shptr = std::make_shared<CFreeDynamicArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(arg_res2.ddecl_cptr), arg_res2.indirection_level), CE, ce_replacement_code);
