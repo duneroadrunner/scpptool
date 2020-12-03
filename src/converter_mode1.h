@@ -4630,7 +4630,7 @@ namespace convm1 {
 								+ ", " + cast_target_expression_extra_prefix + cast_target_expression_text
 								+ cast_target_expression_extra_suffix + ")";
 						} else {
-							whole_cast_expression_replacement_text = "mse::us::lh::impl::unsafe_cast<" + replacement_qtype_str
+							whole_cast_expression_replacement_text = "mse::us::lh::unsafe_cast<" + replacement_qtype_str
 								+ ">(" + cast_target_expression_extra_prefix + cast_target_expression_text
 								+ cast_target_expression_extra_suffix+ ")";
 						}
