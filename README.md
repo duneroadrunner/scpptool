@@ -99,9 +99,11 @@ The expressions used to assign a new value to a retargetable (aka non-`const`) p
 
 Native references are subject to essentially the same restrictions as non-retargetable native pointers. The functional difference between native references and non-retargetable native pointers is that C++ permits (`const`) native references to temporaries, perhaps making them a little more convenient to use as function parameters.
 
+So just as this tool wouldn't condone directly taking the address of an element of a vector, it wouldn't condone directly creating a reference to an element of a vector either. This means you cannot directly pass a vector element by reference to a function. As with pointers, you would first need to obtain a scope pointer to the element, then you could pass the element (by reference) as a dereference of the scope pointer.
+
 #### Range-based `for` loops by reference
 
-One common use case for native references that this tool can't generally verify to be safe is range-based `for` loops. So for example in this code:
+Another common use case for native references that this tool can't generally verify to be safe is range-based `for` loops. So for example in this code:
 
 ```cpp
 #include "msemstdvector.h"
