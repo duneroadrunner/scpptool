@@ -565,7 +565,8 @@ namespace checker {
 										std::string function_name = function_decl->getNameAsString();
 										static const std::string str_prefix_str = "str";
 										static const std::string mem_prefix_str = "mem";
-										if (string_begins_with(function_name, str_prefix_str)) {
+										if ((!(*this).m_state1.char_star_restrictions_are_disabled())
+											&& string_begins_with(function_name, str_prefix_str)) {
 											for (const auto& param : function_decl->parameters()) {
 												const auto uqtype_str = param->getType().getUnqualifiedType().getAsString();
 												static const std::string const_char_star_str = "const char *";
@@ -1232,7 +1233,9 @@ namespace checker {
 				}
 
 				if (ST->getRetValue()) {
-					if (is_xscope_type(ST->getRetValue()->getType(), (*this).m_state1)) {
+					if (is_xscope_type(ST->getRetValue()->getType(), (*this).m_state1)
+						&& (!(*this).m_state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(ST->getRetValue()->getType()))
+						) {
 						bool xscope_return_value_wrapper_present = false;
 						const clang::Stmt* stii = IgnoreParenImpNoopCasts(ST->getRetValue(), *(MR.Context));
 						while (!dyn_cast<const CallExpr>(stii)) {
@@ -1377,7 +1380,10 @@ namespace checker {
 							for (const auto& field : RD->fields()) {
 								const auto field_qtype = field->getType();
 								IF_DEBUG(auto field_qtype_str = field_qtype.getAsString();)
-								if (field_qtype.getTypePtr()->isPointerType()) {
+								if (field_qtype.getTypePtr()->isPointerType()
+									&& (!(*this).m_state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(field_qtype))
+									&& (!m_state1.m_suppress_check_region_set.contains(instantiation_source_range(field->getSourceRange(), Rewrite)))
+									) {
 									const auto ICIEX = field->getInClassInitializer();
 									if (!ICIEX) {
 										unverified_pointer_fields.push_back(field);
@@ -1458,7 +1464,9 @@ namespace checker {
 
 						std::string error_desc;
 						if (field_qtype.getTypePtr()->isPointerType()) {
-							if (!(*this).m_state1.raw_pointer_scope_restrictions_are_disabled()) {
+							if (!(*this).m_state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(field_qtype)
+								&& (!m_state1.m_suppress_check_region_set.contains(instantiation_source_range(field->getSourceRange(), Rewrite)))
+								) {
 								if (has_xscope_tag_base) {
 									/*
 									error_desc = std::string("Native pointers are not (yet) supported as fields of xscope ")
@@ -2579,7 +2587,7 @@ namespace checker {
 					return;
 				}
 
-				if ((*this).m_state1.raw_pointer_scope_restrictions_are_disabled()) {
+				if ((*this).m_state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(EX->getType())) {
 					return;
 				}
 
@@ -2588,7 +2596,9 @@ namespace checker {
 					const auto qtype = resulting_pointer_EX->getType();
 					IF_DEBUG(const std::string qtype_str = resulting_pointer_EX->getType().getAsString();)
 					if ((resulting_pointer_EX->getType().getTypePtr()->isMemberPointerType())
-						|| (resulting_pointer_EX->getType().getTypePtr()->isFunctionPointerType())) {
+						|| (resulting_pointer_EX->getType().getTypePtr()->isFunctionPointerType())
+						|| (*this).m_state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(qtype)
+						) {
 						return;
 					}
 				}
@@ -2639,13 +2649,14 @@ namespace checker {
 					return;
 				}
 
-				if ((*this).m_state1.raw_pointer_scope_restrictions_are_disabled()) {
-					return;
-				}
-
 				auto qtype = VD->getType();
 				IF_DEBUG(std::string qtype_str = VD->getType().getAsString();)
 				if (qtype->isPointerType()) {
+
+					if ((*this).m_state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(qtype)) {
+						return;
+					}
+
 					/*
 					if ((clang::StorageDuration::SD_Automatic != VD->getStorageDuration())
 						&& (clang::StorageDuration::SD_Thread != VD->getStorageDuration())) {
@@ -2719,9 +2730,6 @@ namespace checker {
 				auto EXISR = instantiation_source_range(EX->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
 				if (supress_check_flag) {
-					return;
-				}
-				if ((*this).m_state1.raw_pointer_scope_restrictions_are_disabled()) {
 					return;
 				}
 
@@ -3007,7 +3015,10 @@ namespace checker {
 							}
 						}
 					}
-					if (FD->getType()->isPointerType()) {
+					if (FD->getType()->isPointerType()
+						&& (!(*this).m_state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(FD->getType()))
+						&& (!m_state1.m_suppress_check_region_set.contains(instantiation_source_range(FD->getSourceRange(), Rewrite)))
+						) {
 						if (is_nullptr_literal(EX, *(MR.Context))) {
 							auto CISR = nice_source_range(EX->getSourceRange(), Rewrite);
 							if (!CISR.isValid()) {
@@ -3125,6 +3136,7 @@ namespace checker {
 					}
 				}
 
+				assert(LHSEX && RHSEX);
 				IF_DEBUG(const auto LHSEX_qtype_str = LHSEX->getType().getAsString();)
 				const auto LHSEX_rw_type_ptr = remove_mse_transparent_wrappers(LHSEX->getType()).getTypePtr();
 				assert(LHSEX_rw_type_ptr);
@@ -3140,6 +3152,11 @@ namespace checker {
 						if (TPointerForLegacy_str != LHSEX_rw_qtype_str) {
 							return;
 						}
+					}
+				} else {
+					const auto qtype = clang::QualType(LHSEX_rw_type_ptr, 0/*I'm just assuming zero specifies no qualifiers*/);
+					if ((*this).m_state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(qtype)) {
+						return;
 					}
 				}
 
@@ -3668,6 +3685,8 @@ namespace checker {
 					(*this).tu_state().m_MSE_SOME_NON_XSCOPE_POINTER_TYPE_IS_DISABLED_defined = true;
 				} else if ("MSE_DISABLE_RAW_POINTER_SCOPE_RESTRICTIONS" == macro_name) {
 					(*this).tu_state().m_MSE_DISABLE_RAW_POINTER_SCOPE_RESTRICTIONS_defined = true;
+				} else if ("MSE_CHAR_STAR_EXEMPTED" == macro_name) {
+					(*this).tu_state().m_MSE_CHAR_STAR_EXEMPTED_defined = true;
 				}
 			}
 
