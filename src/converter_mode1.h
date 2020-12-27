@@ -909,6 +909,7 @@ namespace convm1 {
 		CIndirectionStateStack m_indirection_state_stack;
 
 		std::variant<bool, clang::SourceRange, clang::SourceLocation> m_initializer_SR_or_insert_before_point;
+		std::variant<bool, clang::SourceRange, clang::SourceLocation> m_thread_local_specifier_SR_or_insert_before_point;
 
 		std::string m_current_initialization_expr_str;
 		bool m_original_initialization_has_been_noted = false;
@@ -8793,7 +8794,7 @@ namespace convm1 {
 											//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 										}
 
-										if (false) {
+										if (true) {
 											/* Here we're (unjustifiably) assuming that the program is single threaded 
 											and changing variables with static duration to thread_local duration. */
 											std::string l_source_text1 = Rewrite.getRewrittenText(SR);
@@ -8832,8 +8833,16 @@ namespace convm1 {
 												}
 											}
 
-											l_source_text1.replace(replace_pos, replace_length, "thread_local ");
-											auto res2 = Rewrite.ReplaceText(SR, l_source_text1.c_str());
+											auto res1 = state1.m_ddecl_conversion_state_map.insert(*VD);
+											auto ddcs_map_iter = res1.first;
+											auto& ddcs_ref = (*ddcs_map_iter).second;
+
+											if (1 <= replace_length) {
+												ddcs_ref.m_thread_local_specifier_SR_or_insert_before_point = clang::SourceRange(SR.getBegin().getLocWithOffset(replace_pos), SR.getBegin().getLocWithOffset(replace_pos + replace_length - 1));
+											} else {
+												ddcs_ref.m_thread_local_specifier_SR_or_insert_before_point = SR.getBegin().getLocWithOffset(replace_pos);
+											}
+
 											int q = 5;
 										}
 									}
@@ -9004,6 +9013,10 @@ namespace convm1 {
 													initializer_info_str += "0/*auto-generated init val*/";
 												}
 												ddcs_ref.m_current_initialization_expr_str = initializer_info_str;
+
+												/* Specify that the new initialization string should be
+												inserted at the end of the declaration. */
+												ddcs_ref.m_initializer_SR_or_insert_before_point = ddcs_ref.m_ddecl_cptr->getSourceRange().getEnd().getLocWithOffset(+1);
 
 												update_declaration(*l_DD, Rewrite, state1);
 											}
@@ -10431,6 +10444,34 @@ namespace convm1 {
 									TheRewriter.InsertTextBefore(*insert_before_point_ptr, indirection_state_stack[i].m_prefix_str);
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 								}
+							}
+						}
+					}
+					{
+						auto thread_local_specifier_SR_ptr = std::get_if<clang::SourceRange>(&(ddcs_ref.m_thread_local_specifier_SR_or_insert_before_point));
+						auto insert_before_point_ptr = std::get_if<clang::SourceLocation>(&(ddcs_ref.m_thread_local_specifier_SR_or_insert_before_point));
+						if (thread_local_specifier_SR_ptr) {
+							/* If a superset of the region that would be modified here has already been
+							modified then this region can no longer be (reliably) modified. */
+							if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.properly_contains(*thread_local_specifier_SR_ptr)) {
+								if (true) {
+									static const std::string thread_local_specifier_str = "thread_local ";
+									TheRewriter.ReplaceText(*thread_local_specifier_SR_ptr, thread_local_specifier_str);
+									m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(*thread_local_specifier_SR_ptr);
+								}
+							} else {
+								int q = 5;
+							}
+						} else if (insert_before_point_ptr) {
+							const auto& insert_after_point = (*insert_before_point_ptr).getLocWithOffset(-1);
+							/* If a region that contains (both sides of) the insertion point has already been modified
+							then this insertion point is no longer (reliably) valid. */
+							if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.contains({ insert_after_point, *insert_before_point_ptr })) {
+								static const std::string thread_local_specifier_str = "thread_local ";
+								//TheRewriter.InsertTextAfterToken(insert_after_point, thread_local_specifier_str);
+								TheRewriter.InsertTextBefore(*insert_before_point_ptr, thread_local_specifier_str);
+							} else {
+								int q = 5;
 							}
 						}
 					}

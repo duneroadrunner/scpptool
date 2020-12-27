@@ -513,6 +513,44 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		return retval;
 	}
 
+	inline bool is_char_or_const_char(const clang::QualType& qtype) {
+		bool retval = false;
+		static const std::string char_str = "char";
+		static const std::string const_char_str = "const char";
+		std::string qtype_str = qtype.getAsString();
+		if ((char_str == qtype_str) || (const_char_str == qtype_str)) {
+			retval = true;
+		}
+		return retval;
+	}
+	inline bool is_char_star_or_const_char_star(const clang::QualType& qtype) {
+		bool retval = false;
+		if (qtype->isPointerType()) {
+			auto direct_type = qtype->getPointeeType();
+			retval = is_char_or_const_char(direct_type);
+		}
+		return retval;
+	}
+
+	inline bool is_FILE_or_const_FILE(const clang::QualType& qtype) {
+		bool retval = false;
+		static const std::string FILE_str = "FILE";
+		static const std::string const_FILE_str = "const FILE";
+		std::string qtype_str = qtype.getAsString();
+		if ((FILE_str == qtype_str) || (const_FILE_str == qtype_str)) {
+			retval = true;
+		}
+		return retval;
+	}
+	inline bool is_FILE_star_or_const_FILE_star(const clang::QualType& qtype) {
+		bool retval = false;
+		if (qtype->isPointerType()) {
+			auto direct_type = qtype->getPointeeType();
+			retval = is_FILE_or_const_FILE(direct_type);
+		}
+		return retval;
+	}
+
 
 	class CCommonTUState1 {
 	public:
@@ -527,6 +565,26 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		bool raw_pointer_scope_restrictions_are_disabled() const {
 			return (m_MSE_DISABLE_RAW_POINTER_SCOPE_RESTRICTIONS_defined
 			|| m_MSE_SOME_NON_XSCOPE_POINTER_TYPE_IS_DISABLED_defined);
+		}
+		bool m_MSE_CHAR_STAR_EXEMPTED_defined = false;
+		bool char_star_restrictions_are_disabled() const {
+			return m_MSE_CHAR_STAR_EXEMPTED_defined;
+		}
+		bool raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(const clang::QualType& qtype) const {
+			bool retval = false;
+			if (qtype.getTypePtr()->isPointerType()) {
+				if (raw_pointer_scope_restrictions_are_disabled()) {
+					retval = true;
+				} else if (is_char_star_or_const_char_star(qtype)) {
+					if (m_MSE_CHAR_STAR_EXEMPTED_defined) {
+						retval = true;
+					}
+				} else if (is_FILE_star_or_const_FILE_star(qtype)) {
+					/* We won't complain about 'FILE *'s for now. */
+					retval = true;
+				}
+			}
+			return retval;
 		}
 	};
 
