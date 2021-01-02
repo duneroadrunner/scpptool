@@ -209,7 +209,15 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		if (!ptr) { return ptr; }
 		return IgnoreParenImpCasts(ptr)->IgnoreParenNoopCasts(Ctx);
 	}
-
+	template<typename TPtr>
+	inline const clang::Expr* IgnoreExprWithCleanups(const TPtr ptr) {
+		if (!ptr) { return ptr; }
+		const clang::ExprWithCleanups* EWC = clang::dyn_cast<const clang::ExprWithCleanups>(ptr);
+		if (EWC) {
+			return EWC->getSubExpr();
+		}
+		return ptr;
+	}
 
 	template <typename ContainingElementT, typename NodeT>
 	inline auto Tget_immediately_containing_element_of_type(const NodeT* NodePtr, clang::ASTContext& context) {

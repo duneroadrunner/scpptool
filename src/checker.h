@@ -1660,12 +1660,25 @@ namespace checker {
 		if (!EX1) {
 			return retval;
 		}
-		const auto EX = IgnoreParenImpNoopCasts(EX1, Ctx);
 		bool satisfies_checks = false;
+
+		auto MTE = dyn_cast<const clang::MaterializeTemporaryExpr>(IgnoreExprWithCleanups(EX1));
+
+		const auto EX = IgnoreParenImpNoopCasts(EX1, Ctx);
 		auto DRE1 = dyn_cast<const clang::DeclRefExpr>(EX);
 		auto CXXTE = dyn_cast<const clang::CXXThisExpr>(EX);
 		auto SL = dyn_cast<const clang::StringLiteral>(EX);
-		if (DRE1) {
+		if (MTE) {
+			auto lifetime_extending_decl = MTE->getExtendingDecl();
+			if (lifetime_extending_decl) {
+				/* The expression has "scope lifetime" by virtue of being a "lifetime-extended" temporary. */
+				auto le_VD = dyn_cast<const clang::VarDecl>(lifetime_extending_decl);
+				if (le_VD) {
+					retval = le_VD;
+				}
+			}
+			return retval;
+		} else if (DRE1) {
 			const auto DRE1_qtype = DRE1->getType();
 			IF_DEBUG(const auto DRE1_qtype_str = DRE1_qtype.getAsString();)
 
@@ -2378,6 +2391,10 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
+				if (std::string::npos != debug_source_location_str.find(":366:")) {
+					int q = 5;
+				}
+
 				auto VDISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(VDISR);
 				if (supress_check_flag) {
@@ -2396,9 +2413,23 @@ namespace checker {
 							std::cout << (*(res.first)).as_a_string1() << " \n\n";
 						}
 					}
-					auto* EX = VD->getInit();
+					const auto EX = VD->getInit();
 					if (EX) {
 						bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context), m_state1);
+						if (!satisfies_checks) {
+							const auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
+							const auto pointee_qtype = qtype->getPointeeType();
+							if (PVD && (pointee_qtype.isConstQualified())) {
+								/* We're dealing with a const reference parameter in this case. */
+								auto MTE = dyn_cast<const clang::MaterializeTemporaryExpr>(IgnoreExprWithCleanups(EX));
+								if (MTE) {
+									/* The initializer is a temporary. Since the initializer is a default parameter
+									value in this case, it should be the case that it can be safely targeted with an
+									xscope reference. */
+									satisfies_checks = true;
+								}
+							}
+						}
 						if (!satisfies_checks) {
 							const std::string error_desc = std::string("Unable to verify that the ")
 								+ "native reference (of type '" + qtype.getAsString() + "') is safe here.";
