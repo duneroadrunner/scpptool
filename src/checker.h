@@ -1655,7 +1655,7 @@ namespace checker {
 	references, so the lifetime of a (scope) reference is a lower bound for the lifetime of the
 	corresponding target object. */
 	typedef std::variant<const clang::VarDecl*, const clang::CXXThisExpr*, const clang::Expr*, const clang::StringLiteral*> CStaticLifetimeOwner;
-	std::optional<CStaticLifetimeOwner> static_lifetime_owner_of_target_expr_if_any(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
+	std::optional<CStaticLifetimeOwner> lower_bound_lifetime_owner_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
 		std::optional<CStaticLifetimeOwner> retval;
 		if (!EX1) {
 			return retval;
@@ -1742,7 +1742,7 @@ namespace checker {
 				auto VD = dyn_cast<const clang::VarDecl>(VLD); /* for static members */
 				if (FD && !(ME->isBoundMemberFunction(Ctx))) {
 					auto containing_EX = containing_object_expr_from_member_expr(ME);
-					retval = static_lifetime_owner_of_target_expr_if_any(containing_EX, Ctx, tu_state_cref);
+					retval = lower_bound_lifetime_owner_if_available(containing_EX, Ctx, tu_state_cref);
 				} else if (VD) {
 					retval = VD; /* static member */
 				} else {
@@ -1752,16 +1752,8 @@ namespace checker {
 				auto UO = dyn_cast<const clang::UnaryOperator>(EX);
 				if (UO) {
 					const auto opcode = UO->getOpcode();
-					const auto opcode_str = UO->getOpcodeStr(opcode);
-					if (clang::UnaryOperator::Opcode::UO_AddrOf == opcode) {
-						const auto UOSE = UO->getSubExpr();
-						if (UOSE) {
-							const auto UOSE_qtype = UOSE->getType();
-							IF_DEBUG(const auto UOSE_qtype_str = UOSE_qtype.getAsString();)
-
-							retval = static_lifetime_owner_of_target_expr_if_any(UOSE, Ctx, tu_state_cref);
-						}
-					} else if (clang::UnaryOperator::Opcode::UO_Deref == opcode) {
+					IF_DEBUG(const auto opcode_str = UO->getOpcodeStr(opcode);)
+					if (clang::UnaryOperator::Opcode::UO_Deref == opcode) {
 						const auto UOSE = UO->getSubExpr();
 						if (UOSE) {
 							const auto UOSE_qtype = UOSE->getType();
@@ -1801,12 +1793,12 @@ namespace checker {
 								const auto arg_EX = CXXCE->getArg(0);
 								assert(arg_EX);
 
-								retval = static_lifetime_owner_of_target_expr_if_any(arg_EX, Ctx, tu_state_cref);
+								retval = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_cref);
 							}
 						}
 					} else if (CO) {
-						auto res1 = static_lifetime_owner_of_target_expr_if_any(CO->getTrueExpr(), Ctx, tu_state_cref);
-						auto res2 = static_lifetime_owner_of_target_expr_if_any(CO->getFalseExpr(), Ctx, tu_state_cref);
+						auto res1 = lower_bound_lifetime_owner_if_available(CO->getTrueExpr(), Ctx, tu_state_cref);
+						auto res2 = lower_bound_lifetime_owner_if_available(CO->getFalseExpr(), Ctx, tu_state_cref);
 						if (!(res1.has_value())) {
 							return res1;
 						} else if (!(res2.has_value())) {
@@ -1937,7 +1929,7 @@ namespace checker {
 											|| (xscope_f_ptr_str == qname) || (xscope_f_const_ptr_str == qname)
 											/*|| ((xscope_owner_ptr_str == qname) && ())*/) {
 											satisfies_checks = true;
-											retval = static_lifetime_owner_of_target_expr_if_any(arg_EX, Ctx, tu_state_cref);
+											retval = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_cref);
 											if (!retval.has_value()) {
 												retval = dyn_cast<const clang::Expr>(arg_EX);
 											}
@@ -1947,7 +1939,7 @@ namespace checker {
 												/* We're treating `const std::unique_ptr<>`s as similar to mse::TXScopeOwnerPointer<>s. */
 												if (arg_EX->isLValue()) {
 													satisfies_checks = true;
-													retval = static_lifetime_owner_of_target_expr_if_any(arg_EX, Ctx, tu_state_cref);
+													retval = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_cref);
 													if (!retval.has_value()) {
 														retval = dyn_cast<const clang::Expr>(arg_EX);
 													}
@@ -1984,7 +1976,7 @@ namespace checker {
 
 							static const std::string std_move_str = "std::move";
 							if ((std_move_str == function_qname) && (1 == CE->getNumArgs())) {
-								return static_lifetime_owner_of_target_expr_if_any(CE->getArg(0), Ctx, tu_state_cref);
+								return lower_bound_lifetime_owner_if_available(CE->getArg(0), Ctx, tu_state_cref);
 							}
 
 							static const std::string function_get_str = "std::get";
@@ -2021,7 +2013,7 @@ namespace checker {
 
 										|| (mstd_tuple_str == qname) || (nii_array_str == qname) || (mstd_array_str == qname)
 										) {
-										retval = static_lifetime_owner_of_target_expr_if_any(potential_owner_EX_ii, Ctx, tu_state_cref);
+										retval = lower_bound_lifetime_owner_if_available(potential_owner_EX_ii, Ctx, tu_state_cref);
 									}
 								} else if (potential_owner_EX_ii->getType()->isReferenceType()) {
 									int q = 5;
@@ -2036,15 +2028,15 @@ namespace checker {
 		return retval;
 	}
 
-	/* Similar to `static_lifetime_owner_of_target_expr_if_any()`, this function is meant to return the part of a given
+	/* Similar to `lower_bound_lifetime_owner_if_available()`, this function is meant to return the part of a given
 	expression that directly refers to the declared object (i.e. the `DeclRefExpr`) of interest, if such an
-	object is present. Unlike static_lifetime_owner_of_target_expr_if_any(), the given expression is presumed to
+	object is present. Unlike lower_bound_lifetime_owner_if_available(), the given expression is presumed to
 	indicate the (scope) reference/pointer object to be retargeted, rather than the target object. So the
 	object of interest in this case is the one from which we can infer the lifetime (or an upper bound of the
 	lifetime) of the reference object to be retargeted. If the indicated reference object is itself a declared
 	object (as opposed to, for example, a member of another object, or an element in a container), then it
 	itself would be the object of interest. */
-	std::optional<CStaticLifetimeOwner> static_lifetime_owner_of_reference_expr_if_any(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
+	std::optional<CStaticLifetimeOwner> upper_bound_lifetime_owner_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
 		std::optional<CStaticLifetimeOwner> retval;
 		if (!EX1) {
 			return retval;
@@ -2100,7 +2092,7 @@ namespace checker {
 				auto VD = dyn_cast<const clang::VarDecl>(VLD); /* for static members */
 				if (FD && !(ME->isBoundMemberFunction(Ctx))) {
 					auto containing_EX = containing_object_expr_from_member_expr(ME);
-					retval = static_lifetime_owner_of_reference_expr_if_any(containing_EX, Ctx, tu_state_cref);
+					retval = upper_bound_lifetime_owner_if_available(containing_EX, Ctx, tu_state_cref);
 				} else if (VD) {
 					retval = VD; /* static member */
 				} else {
@@ -2110,8 +2102,8 @@ namespace checker {
 				{
 					auto CO = dyn_cast<const clang::ConditionalOperator>(EX);
 					if (CO) {
-						auto res1 = static_lifetime_owner_of_reference_expr_if_any(CO->getTrueExpr(), Ctx, tu_state_cref);
-						auto res2 = static_lifetime_owner_of_reference_expr_if_any(CO->getFalseExpr(), Ctx, tu_state_cref);
+						auto res1 = upper_bound_lifetime_owner_if_available(CO->getTrueExpr(), Ctx, tu_state_cref);
+						auto res2 = upper_bound_lifetime_owner_if_available(CO->getFalseExpr(), Ctx, tu_state_cref);
 						if (!(res1.has_value())) {
 							return res1;
 						} else if (!(res2.has_value())) {
@@ -2293,7 +2285,7 @@ namespace checker {
 										|| (mstd_vector_str == qname)
 										*/
 										) {
-										retval = static_lifetime_owner_of_reference_expr_if_any(potential_owner_EX_ii, Ctx, tu_state_cref);
+										retval = upper_bound_lifetime_owner_if_available(potential_owner_EX_ii, Ctx, tu_state_cref);
 									}
 								} else if (potential_owner_EX_ii->getType()->isReferenceType()) {
 									int q = 5;
@@ -2309,7 +2301,50 @@ namespace checker {
 	}
 
 	bool can_be_safely_targeted_with_an_xscope_reference(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
-		const auto res1 = static_lifetime_owner_of_target_expr_if_any(EX1, Ctx, tu_state_cref);
+		const auto res1 = lower_bound_lifetime_owner_if_available(EX1, Ctx, tu_state_cref);
+		return res1.has_value();
+	}
+
+	const clang::Expr* pointer_target_expression_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
+		const clang::Expr* retval = nullptr;
+		if (!EX1) {
+			return retval;
+		}
+		const auto EX = IgnoreParenImpNoopCasts(EX1, Ctx);
+
+		auto UO = dyn_cast<const clang::UnaryOperator>(EX);
+		auto CE = dyn_cast<const clang::CallExpr>(EX);
+		if (UO) {
+			const auto opcode = UO->getOpcode();
+			IF_DEBUG(const auto opcode_str = UO->getOpcodeStr(opcode);)
+			if (clang::UnaryOperator::Opcode::UO_AddrOf == opcode) {
+				retval = UO->getSubExpr();
+			}
+		} else if (CE) {
+			auto function_qname = CE->getDirectCallee()->getQualifiedNameAsString();
+
+			static const std::string std_addressof_str = "std::addressof";
+			if ((std_addressof_str == function_qname) && (1 == CE->getNumArgs())) {
+				retval = CE->getArg(0);
+			}
+		}
+
+		return retval;
+	}
+
+	std::optional<CStaticLifetimeOwner> lower_bound_lifetime_owner_of_pointer_target_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
+		const auto res1 = lower_bound_lifetime_owner_if_available(pointer_target_expression_if_available(EX1, Ctx, tu_state_cref), Ctx, tu_state_cref);
+		if (res1.has_value()) {
+			return res1;
+		} else {
+			/* The lifetime owner of the pointer target directly is not available. But the lifetime of
+			the pointer itself serves as a lower bound for the lifetime of it's target. */
+			return lower_bound_lifetime_owner_if_available(EX1, Ctx, tu_state_cref);
+		}
+	}
+
+	bool pointer_target_can_be_safely_targeted_with_an_xscope_reference(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
+		const auto res1 = lower_bound_lifetime_owner_of_pointer_target_if_available(EX1, Ctx, tu_state_cref);
 		return res1.has_value();
 	}
 
@@ -2925,14 +2960,11 @@ namespace checker {
 				if (EX) {
 					const auto qtype = EX->getType();
 					IF_DEBUG(const auto qtype_str = qtype.getAsString();)
+					DEBUG_SOURCE_TEXT_STR(EX_source_text, nice_source_range(EX->getSourceRange(), Rewrite), Rewrite);
 
-					auto SR = nice_source_range(EX->getSourceRange(), Rewrite);
-					std::string EX_source_text;
-					if (SR.isValid()) {
-						EX_source_text = Rewrite.getRewrittenText(SR);
-					}
-
-					bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context), m_state1);
+					bool satisfies_checks = qtype->isPointerType()
+						? pointer_target_can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context), m_state1)
+						: can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context), m_state1);
 					if (!satisfies_checks) {
 						const auto EX_iic = CXXMCE->getImplicitObjectArgument()->IgnoreImpCasts();
 
@@ -3132,7 +3164,7 @@ namespace checker {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (std::string::npos != debug_source_location_str.find(":204:")) {
+				if (std::string::npos != debug_source_location_str.find(":374:")) {
 					int q = 5;
 				}
 
@@ -3197,8 +3229,8 @@ namespace checker {
 				therefore its scope lifetime) can be challenging. We are not always going to be able to
 				do so. */
 
-				auto lhs_slo = static_lifetime_owner_of_reference_expr_if_any(LHSEX, *(MR.Context), m_state1);
-				auto rhs_slo = static_lifetime_owner_of_target_expr_if_any(RHSEX, *(MR.Context), m_state1);
+				auto lhs_slo = upper_bound_lifetime_owner_if_available(LHSEX, *(MR.Context), m_state1);
+				auto rhs_slo = lower_bound_lifetime_owner_of_pointer_target_if_available(RHSEX, *(MR.Context), m_state1);
 				if (!(lhs_slo.has_value())) {
 					satisfies_checks = false;
 				} else if (!(rhs_slo.has_value())) {
