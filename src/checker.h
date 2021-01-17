@@ -1645,16 +1645,123 @@ namespace checker {
 		return retval;
 	}
 
+	/* CStaticLifetimeOwner is meant to specify an entity whose (scope) lifetime will be used to
+	infer information (often a lower or upper bound) about the (possibly dynamic) lifetime of an
+	associated entity (possibly itself). */
+	typedef std::variant<const clang::VarDecl*, const clang::CXXThisExpr*, const clang::Expr*, const clang::StringLiteral*, CScopeLifetimeInfo1> CStaticLifetimeOwner;
+
+	template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+	template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>; // not needed as of C++20
+
+	CScopeLifetimeInfo1 scope_lifetime_info_from_lifetime_owner(const CStaticLifetimeOwner& slov, ASTContext& Ctx) {
+		CScopeLifetimeInfo1 lifetime_info_result;
+
+		auto visitor1 = overloaded {
+			[](auto slov) {
+				assert(false);
+				},
+
+			[&](const clang::StringLiteral* slov) {/* the "static lifetime owner" is a string literal declaration */
+				lifetime_info_result.m_category = CScopeLifetimeInfo1::ECategory::Literal;
+				int q = 5;
+				},
+
+			[&](const clang::VarDecl* slov) { /* the "static lifetime owner" is a variable declaration */
+				const auto slo_storage_duration = slov->getStorageDuration();
+				const auto slo_is_immortal = ((clang::StorageDuration::SD_Static == slo_storage_duration) || (clang::StorageDuration::SD_Thread == slo_storage_duration)) ? true : false;
+				lifetime_info_result.m_category = slo_is_immortal ? CScopeLifetimeInfo1::ECategory::Immortal : CScopeLifetimeInfo1::ECategory::Automatic;
+				lifetime_info_result.m_maybe_containing_scope = get_containing_scope(slov, Ctx);
+				lifetime_info_result.m_maybe_source_range = slov->getSourceRange();
+				},
+
+			[&](const clang::CXXThisExpr* slov) { /* the "static lifetime owner" is a 'this' pointer expression' */
+				lifetime_info_result.m_category = CScopeLifetimeInfo1::ECategory::ThisExpression;
+				},
+
+			[&](const clang::Expr* slov) { /* the "static lifetime owner" is an expression */
+				/* There's not much we can infer about the (scope) lifetime of an object if all we know
+				is that it's the result of some expression. */
+				},
+
+			[&](const CScopeLifetimeInfo1& slov) {
+				/* Instead of the precise "static lifetime owner", we've been given a struct that
+				contains information about it's scope lifetime. */
+				lifetime_info_result = slov;
+				},
+		};
+
+		std::visit(visitor1, slov);
+		return lifetime_info_result;
+	}
+
+	/* Given a pair of "lifetime owner" elements, it returns the one with the "shorter" lifetime. */
+	std::optional<CStaticLifetimeOwner> lower_bound_lifetime_owner(const std::optional<CStaticLifetimeOwner>& lifetime_owner1,const std::optional<CStaticLifetimeOwner>& lifetime_owner2, ASTContext& Ctx, const CTUState& tu_state_cref) {
+		std::optional<CStaticLifetimeOwner> retval;
+
+		auto lhs_slo = lifetime_owner1;
+		auto rhs_slo = lifetime_owner2;
+
+		if (!(lhs_slo.has_value())) {
+			/* An absent lifetime owner is deemed the one deemed to have the "shortest" lifetime. */
+			return lifetime_owner1;
+		} else if (!(rhs_slo.has_value())) {
+			return lifetime_owner2;
+		} else {
+			auto lhs_lifetime_info = scope_lifetime_info_from_lifetime_owner(lhs_slo.value(), Ctx);
+			auto rhs_lifetime_info = scope_lifetime_info_from_lifetime_owner(rhs_slo.value(), Ctx);
+
+			bool lhs_lifetime_is_shorter_than_rhs = first_is_known_to_be_contained_in_scope_of_second(lhs_lifetime_info, rhs_lifetime_info, Ctx);
+			retval = lhs_lifetime_is_shorter_than_rhs ? lifetime_owner1 : lifetime_owner2;
+		}
+
+		return retval;
+	}
+
+	/* Given a set of "lifetime owner" elements, it returns the one with the "shortest" lifetime. */
+	std::optional<CStaticLifetimeOwner> lower_bound_lifetime_owner(const std::vector<std::optional<CStaticLifetimeOwner> >& lifetime_owners, ASTContext& Ctx, const CTUState& tu_state_cref) {
+		std::optional<CStaticLifetimeOwner> retval;
+		if (1 <= lifetime_owners.size()) {
+			retval = lifetime_owners.front();
+			for (const auto& lifetime_owner : lifetime_owners) {
+				retval = lower_bound_lifetime_owner(retval, lifetime_owner, Ctx, tu_state_cref);
+			}
+		}
+		return retval;
+	}
+
+	/* Given a pair of "lifetime owner" elements, it returns the one with the "longer" lifetime. */
+	std::optional<CStaticLifetimeOwner> upper_bound_lifetime_owner(const std::optional<CStaticLifetimeOwner>& lifetime_owner1, const std::optional<CStaticLifetimeOwner>& lifetime_owner2, ASTContext& Ctx, const CTUState& tu_state_cref) {
+		std::optional<CStaticLifetimeOwner> retval;
+		const auto lblo = lower_bound_lifetime_owner(lifetime_owner1, lifetime_owner2, Ctx, tu_state_cref);
+		/* Just return the opposite choice of the lower_bound_lifetime_owner() function. */
+		retval = (lblo == lifetime_owner1) ? lifetime_owner2 : lifetime_owner1;
+		return retval;
+	}
+
+	/* Given a set of "lifetime owner" elements, it returns the one with the "longest" lifetime. */
+	std::optional<CStaticLifetimeOwner> upper_bound_lifetime_owner(const std::vector<std::optional<CStaticLifetimeOwner> >& lifetime_owners, ASTContext& Ctx, const CTUState& tu_state_cref) {
+		std::optional<CStaticLifetimeOwner> retval;
+		if (1 <= lifetime_owners.size()) {
+			retval = lifetime_owners.front();
+			for (const auto& lifetime_owner : lifetime_owners) {
+				retval = upper_bound_lifetime_owner(retval, lifetime_owner, Ctx, tu_state_cref);
+			}
+		}
+		return retval;
+	}
+
+
+	std::optional<CStaticLifetimeOwner> lower_bound_lifetime_owner_of_returned_reference_object_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref);
+
 	/* This function is meant to return the part of a given expression that directly refers to the declared
-	object (i.e. the `DeclRefExpr`) of interest, if such an object is present. The object of interest is the
-	one from which we can infer the lifetime (or a lower bound of the lifetime) of the intended reference
-	target (indicated by the given expression). If the intended reference target is itself a declared object
-	(as opposed to, for example, a member of another object, or an element in a container), then it itself
-	would be the object of interest. The object of interest could also be a (declared) (scope)
-	reference/pointer to the target object, as target objects must outlive any corresponding scope
+	object (i.e. the `DeclRefExpr`) of interest, if it is present in the expression. The object of interest
+	is the one from which we can infer the lifetime (or a lower bound of the lifetime) of the intended
+	reference target (indicated by the given expression). If the intended reference target is itself a
+	declared object (as opposed to, for example, a member of another object, or an element in a container),
+	then it itself would be the object of interest. The object of interest could also be a (declared)
+	(scope) reference/pointer to the target object, as target objects must outlive any corresponding scope
 	references, so the lifetime of a (scope) reference is a lower bound for the lifetime of the
 	corresponding target object. */
-	typedef std::variant<const clang::VarDecl*, const clang::CXXThisExpr*, const clang::Expr*, const clang::StringLiteral*> CStaticLifetimeOwner;
 	std::optional<CStaticLifetimeOwner> lower_bound_lifetime_owner_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
 		std::optional<CStaticLifetimeOwner> retval;
 		if (!EX1) {
@@ -1703,6 +1810,7 @@ namespace checker {
 					}
 					satisfies_checks = true;
 					retval = VD;
+					return retval;
 				} else if ((clang::StorageDuration::SD_Static == storage_duration)) {
 					const auto VDSR = VD->getSourceRange();
 					if (filtered_out_by_location(Ctx.getSourceManager(), VDSR.getBegin())) {
@@ -1712,6 +1820,7 @@ namespace checker {
 						different threads. */
 						satisfies_checks = true;
 						retval = VD;
+						return retval;
 					} else {
 						const auto VD_qtype = VD->getType();
 						IF_DEBUG(const auto VD_qtype_str = VD_qtype.getAsString();)
@@ -1722,15 +1831,18 @@ namespace checker {
 								/* This case includes "C"-string literals. */
 								satisfies_checks = true;
 								retval = VD;
+								return retval;
 							}
 						} else if (VD_qtype.isConstQualified() && is_async_shareable(VD_qtype, tu_state_cref)) {
 							satisfies_checks = true;
 							retval = VD;
+							return retval;
 						}
 					}
 				}
 			}
-		} else if (CXXTE) {
+		}
+		if (CXXTE) {
 			retval = CXXTE;
 		} else if (SL) {
 			retval = SL;
@@ -1743,12 +1855,15 @@ namespace checker {
 				if (FD && !(ME->isBoundMemberFunction(Ctx))) {
 					auto containing_EX = containing_object_expr_from_member_expr(ME);
 					retval = lower_bound_lifetime_owner_if_available(containing_EX, Ctx, tu_state_cref);
+					return retval;
 				} else if (VD) {
 					retval = VD; /* static member */
+					return retval;
 				} else {
 					int q = 5;
 				}
-			} else {
+			}
+			{
 				auto UO = dyn_cast<const clang::UnaryOperator>(EX);
 				if (UO) {
 					const auto opcode = UO->getOpcode();
@@ -1799,106 +1914,7 @@ namespace checker {
 					} else if (CO) {
 						auto res1 = lower_bound_lifetime_owner_if_available(CO->getTrueExpr(), Ctx, tu_state_cref);
 						auto res2 = lower_bound_lifetime_owner_if_available(CO->getFalseExpr(), Ctx, tu_state_cref);
-						if (!(res1.has_value())) {
-							return res1;
-						} else if (!(res2.has_value())) {
-							return res2;
-						} else {
-							switch (res1.value().index()) {
-								case 0: /* res1 is a variable declaration */ {
-									auto res1v = std::get<0>(res1.value());
-									const auto res1_storage_duration = res1v->getStorageDuration();
-									const auto res1_is_immortal = ((clang::StorageDuration::SD_Static == res1_storage_duration) || (clang::StorageDuration::SD_Thread == res1_storage_duration)) ? true : false;
-									switch (res2.value().index()) {
-										case 0: /* res2 is a variable declaration */ {
-											auto res2v = std::get<0>(res2.value());
-											const auto res2_storage_duration = res2v->getStorageDuration();
-											const auto res2_is_immortal = ((clang::StorageDuration::SD_Static == res2_storage_duration) || (clang::StorageDuration::SD_Thread == res2_storage_duration)) ? true : false;
-											if (res1_is_immortal) {
-												if (res2_is_immortal) {
-													retval = first_is_contained_in_scope_of_second(res1v, res2v, Ctx) ? res1 : res2;
-												} else {
-													retval = res2;
-												}
-											} else if (res2_is_immortal) {
-												retval = res1;
-											} else {
-												retval = first_is_contained_in_scope_of_second(res1v, res2v, Ctx) ? res1 : res2;
-											}
-										} break;
-										case 1: /* res2 is a 'this' pointer expression' */ {
-											auto res2v = std::get<1>(res2.value());
-											if (res1_is_immortal) {
-												retval = res2;
-											} else {
-												retval = res1;
-											}
-										} break;
-										case 2: /* res2 is an expression */ {
-											retval = res2;
-										} break;
-										case 3: /* res2 is an (immortal) string literal */ {
-											retval = res1;
-										} break;
-										default: {}
-											break;
-									}
-								} break;
-								case 1: /* res1 is a 'this' pointer expression' */ {
-									auto res1v = std::get<0>(res1.value());
-									switch (res2.value().index()) {
-										case 0: /* res2 is a variable declaration */ {
-											auto res2v = std::get<0>(res2.value());
-											const auto res2_storage_duration = res2v->getStorageDuration();
-											const auto res2_is_immortal = ((clang::StorageDuration::SD_Static == res2_storage_duration) || (clang::StorageDuration::SD_Thread == res2_storage_duration)) ? true : false;
-											if (res2_is_immortal) {
-												retval = res1;
-											} else {
-												retval = res2;
-											}
-										} break;
-										case 1: /* res2 is a 'this' pointer expression' */ {
-											auto res2v = std::get<1>(res2.value());
-											retval = first_is_contained_in_scope_of_second(res1v, res2v, Ctx) ? res1 : res2;
-										} break;
-										case 2: /* res2 is an expression */ {
-											retval = res2;
-										} break;
-										case 3: /* res2 is an (immortal) string literal */ {
-											retval = res1;
-										} break;
-										default: {}
-											break;
-									}
-								} break;
-								case 2: /* res1 is an expression */ {
-									auto res1v = std::get<0>(res1.value());
-									switch (res2.value().index()) {
-										case 0: /* res2 is a variable declaration */ {
-											retval = res1;
-										} break;
-										case 1: /* res2 is a 'this' pointer expression' */ {
-											retval = res1;
-										} break;
-										case 2: /* res2 is an expression */ {
-											auto res2v = std::get<1>(res2.value());
-											retval = first_is_contained_in_scope_of_second(res1v, res2v, Ctx) ? res1 : res2;
-										} break;
-										case 3: /* res2 is an (immortal) string literal */ {
-											retval = res1;
-										} break;
-										default: {}
-											break;
-									}
-								} break;
-								case 3: /* res1 is an (immortal) string literal */ {
-									retval = res2;
-								} break;
-								default: {}
-									break;
-							}
-						}
-						return retval;
+						return lower_bound_lifetime_owner(res1, res2, Ctx, tu_state_cref);
 					} else {
 						const clang::Expr* potential_owner_EX = nullptr;
 						auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(EX);
@@ -1970,6 +1986,14 @@ namespace checker {
 								|| (((method_back_str == method_name)) && (0 == CXXMCE->getNumArgs()))
 								) {
 								potential_owner_EX = IgnoreParenImpNoopCasts(CXXMCE->getImplicitObjectArgument(), Ctx);
+							} else {
+								const auto CXXMCE_qtype = CXXMCE->getType();
+								if (contains_non_owning_scope_reference(CXXMCE_qtype, tu_state_cref)) {
+									auto maybe_lb_lifetime_owner = lower_bound_lifetime_owner_of_returned_reference_object_if_available(CXXMCE, Ctx, tu_state_cref);
+									if (maybe_lb_lifetime_owner.has_value()) {
+										return maybe_lb_lifetime_owner;
+									}
+								}
 							}
 						} else if (CE) {
 							auto function_qname = CE->getDirectCallee()->getQualifiedNameAsString();
@@ -1982,6 +2006,14 @@ namespace checker {
 							static const std::string function_get_str = "std::get";
 							if (((function_get_str == function_qname)) && (1 == CE->getNumArgs())) {
 								potential_owner_EX = IgnoreParenImpNoopCasts(CE->getArg(0), Ctx);
+							} else {
+								const auto CE_qtype = CE->getType();
+								if (contains_non_owning_scope_reference(CE_qtype, tu_state_cref)) {
+									auto maybe_lb_lifetime_owner = lower_bound_lifetime_owner_of_returned_reference_object_if_available(CE, Ctx, tu_state_cref);
+									if (maybe_lb_lifetime_owner.has_value()) {
+										return maybe_lb_lifetime_owner;
+									}
+								}
 							}
 						}
 						if (potential_owner_EX) {
@@ -2022,6 +2054,71 @@ namespace checker {
 						}
 					}
 				}
+			}
+		}
+
+		return retval;
+	}
+
+	std::optional<CStaticLifetimeOwner> lower_bound_lifetime_owner_of_returned_reference_object_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
+		std::optional<CStaticLifetimeOwner> retval;
+		if (!EX1) {
+			return retval;
+		}
+		const auto EX = IgnoreParenImpNoopCasts(EX1, Ctx);
+		bool satisfies_checks = false;
+
+		auto CXXMCE = dyn_cast<const clang::CXXMemberCallExpr>(EX);
+		auto CE = dyn_cast<const clang::CallExpr>(EX);
+		if (CXXMCE) {
+			IF_DEBUG(auto function_qname = CXXMCE->getDirectCallee()->getQualifiedNameAsString();)
+
+			/* So the idea here is that since a returned scope pointer/reference object cannot target a
+			local variable inside the member function (including parameter local variables), then it must
+			refer to a (thread_local or static object or an) object targeted by a scope pointer/reference
+			object passed as an argument to the function, or an object targeted by a member (or the object
+			itself). Therefore we conclude that the target(s) of the returned scope pointer/reference
+			object live at least as long as the shortest-lived of the scope pointer/reference objects
+			passed as an argument to the function or the object itself. */
+
+			std::vector<std::optional<CStaticLifetimeOwner> > lifetime_owners;
+			for (size_t i = 0; i < CXXMCE->getNumArgs(); i+=1) {
+				const auto arg_EX_ii = IgnoreParenImpNoopCasts(CXXMCE->getArg(i), Ctx);
+				const auto arg_EX_ii_qtype = arg_EX_ii->getType();
+				if (contains_non_owning_scope_reference(arg_EX_ii_qtype, tu_state_cref)) {
+					lifetime_owners.push_back(lower_bound_lifetime_owner_if_available(CXXMCE->getArg(i), Ctx, tu_state_cref));
+				}
+			}
+			lifetime_owners.push_back(lower_bound_lifetime_owner_if_available(CXXMCE->getImplicitObjectArgument(), Ctx, tu_state_cref));
+			retval = lower_bound_lifetime_owner(lifetime_owners, Ctx, tu_state_cref);
+		} else if (CE) {
+			IF_DEBUG(auto function_qname = CE->getDirectCallee()->getQualifiedNameAsString();)
+
+			/* So the idea here is that since a returned scope pointer/reference object cannot target a
+			local variable inside the (free) function (including parameter local variables), then it must
+			refer to a (thread_local or static object or an) object targeted by a scope pointer/reference
+			object passed as an argument to the function. Therefore we conclude that the target(s) of the
+			returned scope pointer/reference object live at least as long as the shortest-lived scope
+			pointer/reference object passed as an argument to the function. */
+
+			std::vector<std::optional<CStaticLifetimeOwner> > lifetime_owners;
+			for (size_t i = 0; i < CE->getNumArgs(); i+=1) {
+				const auto arg_EX_ii = IgnoreParenImpNoopCasts(CE->getArg(i), Ctx);
+				const auto arg_EX_ii_qtype = arg_EX_ii->getType();
+				if (contains_non_owning_scope_reference(arg_EX_ii_qtype, tu_state_cref)) {
+					lifetime_owners.push_back(lower_bound_lifetime_owner_if_available(CE->getArg(i), Ctx, tu_state_cref));
+				}
+			}
+			if (0 == lifetime_owners.size()) {
+				/* If no scope pointer/reference objects are passed to the function, then the returned
+				scope pointer/reference object must be targeting thread_local or static (duration)
+				object(s). (Right?) */
+				CScopeLifetimeInfo1 scope_lifetime_info_obj;
+				scope_lifetime_info_obj.m_category = CScopeLifetimeInfo1::ECategory::Immortal;
+
+				retval = scope_lifetime_info_obj;
+			} else {
+				retval = lower_bound_lifetime_owner(lifetime_owners, Ctx, tu_state_cref);
 			}
 		}
 
@@ -2104,94 +2201,7 @@ namespace checker {
 					if (CO) {
 						auto res1 = upper_bound_lifetime_owner_if_available(CO->getTrueExpr(), Ctx, tu_state_cref);
 						auto res2 = upper_bound_lifetime_owner_if_available(CO->getFalseExpr(), Ctx, tu_state_cref);
-						if (!(res1.has_value())) {
-							return res1;
-						} else if (!(res2.has_value())) {
-							return res2;
-						} else {
-							switch (res1.value().index()) {
-								case 0: /* res1 is a variable declaration */ {
-									auto res1v = std::get<0>(res1.value());
-									const auto res1_storage_duration = res1v->getStorageDuration();
-									const auto res1_is_immortal = ((clang::StorageDuration::SD_Static == res1_storage_duration) || (clang::StorageDuration::SD_Thread == res1_storage_duration)) ? true : false;
-									switch (res2.value().index()) {
-										case 0: /* res2 is a variable declaration */ {
-											auto res2v = std::get<0>(res2.value());
-											const auto res2_storage_duration = res2v->getStorageDuration();
-											const auto res2_is_immortal = ((clang::StorageDuration::SD_Static == res2_storage_duration) || (clang::StorageDuration::SD_Thread == res2_storage_duration)) ? true : false;
-											if (res1_is_immortal) {
-												if (res2_is_immortal) {
-													retval = first_is_contained_in_scope_of_second(res1v, res2v, Ctx) ? res2 : res1;
-												} else {
-													retval = res1;
-												}
-											} else if (res2_is_immortal) {
-												retval = res2;
-											} else {
-												retval = first_is_contained_in_scope_of_second(res1v, res2v, Ctx) ? res2 : res1;
-											}
-											} break;
-										case 1: /* res2 is a 'this' pointer expression' */ {
-											auto res2v = std::get<1>(res2.value());
-											if (res1_is_immortal) {
-												retval = res1;
-											} else {
-												retval = res2;
-											}
-											} break;
-										case 2: /* res2 is an expression */ {
-											//retval = res2;
-											} break;
-										default: {
-											} break;
-									}
-									} break;
-								case 1: /* res1 is a 'this' pointer expression' */ {
-									auto res1v = std::get<0>(res1.value());
-									switch (res2.value().index()) {
-										case 0: /* res2 is a variable declaration */ {
-											auto res2v = std::get<0>(res2.value());
-											const auto res2_storage_duration = res2v->getStorageDuration();
-											const auto res2_is_immortal = ((clang::StorageDuration::SD_Static == res2_storage_duration) || (clang::StorageDuration::SD_Thread == res2_storage_duration)) ? true : false;
-											if (res2_is_immortal) {
-												retval = res2;
-											} else {
-												retval = res1;
-											}
-											} break;
-										case 1: /* res2 is a 'this' pointer expression' */ {
-											auto res2v = std::get<1>(res2.value());
-											retval = first_is_contained_in_scope_of_second(res1v, res2v, Ctx) ? res2 : res1;
-											} break;
-										case 2: /* res2 is an expression */ {
-											//retval = res2;
-											} break;
-										default: {
-											} break;
-									}
-									} break;
-								case 2: /* res1 is an expression */ {
-									auto res1v = std::get<0>(res1.value());
-									switch (res2.value().index()) {
-										case 0: /* res2 is a variable declaration */ {
-											//retval = res1;
-											} break;
-										case 1: /* res2 is a 'this' pointer expression' */ {
-											//retval = res1;
-											} break;
-										case 2: /* res2 is an expression */ {
-											auto res2v = std::get<1>(res2.value());
-											//retval = first_is_contained_in_scope_of_second(res1v, res2v, Ctx) ? res2 : res1;
-											} break;
-										default: {
-											} break;
-									}
-									} break;
-								default: {
-									} break;
-							}
-						}
-						return retval;
+						return upper_bound_lifetime_owner(res1, res2, Ctx, tu_state_cref);
 					} else {
 						const clang::Expr* potential_owner_EX = nullptr;
 						auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(EX);
@@ -2305,7 +2315,10 @@ namespace checker {
 		return res1.has_value();
 	}
 
-	const clang::Expr* pointer_target_expression_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
+	/* Given an expression that evaluates to a raw pointer, this function attempts to isolate the part
+	of the expression that refers to the pointer's target object, if present. It's often or usually not
+	present though. */
+	const clang::Expr* raw_pointer_target_expression_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
 		const clang::Expr* retval = nullptr;
 		if (!EX1) {
 			return retval;
@@ -2333,12 +2346,12 @@ namespace checker {
 	}
 
 	std::optional<CStaticLifetimeOwner> lower_bound_lifetime_owner_of_pointer_target_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
-		const auto res1 = lower_bound_lifetime_owner_if_available(pointer_target_expression_if_available(EX1, Ctx, tu_state_cref), Ctx, tu_state_cref);
+		const auto res1 = lower_bound_lifetime_owner_if_available(raw_pointer_target_expression_if_available(EX1, Ctx, tu_state_cref), Ctx, tu_state_cref);
 		if (res1.has_value()) {
 			return res1;
 		} else {
 			/* The lifetime owner of the pointer target directly is not available. But the lifetime of
-			the pointer itself serves as a lower bound for the lifetime of it's target. */
+			the pointer itself serves as a lower bound for the lifetime of its target. */
 			return lower_bound_lifetime_owner_if_available(EX1, Ctx, tu_state_cref);
 		}
 	}
@@ -2607,6 +2620,29 @@ namespace checker {
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
 				if (supress_check_flag) {
 					return;
+				}
+
+				IF_DEBUG(const auto EX_qtype_str = EX->getType().getAsString();)
+				const auto EX_rw_type_ptr = remove_mse_transparent_wrappers(EX->getType()).getTypePtr();
+				assert(EX_rw_type_ptr);
+				if (!EX_rw_type_ptr->isPointerType()) {
+					const auto RD = EX_rw_type_ptr->getAsRecordDecl();
+					if (!RD) {
+						return;
+					} else {
+						/* `mse::us::impl::TPointerForLegacy<>` is sometimes used as (a functionally
+						equivalent) substitute for native pointers that can act as a base class. */
+						const auto EX_rw_qtype_str = RD->getQualifiedNameAsString();
+						DECLARE_CACHED_CONST_STRING(TPointerForLegacy_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
+						if (TPointerForLegacy_str != EX_rw_qtype_str) {
+							return;
+						}
+					}
+				} else {
+					const auto qtype = clang::QualType(EX_rw_type_ptr, 0/*I'm just assuming zero specifies no qualifiers*/);
+					if ((*this).m_state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(qtype)) {
+						return;
+					}
 				}
 
 				{
@@ -3121,9 +3157,6 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
-	template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
-	template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>; // not needed as of C++20
-
 	class MCSSSPointerAssignment : public MatchFinder::MatchCallback
 	{
 	public:
@@ -3164,7 +3197,7 @@ namespace checker {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (std::string::npos != debug_source_location_str.find(":374:")) {
+				if (std::string::npos != debug_source_location_str.find(":397:")) {
 					int q = 5;
 				}
 
@@ -3230,118 +3263,17 @@ namespace checker {
 				do so. */
 
 				auto lhs_slo = upper_bound_lifetime_owner_if_available(LHSEX, *(MR.Context), m_state1);
-				auto rhs_slo = lower_bound_lifetime_owner_of_pointer_target_if_available(RHSEX, *(MR.Context), m_state1);
+				auto rhs_slo = lower_bound_lifetime_owner_of_pointer_target_if_available(
+					remove_cast_from_TPointerForLegacy_to_raw_pointer(RHSEX, *(MR.Context)), *(MR.Context), m_state1);
 				if (!(lhs_slo.has_value())) {
 					satisfies_checks = false;
 				} else if (!(rhs_slo.has_value())) {
 					satisfies_checks = false;
 				} else {
-					std::visit(overloaded {
-						[](auto lhs_slov) {
-							/* we should only get here if the program tries to assign to a string literal  */
-							int q = 5;
-							},
+					auto lhs_lifetime_info = scope_lifetime_info_from_lifetime_owner(lhs_slo.value(), *(MR.Context));
+					auto rhs_lifetime_info = scope_lifetime_info_from_lifetime_owner(rhs_slo.value(), *(MR.Context));
 
-						[&](const clang::VarDecl* lhs_slov) { /* lhs_slo is a variable declaration */
-							const auto lhs_slo_storage_duration = lhs_slov->getStorageDuration();
-							const auto lhs_slo_is_immortal = ((clang::StorageDuration::SD_Static == lhs_slo_storage_duration) || (clang::StorageDuration::SD_Thread == lhs_slo_storage_duration)) ? true : false;
-							std::visit(overloaded {
-								[](auto rhs_slov) { assert(false); },
-
-								[&](const clang::VarDecl* rhs_slov) { /* rhs_slo is a variable declaration */
-									const auto rhs_slo_storage_duration = rhs_slov->getStorageDuration();
-									const auto rhs_slo_is_immortal = ((clang::StorageDuration::SD_Static == rhs_slo_storage_duration) || (clang::StorageDuration::SD_Thread == rhs_slo_storage_duration)) ? true : false;
-									if (lhs_slo_is_immortal) {
-										if (rhs_slo_is_immortal) {
-											satisfies_checks = first_is_contained_in_scope_of_second(lhs_slov, rhs_slov, *(MR.Context));
-										} else {
-											satisfies_checks = false;
-										}
-									} else if (rhs_slo_is_immortal) {
-										satisfies_checks = true;
-									} else {
-										satisfies_checks = first_is_contained_in_scope_of_second(lhs_slov, rhs_slov, *(MR.Context));
-									}
-									},
-
-								[&](const clang::CXXThisExpr* rhs_slov) { /* rhs_slo is a 'this' pointer expression' */
-									if (lhs_slo_is_immortal) {
-										satisfies_checks = false;
-									} else {
-										satisfies_checks = true;
-									}
-									},
-								[&](const clang::Expr* rhs_slov) { /* rhs_slo is an expression */
-										satisfies_checks = false;
-									},
-								[&](const clang::StringLiteral* rhs_slov) { /* rhs_slo is an (immortal) string literal */
-										satisfies_checks = true;
-									},
-							}, rhs_slo.value());
-							},
-
-						[&](const clang::CXXThisExpr* lhs_slov) { /* lhs_slo is a 'this' pointer expression' */
-							std::visit(overloaded {
-								[](auto rhs_slov) { assert(false); },
-
-								[&](const clang::VarDecl* rhs_slov) { /* rhs_slo is a variable declaration */
-									const auto rhs_slo_storage_duration = rhs_slov->getStorageDuration();
-									const auto rhs_slo_is_immortal = ((clang::StorageDuration::SD_Static == rhs_slo_storage_duration) || (clang::StorageDuration::SD_Thread == rhs_slo_storage_duration)) ? true : false;
-									if (rhs_slo_is_immortal) {
-										satisfies_checks = true;
-									} else {
-										satisfies_checks = false;
-
-										auto CXXMD = Tget_containing_element_of_type<clang::CXXMethodDecl>(lhs_slov, *(MR.Context));
-										if (CXXMD && (CXXMD->isDefaulted())) {
-											if (CXXMD->isCopyAssignmentOperator() || CXXMD->isMoveAssignmentOperator()) {
-												satisfies_checks = true;
-												/* We're going to use a more specific error message in this case. */
-												auto CXXRD = CXXMD->getParent();
-												assert(CXXRD);
-												const std::string error_desc = std::string("Type '") + CXXRD->getQualifiedNameAsString()
-													+ "' seems to have a default assignment operator and a native pointer member of type '"
-													+ LHSEX->getType().getAsString()+ "'. Assignment operators are not (yet) supported for "
-													+ "types with native pointer members.";
-												auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-												if (res.second) {
-													std::cout << (*(res.first)).as_a_string1() << " \n\n";
-												}
-											}
-										}
-									}
-									},
-
-								[&](const clang::CXXThisExpr* rhs_slov) { /* rhs_slo is a 'this' pointer expression' */
-									//satisfies_checks = first_is_contained_in_scope_of_second(lhs_slov, rhs_slov, *(MR.Context));
-									/* The lhs and rhs are members of an object (or the object itself). But it's technically only
-									safe for the lhs to target the rhs if the rhs member field is declared before the lhs member
-									field. Unfortunately we don't retain that information at the moment, so we can't determine that
-									the pointer assignment would be safe. */
-									satisfies_checks = false;
-									},
-								[&](const clang::Expr* rhs_slov) { /* rhs_slo is an expression */
-										satisfies_checks = false;
-									},
-								[&](const clang::StringLiteral* rhs_slov) { /* rhs_slo is an (immortal) string literal */
-										satisfies_checks = true;
-									},
-							}, rhs_slo.value());
-							},
-
-						[&](const clang::Expr* lhs_slov) { /* lhs_slo is an expression */
-							std::visit(overloaded {
-								/* not enough info to determine an upper bound for the lifetime of the lhs */
-								[&](auto rhs_slov) {
-									satisfies_checks = false;
-									},
-								[&](const clang::StringLiteral* rhs_slov) { /* rhs_slo is an (immortal) string literal */
-									satisfies_checks = true;
-									},
-							}, rhs_slo.value());
-							},
-					}, lhs_slo.value());
-
+					satisfies_checks = first_is_known_to_be_contained_in_scope_of_second(lhs_lifetime_info, rhs_lifetime_info, *(MR.Context));
 				}
 
 				if (!satisfies_checks) {
@@ -3610,7 +3542,11 @@ namespace checker {
 					binaryOperator(hasOperatorName(">=")), binaryOperator(hasOperatorName(">")),
 					arraySubscriptExpr()/*, clang::ast_matchers::castExpr(hasParent(arraySubscriptExpr()))*/
 					)).bind("mcssspointerarithmetic1"))),
-				hasType(pointerType())
+				/* We'd like to select for pointer types exclusively here, but it seems to miss some cases
+				where the (dependent?) type is an alias for a pointer type. And "pointer equivalent" types
+				that we use. So we'll delegate the filtering for pointer types to the handler itself. */
+				//hasType(pointerType())
+				anything()
 				)).bind("mcssspointerarithmetic3"), &HandlerForSSSPointerArithmetic);
 			Matcher.addMatcher(callExpr(allOf(
 				callee(functionDecl(hasName("std::addressof"))),
@@ -3631,8 +3567,8 @@ namespace checker {
 						binaryOperator(hasOperatorName("="))
 					).bind("mcssspointerassignment1"))),
 				/* We'd like to select for pointer types exclusively here, but it seems to miss some cases
-				where the (dependent?) type is an alias for a pointer type. So we'll delegate the filtering
-				for pointer types to the handler itself. */
+				where the (dependent?) type is an alias for a pointer type. And "pointer equivalent" types
+				that we use. So we'll delegate the filtering for pointer types to the handler itself. */
 				//hasType(pointerType())
 				anything()
 				)).bind("mcssspointerassignment3"), &HandlerForSSSPointerAssignment);

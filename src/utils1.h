@@ -263,6 +263,131 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		return Tget_containing_element_of_type<clang::CompoundStmt>(NodePtr, context);
 	}
 
+	struct CScopeLifetimeInfo1 {
+		std::optional<const clang::CompoundStmt*> m_maybe_containing_scope;
+		std::optional<COrderedSourceRange> m_maybe_source_range;
+		enum class ECategory { None, Automatic, ThisExpression, Immortal, Literal };
+		ECategory m_category = ECategory::None;
+	};
+	inline bool operator==(const CScopeLifetimeInfo1 &LHS, const CScopeLifetimeInfo1 &RHS) {
+			return ((LHS.m_maybe_containing_scope == RHS.m_maybe_containing_scope)
+			&& (LHS.m_maybe_source_range == RHS.m_maybe_source_range)
+			&& (LHS.m_category == RHS.m_category)
+			);
+	}
+	inline bool operator!=(const CScopeLifetimeInfo1 &LHS, const CScopeLifetimeInfo1 &RHS) {
+		return !(LHS == RHS);
+	}
+
+	inline bool first_is_contained_in_scope_of_second(const clang::SourceRange& SR1, const clang::SourceRange& SR2, clang::ASTContext& context) {
+		bool retval = true;
+		if (SR1.isValid() && SR2.isValid()) {
+			if (SR2.getEnd() < SR1.getBegin()) {
+				/* The second item occurs before the first item. */
+				retval = true;
+			} else if ( ((SR1.getBegin() < SR2.getBegin()) || (SR1.getBegin() == SR2.getBegin()))
+				&& ((SR2.getEnd() < SR1.getEnd()) || (SR1.getEnd() == SR2.getEnd())) ) {
+				/* The second item and first item are the same item, or the second item is a member
+				of, or base of, the first item. Perhaps unintuitively, the scope of an object is
+				"contained inside" the scope of any of its members or base classes as they are
+				constructed before and destructed after the object itself. Right? */
+				retval = true;
+			} else {
+				retval = false;
+			}
+		} else {
+			retval = false;
+		}
+		return retval;
+	}
+
+	inline bool first_is_known_to_be_contained_in_scope_of_second(const CScopeLifetimeInfo1& sli1, const CScopeLifetimeInfo1& sli2, clang::ASTContext& context) {
+		bool retval = true;
+		if (CScopeLifetimeInfo1::ECategory::Literal == sli1.m_category) {
+			return false;
+		} else if (CScopeLifetimeInfo1::ECategory::Literal == sli2.m_category) {
+			return true;
+		} else {
+			if (CScopeLifetimeInfo1::ECategory::Immortal == sli1.m_category) {
+				if (CScopeLifetimeInfo1::ECategory::Immortal == sli2.m_category) {
+					if (sli1.m_maybe_source_range.has_value() && sli2.m_maybe_source_range.has_value()) {
+						return first_is_contained_in_scope_of_second(sli1.m_maybe_source_range.value(), sli2.m_maybe_source_range.value(), context);
+					} else {
+						/* There are (rare) cases when we know that the object in question must be of
+						thread_local or static duration, but nothing else. */
+						return false;
+					}
+				} else {
+					return false;
+				}
+			} else if (CScopeLifetimeInfo1::ECategory::Immortal == sli2.m_category) {
+				return true;
+			} else if (CScopeLifetimeInfo1::ECategory::ThisExpression == sli1.m_category) {
+				if (CScopeLifetimeInfo1::ECategory::ThisExpression == sli2.m_category) {
+					/* Both items are "this" expressions.
+					todo: handle this */
+				} else {
+					return false;
+				}
+			} else if (CScopeLifetimeInfo1::ECategory::ThisExpression == sli2.m_category) {
+				return true;
+			} else if (sli1.m_maybe_containing_scope.has_value()) {
+				if (sli2.m_maybe_containing_scope.has_value()) {
+					auto scope1 = sli1.m_maybe_containing_scope.value();
+					const auto scope2 = sli2.m_maybe_containing_scope.value();
+					if (scope2 == scope1) {
+						if (sli1.m_maybe_source_range.has_value() && sli2.m_maybe_source_range.has_value()) {
+							const auto SR1 = sli1.m_maybe_source_range.value();
+							const auto SR2 = sli2.m_maybe_source_range.value();
+							if (SR1.isValid() && SR2.isValid()) {
+								if (SR2.getEnd() < SR1.getBegin()) {
+									/* The second item occurs before the first item. */
+									retval = true;
+								} else if ( ((SR1.getBegin() < SR2.getBegin()) || (SR1.getBegin() == SR2.getBegin()))
+									&& ((SR2.getEnd() < SR1.getEnd()) || (SR1.getEnd() == SR2.getEnd())) ) {
+									/* The second item and first item are the same item, or the second item is a member
+									of, or base of, the first item. Perhaps unintuitively, the scope of an object is
+									"contained inside" the scope of any of its members or base classes as they are
+									constructed before and destructed after the object itself. Right? */
+									retval = true;
+								} else {
+									retval = false;
+								}
+							} else {
+								retval = false;
+							}
+						} else {
+							/* I don't know if there are any situations where we would know the containing scope
+							of each item, but not the their source range. */
+							assert(false);
+							return false;
+						}
+					}
+					while (scope2 != scope1) {
+						scope1 = get_containing_scope(scope1, context);
+						if (!scope1) {
+							retval = (scope2 == scope1);
+							break;
+						}
+					}
+				} else {
+					/* The second item doesn't seem to have any scope lifetime information. It may,
+					for example, correspond to an expression for which the scope lifetime cannot be
+					determined. */
+					return false;
+				}
+			} else if (sli2.m_maybe_containing_scope.has_value()) {
+				retval = true;
+			} else {
+				/* Neither item seems to have any scope lifetime information. This could, for example,
+				be a case where both items correspond to expressions where the scope lifetime of the
+				resulting object can't be determined. */
+				retval = false;
+			}
+		}
+		return retval;
+	}
+
 	template <typename NodeT, typename Node2T>
 	inline bool first_is_contained_in_scope_of_second(const NodeT* ST1, const Node2T* ST2, clang::ASTContext& context) {
 		bool retval = true;
@@ -437,6 +562,29 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		return retval;
 	}
 
+	inline std::optional<clang::QualType> get_first_template_parameter_if_any(const clang::QualType qtype) {
+		std::optional<clang::QualType> retval;
+		const auto CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+		if (CXXRD) {
+			auto qname = CXXRD->getQualifiedNameAsString();
+
+			auto CTSD = clang::dyn_cast<const clang::ClassTemplateSpecializationDecl>(CXXRD);
+			if (CTSD) {
+				const auto& template_args = CTSD->getTemplateInstantiationArgs();
+				const auto num_args = template_args.size();
+				for (int i = 0; i < num_args; i += 1) {
+					const auto template_arg = template_args[i];
+					const auto ta_qtype = template_arg.getAsType();
+					IF_DEBUG(const auto ta_qtype_str = ta_qtype.getAsString();)
+					return ta_qtype;
+				}
+				/*unexpected*/
+				int q = 5;
+			}
+		}
+		return retval;
+	}
+
 	inline clang::QualType remove_fparam_wrappers(const clang::QualType& qtype) {
 		const auto CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 		if (CXXRD) {
@@ -521,6 +669,43 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		return retval;
 	}
 
+	inline auto remove_cast_from_TPointerForLegacy_to_raw_pointer(const clang::Expr* EX1, clang::ASTContext& Ctx) {
+		const clang::Expr* retval = EX1;
+		if (!EX1) {
+			return retval;
+		}
+		auto EX = IgnoreParenImpNoopCasts(EX1, Ctx);
+		auto CXXMCE = clang::dyn_cast<const clang::CXXMemberCallExpr>(EX);
+		if (CXXMCE) {
+			auto IOAEX = IgnoreParenImpNoopCasts(CXXMCE->getImplicitObjectArgument(), Ctx);
+			assert(IOAEX);
+			const auto IOA_qtype = IOAEX->getType();
+			IF_DEBUG(const auto IOA_qtype_str = IOA_qtype.getAsString();)
+			//DEBUG_SOURCE_TEXT_STR(IOAEX_source_text, nice_source_range(IOAEX->getSourceRange(), Rewrite), Rewrite);
+
+			const auto CXXRD = IOA_qtype->getAsCXXRecordDecl();
+			if (CXXRD) {
+				auto qname = CXXRD->getQualifiedNameAsString();
+
+				DECLARE_CACHED_CONST_STRING(tpfl_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
+				if ((tpfl_str == qname) && (0 == CXXMCE->getNumArgs())) {
+					auto method_name = CXXMCE->getDirectCallee()->getNameAsString();
+					if (string_begins_with(method_name, "operator ") && string_ends_with(method_name, "*")) {
+						retval = IOAEX;
+						const auto ME = clang::dyn_cast<const clang::MemberExpr>(IOAEX);
+						if (ME) {
+							const auto EX2 = IgnoreParenImpNoopCasts(ME->getBase(), Ctx);
+							if (EX2) {
+								retval = EX2;
+							}
+						}
+					}
+				}
+			}
+		}
+		return retval;
+	}
+
 	inline bool is_char_or_const_char(const clang::QualType& qtype) {
 		bool retval = false;
 		static const std::string char_str = "char";
@@ -578,20 +763,42 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		bool char_star_restrictions_are_disabled() const {
 			return m_MSE_CHAR_STAR_EXEMPTED_defined;
 		}
+		bool raw_pointer_scope_restrictions_are_disabled_for_raw_pointers_with_this_target_type(const clang::QualType& qtype) const {
+			bool retval = false;
+			if (raw_pointer_scope_restrictions_are_disabled()) {
+				retval = true;
+			} else if (is_char_or_const_char(qtype)) {
+				if (m_MSE_CHAR_STAR_EXEMPTED_defined) {
+					retval = true;
+				}
+			} else if (is_FILE_or_const_FILE(qtype)) {
+				/* We won't complain about 'FILE *'s for now. */
+				retval = true;
+			}
+			return retval;
+		}
 		bool raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(const clang::QualType& qtype) const {
 			bool retval = false;
 			if (qtype.getTypePtr()->isPointerType()) {
-				if (raw_pointer_scope_restrictions_are_disabled()) {
-					retval = true;
-				} else if (is_char_star_or_const_char_star(qtype)) {
-					if (m_MSE_CHAR_STAR_EXEMPTED_defined) {
-						retval = true;
+				const auto pointee_qtype = qtype->getPointeeType();
+				return raw_pointer_scope_restrictions_are_disabled_for_raw_pointers_with_this_target_type(pointee_qtype);
+			} else {
+				auto CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+				if (CXXRD) {
+					{
+						auto qname = CXXRD->getQualifiedNameAsString();
+
+						DECLARE_CACHED_CONST_STRING(tpfl_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
+						if (tpfl_str == qname) {
+							const auto pointee_qtype = get_first_template_parameter_if_any(qtype).value();
+							if (raw_pointer_scope_restrictions_are_disabled_for_raw_pointers_with_this_target_type(pointee_qtype)) {
+								return true;
+							}
+						}
 					}
-				} else if (is_FILE_star_or_const_FILE_star(qtype)) {
-					/* We won't complain about 'FILE *'s for now. */
-					retval = true;
 				}
 			}
+
 			return retval;
 		}
 	};
@@ -644,13 +851,22 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 	inline bool contains_non_owning_scope_reference(const clang::Type& type, const CCommonTUState1& tu_state_cref) {
 		bool retval = false;
 
+		const auto qtype = clang::QualType(&type, 0/*I'm just assuming zero specifies no qualifiers*/);
+		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
 		auto CXXRD = type.getAsCXXRecordDecl();
 		if (CXXRD) {
 			DECLARE_CACHED_CONST_STRING(ContainsNonOwningScopeReference_tag_str, mse_namespace_str() + "::us::impl::ContainsNonOwningScopeReferenceTagBase");
 			if (has_ancestor_base_class(*(CXXRD->getTypeForDecl()), ContainsNonOwningScopeReference_tag_str)) {
 				return true;
+			} else {
+				auto qname = CXXRD->getQualifiedNameAsString();
+
+				DECLARE_CACHED_CONST_STRING(tpfl_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
+				if ((tpfl_str == qname) && (!tu_state_cref.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(qtype))) {
+					return true;
+				}
 			}
-		} else if ((!(tu_state_cref.m_MSE_SOME_NON_XSCOPE_POINTER_TYPE_IS_DISABLED_defined))
+		} else if ((!tu_state_cref.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(qtype))
 			&& ((type.isPointerType()) || (type.isReferenceType()))) {
 			return true;
 		}
