@@ -450,7 +450,7 @@ namespace checker {
 										if (true || string_begins_with(l_source_text, std_move_str)) {
 											/* todo: check for aliases */
 											const std::string error_desc = std::string("Cannot (yet) verify the safety of this explicit use of std::move() with ")
-												+ "an argument type ('" + arg_EX->getType().getAsString() + "') that yields scope pointers (uncoditionally via the "
+												+ "an argument type ('" + arg_EX->getType().getAsString() + "') that yields scope pointers (unconditionally via the "
 												+ "'operator &' of some component). "
 												+ "(In particular, explicit use of std::move() with 'mse::TXScopeOwnerPointer<>' "
 												+ "or any object that might contain an 'mse::TXScopeOwnerPointer<>' is not supported.) ";
@@ -883,7 +883,7 @@ namespace checker {
 								const auto base_qtype_str = base_qtype.getAsString();
 								if (!is_async_shareable(base_qtype, (*this).m_state1)) {
 									const std::string error_desc = std::string("Unable to verify that the ")
-										+ "given (adjusted) parameter of mse::rsv::TAsyncShareableObj<>, '"
+										+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableObj<> template, '"
 										+ base_qtype_str + "', is eligible to be safely shared (among threads). "
 										+ "If it is known to be so, then this error can be suppressed with a "
 										+ "'check suppression' directive. ";
@@ -902,7 +902,7 @@ namespace checker {
 								const auto base_qtype_str = base_qtype.getAsString();
 								if (!is_async_passable(base_qtype, (*this).m_state1)) {
 									const std::string error_desc = std::string("Unable to verify that the ")
-										+ "given (adjusted) parameter of mse::rsv::TAsyncPassableObj<>, '"
+										+ "given (adjusted) parameter of the mse::rsv::TAsyncPassableObj<> template, '"
 										+ base_qtype_str + "', is eligible to be safely passed (between threads). "
 										+ "If it is known to be so, then this error can be suppressed with a "
 										+ "'check suppression' directive. ";
@@ -921,7 +921,7 @@ namespace checker {
 								const auto base_qtype_str = base_qtype.getAsString();
 								if ((!is_async_shareable(base_qtype, (*this).m_state1)) || (!is_async_passable(base_qtype, (*this).m_state1))) {
 									const std::string error_desc = std::string("Unable to verify that the ")
-										+ "given (adjusted) parameter of mse::rsv::TAsyncShareableAndPassableObj<>, '"
+										+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableAndPassableObj<> template, '"
 										+ base_qtype_str + "', is eligible to be safely shared and passed (among threads). "
 										+ "If it is known to be so, then this error can be suppressed with a "
 										+ "'check suppression' directive. ";
@@ -1751,6 +1751,29 @@ namespace checker {
 	}
 
 
+	struct CMaybeStaticLifetimeOwnerWithHints : public std::optional<CStaticLifetimeOwner> {
+		typedef std::optional<CStaticLifetimeOwner> base_class;
+		using base_class::base_class;
+		CMaybeStaticLifetimeOwnerWithHints(const CMaybeStaticLifetimeOwnerWithHints& src) = default;
+		CMaybeStaticLifetimeOwnerWithHints(CMaybeStaticLifetimeOwnerWithHints&& src) = default;
+		CMaybeStaticLifetimeOwnerWithHints(const base_class& src) : base_class(src) {}
+		CMaybeStaticLifetimeOwnerWithHints(base_class&& src) : base_class(std::forward<decltype(src)>(src)) {}
+		CMaybeStaticLifetimeOwnerWithHints& operator=(const CMaybeStaticLifetimeOwnerWithHints& src) = default;
+		CMaybeStaticLifetimeOwnerWithHints& operator=(CMaybeStaticLifetimeOwnerWithHints&& src) = default;
+		std::string hints_str() const {
+			std::string retval;
+			for (const auto& str : m_hints) {
+				retval += str + " ";
+			}
+			if (!retval.empty()) {
+				retval = retval.substr(0, retval.size() - 1);
+			}
+			return retval;
+		}
+
+		std::vector<std::string> m_hints;
+	};
+
 	std::optional<CStaticLifetimeOwner> lower_bound_lifetime_owner_of_returned_reference_object_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref);
 
 	/* This function is meant to return the part of a given expression that directly refers to the declared
@@ -1762,8 +1785,8 @@ namespace checker {
 	(scope) reference/pointer to the target object, as target objects must outlive any corresponding scope
 	references, so the lifetime of a (scope) reference is a lower bound for the lifetime of the
 	corresponding target object. */
-	std::optional<CStaticLifetimeOwner> lower_bound_lifetime_owner_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
-		std::optional<CStaticLifetimeOwner> retval;
+	CMaybeStaticLifetimeOwnerWithHints lower_bound_lifetime_owner_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
+		CMaybeStaticLifetimeOwnerWithHints retval;
 		if (!EX1) {
 			return retval;
 		}
@@ -1837,6 +1860,15 @@ namespace checker {
 							satisfies_checks = true;
 							retval = VD;
 							return retval;
+						}
+						if (!satisfies_checks) {
+							std::string hint_str1 = std::string("'") + VD->getNameAsString()
+								+ "' (of type '" + VD_qtype.getAsString()
+								+ "') has 'static' storage duration and so may be accessible from different "
+								+ "threads. In this case, data race safety could not be verified. If accessibility "
+								+ "from different threads is not required, consider declaring the object "
+								+ "'thread_local'.";
+							retval.m_hints.push_back(hint_str1);
 						}
 					}
 				}
@@ -2133,8 +2165,8 @@ namespace checker {
 	lifetime) of the reference object to be retargeted. If the indicated reference object is itself a declared
 	object (as opposed to, for example, a member of another object, or an element in a container), then it
 	itself would be the object of interest. */
-	std::optional<CStaticLifetimeOwner> upper_bound_lifetime_owner_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
-		std::optional<CStaticLifetimeOwner> retval;
+	CMaybeStaticLifetimeOwnerWithHints upper_bound_lifetime_owner_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
+		CMaybeStaticLifetimeOwnerWithHints retval;
 		if (!EX1) {
 			return retval;
 		}
@@ -2176,6 +2208,33 @@ namespace checker {
 						different threads. */
 						satisfies_checks = true;
 						retval = VD;
+						return retval;
+					} else {
+						const auto VD_qtype = VD->getType();
+						IF_DEBUG(const auto VD_qtype_str = VD_qtype.getAsString();)
+						if (VD_qtype.getTypePtr()->isPointerType()) {
+							const auto pointee_VD_qtype = VD_qtype.getTypePtr()->getPointeeType();
+							IF_DEBUG(const auto pointee_VD_qtype_str = pointee_VD_qtype.getAsString();)
+							if (pointee_VD_qtype.isConstQualified() && is_async_shareable(pointee_VD_qtype, tu_state_cref)) {
+								/* This case includes "C"-string literals. */
+								satisfies_checks = true;
+								retval = VD;
+								return retval;
+							}
+						} else if (VD_qtype.isConstQualified() && is_async_shareable(VD_qtype, tu_state_cref)) {
+							satisfies_checks = true;
+							retval = VD;
+							return retval;
+						}
+						if (!satisfies_checks) {
+							std::string hint_str1 = std::string("'") + VD->getNameAsString()
+								+ "' (of type '" + VD_qtype.getAsString()
+								+ "') has 'static' storage duration and so may be accessible from different "
+								+ "threads. In this case, data race safety could not be verified. If accessibility "
+								+ "from different threads is not required, consider declaring the object "
+								+ "'thread_local'.";
+							retval.m_hints.push_back(hint_str1);
+						}
 					}
 				}
 			}
@@ -2310,9 +2369,33 @@ namespace checker {
 		return retval;
 	}
 
-	bool can_be_safely_targeted_with_an_xscope_reference(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
-		const auto res1 = lower_bound_lifetime_owner_if_available(EX1, Ctx, tu_state_cref);
-		return res1.has_value();
+	struct CBoolWithHints {
+		operator bool() const { return m_value; }
+		CBoolWithHints(const CBoolWithHints& src) = default;
+		CBoolWithHints(CBoolWithHints&& src) = default;
+		CBoolWithHints(const bool& src) : m_value(src) {}
+		CBoolWithHints& operator=(const CBoolWithHints& src) = default;
+		CBoolWithHints& operator=(CBoolWithHints&& src) = default;
+		std::string hints_str() const {
+			std::string retval;
+			for (const auto& str : m_hints) {
+				retval += str + " ";
+			}
+			if (!retval.empty()) {
+				retval = retval.substr(0, retval.size() - 1);
+			}
+			return retval;
+		}
+
+		std::vector<std::string> m_hints;
+		bool m_value = false;
+	};
+
+	CBoolWithHints can_be_safely_targeted_with_an_xscope_reference(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
+		auto res1 = lower_bound_lifetime_owner_if_available(EX1, Ctx, tu_state_cref);
+		CBoolWithHints retval = res1.has_value();
+		retval.m_hints = std::move(res1.m_hints);
+		return retval;
 	}
 
 	/* Given an expression that evaluates to a raw pointer, this function attempts to isolate the part
@@ -2345,8 +2428,8 @@ namespace checker {
 		return retval;
 	}
 
-	std::optional<CStaticLifetimeOwner> lower_bound_lifetime_owner_of_pointer_target_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
-		const auto res1 = lower_bound_lifetime_owner_if_available(raw_pointer_target_expression_if_available(EX1, Ctx, tu_state_cref), Ctx, tu_state_cref);
+	CMaybeStaticLifetimeOwnerWithHints lower_bound_lifetime_owner_of_pointer_target_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
+		auto res1 = lower_bound_lifetime_owner_if_available(raw_pointer_target_expression_if_available(EX1, Ctx, tu_state_cref), Ctx, tu_state_cref);
 		if (res1.has_value()) {
 			return res1;
 		} else {
@@ -2356,9 +2439,11 @@ namespace checker {
 		}
 	}
 
-	bool pointer_target_can_be_safely_targeted_with_an_xscope_reference(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
-		const auto res1 = lower_bound_lifetime_owner_of_pointer_target_if_available(EX1, Ctx, tu_state_cref);
-		return res1.has_value();
+	CBoolWithHints pointer_target_can_be_safely_targeted_with_an_xscope_reference(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
+		auto res1 = lower_bound_lifetime_owner_of_pointer_target_if_available(EX1, Ctx, tu_state_cref);
+		CBoolWithHints retval = res1.has_value();
+		retval.m_hints = std::move(res1.m_hints);
+		return retval;
 	}
 
 	class MCSSSMakeXScopePointerTo : public MatchFinder::MatchCallback
@@ -2397,11 +2482,18 @@ namespace checker {
 					if ((make_xscope_pointer_to_str == qualified_function_name) || (make_xscope_const_pointer_to_str == qualified_function_name)) {
 						if (1 == num_args) {
 							auto EX1 = IgnoreParenImpNoopCasts(CE->getArg(0), *(MR.Context));
-							bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX1, *(MR.Context), m_state1);
+							auto res1 = can_be_safely_targeted_with_an_xscope_reference(EX1, *(MR.Context), m_state1);
+							bool satisfies_checks = res1;
 							if (!satisfies_checks) {
-								const std::string error_desc = std::string("Unable to verify that the use of mse::rsv::make_xscope_pointer_to() or ")
+								std::string error_desc = std::string("Unable to verify that the use of mse::rsv::make_xscope_pointer_to() or ")
 									+ "mse::rsv::make_xscope_const_pointer_to() (with argument type '" + CE->getArg(0)->getType().getAsString()
 									+ "') is safe here.";
+								const auto hints_str = res1.hints_str();
+								if (!hints_str.empty()) {
+									error_desc += " (" + hints_str + ")";
+								} else {
+									error_desc += " (Possibly due to being unable to verify that the target object outlives the scope pointer/reference.)";
+								}
 								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 								if (res.second) {
 									std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -2463,7 +2555,8 @@ namespace checker {
 					}
 					const auto EX = VD->getInit();
 					if (EX) {
-						bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context), m_state1);
+						auto res1 = can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context), m_state1);
+						bool satisfies_checks = res1;
 						if (!satisfies_checks) {
 							const auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
 							const auto pointee_qtype = qtype->getPointeeType();
@@ -2479,8 +2572,14 @@ namespace checker {
 							}
 						}
 						if (!satisfies_checks) {
-							const std::string error_desc = std::string("Unable to verify that the ")
+							std::string error_desc = std::string("Unable to verify that the ")
 								+ "native reference (of type '" + qtype.getAsString() + "') is safe here.";
+							const auto hints_str = res1.hints_str();
+							if (!hints_str.empty()) {
+								error_desc += " (" + hints_str + ")";
+							} else {
+								error_desc += " (Possibly due to being unable to verify that the target object outlives the (scope) reference.)";
+							}
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
 								std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -2705,11 +2804,18 @@ namespace checker {
 					}
 				}
 				{
-					bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context), m_state1);
+					auto res1 = can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context), m_state1);
+					bool satisfies_checks = res1;
 					if (!satisfies_checks) {
-						const std::string error_desc = std::string("Unable to verify that the return value ")
+						std::string error_desc = std::string("Unable to verify that the return value ")
 							+ "of the '&' operator or std::addressof() (with argument type '"
 							+ EX->getType().getAsString() + "') is safe here.";
+						const auto hints_str = res1.hints_str();
+						if (!hints_str.empty()) {
+							error_desc += " (" + hints_str + ")";
+						} else {
+							error_desc += " (Possibly due to being unable to verify that the target object outlives the (scope) pointer.)";
+						}
 						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 						if (res.second) {
 							std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -3277,8 +3383,19 @@ namespace checker {
 				}
 
 				if (!satisfies_checks) {
-					const std::string error_desc = std::string("Unable to verify that this pointer assignment (of type '")
+					std::string error_desc = std::string("Unable to verify that this pointer assignment (of type '")
 						+ LHSEX->getType().getAsString() + "') is safe.";
+					const auto hints_str = rhs_slo.hints_str();
+					if (!hints_str.empty()) {
+						error_desc += " (" + hints_str + ")";
+					} else {
+						const auto hints_str = lhs_slo.hints_str();
+						if (!hints_str.empty()) {
+							error_desc += " (" + hints_str + ")";
+						} else {
+							error_desc += " (Possibly due to being unable to verify that the new target object outlives the (scope) pointer.)";
+						}
+					}
 					auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 					if (res.second) {
 						std::cout << (*(res.first)).as_a_string1() << " \n\n";
