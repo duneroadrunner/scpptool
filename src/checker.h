@@ -2604,6 +2604,8 @@ namespace checker {
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
 			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssargtonativereferenceparam1");
+			const CXXMemberCallExpr* CXXMCE = MR.Nodes.getNodeAs<clang::CXXMemberCallExpr>("mcsssargtonativereferenceparam1");
+			const CXXOperatorCallExpr* CXXOCE = MR.Nodes.getNodeAs<clang::CXXOperatorCallExpr>("mcsssargtonativereferenceparam1");
 
 			if ((CE != nullptr)/* && (DRE != nullptr)*/)
 			{
@@ -2614,7 +2616,7 @@ namespace checker {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (std::string::npos != debug_source_location_str.find(":174:")) {
+				if (std::string::npos != debug_source_location_str.find(":416:")) {
 					int q = 5;
 				}
 
@@ -2670,12 +2672,17 @@ namespace checker {
 								}
 							}
 							if (!satisfies_checks) {
+								const std::string param_name = (*param_iter)->getNameAsString();
+								std::string function_species_str = (CXXOCE) ? "operator" :
+									((CXXMCE) ? "member function" : "function");
+
 								auto SR = nice_source_range(EX->getSourceRange(), Rewrite);
 								SourceLocation SL = SR.getBegin();
 
 								const std::string error_desc = std::string("Unable to verify that the ")
-									+ "argument passed to the parameter of native reference type ("
-									+ qtype.getAsString() + ") of the function '" + qualified_function_name + "' is safe here. (This is often addressed "
+									+ "argument passed to the parameter '" + param_name + "' of native reference type ('"
+									+ qtype.getAsString() + "') of the " + function_species_str + " '" + qualified_function_name
+									+ "' is safe here. (This is often addressed "
 									+ "by obtaining a scope pointer to the intended argument and passing "
 									+ "an expression consisting of a dereference of that pointer.)";
 								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
@@ -3018,10 +3025,12 @@ namespace checker {
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
 			const CXXMemberCallExpr* CXXMCE = MR.Nodes.getNodeAs<clang::CXXMemberCallExpr>("mcsssmemberfunctioncall1");
+			const CXXOperatorCallExpr* CXXOCE = MR.Nodes.getNodeAs<clang::CXXOperatorCallExpr>("mcssscxxoperatorcall1");
 
-			if ((CXXMCE != nullptr)/* && (DRE != nullptr)*/)
+			if ((CXXMCE != nullptr) || (CXXOCE != nullptr))
 			{
-				auto SR = nice_source_range(CXXMCE->getSourceRange(), Rewrite);
+				auto raw_SR = CXXMCE ? CXXMCE->getSourceRange() : CXXOCE->getSourceRange();
+				auto SR = nice_source_range(raw_SR, Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
@@ -3030,14 +3039,30 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto CXXMCEISR = instantiation_source_range(CXXMCE->getSourceRange(), Rewrite);
+				if (std::string::npos != debug_source_location_str.find(":423:")) {
+					int q = 5;
+				}
+
+				auto CXXMCEISR = instantiation_source_range(raw_SR, Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CXXMCEISR);
 				if (supress_check_flag) {
 					return;
 				}
 
-				const std::string method_name = CXXMCE->getDirectCallee()->getNameAsString();;
-				auto method_decl = CXXMCE->getMethodDecl();
+				std::string method_name;
+				const clang::CXXMethodDecl* method_decl = nullptr;
+				if (CXXMCE) {
+					method_name = CXXMCE->getDirectCallee()->getNameAsString();;
+					method_decl = CXXMCE->getMethodDecl();
+				} else {
+					method_name = CXXOCE->getDirectCallee()->getNameAsString();;
+					const auto method_decl1 = CXXOCE->getDirectCallee();
+					method_decl = dyn_cast<const clang::CXXMethodDecl>(method_decl1);
+					if (!method_decl) {
+						/* This may be a free operator, rather than a member operator. */
+						return;
+					}
+				}
 				if (method_decl) {
 					const std::string qmethod_name = method_decl->getQualifiedNameAsString();
 
@@ -3097,8 +3122,23 @@ namespace checker {
 					}
 				}
 
-				const auto EX = IgnoreParenImpNoopCasts(CXXMCE->getImplicitObjectArgument(), *(MR.Context));
-				const auto num_args = CXXMCE->getNumArgs();
+				const clang::Expr* EX = nullptr;
+				const clang::Expr* EX_iic = nullptr;
+				std::string function_qname;
+				std::string function_species_str;
+				if (CXXMCE) {
+					EX = IgnoreParenImpNoopCasts(CXXMCE->getImplicitObjectArgument(), *(MR.Context));
+					EX_iic = CXXMCE->getImplicitObjectArgument()->IgnoreImpCasts();
+					function_qname = CXXMCE->getDirectCallee()->getQualifiedNameAsString();
+					function_species_str = "function";
+				} else {
+					function_qname = CXXOCE->getDirectCallee()->getQualifiedNameAsString();
+					function_species_str = "operator";
+					if (1 <= CXXOCE->getNumArgs()) {
+						EX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), *(MR.Context));
+						EX_iic = CXXOCE->getArg(0)->IgnoreImpCasts();
+					}
+				}
 				if (EX) {
 					const auto qtype = EX->getType();
 					IF_DEBUG(const auto qtype_str = qtype.getAsString();)
@@ -3107,9 +3147,7 @@ namespace checker {
 					bool satisfies_checks = qtype->isPointerType()
 						? pointer_target_can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context), m_state1)
 						: can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context), m_state1);
-					if (!satisfies_checks) {
-						const auto EX_iic = CXXMCE->getImplicitObjectArgument()->IgnoreImpCasts();
-
+					if ((!satisfies_checks) && EX_iic) {
 						const auto MTE = dyn_cast<const clang::MaterializeTemporaryExpr>(EX_iic);
 						//const auto CXXTOE = dyn_cast<const clang::CXXTemporaryObjectExpr>(EX_iic);
 						//const auto CXXBTE = dyn_cast<const clang::CXXBindTemporaryExpr>(EX_iic);
@@ -3121,10 +3159,10 @@ namespace checker {
 					}
 					if (!satisfies_checks) {
 						const std::string error_desc = std::string("Unable to verify that the 'this' pointer ")
-							+ "will remain valid for the duration of the member function call ('"
-							+ CXXMCE->getDirectCallee()->getNameAsString() + "'). (This is often addressed "
-							+ "by obtaining a scope pointer to the object then calling the member function "
-							+ "through the scope pointer.)";
+							+ "will remain valid for the duration of the member " + function_species_str + " call ('"
+							+ function_qname + "'). (This is often addressed "
+							+ "by obtaining a scope pointer to the object then calling the member " + function_species_str
+							+ " through the scope pointer.)";
 						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 						if (res.second) {
 							std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -3649,6 +3687,8 @@ namespace checker {
 			Matcher.addMatcher(callExpr(/*argumentCountIs(1)*/).bind("mcsssmakexscopepointerto1"), &HandlerForSSSMakeXScopePointerTo);
 			Matcher.addMatcher(varDecl().bind("mcsssnativereferencevar1"), &HandlerForSSSNativeReferenceVar);
 			Matcher.addMatcher(callExpr().bind("mcsssargtonativereferenceparam1"), &HandlerForSSSArgToNativeReferenceParam);
+			Matcher.addMatcher(cxxMemberCallExpr().bind("mcsssargtonativereferenceparam1"), &HandlerForSSSArgToNativeReferenceParam);
+			Matcher.addMatcher(cxxOperatorCallExpr().bind("mcsssargtonativereferenceparam1"), &HandlerForSSSArgToNativeReferenceParam);
 			Matcher.addMatcher(expr(allOf(
 				ignoringImplicit(ignoringParenImpCasts(expr(anyOf(
 					unaryOperator(hasOperatorName("++")), unaryOperator(hasOperatorName("--")),
@@ -3678,6 +3718,7 @@ namespace checker {
 			Matcher.addMatcher(cxxFunctionalCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
 			Matcher.addMatcher(cxxConstCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
 			Matcher.addMatcher(cxxMemberCallExpr().bind("mcsssmemberfunctioncall1"), &HandlerForSSSMemberFunctionCall);
+			Matcher.addMatcher(cxxOperatorCallExpr().bind("mcssscxxoperatorcall1"), &HandlerForSSSMemberFunctionCall);
 			Matcher.addMatcher(cxxCtorInitializer().bind("mcsssconstructioninitializer1"), &HandlerForSSSConstructionInitializer);
 			Matcher.addMatcher(expr(allOf(
 				ignoringImplicit(ignoringParenImpCasts(expr(
