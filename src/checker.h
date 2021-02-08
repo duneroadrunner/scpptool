@@ -2068,6 +2068,10 @@ namespace checker {
 									DECLARE_CACHED_CONST_STRING(mstd_tuple_str, mse_namespace_str() + "::mstd::tuple");
 									DECLARE_CACHED_CONST_STRING(nii_array_str, mse_namespace_str() + "::nii_array");
 									DECLARE_CACHED_CONST_STRING(mstd_array_str, mse_namespace_str() + "::mstd::array");
+									DECLARE_CACHED_CONST_STRING(xscope_nii_array_str, mse_namespace_str() + "::xscope_nii_array");
+									DECLARE_CACHED_CONST_STRING(fixed_nii_vector_str, mse_namespace_str() + "::fixed_nii_vector");
+									DECLARE_CACHED_CONST_STRING(xscope_fixed_nii_vector_str, mse_namespace_str() + "::xscope_fixed_nii_vector");
+									DECLARE_CACHED_CONST_STRING(xscope_borrowing_fixed_nii_vector_str, mse_namespace_str() + "::xscope_borrowing_fixed_nii_vector");
 
 									auto qname = CXXRD->getQualifiedNameAsString();
 									if ((xscope_owner_ptr_str == qname) || (xscope_tuple_str == qname)
@@ -2076,6 +2080,8 @@ namespace checker {
 										|| (std_tuple_str == qname) || (std_pair_str == qname) || (std_array_str == qname)
 
 										|| (mstd_tuple_str == qname) || (nii_array_str == qname) || (mstd_array_str == qname)
+										|| (xscope_nii_array_str == qname) || (fixed_nii_vector_str == qname) || (xscope_fixed_nii_vector_str == qname)
+										|| (xscope_borrowing_fixed_nii_vector_str == qname)
 										) {
 										retval = lower_bound_lifetime_owner_if_available(potential_owner_EX_ii, Ctx, tu_state_cref);
 									}
@@ -2309,6 +2315,9 @@ namespace checker {
 									DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, mse_namespace_str() + "::TXScopeOwnerPointer");
 									DECLARE_CACHED_CONST_STRING(xscope_optional_str, mse_namespace_str() + "::xscope_optional");
 									DECLARE_CACHED_CONST_STRING(xscope_tuple_str, mse_namespace_str() + "::xscope_tuple");
+									DECLARE_CACHED_CONST_STRING(xscope_nii_array_str, mse_namespace_str() + "::xscope_nii_array");
+									DECLARE_CACHED_CONST_STRING(xscope_fixed_nii_vector_str, mse_namespace_str() + "::xscope_fixed_nii_vector");
+									DECLARE_CACHED_CONST_STRING(xscope_borrowing_fixed_nii_vector_str, mse_namespace_str() + "::xscope_borrowing_fixed_nii_vector");
 
 									static const std::string std_unique_ptr_str = "std::unique_ptr";
 									static const std::string std_shared_ptr_str = "std::shared_ptr";
@@ -2327,6 +2336,10 @@ namespace checker {
 									static const std::string std_unordered_multimap_str = "std::unordered_multimap";
 									static const std::string std_unordered_multiset_str = "std::unordered_multiset";
 
+									/* Conceptually, the following containers (and others not listed here) should also be
+									considered, but since they don't support/allow xscope elements, their elements would
+									never factor into the determination of a scope reference's lifetime (upper bound). 
+									*/
 									/*
 									DECLARE_CACHED_CONST_STRING(mstd_optional_str, mse_namespace_str() + "::mstd::optional");
 									DECLARE_CACHED_CONST_STRING(mstd_tuple_str, mse_namespace_str() + "::mstd::tuple");
@@ -2346,6 +2359,7 @@ namespace checker {
 										|| (std_array_str == qname) || (std_vector_str == qname) || (std_list_str == qname)
 										|| (std_map_str == qname) || (std_set_str == qname) || (std_multimap_str == qname) || (std_multiset_str == qname)
 										|| (std_unordered_map_str == qname) || (std_unordered_set_str == qname) || (std_unordered_multimap_str == qname) || (std_unordered_multiset_str == qname)
+										|| (xscope_nii_array_str == qname) || (xscope_fixed_nii_vector_str == qname) || (xscope_borrowing_fixed_nii_vector_str == qname)
 
 										/*
 										|| (mstd_optional_str == qname) || (mstd_tuple_str == qname)
@@ -2616,7 +2630,7 @@ namespace checker {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (std::string::npos != debug_source_location_str.find(":416:")) {
+				if (std::string::npos != debug_source_location_str.find(":423:")) {
 					int q = 5;
 				}
 
