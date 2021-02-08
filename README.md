@@ -1,5 +1,14 @@
 
-Dec 2019
+Feb 2021
+
+### Overview
+
+scpptool is a command line tool to help enforce a memory and data race safe subset of C++. It's designed to work with the [SaferCPlusPlus](https://github.com/duneroadrunner/SaferCPlusPlus) library. It analyzes the specified C++ file(s) and reports places in the code that it cannot verify to be safe. Currently it does not report all of the instances where it cannot verify safety, but that is the eventual goal.
+
+Note that while the aims are similar, this tool enforces a slightly more restricted subset of the language than does the lifetime profile checker. The idea being that this restrictiveness is mitigated by additional flexible elements provided in the SaferCPlusPlus library (that may sometimes resort to run-time safety mechanisms when necessary). Code that conforms to the subset enforced by this tool should also be conformant to the subset enforced by an (eventually completed) lifetime profile checker.
+
+Note that this tool is still in development and not well tested.
+
 
 ### How to Build:
 
@@ -34,15 +43,6 @@ The syntax is as follows:
 So for example:
 
 `scpptool hello_world.cpp -- -I./msetl -std=c++17 -I'/home/user1/clang+llvm-8.0.0-x86_64-linux-gnu-ubuntu-18.04/lib/clang/8.0.0/include'`
-
-
-### Overview
-
-scpptool is a command line tool to help enforce a memory and data race safe subset of C++. It's designed to work with the [SaferCPlusPlus](https://github.com/duneroadrunner/SaferCPlusPlus) library. It analyzes the specified C++ file(s) and reports places in the code that it cannot verify to be safe. Currently it does not report all of the instances where it cannot verify safety, but that is the eventual goal.
-
-Note that while the aims are similar, this tool enforces a slightly more restricted subset of the language than does the lifetime profile checker. The idea being that this restrictiveness is mitigated by additional flexible elements provided in the SaferCPlusPlus library (that may sometimes resort to run-time safety mechanisms when necessary). Code that conforms to the subset enforced by this tool should also be conformant to the subset enforced by an (eventually completed) lifetime profile checker.
-
-Note that this tool is still in early development and not well tested.
 
 
 ### Local Suppression of the Checks
