@@ -5042,7 +5042,9 @@ namespace convm1 {
 						auto rhs_res2 = infer_array_type_info_from_stmt(*RHS, "", (*this).m_state1);
 						bool lhs_is_an_indirect_type = is_an_indirect_type(DD->getType());
 						bool rhs_is_an_indirect_type = is_an_indirect_type(RHS->getType());
-						assert(lhs_is_an_indirect_type == rhs_is_an_indirect_type);
+						if (lhs_is_an_indirect_type != rhs_is_an_indirect_type) {
+							int q = 5;
+						}
 
 						if (rhs_res2.ddecl_cptr && rhs_res2.update_declaration_flag) {
 							update_declaration(*(rhs_res2.ddecl_cptr), Rewrite, m_state1);
@@ -10523,13 +10525,13 @@ namespace convm1 {
 						if (!(fii_ref.m_legacyhelpers_include_directive_found)) {
 							if (fii_ref.m_first_include_directive_loc_is_valid) {
 								TheRewriter.InsertTextBefore(fii_ref.m_first_include_directive_loc,
-										"\n#include \"msetl.h\"\n");
+										"\n#include \"mselegacyhelpers.h\"\n");
 							} else if (fii_ref.m_first_macro_directive_ptr_is_valid) {
 								TheRewriter.InsertTextAfterToken(fii_ref.m_first_macro_directive_ptr->getLocation(),
-										"\n#include \"msetl.h\"\n");
+										"\n#include \"mselegacyhelpers.h\"\n");
 							} else if (fii_ref.m_beginning_of_file_loc_is_valid) {
 								TheRewriter.InsertTextBefore(fii_ref.m_beginning_of_file_loc,
-										"\n#include \"msetl.h\"\n");
+										"\n#include \"mselegacyhelpers.h\"\n");
 							}
 						}
 					}
