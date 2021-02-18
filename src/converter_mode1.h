@@ -3076,7 +3076,7 @@ namespace convm1 {
 		}
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":2803:")) {
+		if (std::string::npos != debug_source_location_str.find(":708:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -3115,26 +3115,29 @@ namespace convm1 {
 			const clang::FunctionDecl* FND = dyn_cast<const clang::FunctionDecl>(DD);
 			if (FND) {
 				auto name_str = FND->getNameAsString();
-				if (std::string::npos != name_str.find("lodepng_chunk_data_const")) {
-					int q = 5;
-				}
 				auto return_type_source_range = nice_source_range(FND->getReturnTypeSourceRange(), Rewrite);
 				if (!(return_type_source_range.isValid())) {
 					return;
+				}
+				if (SR.getBegin() < return_type_source_range.getBegin()) {
+					/* FunctionDecl::getReturnTypeSourceRange() seems to not include prefix qualifiers, like
+					* "const". So we check if there is a "const" prefix present. */
+
+					//std::string return_type_source_range_str = Rewrite.getRewrittenText(return_type_source_range);
+					//std::string SR_str = Rewrite.getRewrittenText(SR);
+					std::string test_str = Rewrite.getRewrittenText({ SR.getBegin(), return_type_source_range.getBegin().getLocWithOffset(-1) });
+
+					static const std::string const_str = "const";
+					if (string_begins_with(test_str, const_str)) {
+						/* Extend the return_type_source_range to include the "const" prefix. */
+						return_type_source_range.setBegin(SR.getBegin());
+					}
 				}
 
 				//declaration_modifier_helper1(&ddecl, Rewrite, &state1, state1.m_ddecl_conversion_state_map, options_str);
 
 				auto res = generate_declaration_replacement_code(&ddecl, Rewrite, state1.m_ddecl_conversion_state_map, options_str);
 				changed_from_original |= res.m_changed_from_original;
-
-				static const std::string const_space_str = "const ";
-				if (string_begins_with(res.m_replacement_code, const_space_str)) {
-					/* FunctionDecl::getReturnTypeSourceRange() seems to not include prefix qualifiers, like
-					* "const". Since the source range to be replaced doesn't include the "const " qualifier,
-					* if present, here we make sure it's not included in the replacement code either. */
-					res.m_replacement_code = res.m_replacement_code.substr(const_space_str.length());
-				}
 
 				if (ConvertToSCPP && return_type_source_range.isValid() && (1 <= res.m_replacement_code.size())
 						&& changed_from_original) {
