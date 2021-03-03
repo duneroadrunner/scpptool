@@ -5,7 +5,7 @@ Feb 2021
 
 scpptool is a command line tool to help enforce a memory and data race safe subset of C++. It's designed to work with the [SaferCPlusPlus](https://github.com/duneroadrunner/SaferCPlusPlus) library. It analyzes the specified C++ file(s) and reports places in the code that it cannot verify to be safe. Currently it does not report all of the instances where it cannot verify safety, but that is the eventual goal.
 
-Note that while the aims are similar, this tool enforces a slightly more restricted subset of the language than does the lifetime profile checker. The idea being that this restrictiveness is mitigated by additional flexible elements provided in the SaferCPlusPlus library (that may sometimes resort to run-time safety mechanisms when necessary). Code that conforms to the subset enforced by this tool should also be conformant to the subset enforced by an (eventually completed) lifetime profile checker.
+Note that while the aims are similar, this tool enforces a slightly more restricted subset of the language than the lifetime profile checker does. So code that conforms to the subset enforced by this tool should automatically be conformant to the subset enforced by an (eventually completed) lifetime profile checker. While the extra restrictions have a cost (notably with the ability to use standard library elements), they arguably also have the benefit of being easier to understand, with fewer "surprises" and less guessing about where the limits are.
 
 Note that this tool is still in development and not well tested.
 
@@ -170,6 +170,10 @@ Note that the `mse::rsv::make_xscope_pointer_to()` function, which allows you to
 #### Elements not (yet) addressed
 
 The set of potentially unsafe elements in C++, and in the standard library itself, is pretty large. This tool does not yet address them all. In particular it does not complain about the use of essential elements for which the SaferCPlusPlus library does not (yet) provide a safe alternative, such as conatiners like maps, sets, etc.,. 
+
+### Autotranslation
+
+This tool also has some ability to convert C source files to the memory safe subset of C++ it enforces and is demonstrated in the [SaferCPlusPlus-AutoTranslation2](https://github.com/duneroadrunner/SaferCPlusPlus-AutoTranslation2) project.
 
 ### Questions and comments
 If you have questions or comments you can create a post in the [discussion section](https://github.com/duneroadrunner/scpptool/discussions).
