@@ -9876,9 +9876,9 @@ namespace convm1 {
 					),
 				hasLHS(ignoringParenCasts(anyOf(
 						memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssmalloc3")))).bind("mcsssmalloc4"),
-							declRefExpr().bind("mcsssmalloc3"),
-							hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssmalloc3")))).bind("mcsssmalloc4")),
-							hasDescendant(declRefExpr().bind("mcsssmalloc3"))
+						declRefExpr().bind("mcsssmalloc3"),
+						hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssmalloc3")))).bind("mcsssmalloc4")),
+						hasDescendant(declRefExpr().bind("mcsssmalloc3"))
 					))),
 				hasLHS(expr(hasType(pointerType())))
 					)).bind("mcsssmalloc1"), &HandlerForSSSMalloc2);
