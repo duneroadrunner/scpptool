@@ -1966,15 +1966,21 @@ namespace checker {
 
 									const auto CXXRD = remove_mse_transparent_wrappers(arg_EX->getType()).getTypePtr()->getAsCXXRecordDecl();
 									if (CXXRD) {
-										DECLARE_CACHED_CONST_STRING(xscope_item_f_ptr_str, mse_namespace_str() + "::TXScopeItemFixedPointer");
-										DECLARE_CACHED_CONST_STRING(xscope_item_f_const_ptr_str, mse_namespace_str() + "::TXScopeItemFixedConstPointer");
 										DECLARE_CACHED_CONST_STRING(xscope_f_ptr_str, mse_namespace_str() + "::TXScopeFixedPointer");
 										DECLARE_CACHED_CONST_STRING(xscope_f_const_ptr_str, mse_namespace_str() + "::TXScopeFixedConstPointer");
+										DECLARE_CACHED_CONST_STRING(xscope_obj_f_ptr_str, mse_namespace_str() + "::TXScopeObjFixedPointer");
+										DECLARE_CACHED_CONST_STRING(xscope_obj_f_const_ptr_str, mse_namespace_str() + "::TXScopeObjFixedConstPointer");
 										DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, mse_namespace_str() + "::TXScopeOwnerPointer");
+										DECLARE_CACHED_CONST_STRING(reg_proxy_ptr_str, mse_namespace_str() + "::TRegisteredProxyPointer");
+										DECLARE_CACHED_CONST_STRING(reg_proxy_const_ptr_str, mse_namespace_str() + "::TRegisteredProxyConstPointer");
+										DECLARE_CACHED_CONST_STRING(norad_proxy_ptr_str, mse_namespace_str() + "::TNoradProxyPointer");
+										DECLARE_CACHED_CONST_STRING(norad_proxy_const_ptr_str, mse_namespace_str() + "::TNoradProxyConstPointer");
 										static const std::string unique_ptr_str = "std::unique_ptr";
 										auto qname = CXXRD->getQualifiedNameAsString();
-										if ((xscope_item_f_ptr_str == qname) || (xscope_item_f_const_ptr_str == qname)
-											|| (xscope_f_ptr_str == qname) || (xscope_f_const_ptr_str == qname)
+										if ((xscope_f_ptr_str == qname) || (xscope_f_const_ptr_str == qname)
+											|| (xscope_obj_f_ptr_str == qname) || (xscope_obj_f_const_ptr_str == qname)
+											|| (reg_proxy_ptr_str == qname) || (reg_proxy_const_ptr_str == qname)
+											|| (norad_proxy_ptr_str == qname) || (norad_proxy_const_ptr_str == qname)
 											/*|| ((xscope_owner_ptr_str == qname) && ())*/) {
 											satisfies_checks = true;
 											retval = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_cref);
