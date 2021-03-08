@@ -9174,7 +9174,7 @@ namespace convm1 {
 
 						auto check_for_and_handle_unsupported_element2 = [&MR, &Rewrite, &unsupported_elements_encounterred](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
 							IF_DEBUG(auto type_SR = nice_source_range(typeLoc.getSourceRange(), Rewrite);)
-							IF_DEBUG(std::string old_text = Rewrite.getRewrittenText(type_SR);)
+							//IF_DEBUG(std::string old_text = Rewrite.getRewrittenText(type_SR);)
 
 							auto qtype = typeLoc.getType().getUnqualifiedType();
 							std::string element_type_name;
