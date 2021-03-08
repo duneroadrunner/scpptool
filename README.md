@@ -1,14 +1,27 @@
 
-Feb 2021
+Mar 2021
 
 ### Overview
 
 scpptool is a command line tool to help enforce a memory and data race safe subset of C++. It's designed to work with the [SaferCPlusPlus](https://github.com/duneroadrunner/SaferCPlusPlus) library. It analyzes the specified C++ file(s) and reports places in the code that it cannot verify to be safe. Currently it does not report all of the instances where it cannot verify safety, but that is the eventual goal.
 
-Note that while the aims are similar, this tool enforces a slightly more restricted subset of the language than the lifetime profile checker does. So code that conforms to the subset enforced by this tool should automatically be conformant to the subset enforced by an (eventually completed) lifetime profile checker. While the extra restrictions have a cost (notably with the ability to use standard library elements), they arguably also have the benefit of being easier to understand, with fewer "surprises" and less guessing about where the limits are.
+Note that this tool enforces a slightly more restricted subset of reference usages than the lifetime profile checker does. So code that conforms to the subset enforced by this tool should automatically be conformant to the subset enforced by an (eventually completed) lifetime profile checker. While the extra restrictions have a cost (notably with the ability to use standard library elements), they arguably also have the benefit of being easier to understand, with fewer "surprises" and less guessing about where the limits are.
 
 Note that this tool is still in development and not well tested.
 
+### Table of contents
+1. [Overview](#overview)
+2. [How to Build](#how-to-build)
+3. [How to Use](#how-to-use)
+4. [Local Suppression of the Checks](#local-suppression-of-the-checks)
+5. [About the Enforced Subset](#about-the-enforced-subset)
+    1. [Restrictions on the use of native pointers and references](#restrictions-on-the-use-of-native-pointers-and-references)
+    2. [Range-based `for` loops by reference](#range-based-for-loops-by-reference)
+    3. [Lambda captures](#lambda-captures)
+    4. [SaferCPlusPlus elements](#safercplusplus-elements)
+    5. [Elements not (yet) addressed](#elements-not-yet-addressed)
+6. [Autotranslation](#autotranslation)
+7. [Questions and comments](#questions-and-comments)
 
 ### How to Build:
 
