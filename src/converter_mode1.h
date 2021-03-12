@@ -5611,10 +5611,8 @@ namespace convm1 {
 							if (("char" != type_str) && ("const char" != type_str)) {
 								lhs_element_type_str = type_str;
 							}
-						} else if (llvm::isa<const clang::PointerType>(lhs_TP)) {
-							auto TPP = llvm::cast<const clang::PointerType>(lhs_TP);
-							assert(nullptr != TPP);
-							auto target_type = TPP->getPointeeType();
+						} else if (lhs_TP->isPointerType()) {
+							auto target_type = lhs_TP->getPointeeType();
 							auto type_str = target_type.getAsString();
 							if (("char" != type_str) && ("const char" != type_str)) {
 								lhs_element_type_str = type_str;
@@ -5779,7 +5777,7 @@ namespace convm1 {
 						auto lhs_type_str = QT.getAsString();
 
 						std::string element_type_str;
-						if (TP->isArrayType()) {
+						if (llvm::isa<const clang::ArrayType>(TP)) {
 							auto ATP = llvm::cast<const clang::ArrayType>(TP);
 							assert(nullptr != ATP);
 							auto element_type = ATP->getElementType();
@@ -5788,9 +5786,7 @@ namespace convm1 {
 								element_type_str = type_str;
 							}
 						} else if (TP->isPointerType()) {
-							auto TPP = llvm::cast<const clang::PointerType>(TP);
-							assert(nullptr != TPP);
-							auto target_type = TPP->getPointeeType();
+							auto target_type = TP->getPointeeType();
 							auto type_str = target_type.getAsString();
 							if (("char" != type_str) && ("const char" != type_str)) {
 								element_type_str = type_str;
@@ -5985,7 +5981,7 @@ namespace convm1 {
 										auto lhs_type_str = QT.getAsString();
 
 										std::string element_type_str;
-										if (TP->isArrayType()) {
+										if (llvm::isa<const clang::ArrayType>(TP)) {
 											auto ATP = llvm::cast<const clang::ArrayType>(TP);
 											assert(nullptr != ATP);
 											auto element_type = ATP->getElementType();
@@ -5994,9 +5990,7 @@ namespace convm1 {
 												element_type_str = type_str;
 											}
 										} else if (TP->isPointerType()) {
-											auto TPP = llvm::cast<const clang::PointerType>(TP);
-											assert(nullptr != TPP);
-											auto target_type = TPP->getPointeeType();
+											auto target_type = TP->getPointeeType();
 											auto type_str = target_type.getAsString();
 											if (("char" != type_str) && ("const char" != type_str)) {
 												element_type_str = type_str;
@@ -6316,10 +6310,8 @@ namespace convm1 {
 							if (("char" != type_str) && ("const char" != type_str)) {
 								lhs_element_type_str = type_str;
 							}
-						} else if (llvm::isa<const clang::PointerType>(lhs_TP)) {
-							auto TPP = llvm::cast<const clang::PointerType>(lhs_TP);
-							assert(nullptr != TPP);
-							auto target_type = TPP->getPointeeType();
+						} else if (lhs_TP->isPointerType()) {
+							auto target_type = lhs_TP->getPointeeType();
 							auto type_str = target_type.getAsString();
 							if (("char" != type_str) && ("const char" != type_str)) {
 								lhs_element_type_str = type_str;
@@ -6418,10 +6410,8 @@ namespace convm1 {
 							if (("char" != type_str) && ("const char" != type_str)) {
 								lhs_element_type_str = type_str;
 							}
-						} else if (llvm::isa<const clang::PointerType>(lhs_TP)) {
-							auto TPP = llvm::cast<const clang::PointerType>(lhs_TP);
-							assert(nullptr != TPP);
-							auto target_type = TPP->getPointeeType();
+						} else if (lhs_TP->isPointerType()) {
+							auto target_type = lhs_TP->getPointeeType();
 							auto type_str = target_type.getAsString();
 							if (("char" != type_str) && ("const char" != type_str)) {
 								lhs_element_type_str = type_str;
@@ -6580,7 +6570,7 @@ namespace convm1 {
 									auto arg1_type_str = QT.getAsString();
 
 									std::string arg1_element_type_str;
-									if (arg1_TP->isArrayType()) {
+									if (llvm::isa<const clang::ArrayType>(arg1_TP)) {
 										auto ATP = llvm::cast<const clang::ArrayType>(arg1_TP);
 										assert(nullptr != ATP);
 										auto element_type = ATP->getElementType();
@@ -6589,9 +6579,7 @@ namespace convm1 {
 											arg1_element_type_str = type_str;
 										}
 									} else if (arg1_TP->isPointerType()) {
-										auto TPP = llvm::cast<const clang::PointerType>(arg1_TP);
-										assert(nullptr != TPP);
-										auto target_type = TPP->getPointeeType();
+										auto target_type = arg1_TP->getPointeeType();
 										auto type_str = target_type.getAsString();
 										if (("char" != type_str) && ("const char" != type_str)) {
 											arg1_element_type_str = type_str;
@@ -6800,7 +6788,7 @@ namespace convm1 {
 								auto arg1_type_str = arg1_QT.getAsString();
 
 								std::string arg1_element_type_str;
-								if (arg1_TP->isArrayType()) {
+								if (llvm::isa<const clang::ArrayType>(arg1_TP)) {
 									auto ATP = llvm::cast<const clang::ArrayType>(arg1_TP);
 									assert(nullptr != ATP);
 									auto element_type = ATP->getElementType();
@@ -6809,9 +6797,7 @@ namespace convm1 {
 										arg1_element_type_str = type_str;
 									}
 								} else if (arg1_TP->isPointerType()) {
-									auto TPP = llvm::cast<const clang::PointerType>(arg1_TP);
-									assert(nullptr != TPP);
-									auto target_type = TPP->getPointeeType();
+									auto target_type = arg1_TP->getPointeeType();
 									auto type_str = target_type.getAsString();
 									if (("char" != type_str) && ("const char" != type_str)) {
 										arg1_element_type_str = type_str;
@@ -7494,10 +7480,8 @@ namespace convm1 {
 									} else if ("const char" == type_str) {
 										lhs_element_type_is_const_char = true;
 									}
-								} else if (llvm::isa<const clang::PointerType>(lhs_TP)) {
-									auto TPP = llvm::cast<const clang::PointerType>(lhs_TP);
-									assert(nullptr != TPP);
-									auto target_type = TPP->getPointeeType();
+								} else if (lhs_TP->isPointerType()) {
+									auto target_type = lhs_TP->getPointeeType();
 									auto type_str = target_type.getAsString();
 									if (("char" != type_str) && ("const char" != type_str)) {
 										lhs_element_type_str = type_str;
@@ -8294,7 +8278,7 @@ namespace convm1 {
 								auto arg1_type_str = arg1_QT.getAsString();
 
 								std::string arg1_element_type_str;
-								if (arg1_TP->isArrayType()) {
+								if (llvm::isa<const clang::ArrayType>(arg1_TP)) {
 									auto ATP = llvm::cast<const clang::ArrayType>(arg1_TP);
 									assert(nullptr != ATP);
 									auto element_type = ATP->getElementType();
@@ -8303,9 +8287,7 @@ namespace convm1 {
 										arg1_element_type_str = type_str;
 									}
 								} else if (arg1_TP->isPointerType()) {
-									auto TPP = llvm::cast<const clang::PointerType>(arg1_TP);
-									assert(nullptr != TPP);
-									auto target_type = TPP->getPointeeType();
+									auto target_type = arg1_TP->getPointeeType();
 									auto type_str = target_type.getAsString();
 									if (("char" != type_str) && ("const char" != type_str)) {
 										arg1_element_type_str = type_str;
@@ -8527,7 +8509,7 @@ namespace convm1 {
 								auto arg1_type_str = arg1_QT.getAsString();
 
 								std::string arg1_element_type_str;
-								if (arg1_TP->isArrayType()) {
+								if (llvm::isa<const clang::ArrayType>(arg1_TP)) {
 									auto ATP = llvm::cast<const clang::ArrayType>(arg1_TP);
 									assert(nullptr != ATP);
 									auto element_type = ATP->getElementType();
@@ -8536,9 +8518,7 @@ namespace convm1 {
 										arg1_element_type_str = type_str;
 									}
 								} else if (arg1_TP->isPointerType()) {
-									auto TPP = llvm::cast<const clang::PointerType>(arg1_TP);
-									assert(nullptr != TPP);
-									auto target_type = TPP->getPointeeType();
+									auto target_type = arg1_TP->getPointeeType();
 									auto type_str = target_type.getAsString();
 									if (("char" != type_str) && ("const char" != type_str)) {
 										arg1_element_type_str = type_str;
