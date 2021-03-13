@@ -572,7 +572,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 			if (CTSD) {
 				const auto& template_args = CTSD->getTemplateInstantiationArgs();
 				const auto num_args = template_args.size();
-				for (int i = 0; i < num_args; i += 1) {
+				for (int i = 0; i < int(num_args); i += 1) {
 					const auto template_arg = template_args[i];
 					const auto ta_qtype = template_arg.getAsType();
 					IF_DEBUG(const auto ta_qtype_str = ta_qtype.getAsString();)
@@ -604,7 +604,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 			if (CTSD) {
 				const auto& template_args = CTSD->getTemplateInstantiationArgs();
 				const auto num_args = template_args.size();
-				for (int i = 0; i < num_args; i += 1) {
+				for (int i = 0; i < int(num_args); i += 1) {
 					const auto template_arg = template_args[i];
 					if (clang::TemplateArgument::Type == template_arg.getKind()) {
 						const auto ta_qtype = template_arg.getAsType();
@@ -652,7 +652,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 			if (CTSD) {
 				const auto& template_args = CTSD->getTemplateInstantiationArgs();
 				const auto num_args = template_args.size();
-				for (int i = 0; i < num_args; i += 1) {
+				for (int i = 0; i < int(num_args); i += 1) {
 					const auto template_arg = template_args[i];
 					if (clang::TemplateArgument::Type == template_arg.getKind()) {
 						const auto ta_qtype = template_arg.getAsType();
@@ -1098,7 +1098,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 			if (CTSD) {
 				const auto& template_args = CTSD->getTemplateInstantiationArgs();
 				const auto num_args = template_args.size();
-				for (int i = 0; i < num_args; i += 1) {
+				for (int i = 0; i < int(num_args); i += 1) {
 					const auto template_arg = template_args[i];
 					auto res = types_from_template_arg(template_arg);
 					retval.insert(retval.end(), res.begin(), res.end());

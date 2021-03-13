@@ -471,12 +471,24 @@ namespace convm1 {
 				while (!PointerLoc) {
 					auto etl = typeLoc.getAs<clang::ElaboratedTypeLoc>();
 					auto qtl = typeLoc.getAs<clang::QualifiedTypeLoc>();
+					auto tdtl = typeLoc.getAs<clang::TypedefTypeLoc>();
 					if (etl) {
 						typeLoc = etl.getNamedTypeLoc();
 						PointerLoc = typeLoc.getAs<clang::PointerTypeLoc>();
 					} else if (qtl) {
 						typeLoc = qtl.getUnqualifiedLoc();
 						PointerLoc = typeLoc.getAs<clang::PointerTypeLoc>();
+					} else if (tdtl) {
+						auto TDND = tdtl.getTypedefNameDecl();
+						auto tsi = TDND->getTypeSourceInfo();
+						if (tsi) {
+							typeLoc = tsi->getTypeLoc();
+							PointerLoc = typeLoc.getAs<clang::PointerTypeLoc>();
+							IF_DEBUG(std::string tl_qtype_str = tsi->getTypeLoc().getType().getAsString();)
+							int q = 5;
+						} else {
+							break;
+						}
 					} else {
 						break;
 					}
@@ -764,6 +776,7 @@ namespace convm1 {
 	class CDDeclConversionState {
 	public:
 		CDDeclConversionState(const clang::DeclaratorDecl& ddecl) : m_ddecl_cptr(&ddecl) {
+#ifndef NDEBUG
 			if ((*this).m_ddecl_cptr) {
 				std::string variable_name = m_ddecl_cptr->getNameAsString();
 				if ("buffer" == variable_name) {
@@ -773,6 +786,7 @@ namespace convm1 {
 					}
 				}
 			}
+#endif /*!NDEBUG*/
 			QualType QT = ddecl.getType();
 			IF_DEBUG(std::string qtype_str = m_ddecl_cptr->getType().getAsString();)
 			assert(ddecl.isFunctionOrFunctionTemplate() == QT->isFunctionType());
@@ -929,9 +943,6 @@ namespace convm1 {
 	public:
 		std::pair<iterator, bool> insert(const clang::DeclaratorDecl& ddecl) {
 			std::string variable_name = ddecl.getNameAsString();
-			if ("bitlen" == variable_name) {
-				int q = 5;
-			}
 			value_type item(&ddecl, CDDeclConversionState(ddecl));
 			return std::unordered_map<const clang::DeclaratorDecl*, CDDeclConversionState>::insert(item);
 		}
@@ -5007,7 +5018,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":56:")) {
+				if (std::string::npos != debug_source_location_str.find(":427:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8643,7 +8654,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":56:")) {
+				if (std::string::npos != debug_source_location_str.find(":427:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8783,8 +8794,8 @@ namespace convm1 {
 											/* Here we're (unjustifiably) assuming that the program is single threaded 
 											and changing variables with static duration to thread_local duration. */
 											std::string l_source_text1 = Rewrite.getRewrittenText(SR);
-											int replace_pos = 0;
-											int replace_length = 0;
+											std::size_t replace_pos = 0;
+											std::size_t replace_length = 0;
 											if (VD->isFileVarDecl()) {
 												{
 													static const std::string extern_and_space_str = "extern ";
@@ -9801,13 +9812,13 @@ namespace convm1 {
 		HandlerForSSSSetToNull2(R, tu_state()), HandlerForSSSCompareWithNull2(R, tu_state()), HandlerForSSSMemset(R, tu_state()), HandlerForSSSMemcpy(R, tu_state()),
 		HandlerForSSSConditionalInitializer(R, tu_state()), HandlerForSSSAssignment(R, tu_state()), HandlerForSSSArgToParameterPassingArray2(R, tu_state()),
 		HandlerForSSSArgToReferenceParameterPassing(R, tu_state()), HandlerForSSSReturnValue(R, tu_state()), HandlerForSSSFRead(R, tu_state()), HandlerForSSSFWrite(R, tu_state()), 
-		HandlerMisc1(R, tu_state(), CI),HandlerForSSSAddressOf(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state())
+		HandlerForSSSDeclUtil(R, tu_state()), HandlerForSSSAddressOf(R, tu_state()), HandlerForMisc1(R, tu_state(), CI)
 	{
 		//Matcher.addMatcher(varDecl(hasType(pointerType())).bind("mcsssnativepointer"), &HandlerForSSSNativePointer);
 
 		//Matcher.addMatcher(castExpr(allOf(hasCastKind(CK_ArrayToPointerDecay), unless(hasParent(arraySubscriptExpr())))).bind("mcsssarraytopointerdecay"), &HandlerForSSSArrayToPointerDecay);
 
-		Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerMisc1);
+		Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerForMisc1);
 
 		Matcher.addMatcher(clang::ast_matchers::recordDecl().bind("mcsssrecorddecl"), &HandlerForSSSRecordDecl);
 
@@ -10075,7 +10086,7 @@ namespace convm1 {
 	MCSSSFWrite HandlerForSSSFWrite;
 	MCSSSDeclUtil HandlerForSSSDeclUtil;
 	MCSSSAddressOf HandlerForSSSAddressOf;
-	Misc1 HandlerMisc1;
+	Misc1 HandlerForMisc1;
 
 	MatchFinder Matcher;
 	};
@@ -10320,7 +10331,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find(":2803:")) {
+					if (std::string::npos != debug_source_location_str.find(":427:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -10386,7 +10397,7 @@ namespace convm1 {
 						}
 					}
 					const auto& indirection_state_stack = ddecl_conversion_state.second.m_indirection_state_stack;
-					for (int j = 0; j < indirection_state_stack.size(); j+=1) {
+					for (int j = 0; j < int(indirection_state_stack.size()); j+=1) {
 						int i = indirection_state_stack.size() - 1 - j;
 
 						{
