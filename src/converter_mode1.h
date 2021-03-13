@@ -296,6 +296,21 @@ namespace convm1 {
 	* can, of course, function as arrays, but context is required to identify those situations. Such identification
 	* is not done in this function. It is done elsewhere.  */
 	clang::QualType populateQTypeIndirectionStack(CIndirectionStateStack& stack, const clang::QualType qtype, std::optional<clang::TypeLoc> maybe_typeLoc = {}, int depth = 0) {
+		if (maybe_typeLoc.has_value()) {
+			assert(maybe_typeLoc.value().getType() == qtype);
+			auto tdtl = maybe_typeLoc.value().getAs<clang::TypedefTypeLoc>();
+			while (tdtl) {
+				/* It seems to be 'typedef'ed type. We're going to replace the "type location" with
+				the location of the definition in the typedef statement. */
+				auto TDND = tdtl.getTypedefNameDecl();
+				auto tsi = TDND->getTypeSourceInfo();
+				if (tsi) {
+					maybe_typeLoc = tsi->getTypeLoc();
+				}
+				tdtl = maybe_typeLoc.value().getAs<clang::TypedefTypeLoc>();
+			}
+		}
+
 		auto l_qtype = qtype;
 
 		bool is_function_type = false;
@@ -479,6 +494,7 @@ namespace convm1 {
 						typeLoc = qtl.getUnqualifiedLoc();
 						PointerLoc = typeLoc.getAs<clang::PointerTypeLoc>();
 					} else if (tdtl) {
+						/* This branch should be redundant (never taken) now. */
 						auto TDND = tdtl.getTypedefNameDecl();
 						auto tsi = TDND->getTypeSourceInfo();
 						if (tsi) {
@@ -796,10 +812,11 @@ namespace convm1 {
 			std::optional<clang::TypeLoc> maybe_typeLoc;
 			auto tsi = ddecl.getTypeSourceInfo();
 			if (tsi) {
-				maybe_typeLoc = tsi->getTypeLoc();
 				IF_DEBUG(std::string tl_qtype_str = tsi->getTypeLoc().getType().getAsString();)
 				if (tsi->getTypeLoc().getType() != QT) {
 					int q = 5;
+				} else {
+					maybe_typeLoc = tsi->getTypeLoc();
 				}
 			}
 			auto original_direct_qtype = populateQTypeIndirectionStack(m_indirection_state_stack, QT, maybe_typeLoc);
@@ -1957,7 +1974,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find(":689:")) {
+			if (std::string::npos != debug_source_location_str.find(":427:")) {
 				int q = 5;
 			}
 		}
@@ -2411,6 +2428,7 @@ namespace convm1 {
 								if (SR.getEnd() < pointee_SR.getEnd()) {
 									pointee_SR.setEnd(SR.getEnd());
 									old_pointee_text = Rewrite.getRewrittenText(pointee_SR);
+									int q = 5;
 								}
 							}
 
@@ -3087,7 +3105,7 @@ namespace convm1 {
 		}
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":708:")) {
+		if (std::string::npos != debug_source_location_str.find(":427:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
