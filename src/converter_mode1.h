@@ -19,11 +19,13 @@
 #include <vector>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 #include <set>
 #include <list>
 #include <algorithm>
 #include <limits>
 #include <locale>
+#include <type_traits>
 
 #include <cstdio>
 #include <memory>
@@ -110,6 +112,23 @@ namespace convm1 {
 		size_t m_indirection_level = 0;
 	};
 
+	inline auto definition_TypeLoc(clang::TypeLoc typeLoc) {
+		/* If typeLoc refers to a typedef, then we'll return a TypeLoc that refers to the definition
+		in the typedef. */
+		auto tdtl = typeLoc.getAs<clang::TypedefTypeLoc>();
+		while (tdtl) {
+			auto TDND = tdtl.getTypedefNameDecl();
+			auto tsi = TDND->getTypeSourceInfo();
+			if (tsi) {
+				typeLoc = tsi->getTypeLoc();
+				tdtl = typeLoc.getAs<clang::TypedefTypeLoc>();
+			} else {
+				assert(false);
+			}
+		}
+		return typeLoc;
+	}
+
 	/* We use the term "indirect type" to mean basically a type the "dereferences" to another
 	specifiable type. At least initially, we primarily use it to refer to native pointers and arrays
 	(that are candidates for being converted to safer counterparts). */
@@ -189,6 +208,8 @@ namespace convm1 {
 		std::variant<bool, clang::SourceRange, clang::SourceLocation> m_suffix_SR_or_insert_before_point;
 		std::optional<clang::SourceRange> m_maybe_source_range;
 		std::optional<clang::SourceRange> m_maybe_source_range_including_any_const_qualifier;
+		std::optional<clang::SourceRange> m_maybe_typedef_definition_source_range;
+		std::optional<clang::SourceRange> m_maybe_typedef_definition_source_range_including_any_const_qualifier;
 		std::optional<clang::SourceRange> m_maybe_prefix_source_range;
 		std::optional<clang::SourceRange> m_maybe_suffix_source_range;
 
@@ -296,21 +317,6 @@ namespace convm1 {
 	* can, of course, function as arrays, but context is required to identify those situations. Such identification
 	* is not done in this function. It is done elsewhere.  */
 	clang::QualType populateQTypeIndirectionStack(CIndirectionStateStack& stack, const clang::QualType qtype, std::optional<clang::TypeLoc> maybe_typeLoc = {}, int depth = 0) {
-		if (maybe_typeLoc.has_value()) {
-			assert(maybe_typeLoc.value().getType() == qtype);
-			auto tdtl = maybe_typeLoc.value().getAs<clang::TypedefTypeLoc>();
-			while (tdtl) {
-				/* It seems to be 'typedef'ed type. We're going to replace the "type location" with
-				the location of the definition in the typedef statement. */
-				auto TDND = tdtl.getTypedefNameDecl();
-				auto tsi = TDND->getTypeSourceInfo();
-				if (tsi) {
-					maybe_typeLoc = tsi->getTypeLoc();
-				}
-				tdtl = maybe_typeLoc.value().getAs<clang::TypedefTypeLoc>();
-			}
-		}
-
 		auto l_qtype = qtype;
 
 		bool is_function_type = false;
@@ -345,7 +351,7 @@ namespace convm1 {
 					if (PNQT) {
 						std::optional<clang::TypeLoc> new_maybe_typeLoc;
 						if (maybe_typeLoc.has_value()) {
-							auto ParenLoc = (*maybe_typeLoc).getAs<clang::ParenTypeLoc>();
+							auto ParenLoc = definition_TypeLoc(*maybe_typeLoc).getAs<clang::ParenTypeLoc>();
 							if (ParenLoc) {
 								new_maybe_typeLoc = ParenLoc.getInnerLoc();
 							}
@@ -365,7 +371,7 @@ namespace convm1 {
 					l_qtype = FNQT->getReturnType();
 
 					if (maybe_typeLoc.has_value()) {
-						auto FunLoc = (*maybe_typeLoc).getAs<clang::FunctionTypeLoc>();
+						auto FunLoc = definition_TypeLoc(*maybe_typeLoc).getAs<clang::FunctionTypeLoc>();
 						if (false && FunLoc) {
 							maybe_typeLoc = FunLoc.getReturnLoc();
 						}
@@ -443,7 +449,7 @@ namespace convm1 {
 
 				std::optional<clang::TypeLoc> new_maybe_typeLoc;
 				if (maybe_typeLoc.has_value()) {
-					auto ArrayLoc = (*maybe_typeLoc).getAs<clang::ArrayTypeLoc>();
+					auto ArrayLoc = definition_TypeLoc(*maybe_typeLoc).getAs<clang::ArrayTypeLoc>();
 					if (ArrayLoc) {
 						new_maybe_typeLoc = ArrayLoc.getElementLoc();
 					}
@@ -480,31 +486,18 @@ namespace convm1 {
 
 			std::optional<clang::TypeLoc> new_maybe_typeLoc;
 			if (maybe_typeLoc.has_value()) {
-				auto typeLoc = (*maybe_typeLoc);
+				auto typeLoc = definition_TypeLoc(*maybe_typeLoc);
 				IF_DEBUG(auto typeLocClass = typeLoc.getTypeLocClass();)
 				auto PointerLoc = typeLoc.getAs<clang::PointerTypeLoc>();
 				while (!PointerLoc) {
 					auto etl = typeLoc.getAs<clang::ElaboratedTypeLoc>();
 					auto qtl = typeLoc.getAs<clang::QualifiedTypeLoc>();
-					auto tdtl = typeLoc.getAs<clang::TypedefTypeLoc>();
 					if (etl) {
-						typeLoc = etl.getNamedTypeLoc();
+						typeLoc = definition_TypeLoc(etl.getNamedTypeLoc());
 						PointerLoc = typeLoc.getAs<clang::PointerTypeLoc>();
 					} else if (qtl) {
-						typeLoc = qtl.getUnqualifiedLoc();
+						typeLoc = definition_TypeLoc(qtl.getUnqualifiedLoc());
 						PointerLoc = typeLoc.getAs<clang::PointerTypeLoc>();
-					} else if (tdtl) {
-						/* This branch should be redundant (never taken) now. */
-						auto TDND = tdtl.getTypedefNameDecl();
-						auto tsi = TDND->getTypeSourceInfo();
-						if (tsi) {
-							typeLoc = tsi->getTypeLoc();
-							PointerLoc = typeLoc.getAs<clang::PointerTypeLoc>();
-							IF_DEBUG(std::string tl_qtype_str = tsi->getTypeLoc().getType().getAsString();)
-							int q = 5;
-						} else {
-							break;
-						}
 					} else {
 						break;
 					}
@@ -543,12 +536,12 @@ namespace convm1 {
 
 			std::optional<clang::TypeLoc> new_maybe_typeLoc;
 			if (maybe_typeLoc.has_value()) {
-				auto typeLoc = (*maybe_typeLoc);
+				auto typeLoc = definition_TypeLoc(*maybe_typeLoc);
 				auto ReferenceLoc = typeLoc.getAs<clang::ReferenceTypeLoc>();
 				while (!ReferenceLoc) {
 					auto etl = typeLoc.getAs<clang::ElaboratedTypeLoc>();
 					if (etl) {
-						typeLoc = etl.getNamedTypeLoc();
+						typeLoc = definition_TypeLoc(etl.getNamedTypeLoc());
 						ReferenceLoc = typeLoc.getAs<clang::ReferenceTypeLoc>();
 					} else {
 						break;
@@ -1792,6 +1785,7 @@ namespace convm1 {
 		}
 
 		COrderedRegionSet m_already_modified_regions;
+		std::unordered_set<decltype(std::declval<clang::TypeLoc>().getOpaqueData())> m_already_modified_typeLocs;
 	};
 
 	class CTUState : public CCommonTUState1 {
@@ -2300,21 +2294,30 @@ namespace convm1 {
 					bool needs_processing = false;
 					if (!(indirection_state_stack[i].m_maybe_source_range.has_value())) {
 						needs_processing = true;
-						indirection_state_stack[i].m_maybe_source_range = nice_source_range(typeLoc.getSourceRange(), Rewrite);
+						const auto l_SR = nice_source_range(typeLoc.getSourceRange(), Rewrite);
+						indirection_state_stack[i].m_maybe_source_range = l_SR;
+						const auto l_defintion_SR = nice_source_range(definition_TypeLoc(typeLoc).getSourceRange(), Rewrite);
+						if (!(l_SR == l_defintion_SR)) {
+							/* This type seems to be a typedef. So its definition is in a different location from
+							where it used (to declare a variable).*/
+							indirection_state_stack[i].m_maybe_typedef_definition_source_range = nice_source_range(definition_TypeLoc(typeLoc).getSourceRange(), Rewrite);
+						}
 					}
 					auto& SR = indirection_state_stack[i].m_maybe_source_range.value();
+					bool is_typedef = indirection_state_stack[i].m_maybe_typedef_definition_source_range.has_value();
+					auto& definition_SR = is_typedef ? indirection_state_stack[i].m_maybe_typedef_definition_source_range.value() : SR;
 
 					auto& maybe_lexical_suffix_SR = indirection_state_stack[i].m_maybe_suffix_source_range;
 					auto& maybe_prefix_SR = indirection_state_stack[i].m_maybe_prefix_source_range;
 
 					if (needs_processing && SR.isValid()) {
-						std::string old_text = Rewrite.getRewrittenText(SR);
+						std::string old_definition_text = Rewrite.getRewrittenText(definition_SR);
 
 						std::optional<clang::SourceLocation> maybe_name_SL;
 						if (indirection_state_stack.m_maybe_DD.has_value()) {
 							auto VD = dyn_cast<const clang::VarDecl>(indirection_state_stack.m_maybe_DD.value());
 							auto FD = dyn_cast<const clang::FieldDecl>(indirection_state_stack.m_maybe_DD.value());
-							if (VD || FD) {
+							if ((!is_typedef) && (VD || FD)) {
 								/* This declaration has a variable/field name. */
 								auto name_SL = VD ? VD->getLocation() : FD->getLocation();
 								auto name_SR1 = nice_source_range(clang::SourceRange{ name_SL, name_SL }, Rewrite);
@@ -2339,7 +2342,7 @@ namespace convm1 {
 											/* Here we truncate the source range of the type to exclude the variable/field
 											name and any enclosing parentheses. */
 											SR.setEnd(new_SLE);
-											old_text = Rewrite.getRewrittenText(SR);
+											old_definition_text = Rewrite.getRewrittenText(SR);
 										} else {
 											int q = 3;
 										}
@@ -2381,7 +2384,7 @@ namespace convm1 {
 											/* Here we truncate the source range of the type to exclude the variable/field
 											name. */
 											SR.setEnd(new_SLE);
-											old_text = Rewrite.getRewrittenText(SR);
+											old_definition_text = Rewrite.getRewrittenText(SR);
 										} else {
 											int q = 3;
 										}
@@ -2416,17 +2419,17 @@ namespace convm1 {
 									arguments. */
 									/* super hack: We'll just search for the last closing parenthesis (if any)
 									and assume it is the closing parentheses of the macro arguments. */
-									auto close_paranthesis_pos = old_text.find_last_of(')');
+									auto close_paranthesis_pos = old_definition_text.find_last_of(')');
 									if (std::string::npos != close_paranthesis_pos) {
-										auto new_pointee_SLE = SR.getBegin().getLocWithOffset(close_paranthesis_pos);
+										auto new_pointee_SLE = definition_SR.getBegin().getLocWithOffset(close_paranthesis_pos);
 										if (pointee_SR.getEnd() < new_pointee_SLE) {
 											pointee_SR.setEnd(new_pointee_SLE);
 											old_pointee_text = Rewrite.getRewrittenText(pointee_SR);
 										}
 									}
 								}
-								if (SR.getEnd() < pointee_SR.getEnd()) {
-									pointee_SR.setEnd(SR.getEnd());
+								if (definition_SR.getEnd() < pointee_SR.getEnd()) {
+									pointee_SR.setEnd(definition_SR.getEnd());
 									old_pointee_text = Rewrite.getRewrittenText(pointee_SR);
 									int q = 5;
 								}
@@ -2443,18 +2446,20 @@ namespace convm1 {
 							auto& cq_pointee_SR = pointee_maybe_stored_source_range_including_any_const_qualifier.value();
 
 							if (pointee_including_any_const_qualifier_needs_processing) {
+								auto pointee_SR = cq_pointee_SR;
 								cq_pointee_SR = extended_to_include_west_const_if_any(Rewrite, cq_pointee_SR);
 								old_pointee_text = Rewrite.getRewrittenText(cq_pointee_SR);
-								if (cq_pointee_SR.getBegin() < SR.getBegin()) {
-									SR.setBegin(cq_pointee_SR.getBegin());
-									old_text = Rewrite.getRewrittenText(SR);
+								if (cq_pointee_SR.getBegin() < definition_SR.getBegin()) {
+									definition_SR.setBegin(cq_pointee_SR.getBegin());
+									old_definition_text = Rewrite.getRewrittenText(definition_SR);
+									int q = 5;
 								}
 							}
 
 							auto arrayTypeLoc = typeLoc.getAsAdjusted<clang::ArrayTypeLoc>();
 							if (arrayTypeLoc) {
-								bool SR_end_adjusted = false;
-								if (indirection_state_stack.m_maybe_DD.has_value()) {
+								bool definition_SR_end_adjusted = false;
+								if ((!is_typedef) && indirection_state_stack.m_maybe_DD.has_value()) {
 									auto VD = dyn_cast<const clang::VarDecl>(indirection_state_stack.m_maybe_DD.value());
 									auto FD = dyn_cast<const clang::FieldDecl>(indirection_state_stack.m_maybe_DD.value());
 									if (VD || FD) {
@@ -2468,20 +2473,20 @@ namespace convm1 {
 											handle it very well. */
 											new_SLE = name_SL.getLocWithOffset(-2);
 										}
-										if (!(new_SLE < SR.getBegin())) {
-											SR.setEnd(new_SLE);
-											SR_end_adjusted = true;
+										if (!(new_SLE < definition_SR.getBegin())) {
+											definition_SR.setEnd(new_SLE);
+											definition_SR_end_adjusted = true;
 										} else {
 											int q = 3;
 										}
 									}
 								}
-								if (!SR_end_adjusted) {
+								if (!definition_SR_end_adjusted) {
 									auto brackets_SR = nice_source_range(arrayTypeLoc.getBracketsRange(), Rewrite);
 									if (brackets_SR.isValid()) {
 										auto new_SLE = brackets_SR.getBegin().getLocWithOffset(-1);
-										if (!(new_SLE < SR.getBegin())) {
-											SR.setEnd(new_SLE);
+										if (!(new_SLE < definition_SR.getBegin())) {
+											definition_SR.setEnd(new_SLE);
 										} else {
 											int q = 3;
 										}
@@ -2489,12 +2494,12 @@ namespace convm1 {
 								}
 							}
 
-							int lexical_end_offset1 = int(old_text.length()) - 1;
+							int lexical_end_offset1 = int(old_definition_text.length()) - 1;
 							if (0 > lexical_end_offset1) {
 								lexical_end_offset1 = 0;
 							}
-							clang::SourceRange lexical_SR { SR.getBegin(), SR.getBegin().getLocWithOffset(lexical_end_offset1) };
-							std::string old_text2 = Rewrite.getRewrittenText(lexical_SR);
+							clang::SourceRange lexical_SR { definition_SR.getBegin(), definition_SR.getBegin().getLocWithOffset(lexical_end_offset1) };
+							std::string old_definition_text2 = Rewrite.getRewrittenText(lexical_SR);
 
 							int lexical_pointee_end_offset1 = int(old_pointee_text.length()) - 1;
 							if (0 > lexical_pointee_end_offset1) {
@@ -2521,7 +2526,7 @@ namespace convm1 {
 								maybe_lexical_suffix_SR = lexical_suffix_SR;
 							}
 
-							clang::SourceRange prefix_SR { SR.getBegin(), cq_pointee_SR.getBegin().getLocWithOffset(-1) };
+							clang::SourceRange prefix_SR { definition_SR.getBegin(), cq_pointee_SR.getBegin().getLocWithOffset(-1) };
 							if (prefix_SR.isValid() && (!(prefix_SR.getEnd() < prefix_SR.getBegin()))) {
 								maybe_prefix_SR = prefix_SR;
 							}
@@ -2529,10 +2534,9 @@ namespace convm1 {
 						if (!is_last_indirection) {
 							int q = 5;
 						}
-
 					}
 
-					if (SR.isValid()) {
+					if (definition_SR.isValid()) {
 
 						if ("native array" == indirection_state_stack[i].current_species()) {
 							/* Currently, in the transformation of native array declarations, we blank out
@@ -2664,7 +2668,7 @@ namespace convm1 {
 						}
 					}
 
-					if (SR.isValid()) {
+					if (definition_SR.isValid()) {
 						if (state1_ptr) {
 							auto& state1 = *state1_ptr;
 							suffix_str = indirection_state_stack[i].m_params_current_str + suffix_str;
@@ -2674,7 +2678,7 @@ namespace convm1 {
 									//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, maybe_lexical_suffix_SR.value(), suffix_str);
 									indirection_state_stack[i].m_suffix_SR_or_insert_before_point = maybe_lexical_suffix_SR.value();
 								} else {
-									indirection_state_stack[i].m_suffix_SR_or_insert_before_point = SR.getEnd().getLocWithOffset(+1);
+									indirection_state_stack[i].m_suffix_SR_or_insert_before_point = definition_SR.getEnd().getLocWithOffset(+1);
 								}
 
 								indirection_state_stack[i].m_prefix_str = prefix_str;
@@ -2682,7 +2686,7 @@ namespace convm1 {
 									//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, maybe_prefix_SR.value(), prefix_str);
 									indirection_state_stack[i].m_prefix_SR_or_insert_before_point = maybe_prefix_SR.value();
 								} else {
-									indirection_state_stack[i].m_prefix_SR_or_insert_before_point = SR.getBegin();
+									indirection_state_stack[i].m_prefix_SR_or_insert_before_point = definition_SR.getBegin();
 								}
 
 								auto arrayTypeLoc = typeLoc.getAsAdjusted<clang::ArrayTypeLoc>();
@@ -10418,6 +10422,25 @@ namespace convm1 {
 					for (int j = 0; j < int(indirection_state_stack.size()); j+=1) {
 						int i = indirection_state_stack.size() - 1 - j;
 
+						if (indirection_state_stack[i].m_maybe_typeLoc.has_value()) {
+							const auto definition_typeLoc = definition_TypeLoc(indirection_state_stack[i].m_maybe_typeLoc.value());
+
+							auto definition_SR = nice_source_range(definition_typeLoc.getSourceRange(), Rewrite);
+							DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
+
+							auto& already_modified_typeLocs = m_tu_state.m_pending_code_modification_actions.m_already_modified_typeLocs;
+							const auto it = already_modified_typeLocs.find(definition_typeLoc.getOpaqueData());
+							if (it != already_modified_typeLocs.end()) {
+								/* This type definition at this location has already been modified. Since we don't (currently),
+								in general, support overwriting previously applied modifications, we're going to veto this
+								modification. */
+								continue;
+							} else {
+								already_modified_typeLocs.insert(definition_typeLoc.getOpaqueData());
+							}
+						}
+
+						bool suffix_mod_vetoed = false;
 						{
 							auto suffix_SR_ptr = std::get_if<clang::SourceRange>(&(indirection_state_stack[i].m_suffix_SR_or_insert_before_point));
 							auto insert_before_point_ptr = std::get_if<clang::SourceLocation>(&(indirection_state_stack[i].m_suffix_SR_or_insert_before_point));
@@ -10428,6 +10451,8 @@ namespace convm1 {
 									TheRewriter.ReplaceText(*suffix_SR_ptr, indirection_state_stack[i].m_suffix_str);
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 									m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(*suffix_SR_ptr);
+								} else {
+									suffix_mod_vetoed = true;
 								}
 							} else if (insert_before_point_ptr) {
 								const auto& insert_after_point = (*insert_before_point_ptr).getLocWithOffset(-1);
@@ -10436,11 +10461,14 @@ namespace convm1 {
 								if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.contains({ insert_after_point, *insert_before_point_ptr })) {
 										TheRewriter.InsertTextAfterToken((*insert_before_point_ptr).getLocWithOffset(-1)
 											, indirection_state_stack[i].m_suffix_str);
+								} else {
+									suffix_mod_vetoed = true;
 								}
 							}
 						}
 
-						{
+						/* If the modification of the suffix was vetoed then don't attempt to the prefix modification. */
+						if (!suffix_mod_vetoed) {
 							auto prefix_SR_ptr = std::get_if<clang::SourceRange>(&(indirection_state_stack[i].m_prefix_SR_or_insert_before_point));
 							auto insert_before_point_ptr = std::get_if<clang::SourceLocation>(&(indirection_state_stack[i].m_prefix_SR_or_insert_before_point));
 							if (prefix_SR_ptr) {
@@ -10456,7 +10484,6 @@ namespace convm1 {
 								then this insertion point is no longer (reliably) valid. */
 								if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.contains({ insert_after_point, *insert_before_point_ptr })) {
 									TheRewriter.InsertTextBefore(*insert_before_point_ptr, indirection_state_stack[i].m_prefix_str);
-									DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 								}
 							}
 						}
