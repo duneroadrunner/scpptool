@@ -401,3 +401,22 @@ std::vector<const DeclaratorDecl*> IndividualDeclaratorDecls(const DeclaratorDec
 	return IndividualDeclaratorDecls(DD);
 }
 
+
+/* Determine if a given type is defined using a 'typedef'ed type of pointer type. */
+bool UsesPointerTypedef(clang::QualType qtype) {
+	IF_DEBUG(std::string qtype_str = qtype.getAsString());
+	if (qtype->isPointerType()) {
+		auto TDT = clang::dyn_cast<clang::TypedefType>(qtype.getTypePtr());
+		if (TDT) {
+			return true;
+		} else {
+			return UsesPointerTypedef(qtype->getPointeeType());
+		}
+	} else if (qtype->isArrayType()) {
+		if (llvm::isa<const clang::ArrayType>(qtype.getTypePtr())) {
+			auto ATP = llvm::cast<const clang::ArrayType>(qtype.getTypePtr());
+			return UsesPointerTypedef(ATP->getElementType());
+		}
+	}
+	return false;
+}

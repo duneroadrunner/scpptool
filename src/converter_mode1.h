@@ -3209,7 +3209,9 @@ namespace convm1 {
 			* one of them requires replacing all of them together. */
 			auto ddecls = IndividualDeclaratorDecls(DD, Rewrite);
 			if ((1 <= ddecls.size())/* && (ddecls.back() == DD)*/) {
-				if (2 <= ddecls.size()) {
+				if ((2 <= ddecls.size()) || UsesPointerTypedef(DD->getType())) {
+					/* Instead of modifying the existing declaration(s), here we're completely
+					replacing (overwriting) them. */
 					static const std::string semicolon_space_str = "; ";
 					std::vector<std::string> action_species_list;
 					for (const auto& ddecl_cref : ddecls) {
@@ -10562,10 +10564,14 @@ namespace convm1 {
 						}
 
 						if (!(fii_ref.m_legacyhelpers_include_directive_found)) {
-							if (fii_ref.m_first_include_directive_loc_is_valid) {
+							if (false/* While it might be aesthetically nicer to put our include directive
+								together with the(first) ones already present, it is sometimes not correct. */
+								&& fii_ref.m_first_include_directive_loc_is_valid) {
 								TheRewriter.InsertTextBefore(fii_ref.m_first_include_directive_loc,
 										"\n#include \"mselegacyhelpers.h\"\n");
-							} else if (fii_ref.m_first_macro_directive_ptr_is_valid) {
+							} else if (false/* In auto-generated headers, the first directive might not
+								be an include guard. */
+								&& fii_ref.m_first_macro_directive_ptr_is_valid) {
 								TheRewriter.InsertTextAfterToken(fii_ref.m_first_macro_directive_ptr->getLocation(),
 										"\n#include \"mselegacyhelpers.h\"\n");
 							} else if (fii_ref.m_beginning_of_file_loc_is_valid) {

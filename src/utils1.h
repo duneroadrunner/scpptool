@@ -87,6 +87,9 @@ bool string_ends_with(const std::string_view s1, const std::string_view suffix);
 std::vector<const clang::DeclaratorDecl*> IndividualDeclaratorDecls(const clang::DeclaratorDecl* DD);
 std::vector<const clang::DeclaratorDecl*> IndividualDeclaratorDecls(const clang::DeclaratorDecl* DD, clang::Rewriter &Rewrite);
 
+/* Determine if a given type is defined using a 'typedef'ed type of pointer type. */
+bool UsesPointerTypedef(clang::QualType qtype);
+
 
 class COrderedSourceRange : public clang::SourceRange {
 	public:
