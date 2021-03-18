@@ -3161,7 +3161,7 @@ namespace convm1 {
 			const clang::FunctionDecl* FND = dyn_cast<const clang::FunctionDecl>(DD);
 			if (FND) {
 				auto name_str = FND->getNameAsString();
-				auto return_type_source_range = nice_source_range(FND->getReturnTypeSourceRange(), Rewrite);
+				auto return_type_source_range = write_once_source_range(nice_source_range(FND->getReturnTypeSourceRange(), Rewrite));
 				if (!(return_type_source_range.isValid())) {
 					return;
 				}
