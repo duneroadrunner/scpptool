@@ -1963,12 +1963,12 @@ namespace convm1 {
 #ifndef NDEBUG
 		if (indirection_state_stack.m_maybe_DD.has_value()) {
 			auto& SM = Rewrite.getSourceMgr();
-			auto SR = indirection_state_stack.m_maybe_DD.value()->getSourceRange();
+			auto SR = nice_source_range(indirection_state_stack.m_maybe_DD.value()->getSourceRange(), Rewrite);
 			IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find(":427:")) {
+			if (std::string::npos != debug_source_location_str.find(":1589:")) {
 				int q = 5;
 			}
 		}
@@ -2307,6 +2307,19 @@ namespace convm1 {
 					bool is_typedef = indirection_state_stack[i].m_maybe_typedef_definition_source_range.has_value();
 					auto& definition_SR = is_typedef ? indirection_state_stack[i].m_maybe_typedef_definition_source_range.value() : SR;
 
+#ifndef NDEBUG
+					if (definition_SR.isValid()) {
+						auto& SM = Rewrite.getSourceMgr();
+						IF_DEBUG(std::string debug_source_location_str = definition_SR.getBegin().printToString(SM);)
+
+						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
+
+						if (std::string::npos != debug_source_location_str.find(":1589:")) {
+							int q = 5;
+						}
+					}
+#endif /*!NDEBUG*/
+
 					auto& maybe_lexical_suffix_SR = indirection_state_stack[i].m_maybe_suffix_source_range;
 					auto& maybe_prefix_SR = indirection_state_stack[i].m_maybe_prefix_source_range;
 
@@ -2347,7 +2360,7 @@ namespace convm1 {
 											int q = 3;
 										}
 										if (0 == i) {
-											if (ConvertToSCPP) {
+											if (ConvertToSCPP && state1_ptr) {
 												/* This is the last "indirection" to be processed. Now we're going
 												to "blank out"/erase any parentheses and contained items ((pointer)
 												asterisks, bracketed array size expressions, const qualifiers, etc)
@@ -2622,7 +2635,7 @@ namespace convm1 {
 											pointee_params_current_str = parens_text;
 											//pointee_params_current_str = "[params placeholder]";
 
-											if (ConvertToSCPP) {
+											if (ConvertToSCPP && state1_ptr) {
 												/* We've stored the function parameters as a string. Now we're going
 												to "blank out"/erase the original source text of the parameters. */
 												auto SL2 = parens_SR.getBegin();
@@ -3108,13 +3121,13 @@ namespace convm1 {
 			return void();
 		}
 
+		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":427:")) {
+		if (std::string::npos != debug_source_location_str.find(":1589:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
-
-		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 		auto ISR = instantiation_source_range(DD->getSourceRange(), Rewrite);
 		auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
@@ -7407,7 +7420,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":5061:")) {
+				if (std::string::npos != debug_source_location_str.find(":60:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10353,14 +10366,12 @@ namespace convm1 {
 					auto SR = nice_source_range(ddcs_ref.m_ddecl_cptr->getSourceRange(), Rewrite);
 
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
-
+					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find(":427:")) {
+					if (std::string::npos != debug_source_location_str.find(":1589:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
-
-					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 					auto maybe_direct_qtype_SR = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_maybe_source_range_including_any_const_qualifier;
 					if (false && !maybe_direct_qtype_SR) {
@@ -10379,18 +10390,24 @@ namespace convm1 {
 					if (maybe_direct_qtype_SR.has_value()) {
 						auto direct_qtype_SR = maybe_direct_qtype_SR.value();
 
-						/* If a superset of the region that would be modified here has already been
-						modified then this region can no longer be (reliably) modified. */
-						if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.properly_contains(direct_qtype_SR)) {
-							if (ddcs_ref.direct_qtype_has_been_changed()
-								|| ("" != ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_current_params_str)) {
-
-								TheRewriter.ReplaceText(direct_qtype_SR
-									, ddcs_ref.current_direct_qtype_str()/* + ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_current_params_str*/);
-								m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(direct_qtype_SR);
-							}
-						} else {
+						if (direct_qtype_SR.getEnd() < SR.getBegin()) {
+							/* If the direct type is not located within the declaration then we'll leave it
+							alone (for now at least). It might a definition used in multiple places (like a
+							typedef). In such cases our strategy is generally to remove the dependency on
+							the comunal definition (by re-expressing the definition explicitly where it's
+							used), as it could otherwise result in multiple possibly conflicting
+							modifications being applied to the comunal definition. */
 							int q = 5;
+						} else if (m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.properly_contains(direct_qtype_SR)) {
+							/* If a superset of the region that would be modified here has already been
+							modified then this region can no longer be (reliably) modified. */
+							int q = 5;
+						} else if (ddcs_ref.direct_qtype_has_been_changed()
+							|| ("" != ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_current_params_str)) {
+
+							TheRewriter.ReplaceText(direct_qtype_SR
+								, ddcs_ref.current_direct_qtype_str()/* + ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_current_params_str*/);
+							m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(direct_qtype_SR);
 						}
 					}
 					{
@@ -10428,7 +10445,14 @@ namespace convm1 {
 							const auto definition_typeLoc = definition_TypeLoc(indirection_state_stack[i].m_maybe_typeLoc.value());
 
 							auto definition_SR = nice_source_range(definition_typeLoc.getSourceRange(), Rewrite);
+
+							IF_DEBUG(std::string debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
+#ifndef NDEBUG
+							if (std::string::npos != debug_source_location_str.find(":1589:")) {
+								int q = 5;
+							}
+#endif /*!NDEBUG*/
 
 							auto& already_modified_typeLocs = m_tu_state.m_pending_code_modification_actions.m_already_modified_typeLocs;
 							const auto it = already_modified_typeLocs.find(definition_typeLoc.getOpaqueData());
@@ -10450,8 +10474,16 @@ namespace convm1 {
 								/* If a superset of the region that would be modified here has already been
 								modified then this region can no longer be (reliably) modified. */
 								if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.properly_contains(*suffix_SR_ptr)) {
+									IF_DEBUG(std::string debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
+									DEBUG_SOURCE_TEXT_STR(debug_source_text, *suffix_SR_ptr, Rewrite);
+#ifndef NDEBUG
+									if (std::string::npos != debug_source_location_str.find(":1589:")) {
+										int q = 5;
+									}
+#endif /*!NDEBUG*/
+
 									TheRewriter.ReplaceText(*suffix_SR_ptr, indirection_state_stack[i].m_suffix_str);
-									DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
 									m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(*suffix_SR_ptr);
 								} else {
 									suffix_mod_vetoed = true;
@@ -10477,6 +10509,14 @@ namespace convm1 {
 								/* If a superset of the region that would be modified here has already been
 								modified then this region can no longer be (reliably) modified. */
 								if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.properly_contains(*prefix_SR_ptr)) {
+									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
+									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
+#ifndef NDEBUG
+									if (std::string::npos != debug_source_location_str.find(":1589:")) {
+										int q = 5;
+									}
+#endif /*!NDEBUG*/
+
 									TheRewriter.ReplaceText(*prefix_SR_ptr, indirection_state_stack[i].m_prefix_str);
 									m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(*prefix_SR_ptr);
 								}

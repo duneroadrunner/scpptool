@@ -173,7 +173,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 #define DEBUG_SET_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, MatchResult1) \
 				if (SourceRange1.isValid()) { source_location_str1 = SourceRange1.getBegin().printToString(*MatchResult1.SourceManager); }
 #define DEBUG_SET_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1) \
-				if (SourceRange1.isValid() && ((SourceRange1.getBegin() < SourceRange1.getEnd()) || (SourceRange1.getBegin() == SourceRange1.getEnd()))) { source_text1 = Rewrite1.getRewrittenText(SourceRange1); }
+				if ((SourceRange1).isValid() && (((SourceRange1).getBegin() < (SourceRange1).getEnd()) || ((SourceRange1).getBegin() == (SourceRange1).getEnd()))) { source_text1 = Rewrite1.getRewrittenText(SourceRange1); }
 #define IF_DEBUG(x) x
 #else /*!NDEBUG*/
 #define DEBUG_SET_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, MatchResult1) ;
