@@ -2939,6 +2939,28 @@ namespace convm1 {
 		}
 
 		bool changed_from_original = false;
+
+		{
+			/* hack alert */
+			static const std::string struct_space_str = "struct ";
+			if (string_begins_with(non_const_direct_qtype_str, struct_space_str)) {
+				/* Remove legacy C "struct" type specifer. Apparently C++ doesn't like it when it is
+				applied to C++ (i.e. non-C) struct types. */
+				non_const_direct_qtype_str = non_const_direct_qtype_str.substr(struct_space_str.size());
+				auto index = direct_qtype_str.find(struct_space_str);
+				if (std::string::npos == index) {
+					/* unexpected */
+					int q = 5;
+				} else {
+					direct_qtype_str.replace(index, struct_space_str.length(), "");
+					ddcs_ref.set_current_direct_qtype_str(direct_qtype_str);
+					changed_from_original = true;
+				}
+			}
+		}
+
+
+
 		std::string replacement_code;
 		std::string replacement_type_str;
 		std::string prefix_str;
