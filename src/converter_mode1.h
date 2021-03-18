@@ -1968,7 +1968,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find(":1589:")) {
+			if (std::string::npos != debug_source_location_str.find(":1186:")) {
 				int q = 5;
 			}
 		}
@@ -2314,7 +2314,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":1589:")) {
+						if (std::string::npos != debug_source_location_str.find(":1186:")) {
 							int q = 5;
 						}
 					}
@@ -2650,7 +2650,9 @@ namespace convm1 {
 												IF_DEBUG(std::string parens_text2 = Rewrite.getRewrittenText(parens_SR));
 											}
 										}
-										//suffix_str = pointee_params_current_str + suffix_str;
+										if (!is_last_indirection) {
+											suffix_str = pointee_params_current_str + suffix_str;
+										}
 									}
 								}
 							}
@@ -2959,8 +2961,6 @@ namespace convm1 {
 			}
 		}
 
-
-
 		std::string replacement_code;
 		std::string replacement_type_str;
 		std::string prefix_str;
@@ -3146,7 +3146,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":1589:")) {
+		if (std::string::npos != debug_source_location_str.find(":1186:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -10390,7 +10390,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find(":1589:")) {
+					if (std::string::npos != debug_source_location_str.find(":1186:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -10471,7 +10471,7 @@ namespace convm1 {
 							IF_DEBUG(std::string debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str.find(":1589:")) {
+							if (std::string::npos != debug_source_location_str.find(":1186:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -10499,7 +10499,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *suffix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":1589:")) {
+									if (std::string::npos != debug_source_location_str.find(":1186:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
@@ -10534,7 +10534,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":1589:")) {
+									if (std::string::npos != debug_source_location_str.find(":1186:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
