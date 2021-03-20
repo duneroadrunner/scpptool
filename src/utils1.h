@@ -1180,5 +1180,26 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		apply_to_component_types_if_any(ddecl.getTypeSourceInfo()->getTypeLoc(), lambda, args...);
 	}
 
+	template <typename DescendantT, typename NodeT>
+	inline auto Tget_descendant_of_type(const NodeT* NodePtr, clang::ASTContext& context) {
+		const DescendantT* retval = nullptr;
+		if (!NodePtr) {
+			return retval;
+		}
+		const auto children = NodePtr->children();
+		for (const auto& child : children) {
+			retval = clang::dyn_cast<const DescendantT>(child);
+			if (retval) {
+				return retval;
+			} else {
+				retval = Tget_descendant_of_type<DescendantT>(child, context);
+				if (retval) {
+					return retval;
+				}
+			}
+		}
+		return retval;
+	}
+
 
 #endif //__UTILS1_H
