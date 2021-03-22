@@ -1363,23 +1363,6 @@ namespace convm1 {
 		virtual ~CArray2ReplacementAction() {}
 	};
 
-	class CMemsetArray2ReplacementAction : public CArray2ReplacementAction {
-	public:
-		CMemsetArray2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
-				const CallExpr* CE, const std::string& ce_replacement_code) :
-					CArray2ReplacementAction(Rewrite, MR, ddecl_indirection), m_CE(CE), m_DD(ddecl_indirection.m_ddecl_cptr),
-					m_ce_replacement_code(ce_replacement_code) {}
-		virtual ~CMemsetArray2ReplacementAction() {}
-
-		virtual void do_replacement(CTUState& state1) const;
-
-		const CallExpr* m_CE = nullptr;
-		//const DeclRefExpr* m_DRE = nullptr;
-		//const MemberExpr* m_ME = nullptr;
-		const DeclaratorDecl* m_DD = nullptr;
-		std::string m_ce_replacement_code;
-	};
-
 	class CMemcpyArray2ReplacementAction : public CArray2ReplacementAction {
 	public:
 		CMemcpyArray2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
@@ -3999,28 +3982,6 @@ namespace convm1 {
 		}
 	}
 
-	void CMemsetArray2ReplacementAction::do_replacement(CTUState& state1) const {
-		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
-		const CallExpr* CE = m_CE;
-		const DeclaratorDecl* DD = m_DD;
-
-		if ((CE != nullptr) && (DD != nullptr))
-		{
-			auto CESR = nice_source_range(CE->getSourceRange(), Rewrite);
-
-			if (ConvertToSCPP && CESR.isValid()) {
-
-				update_declaration(*DD, Rewrite, state1);
-
-				state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, CESR, m_ce_replacement_code);
-				//auto res2 = Rewrite.ReplaceText(CESR, m_ce_replacement_code);
-			} else {
-				int q = 7;
-			}
-		}
-	}
-
 	void CMemcpyArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
 		const MatchFinder::MatchResult &MR = m_MR;
@@ -6564,127 +6525,26 @@ namespace convm1 {
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (3 == num_args)) {
-					{
-						std::string function_name = function_decl->getNameAsString();
-						static const std::string memset_str = "memset";
-						if (memset_str == function_name) {
-							auto iter1 = CE->arg_begin();
-							assert((*iter1)->getType().getTypePtrOrNull());
-							auto arg_source_range1 = nice_source_range((*iter1)->getSourceRange(), Rewrite);
+					std::string function_name = function_decl->getNameAsString();
+					static const std::string memset_str = "memset";
+					if (memset_str == function_name) {
+						auto callee_SR = write_once_source_range(nice_source_range(CE->getCallee()->getSourceRange(), Rewrite));
+						if (callee_SR.isValid()) {
+							IF_DEBUG(auto callee_text = Rewrite.getRewrittenText(callee_SR);)
 
-							auto iter2 = iter1;
-							iter2++;
-							assert((*iter2)->getType().getTypePtrOrNull());
-							auto arg_source_range2 = nice_source_range((*iter2)->getSourceRange(), Rewrite);
-
-							auto iter3 = iter2;
-							iter3++;
-							assert((*iter3)->getType().getTypePtrOrNull());
-							auto arg_source_range3 = nice_source_range((*iter3)->getSourceRange(), Rewrite);
-
-							std::string arg_source_text1;
-							std::string arg_source_text2;
-							std::string arg_source_text3;
-							if (arg_source_range1.isValid() && arg_source_range2.isValid() && arg_source_range3.isValid()) {
-								arg_source_text1 = Rewrite.getRewrittenText(arg_source_range1);
-								arg_source_text2 = Rewrite.getRewrittenText(arg_source_range2);
-								arg_source_text3 = Rewrite.getRewrittenText(arg_source_range3);
-								QualType QT;
-								std::string element_type_str;
-								clang::SourceRange decl_source_range;
-								std::string variable_name;
-								std::string ce_replacement_code;
-								const clang::DeclaratorDecl* DD = nullptr;
-
-								auto decl = DRE->getDecl();
-								DD = dyn_cast<const DeclaratorDecl>(decl);
-								auto VD = dyn_cast<const VarDecl>(decl);
-
-								const clang::FieldDecl* FD = nullptr;
-								if (nullptr != ME) {
-									auto member_decl = ME->getMemberDecl();
-									FD = dyn_cast<const clang::FieldDecl>(ME->getMemberDecl());
-								}
-								if (nullptr != FD) {
-									DD = FD;
-								} else if (nullptr != VD) {
-									DD = VD;
-								} else {
-									int q = 7;
-								}
-
-								if (nullptr != DD) {
-									auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
-									if (!decl_source_range.isValid()) {
-										return;
-									}
-									DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, MR);
-									DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
-
-									QT = DD->getType();
-									auto qtype_str = QT.getAsString();
-									variable_name = DD->getNameAsString();
-
-									auto qualified_name = DD->getQualifiedNameAsString();
-									static const std::string mse_namespace_str1 = "mse::";
-									static const std::string mse_namespace_str2 = "::mse::";
-									if ((0 == qualified_name.compare(0, mse_namespace_str1.size(), mse_namespace_str1))
-											|| (0 == qualified_name.compare(0, mse_namespace_str2.size(), mse_namespace_str2))) {
-										return;
-									}
-
-									auto res2 = infer_array_type_info_from_stmt(*(*(CE->arg_begin())), "memset/cpy target", state1, DD);
-
-									if (res2.update_declaration_flag) {
-										update_declaration(*DD, Rewrite, state1);
-									}
-
-									const clang::Type* arg1_TP = QT.getTypePtr();
-									auto arg1_type_str = QT.getAsString();
-
-									std::string arg1_element_type_str;
-									if (llvm::isa<const clang::ArrayType>(arg1_TP)) {
-										auto ATP = llvm::cast<const clang::ArrayType>(arg1_TP);
-										assert(nullptr != ATP);
-										auto element_type = ATP->getElementType();
-										auto type_str = element_type.getAsString();
-										if (("char" != type_str) && ("const char" != type_str)) {
-											arg1_element_type_str = type_str;
-										}
-									} else if (arg1_TP->isPointerType()) {
-										auto target_type = arg1_TP->getPointeeType();
-										auto type_str = target_type.getAsString();
-										if (("char" != type_str) && ("const char" != type_str)) {
-											arg1_element_type_str = type_str;
-										}
-									}
-									if ("" != arg1_element_type_str) {
-										if ("Dual" == ConvertMode) {
-											ce_replacement_code = "MSE_LH_MEMSET(" + arg_source_text1 + ", " + arg_source_text2 + ", " + arg_source_text3 + ")";
-										} else if ("FasterAndStricter" == ConvertMode) {
-											ce_replacement_code = "mse::lh::memset(" + arg_source_text1 + ", " + arg_source_text2 + ", " + arg_source_text3 + ")";
-										} else {
-											ce_replacement_code = "mse::lh::memset(" + arg_source_text1 + ", " + arg_source_text2 + ", " + arg_source_text3 + ")";
-										}
-
-										if (ConvertToSCPP && decl_source_range.isValid() && (SR.isValid())
-												&& (nullptr != res2.ddecl_conversion_state_ptr)) {
-											auto cr_shptr = std::make_shared<CMemsetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), CE, ce_replacement_code);
-
-											if (true || (*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(res2.indirection_level)) {
-												(*cr_shptr).do_replacement(state1);
-											} else {
-												state1.m_array2_contingent_replacement_map.insert(cr_shptr);
-											}
-										} else {
-											int q = 7;
-										}
-									}
-								}
-								int q = 5;
+							std::string callee_replacement_code;
+							if ("Dual" == ConvertMode) {
+								callee_replacement_code = "MSE_LH_MEMSET";
+							} else if ("FasterAndStricter" == ConvertMode) {
+								callee_replacement_code = "mse::lh::memset";
 							} else {
-								int q = 5;
+								callee_replacement_code = "mse::lh::memset";
 							}
+
+							if (ConvertToSCPP) {
+								state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, callee_SR, callee_replacement_code);
+							}
+						} else {
 							int q = 5;
 						}
 					}
@@ -6719,22 +6579,20 @@ namespace convm1 {
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (3 == num_args)) {
-					{
-						std::string function_name = function_decl->getNameAsString();
-						static const std::string memset_str = "memset";
-						if (memset_str == function_name) {
-							if (ConvertToSCPP && SR.isValid()) {
+					std::string function_name = function_decl->getNameAsString();
+					static const std::string memset_str = "memset";
+					if (memset_str == function_name) {
+						if (ConvertToSCPP && SR.isValid()) {
 
-								auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
-								/* This modification needs to be queued so that it will be executed after any other
-								modifications that might affect the relevant part of the source text. */
-								(*this).m_state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
-							} else {
-								int q = 7;
-							}
+							auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
+							/* This modification needs to be queued so that it will be executed after any other
+							modifications that might affect the relevant part of the source text.
+							(Update: This is probably no longer necessary since we no longer modify the arguments.) */
+							(*this).m_state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
+						} else {
+							int q = 7;
 						}
 					}
-
 				}
 			}
 		}
@@ -6782,143 +6640,26 @@ namespace convm1 {
 					static const std::string memcmp_str = "memcmp";
 					bool memcmp_flag = (!memcpy_flag) && (memcmp_str == function_name);
 					if (memcpy_flag || memcmp_flag) {
-						auto iter1 = CE->arg_begin();
-						assert((*iter1)->getType().getTypePtrOrNull());
-						auto arg_source_range1 = nice_source_range((*iter1)->getSourceRange(), Rewrite);
 
-						auto iter2 = iter1;
-						iter2++;
-						assert((*iter2)->getType().getTypePtrOrNull());
-						auto arg_source_range2 = nice_source_range((*iter2)->getSourceRange(), Rewrite);
+						auto callee_SR = write_once_source_range(nice_source_range(CE->getCallee()->getSourceRange(), Rewrite));
+						if (callee_SR.isValid()) {
+							IF_DEBUG(auto callee_text = Rewrite.getRewrittenText(callee_SR);)
 
-						auto iter3 = iter2;
-						iter3++;
-						assert((*iter3)->getType().getTypePtrOrNull());
-						auto arg_source_range3 = nice_source_range((*iter3)->getSourceRange(), Rewrite);
-
-						std::string arg_source_text1;
-						std::string arg_source_text2;
-						std::string arg_source_text3;
-						if (arg_source_range1.isValid() && arg_source_range2.isValid() && arg_source_range3.isValid()) {
-							arg_source_text1 = Rewrite.getRewrittenText(arg_source_range1);
-							arg_source_text2 = Rewrite.getRewrittenText(arg_source_range2);
-							arg_source_text3 = Rewrite.getRewrittenText(arg_source_range3);
-
-							QualType QT;
-							clang::SourceRange decl_source_range;
-							std::string variable_name;
-							const clang::DeclaratorDecl* DD = nullptr;
-							CArrayInferenceInfo res2;
-
-							auto decl = DRE->getDecl();
-							DD = dyn_cast<const DeclaratorDecl>(decl);
-							auto VD = dyn_cast<const VarDecl>(decl);
-
-							const clang::FieldDecl* FD = nullptr;
-							if (nullptr != ME) {
-								auto member_decl = ME->getMemberDecl();
-								FD = dyn_cast<const clang::FieldDecl>(ME->getMemberDecl());
-							}
-							if (nullptr != FD) {
-								DD = FD;
-							} else if (nullptr != VD) {
-								DD = VD;
+							std::string callee_replacement_code;
+							if ("Dual" == ConvertMode) {
+								callee_replacement_code = memcpy_flag ? "MSE_LH_MEMCPY" : "MSE_LH_MEMCMP";
+							} else if ("FasterAndStricter" == ConvertMode) {
+								callee_replacement_code = memcpy_flag ? "mse::lh::memcpy" : "mse::lh::memcmp";
 							} else {
-								int q = 7;
+								callee_replacement_code = memcpy_flag ? "mse::lh::memcpy" : "mse::lh::memcmp";
 							}
 
-							if (nullptr != DD) {
-								decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
-								auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
-								std::string decl_source_text;
-								if (decl_source_range.isValid()) {
-									IF_DEBUG(decl_source_text = Rewrite.getRewrittenText(decl_source_range);)
-								} else {
-									return;
-								}
-								QT = DD->getType();
-								auto qtype_str = QT.getAsString();
-								variable_name = DD->getNameAsString();
-
-								auto qualified_name = DD->getQualifiedNameAsString();
-								static const std::string mse_namespace_str1 = "mse::";
-								static const std::string mse_namespace_str2 = "::mse::";
-								if ((0 == qualified_name.compare(0, mse_namespace_str1.size(), mse_namespace_str1))
-										|| (0 == qualified_name.compare(0, mse_namespace_str2.size(), mse_namespace_str2))) {
-									return;
-								}
-
-								res2 = infer_array_type_info_from_stmt(*(*(CE->arg_begin())), "memset/cpy target", state1, DD);
-
-								if (res2.update_declaration_flag) {
-									update_declaration(*DD, Rewrite, state1);
-								}
+							if (ConvertToSCPP) {
+								state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, callee_SR, callee_replacement_code);
 							}
-
-							clang::QualType arg1_QT = (*iter1)->getType();
-							if (nullptr != DD) {
-								arg1_QT = QT;
-							}
-							const clang::Type* arg1_TP = arg1_QT.getTypePtr();
-							auto arg1_type_str = arg1_QT.getAsString();
-
-							std::string arg1_element_type_str;
-							if (llvm::isa<const clang::ArrayType>(arg1_TP)) {
-								auto ATP = llvm::cast<const clang::ArrayType>(arg1_TP);
-								assert(nullptr != ATP);
-								auto element_type = ATP->getElementType();
-								auto type_str = element_type.getAsString();
-								if (("char" != type_str) && ("const char" != type_str)) {
-									arg1_element_type_str = type_str;
-								}
-							} else if (arg1_TP->isPointerType()) {
-								auto target_type = arg1_TP->getPointeeType();
-								auto type_str = target_type.getAsString();
-								if (("char" != type_str) && ("const char" != type_str)) {
-									arg1_element_type_str = type_str;
-								}
-							}
-							std::string ce_replacement_code;
-							if (("" != arg1_element_type_str) && ("void" != arg1_element_type_str) && ("const void" != arg1_element_type_str)) {
-								if (false && memcpy_flag) {
-									ce_replacement_code = "for (size_t i = 0; i < (" + arg_source_text3
-											+ ")/sizeof(" + arg1_element_type_str + "); i += 1) { ";
-									ce_replacement_code += "(" + arg_source_text1 + ")[i] = (" + arg_source_text2 + ")[i]; ";
-									ce_replacement_code += "}";
-								}
-
-								if ("Dual" == ConvertMode) {
-									ce_replacement_code = memcpy_flag ? "MSE_LH_MEMCPY(" : "MSE_LH_MEMCMP(";
-									ce_replacement_code += arg_source_text1 + ", " + arg_source_text2 + ", " + arg_source_text3 + ")";
-								} else if ("FasterAndStricter" == ConvertMode) {
-									ce_replacement_code = memcpy_flag ? "mse::lh::memcpy(" : "mse::lh::memcmp(";
-									ce_replacement_code += arg_source_text1 + ", " + arg_source_text2 + ", " + arg_source_text3 + ")";
-								} else {
-									ce_replacement_code = memcpy_flag ? "mse::lh::memcpy(" : "mse::lh::memcmp(";
-									ce_replacement_code += arg_source_text1 + ", " + arg_source_text2 + ", " + arg_source_text3 + ")";
-								}
-							}
-
-							if (ConvertToSCPP && (SR.isValid()) && ("" != ce_replacement_code)) {
-								auto cr_shptr = std::make_shared<CMemcpyArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), CE, ce_replacement_code);
-								if ((nullptr != res2.ddecl_conversion_state_ptr)) {
-									if (true || (*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(res2.indirection_level)) {
-										(*cr_shptr).do_replacement(state1);
-									} else {
-										state1.m_array2_contingent_replacement_map.insert(cr_shptr);
-									}
-								} else {
-									(*cr_shptr).do_replacement(state1);
-								}
-							} else {
-								int q = 7;
-							}
-
-							int q = 5;
 						} else {
 							int q = 5;
 						}
-						int q = 5;
 					}
 
 				}
@@ -6961,15 +6702,13 @@ namespace convm1 {
 
 							auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
 							/* This modification needs to be queued so that it will be executed after any other
-							modifications that might affect the relevant part of the source text. */
+							modifications that might affect the relevant part of the source text.
+							(Update: This is probably no longer necessary since we no longer modify the arguments.) */
 							(*this).m_state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
 						} else {
 							int q = 7;
 						}
-
-						int q = 5;
 					}
-
 				}
 			}
 		}
