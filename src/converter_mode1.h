@@ -8723,8 +8723,14 @@ namespace convm1 {
 
 											std::string initializer_info_str;
 											if (qtype.getTypePtr()->isEnumeralType()) {
-												initializer_info_str += qtype.getAsString();
-												initializer_info_str += "(0)/*auto-generated init val*/";
+												if ("Dual" == ConvertMode) {
+													initializer_info_str += "MSE_LH_CAST(";
+													initializer_info_str += qtype.getAsString();
+													initializer_info_str += ", 0)/*auto-generated init val*/";
+												} else {
+													initializer_info_str += qtype.getAsString();
+													initializer_info_str += "(0)/*auto-generated init val*/";
+												}
 											} else if (qtype.getTypePtr()->isPointerType()) {
 												if ("Dual" == ConvertMode) {
 													initializer_info_str += "MSE_LH_NULL_POINTER/*auto-generated init val*/";
@@ -10299,7 +10305,12 @@ namespace convm1 {
 							/* If a region that contains (both sides of) the insertion point has already been modified
 							then this insertion point is no longer (reliably) valid. */
 							if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.contains({ insert_after_point, *insert_before_point_ptr })) {
-								std::string initializer_str = " = " + ddecl_conversion_state.second.m_current_initialization_expr_str;
+								std::string initializer_str;
+								if ("Dual" == ConvertMode) {
+									initializer_str = " MSE_LH_IF_ENABLED( = " + ddecl_conversion_state.second.m_current_initialization_expr_str + " )";
+								} else {
+									initializer_str = " = " + ddecl_conversion_state.second.m_current_initialization_expr_str;
+								}
 								TheRewriter.InsertTextAfterToken(insert_after_point, initializer_str);
 							} else {
 								int q = 5;
