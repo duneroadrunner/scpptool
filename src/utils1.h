@@ -241,6 +241,25 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		return retval;
 	}
 
+	/* This function just returns the given clang::Expr if it is not an "Implicit" or "Paren(thesis)"
+	expression. Otherwise it returns the first ancestor that satisfies that criteria. */
+	inline auto NonParenImpCastThisOrParent(const clang::Expr* ptr, clang::ASTContext& Ctx) -> const clang::Expr* {
+		if (!ptr) { return ptr; }
+		while (ptr && (ptr->IgnoreImplicit()->IgnoreParenImpCasts() != ptr)) {
+			ptr = Tget_immediately_containing_element_of_type<clang::Expr>(ptr, Ctx);
+		}
+		return ptr;
+	}
+	/* This function just returns the given clang::Expr if it is not an "Implicit", "Paren(thesis)"
+	or "NoopCast" expression. Otherwise it returns the first ancestor that satisfies that criteria. */
+	inline auto NonParenNoopCastThisOrParent(const clang::Expr* ptr, clang::ASTContext& Ctx) -> const clang::Expr* {
+		if (!ptr) { return ptr; }
+		while (ptr && (IgnoreParenImpCasts(ptr)->IgnoreParenNoopCasts(Ctx) != ptr)) {
+			ptr = Tget_immediately_containing_element_of_type<clang::Expr>(ptr, Ctx);
+		}
+		return ptr;
+	}
+
 	template <typename ContainingElementT, typename NodeT>
 	inline auto Tget_containing_element_of_type(const NodeT* NodePtr, clang::ASTContext& context) {
 		const ContainingElementT* retval = nullptr;

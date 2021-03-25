@@ -1951,7 +1951,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find(":1186:")) {
+			if (std::string::npos != debug_source_location_str.find(":5737:")) {
 				int q = 5;
 			}
 		}
@@ -1997,7 +1997,6 @@ namespace convm1 {
 					l_changed_from_original = ("native pointer" != indirection_state_stack[i].original_species());
 				} else if (is_last_indirection && (direct_type_is_void_type)) {
 					is_void_star = true;
-					/* For the moment, we leave "void *" types alone. This may change at some point. */
 					l_changed_from_original = ("native pointer" != indirection_state_stack[i].original_species());
 				} else if (is_last_indirection && direct_type_is_function_type) {
 					is_function_pointer = true;
@@ -2170,8 +2169,14 @@ namespace convm1 {
 						suffix_str = "* ";
 						retval.m_action_species = "FILE*";
 					} else if (is_void_star) {
-						/* We'll just leave it as a void* for now. */
-						suffix_str = "* ";
+						l_changed_from_original = true;
+						prefix_str = "";
+						suffix_str = "";
+						if ("Dual" == ConvertMode) {
+							direct_type_state_ref.set_current_qtype_str("MSE_LH_VOID_STAR");
+						} else {
+							direct_type_state_ref.set_current_qtype_str("mse::lh::void_star_replacement");
+						}
 						retval.m_action_species = "void*";
 					} else if (is_function_pointer) {
 						l_changed_from_original = true;
@@ -2223,8 +2228,14 @@ namespace convm1 {
 						suffix_str = "* ";
 						retval.m_action_species = "FILE*";
 					} else if (is_void_star) {
-						/* We'll just leave it as a void* for now. */
-						suffix_str = "* ";
+						l_changed_from_original = true;
+						prefix_str = "";
+						suffix_str = "";
+						if ("Dual" == ConvertMode) {
+							direct_type_state_ref.set_current_qtype_str("MSE_LH_VOID_STAR");
+						} else {
+							direct_type_state_ref.set_current_qtype_str("mse::lh::void_star_replacement");
+						}
 						retval.m_action_species = "void*";
 					} else {
 						if (false) {
@@ -2297,7 +2308,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":1186:")) {
+						if (std::string::npos != debug_source_location_str.find(":5737:")) {
 							int q = 5;
 						}
 					}
@@ -2878,6 +2889,19 @@ namespace convm1 {
 		}
 		ddcs_ref.m_original_initialization_has_been_noted = true;
 
+		bool changed_from_original = false;
+		std::string replacement_code;
+		std::string replacement_type_str;
+		std::string prefix_str;
+		std::string suffix_str;
+		std::string post_name_suffix_str;
+
+		auto res4 = type_indirection_prefix_and_suffix_modifier(ddcs_ref.m_indirection_state_stack,
+				Rewrite, state1_ptr, is_a_function_parameter);
+
+		retval.m_action_species = res4.m_action_species;
+
+
 		const clang::Type* TP = QT.getTypePtr();
 		auto qtype_str = QT.getAsString();
 		auto direct_qtype_str = ddcs_ref.current_direct_qtype_str();
@@ -2923,8 +2947,6 @@ namespace convm1 {
 			ddcs_ref.m_original_source_text_has_been_noted = true;
 		}
 
-		bool changed_from_original = false;
-
 		{
 			/* hack alert */
 			static const std::string struct_space_str = "struct ";
@@ -2943,17 +2965,6 @@ namespace convm1 {
 				}
 			}
 		}
-
-		std::string replacement_code;
-		std::string replacement_type_str;
-		std::string prefix_str;
-		std::string suffix_str;
-		std::string post_name_suffix_str;
-
-		auto res4 = type_indirection_prefix_and_suffix_modifier(ddcs_ref.m_indirection_state_stack,
-				Rewrite, state1_ptr, is_a_function_parameter);
-
-		retval.m_action_species = res4.m_action_species;
 
 		if (res4.m_direct_type_must_be_non_const) {
 			direct_qtype_str = non_const_direct_qtype_str;
@@ -3129,7 +3140,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":1186:")) {
+		if (std::string::npos != debug_source_location_str.find(":5737:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5235,13 +5246,13 @@ namespace convm1 {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":5076:")) {
+				if (std::string::npos != debug_source_location_str.find(":5737:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
-
-				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto ISR = instantiation_source_range(DRE->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
@@ -5307,6 +5318,7 @@ namespace convm1 {
 
 	/**********************************************************************************************************************/
 
+	/* This matcher replaces various legacy versions of nullptr (i.e. NULL, 0) with nullptr. */
 	class MCSSSNullToPointer : public MatchFinder::MatchCallback
 	{
 	public:
@@ -5319,6 +5331,15 @@ namespace convm1 {
 
 			if ((E != nullptr))
 			{
+				const Expr* E2 = MR.Nodes.getNodeAs<clang::Expr>("b");
+				if (E2) {
+					auto qtype_str = E2->getType().getAsString();
+					if ("void *" == qtype_str) {
+						/* The expression seems to be (something like) "(void*)0". We'll replace the
+						whole expression (not just the "0" part). */
+						E = E2;
+					}
+				}
 				auto SR = nice_source_range(E->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
@@ -5327,7 +5348,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":889:")) {
+				if (std::string::npos != debug_source_location_str.find(":5354:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -6309,6 +6330,12 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(":5354:")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
 
 				auto ISR = instantiation_source_range(BO->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
@@ -9136,7 +9163,10 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":5076:")) {
+				if (std::string::npos != debug_source_location_str.find(":5737:")) {
+					int q = 5;
+				}
+				if (std::string::npos != debug_source_text.find("palette")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -9147,25 +9177,55 @@ namespace convm1 {
 					return;
 				}
 
-				auto CAO = dyn_cast<const clang::CompoundAssignOperator>(E);
-				if (CAO) {
-					/* "CompoundAssignOperator" is a class derived from BinaryOperator. BinaryOperators
-					are addressed by the "ast matchers" we set up, but they don't seem to match
-					CompoundAssignOperators, and an explicit matcher for CompoundAssignOperator doesn't
-					seem to be available, so here we're matching them manually. Btw, a "compound
-					assignment operator" would be something like "+=" or "-=". */
-					const auto opcode = CAO->getOpcode();
-					if ((clang::BinaryOperator::Opcode::BO_AddAssign == opcode)
-						|| (clang::BinaryOperator::Opcode::BO_SubAssign == opcode)) {
+				if (E->getType()->isPointerType()) {
+					auto& Ctx = *(MR.Context);
+					auto parent_E_ii = NonParenNoopCastThisOrParent(Tget_immediately_containing_element_of_type<clang::Expr>(E, Ctx), Ctx);
+					if (parent_E_ii) {
+						/* For some reason our matcher for pointer arithmetic seems to be unreliable.
+						So here we identify some of the cases of pointer arithmetic that our matcher
+						has been observed to miss. */
+						bool pointer_arithmetic_flag = false;
+						auto ASE = dyn_cast<const clang::ArraySubscriptExpr>(parent_E_ii);
+						if (ASE) {
+							pointer_arithmetic_flag = true;
+						} else {
+							auto CAO = dyn_cast<const clang::CompoundAssignOperator>(parent_E_ii);
+							if (CAO) {
+								/* "CompoundAssignOperator" is a class derived from BinaryOperator. BinaryOperators
+								are addressed by the "ast matchers" we set up, but they don't seem to match
+								CompoundAssignOperators, and an explicit matcher for CompoundAssignOperator doesn't
+								seem to be available, so here we're matching them manually. Btw, a "compound
+								assignment operator" would be something like "+=" or "-=". */
+								const auto opcode = CAO->getOpcode();
+								if ((clang::BinaryOperator::Opcode::BO_AddAssign == opcode)
+									|| (clang::BinaryOperator::Opcode::BO_SubAssign == opcode)) {
 
-						const auto DRE = Tget_descendant_of_type<const clang::DeclRefExpr>(CAO, *MR.Context);
-						if (DRE) {
-							if (CAO->getLHS()->getType()->isPointerType()) {
-								MCSSSPointerArithmetic2::s_handler1(MR, Rewrite, state1, CAO->getLHS(), DRE);
+									pointer_arithmetic_flag = true;
+								}
+							}
+						}
+						if (pointer_arithmetic_flag) {
+							auto DRE = dyn_cast<const clang::DeclRefExpr>(E);
+							auto ME = dyn_cast<const clang::MemberExpr>(E);
+							if (!DRE) {
+								if (ME) {
+									DRE = Tget_descendant_of_type<const clang::DeclRefExpr>(ME, *MR.Context);
+								} else {
+									ME = Tget_descendant_of_type<const clang::MemberExpr>(E, *MR.Context);
+									if (ME) {
+										DRE = Tget_descendant_of_type<const clang::DeclRefExpr>(ME, *MR.Context);
+									} else {
+										DRE = Tget_descendant_of_type<const clang::DeclRefExpr>(E, *MR.Context);
+									}
+								}
+							}
+							if (DRE) {
+								MCSSSPointerArithmetic2::s_handler1(MR, Rewrite, state1, E, DRE, ME);
 							}
 						}
 					}
 				}
+
 			}
 		}
 
@@ -9742,27 +9802,28 @@ namespace convm1 {
 
 		Matcher.addMatcher(expr(allOf(
 				hasParent(expr(anyOf(
-						unaryOperator(hasOperatorName("++")), unaryOperator(hasOperatorName("--")),
-						binaryOperator(hasOperatorName("+=")), binaryOperator(hasOperatorName("-=")),
-						castExpr(hasParent(expr(anyOf(
-								binaryOperator(hasOperatorName("+")), binaryOperator(hasOperatorName("+=")),
-								binaryOperator(hasOperatorName("-")), binaryOperator(hasOperatorName("-=")),
-								binaryOperator(hasOperatorName("<=")), binaryOperator(hasOperatorName("<")),
-								binaryOperator(hasOperatorName(">=")), binaryOperator(hasOperatorName(">")),
-								arraySubscriptExpr()/*, clang::ast_matchers::castExpr(hasParent(arraySubscriptExpr()))*/
-						))))))),
-					hasType(pointerType()),
-					anyOf(
-							memberExpr(expr(hasDescendant(declRefExpr().bind("mcssspointerarithmetic")))).bind("mcssspointerarithmetic2"),
-							declRefExpr().bind("mcssspointerarithmetic"),
-							hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcssspointerarithmetic")))).bind("mcssspointerarithmetic2")),
-							hasDescendant(declRefExpr().bind("mcssspointerarithmetic"))
-					)
-					)).bind("mcssspointerarithmetic3"), &HandlerForSSSPointerArithmetic2);
+					unaryOperator(hasOperatorName("++")), unaryOperator(hasOperatorName("--")),
+					binaryOperator(hasOperatorName("+=")), binaryOperator(hasOperatorName("-=")),
+					castExpr(hasParent(expr(anyOf(
+							binaryOperator(hasOperatorName("+")), binaryOperator(hasOperatorName("+=")),
+							binaryOperator(hasOperatorName("-")), binaryOperator(hasOperatorName("-=")),
+							binaryOperator(hasOperatorName("<=")), binaryOperator(hasOperatorName("<")),
+							binaryOperator(hasOperatorName(">=")), binaryOperator(hasOperatorName(">")),
+							arraySubscriptExpr()
+						))))
+					))),
+				hasType(pointerType()),
+				anyOf(
+						memberExpr(expr(hasDescendant(declRefExpr().bind("mcssspointerarithmetic")))).bind("mcssspointerarithmetic2"),
+						declRefExpr().bind("mcssspointerarithmetic"),
+						hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcssspointerarithmetic")))).bind("mcssspointerarithmetic2")),
+						hasDescendant(declRefExpr().bind("mcssspointerarithmetic"))
+				)
+				)).bind("mcssspointerarithmetic3"), &HandlerForSSSPointerArithmetic2);
 
 		Matcher.addMatcher(expr(anyOf(gnuNullExpr(), cxxNullPtrLiteralExpr(), 
 				integerLiteral(equals(0), hasParent(expr(allOf(
-					hasType(pointerType()), clang::ast_matchers::implicitCastExpr()
+					hasType(pointerType()), anyOf(clang::ast_matchers::implicitCastExpr(), clang::ast_matchers::cStyleCastExpr().bind("b"))
 					)))))).bind("a"),
 			&HandlerForSSSNullToPointer);
 
@@ -10243,7 +10304,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find(":1186:")) {
+					if (std::string::npos != debug_source_location_str.find(":5737:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -10329,7 +10390,7 @@ namespace convm1 {
 							IF_DEBUG(std::string debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str.find(":1186:")) {
+							if (std::string::npos != debug_source_location_str.find(":5737:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -10357,7 +10418,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *suffix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":1186:")) {
+									if (std::string::npos != debug_source_location_str.find(":5737:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
@@ -10392,7 +10453,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":1186:")) {
+									if (std::string::npos != debug_source_location_str.find(":5737:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
