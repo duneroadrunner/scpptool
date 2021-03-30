@@ -782,6 +782,9 @@ namespace convm1 {
 		return;
 	}
 
+	/* CTUState holds any "per translation unit" state information we might need to store. */
+	class CTUState;
+
 	class CDDeclConversionState {
 	public:
 		CDDeclConversionState(const clang::DeclaratorDecl& ddecl) : m_ddecl_cptr(&ddecl) {
@@ -928,6 +931,23 @@ namespace convm1 {
 		}
 		std::string current_direct_qtype_str() const { return direct_type_state_ref().current_qtype_str(); }
 		void set_current_direct_qtype_str(const std::string& new_qtype_str) { direct_type_state_ref().set_current_qtype_str(new_qtype_str); }
+		std::string non_const_current_direct_qtype_str() const {
+			auto non_const_direct_qtype_str = current_direct_qtype_str();
+			if (direct_type_state_ref().current_qtype_is_current()) {
+				assert(direct_type_state_ref().current_qtype_if_any().has_value());
+				auto current_direct_qtype = direct_type_state_ref().current_qtype_if_any().value();
+				auto non_const_direct_qtype = current_direct_qtype;
+				non_const_direct_qtype.removeLocalConst();
+				non_const_direct_qtype_str = non_const_direct_qtype.getAsString();
+			} else {
+				/* hack alert */
+				static const std::string const_space_str = "const ";
+				if (string_begins_with(non_const_direct_qtype_str, const_space_str)) {
+					non_const_direct_qtype_str = non_const_direct_qtype_str.substr(const_space_str.size());
+				}
+			}
+			return non_const_direct_qtype_str;
+		}
 
 		const DeclaratorDecl* m_ddecl_cptr = nullptr;
 		CIndirectionStateStack m_indirection_state_stack;
@@ -960,16 +980,13 @@ namespace convm1 {
 
 	class CRecordDeclConversionState {
 	public:
-		CRecordDeclConversionState(const clang::RecordDecl& recdecl, Rewriter &Rewrite) : m_recdecl_ptr(&recdecl), Rewrite(Rewrite) {
-			m_original_source_text_str = Rewrite.getRewrittenText(nice_source_range());
+		CRecordDeclConversionState(const clang::RecordDecl& recdecl, Rewriter &Rewrite) : m_recdecl_ptr(&recdecl) {
+			m_original_source_text_str = Rewrite.getRewrittenText(nice_source_range(source_range(), Rewrite));
 			m_current_text_str = m_original_source_text_str;
 		}
 
 		clang::SourceRange source_range() const {
 			return m_recdecl_ptr->getSourceRange();
-		}
-		clang::SourceRange nice_source_range() const {
-			return ::nice_source_range(source_range(), Rewrite);
 		}
 
 		const clang::RecordDecl *recdecl_ptr() const {
@@ -979,7 +996,6 @@ namespace convm1 {
 		const clang::RecordDecl *m_recdecl_ptr;
 		std::string m_original_source_text_str;
 		std::string m_current_text_str;
-		Rewriter &Rewrite;
 	};
 
 	class CRecordDeclConversionStateMap : public std::unordered_map<const clang::RecordDecl*, CRecordDeclConversionState> {
@@ -1254,9 +1270,6 @@ namespace convm1 {
 		}
 	};
 
-
-	/* CTUState holds any "per translation unit" state information we might need to store. */
-	class CTUState;
 
 	/* A "replacement action" object represents an "action" that replaces an element in the source
 	text (with something else). There are different types (subclasses) of replacement actions
@@ -2905,21 +2918,7 @@ namespace convm1 {
 		const clang::Type* TP = QT.getTypePtr();
 		auto qtype_str = QT.getAsString();
 		auto direct_qtype_str = ddcs_ref.current_direct_qtype_str();
-
-		auto non_const_direct_qtype_str = direct_qtype_str;
-		if (ddcs_ref.direct_type_state_ref().current_qtype_is_current()) {
-			assert(ddcs_ref.direct_type_state_ref().current_qtype_if_any().has_value());
-			auto current_direct_qtype = ddcs_ref.direct_type_state_ref().current_qtype_if_any().value();
-			auto non_const_direct_qtype = current_direct_qtype;
-			non_const_direct_qtype.removeLocalConst();
-			non_const_direct_qtype_str = non_const_direct_qtype.getAsString();
-		} else {
-			/* hack alert */
-			static const std::string const_space_str = "const ";
-			if (string_begins_with(non_const_direct_qtype_str, const_space_str)) {
-				non_const_direct_qtype_str = non_const_direct_qtype_str.substr(const_space_str.size());
-			}
-		}
+		auto non_const_direct_qtype_str = ddcs_ref.non_const_current_direct_qtype_str();
 
 		if ("_Bool" == direct_qtype_str) {
 			direct_qtype_str = "bool";
@@ -2998,6 +2997,46 @@ namespace convm1 {
 					&& (!string_begins_with(ddcs_ref.current_direct_qtype_str(), "const MSE_LH_ADDRESSABLE_TYPE("))
 					) {
 
+					if ((0 == ddcs_ref.m_indirection_state_stack.size())
+						&& (ddcs_ref.m_ddecl_cptr->getType()->isRecordType())
+						&& (string_begins_with(ddcs_ref.m_current_initialization_expr_str, "{"))) {
+					
+						/* "Aggregate" types that are converted to "addressable" types will lose their
+						"aggregate" status and thus their support for aggregate initialization. So if
+						the object was being aggregate initialized, then we'll use the initializer list
+						to initialize a temporary object of the base aggregate type, which can in turn
+						be used to initialize the "addressable" object. So for example:
+
+						some_struct_t obj1 = { 1, "abc", 3 };
+
+						becomes:
+
+						mse::TRegisteredObj<some_struct_t> obj1 = some_struct_t { 1, "abc", 3 };
+
+						 */
+
+						const clang::Expr* init_EX = nullptr;
+						if (VD) {
+							init_EX = VD->getInit();
+						} else if (FD) {
+							init_EX = FD->getInClassInitializer();
+						}
+
+						if (init_EX) {
+							auto ILE = dyn_cast<const clang::InitListExpr>(init_EX);
+							if (ILE) {
+								if ("Dual" == ConvertMode) {
+									ddcs_ref.m_current_initialization_expr_str = "MSE_LH_IF_ENABLED("
+										+ ddcs_ref.non_const_current_direct_qtype_str() + ") " + ddcs_ref.m_current_initialization_expr_str;
+								} else {
+									ddcs_ref.m_current_initialization_expr_str = ddcs_ref.non_const_current_direct_qtype_str()
+										+ " " + ddcs_ref.m_current_initialization_expr_str;
+								}
+								initialization_expr_str = ddcs_ref.m_current_initialization_expr_str;
+							}
+						}
+					}
+
 					if ("Dual" == ConvertMode) {
 						direct_qtype_str = "MSE_LH_ADDRESSABLE_TYPE(" + non_const_direct_qtype_str + ")";
 						if (ddcs_ref.direct_type_state_ref().is_const()) {
@@ -3021,7 +3060,11 @@ namespace convm1 {
 		bool discard_initializer_option_flag = (std::string::npos != options_str.find("[discard-initializer]"));
 		std::string initializer_append_str;
 		if ((!discard_initializer_option_flag) && ("" != initialization_expr_str)) {
-			initializer_append_str = " = " + initialization_expr_str;
+			if (("Dual" == ConvertMode) && ("" == ddcs_ref.m_original_initialization_expr_str)) {
+				initializer_append_str = " MSE_LH_IF_ENABLED( = " + initialization_expr_str + " )";
+			} else {
+				initializer_append_str = " = " + initialization_expr_str;
+			}
 		}
 
 		bool individual_from_compound_declaration = false;
@@ -8465,6 +8508,38 @@ namespace convm1 {
 	};
 
 
+	inline auto default_init_value_str(const clang::QualType& qtype) {
+		std::string retval;
+
+		const std::string qtype_str = qtype.getAsString();
+		if (qtype.getTypePtr()->isScalarType()) {
+			std::string initializer_info_str;
+			if (qtype.getTypePtr()->isEnumeralType()) {
+				if ("Dual" == ConvertMode) {
+					initializer_info_str += "MSE_LH_CAST(";
+					initializer_info_str += qtype_str;
+					initializer_info_str += ", 0)/*auto-generated init val*/";
+				} else {
+					initializer_info_str += qtype_str;
+					initializer_info_str += "(0)/*auto-generated init val*/";
+				}
+			} else if (qtype.getTypePtr()->isPointerType()) {
+				if ("Dual" == ConvertMode) {
+					initializer_info_str += "MSE_LH_NULL_POINTER/*auto-generated init val*/";
+				} else {
+					initializer_info_str += "nullptr/*auto-generated init val*/";
+				}
+			} else {
+				initializer_info_str += "0/*auto-generated init val*/";
+			}
+			retval = initializer_info_str;
+		} else {
+			retval = qtype_str + "()";
+		}
+
+		return retval;
+	}
+
 	class MCSSSDeclUtil : public MatchFinder::MatchCallback
 	{
 	public:
@@ -8748,25 +8823,7 @@ namespace convm1 {
 											ddcs_ref.m_original_initialization_expr_str = "";
 											ddcs_ref.m_original_initialization_has_been_noted = true;
 
-											std::string initializer_info_str;
-											if (qtype.getTypePtr()->isEnumeralType()) {
-												if ("Dual" == ConvertMode) {
-													initializer_info_str += "MSE_LH_CAST(";
-													initializer_info_str += qtype.getAsString();
-													initializer_info_str += ", 0)/*auto-generated init val*/";
-												} else {
-													initializer_info_str += qtype.getAsString();
-													initializer_info_str += "(0)/*auto-generated init val*/";
-												}
-											} else if (qtype.getTypePtr()->isPointerType()) {
-												if ("Dual" == ConvertMode) {
-													initializer_info_str += "MSE_LH_NULL_POINTER/*auto-generated init val*/";
-												} else {
-													initializer_info_str += "nullptr/*auto-generated init val*/";
-												}
-											} else {
-												initializer_info_str += "0/*auto-generated init val*/";
-											}
+											std::string initializer_info_str = default_init_value_str(qtype);
 											ddcs_ref.m_current_initialization_expr_str = initializer_info_str;
 
 											/* Specify that the new initialization string should be
@@ -9189,17 +9246,32 @@ namespace convm1 {
 						if (ASE) {
 							pointer_arithmetic_flag = true;
 						} else {
+							auto UO = dyn_cast<const clang::UnaryOperator>(parent_E_ii);
+							auto BO = dyn_cast<const clang::BinaryOperator>(parent_E_ii);
 							auto CAO = dyn_cast<const clang::CompoundAssignOperator>(parent_E_ii);
-							if (CAO) {
+							if (CAO && (!BO)) {
+								int q = 5;
+							}
+							if (BO) {
 								/* "CompoundAssignOperator" is a class derived from BinaryOperator. BinaryOperators
 								are addressed by the "ast matchers" we set up, but they don't seem to match
 								CompoundAssignOperators, and an explicit matcher for CompoundAssignOperator doesn't
 								seem to be available, so here we're matching them manually. Btw, a "compound
 								assignment operator" would be something like "+=" or "-=". */
-								const auto opcode = CAO->getOpcode();
-								if ((clang::BinaryOperator::Opcode::BO_AddAssign == opcode)
-									|| (clang::BinaryOperator::Opcode::BO_SubAssign == opcode)) {
+								const auto opcode = BO->getOpcode();
+								const std::string opcode_str= BO->getOpcodeStr();
+								if (("+" == opcode_str) || ("+=" == opcode_str)
+									|| ("-" == opcode_str) || ("-=" == opcode_str)
+									|| ("<=" == opcode_str) || ("<" == opcode_str)
+									|| (">=" == opcode_str) || (">" == opcode_str)
+									) {
 
+									pointer_arithmetic_flag = true;
+								}
+							} else if (UO) {
+								const auto opcode = UO->getOpcode();
+								const std::string opcode_str= UO->getOpcodeStr(opcode);
+								if (("++" == opcode_str) || ("--" == opcode_str)) {
 									pointer_arithmetic_flag = true;
 								}
 							}
@@ -10546,7 +10618,7 @@ namespace convm1 {
 
 						if (!(fii_ref.m_legacyhelpers_include_directive_found)) {
 							if (false/* While it might be aesthetically nicer to put our include directive
-								together with the(first) ones already present, it is sometimes not correct. */
+								together with the (first) ones already present, it is sometimes not correct. */
 								&& fii_ref.m_first_include_directive_loc_is_valid) {
 								TheRewriter.InsertTextBefore(fii_ref.m_first_include_directive_loc,
 										"\n#include \"mselegacyhelpers.h\"\n");
