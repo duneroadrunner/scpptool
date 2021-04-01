@@ -112,9 +112,26 @@ namespace convm1 {
 		size_t m_indirection_level = 0;
 	};
 
+	/* If qtype refers to a typedef, then we'll return a qtype that refers to the definition
+	in the typedef. */
+	inline auto definition_qtype(clang::QualType qtype) {
+		while (llvm::isa<const clang::TypedefType>(qtype)) {
+			auto TDT = llvm::cast<const clang::TypedefType>(qtype);
+			if (TDT) {
+				auto TDND = TDT->getDecl();
+				if (TDND) {
+					qtype = TDND->getUnderlyingType();
+					IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+					int q = 5;
+				} else { assert(false); }
+			} else { assert(false); }
+		}
+		return qtype;
+	}
+
+	/* If typeLoc refers to a typedef, then we'll return a TypeLoc that refers to the definition
+	in the typedef. */
 	inline auto definition_TypeLoc(clang::TypeLoc typeLoc) {
-		/* If typeLoc refers to a typedef, then we'll return a TypeLoc that refers to the definition
-		in the typedef. */
 		auto tdtl = typeLoc.getAs<clang::TypedefTypeLoc>();
 		while (tdtl) {
 			auto TDND = tdtl.getTypedefNameDecl();
@@ -238,6 +255,16 @@ namespace convm1 {
 				if (!m_maybe_current_qtype.has_value()) {
 					assert(false);
 				} else {
+					std::string retval = m_maybe_current_qtype.value().getAsString();
+					auto qtype = m_maybe_current_qtype.value();
+					if (llvm::isa<const clang::FunctionType>(qtype)) {
+						auto FNQT = llvm::cast<const clang::FunctionType>(qtype);
+						if (FNQT && (!(m_current_params_str.empty()))) {
+							std::string function_type_str = FNQT->getReturnType().getAsString();
+							function_type_str += m_current_params_str;
+							return function_type_str;
+						}
+					}
 					return m_maybe_current_qtype.value().getAsString();
 				}
 			}
@@ -316,8 +343,10 @@ namespace convm1 {
 	* whether each level of indirection (if any) of the type is of the pointer or the array variety. Pointers
 	* can, of course, function as arrays, but context is required to identify those situations. Such identification
 	* is not done in this function. It is done elsewhere.  */
-	clang::QualType populateQTypeIndirectionStack(CIndirectionStateStack& stack, const clang::QualType qtype, std::optional<clang::TypeLoc> maybe_typeLoc = {}, int depth = 0) {
+	clang::QualType populateQTypeIndirectionStack(CIndirectionStateStack& stack, clang::QualType qtype, std::optional<clang::TypeLoc> maybe_typeLoc = {}, int depth = 0) {
+		qtype = definition_qtype(qtype);
 		auto l_qtype = qtype;
+		auto l_maybe_typeLoc = maybe_typeLoc;
 
 		bool is_function_type = false;
 		std::vector<std::string> param_strings;
@@ -372,8 +401,8 @@ namespace convm1 {
 
 					if (maybe_typeLoc.has_value()) {
 						auto FunLoc = definition_TypeLoc(*maybe_typeLoc).getAs<clang::FunctionTypeLoc>();
-						if (false && FunLoc) {
-							maybe_typeLoc = FunLoc.getReturnLoc();
+						if (FunLoc) {
+							l_maybe_typeLoc = FunLoc.getReturnLoc();
 						}
 					}
 				} else {
@@ -408,7 +437,7 @@ namespace convm1 {
 				if (!CATP) {
 					assert(false);
 				} else {
-					if (true || (!maybe_typeLoc.has_value())) {
+					if (true || (!l_maybe_typeLoc.has_value())) {
 						/* When there is no source text, we'll generate the array size expression text here. */
 						auto array_size = CATP->getSize();
 						size_text = array_size.toString(10, false);/*check this*/
@@ -448,14 +477,14 @@ namespace convm1 {
 				IF_DEBUG(auto l_type_str = QT.getAsString();)
 
 				std::optional<clang::TypeLoc> new_maybe_typeLoc;
-				if (maybe_typeLoc.has_value()) {
-					auto ArrayLoc = definition_TypeLoc(*maybe_typeLoc).getAs<clang::ArrayTypeLoc>();
+				if (l_maybe_typeLoc.has_value()) {
+					auto ArrayLoc = definition_TypeLoc(*l_maybe_typeLoc).getAs<clang::ArrayTypeLoc>();
 					if (ArrayLoc) {
 						new_maybe_typeLoc = ArrayLoc.getElementLoc();
 					}
 				}
 
-				stack.push_back(CIndirectionState(maybe_typeLoc, "native array", "native array", size_text));
+				stack.push_back(CIndirectionState(l_maybe_typeLoc, "native array", "native array", size_text));
 
 				return populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, depth+1);
 			} else {
@@ -485,8 +514,8 @@ namespace convm1 {
 			IF_DEBUG(auto l_type_str = QT.getAsString();)
 
 			std::optional<clang::TypeLoc> new_maybe_typeLoc;
-			if (maybe_typeLoc.has_value()) {
-				auto typeLoc = definition_TypeLoc(*maybe_typeLoc);
+			if (l_maybe_typeLoc.has_value()) {
+				auto typeLoc = definition_TypeLoc(*l_maybe_typeLoc);
 				IF_DEBUG(auto typeLocClass = typeLoc.getTypeLocClass();)
 				auto PointerLoc = typeLoc.getAs<clang::PointerTypeLoc>();
 				while (!PointerLoc) {
@@ -514,7 +543,7 @@ namespace convm1 {
 				}
 			}
 
-			stack.push_back(CIndirectionState(maybe_typeLoc, "native pointer", "native pointer", is_function_type, param_strings));
+			stack.push_back(CIndirectionState(l_maybe_typeLoc, "native pointer", "native pointer", is_function_type, param_strings));
 
 			return populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, depth+1);
 		} else if (l_qtype->isReferenceType()) {
@@ -535,8 +564,8 @@ namespace convm1 {
 			IF_DEBUG(auto l_type_str = QT.getAsString();)
 
 			std::optional<clang::TypeLoc> new_maybe_typeLoc;
-			if (maybe_typeLoc.has_value()) {
-				auto typeLoc = definition_TypeLoc(*maybe_typeLoc);
+			if (l_maybe_typeLoc.has_value()) {
+				auto typeLoc = definition_TypeLoc(*l_maybe_typeLoc);
 				auto ReferenceLoc = typeLoc.getAs<clang::ReferenceTypeLoc>();
 				while (!ReferenceLoc) {
 					auto etl = typeLoc.getAs<clang::ElaboratedTypeLoc>();
@@ -552,7 +581,7 @@ namespace convm1 {
 				}
 			}
 
-			stack.push_back(CIndirectionState(maybe_typeLoc, "native reference", "native reference", is_function_type, param_strings));
+			stack.push_back(CIndirectionState(l_maybe_typeLoc, "native reference", "native reference", is_function_type, param_strings));
 
 			return populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, depth+1);
 		}
@@ -560,12 +589,7 @@ namespace convm1 {
 		if (maybe_typeLoc.has_value()) {
 			stack.m_direct_type_state.m_maybe_typeLoc = maybe_typeLoc;
 		}
-
-		if (is_function_type) {
-			return qtype;
-		} else {
-			return l_qtype;
-		}
+		return qtype;
 	}
 
 	/* Given an expression (in the form of a clang::Stmt) and an (empty) (string) stack,
@@ -791,7 +815,7 @@ namespace convm1 {
 #ifndef NDEBUG
 			if ((*this).m_ddecl_cptr) {
 				std::string variable_name = m_ddecl_cptr->getNameAsString();
-				if ("buffer" == variable_name) {
+				if ("read_filter" == variable_name) {
 					std::string qtype_str = m_ddecl_cptr->getType().getAsString();
 					if ("const unsigned char *" == qtype_str) {
 						int q = 5;
@@ -1964,7 +1988,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find(":5737:")) {
+			if (std::string::npos != debug_source_location_str.find(":4152:")) {
 				int q = 5;
 			}
 		}
@@ -2321,7 +2345,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":5737:")) {
+						if (std::string::npos != debug_source_location_str.find(":4152:")) {
 							int q = 5;
 						}
 					}
@@ -2373,29 +2397,51 @@ namespace convm1 {
 												asterisks, bracketed array size expressions, const qualifiers, etc)
 												that are enclosing the variable/field name. Their semantics should
 												now be expressed in the new converted types. */
-												auto SL2 = enclosing_parentheses1.back().getBegin();
-												while (SL2 < name_SR.getBegin()) {
-													/* "Blanking out"/erasing enclosing items to the left of the
-													variable/field name. */
-													std::string text1 = Rewrite.getRewrittenText(clang::SourceRange{ SL2, SL2 });
-													for (auto& ch : text1) {
-														ch = ' ';
+												if (true) {
+													{
+														auto left_SR = write_once_source_range(nice_source_range(
+															clang::SourceRange{ enclosing_parentheses1.back().getBegin(), name_SR.getBegin().getLocWithOffset(-1) }, Rewrite));
+														std::string left_blank_text = Rewrite.getRewrittenText(left_SR);
+														for (auto& ch : left_blank_text) {
+															ch = ' ';
+														}
+														state1_ptr->m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, left_SR, left_blank_text);
 													}
-													Rewrite.ReplaceText(clang::SourceRange{ SL2, SL2 }, text1);
-													SL2 = SL2.getLocWithOffset(+1);
-												}
-												SL2 = name_SR.getEnd().getLocWithOffset(+1);
-												while (!(enclosing_parentheses1.back().getEnd() < SL2)) {
-													/* "Blanking out"/erasing enclosing items to the right of the
-													variable/field name. */
-													std::string text1 = Rewrite.getRewrittenText(clang::SourceRange{ SL2, SL2 });
-													for (auto& ch : text1) {
-														ch = ' ';
+													{
+														auto right_SR = write_once_source_range(nice_source_range(
+															clang::SourceRange{ name_SR.getEnd().getLocWithOffset(+1), enclosing_parentheses1.back().getEnd() }, Rewrite));
+														std::string right_blank_text = Rewrite.getRewrittenText(right_SR);
+														for (auto& ch : right_blank_text) {
+															ch = ' ';
+														}
+														state1_ptr->m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, right_SR, right_blank_text);
 													}
-													Rewrite.ReplaceText(clang::SourceRange{ SL2, SL2 }, text1);
-													SL2 = SL2.getLocWithOffset(+1);
+												} else {
+													auto SL2 = enclosing_parentheses1.back().getBegin();
+													while (SL2 < name_SR.getBegin()) {
+														/* "Blanking out"/erasing enclosing items to the left of the
+														variable/field name. */
+														std::string text1 = Rewrite.getRewrittenText(clang::SourceRange{ SL2, SL2 });
+														for (auto& ch : text1) {
+															ch = ' ';
+														}
+														Rewrite.ReplaceText(clang::SourceRange{ SL2, SL2 }, text1);
+														SL2 = SL2.getLocWithOffset(+1);
+													}
+													SL2 = name_SR.getEnd().getLocWithOffset(+1);
+													while (!(enclosing_parentheses1.back().getEnd() < SL2)) {
+														/* "Blanking out"/erasing enclosing items to the right of the
+														variable/field name. */
+														std::string text1 = Rewrite.getRewrittenText(clang::SourceRange{ SL2, SL2 });
+														for (auto& ch : text1) {
+															ch = ' ';
+														}
+														Rewrite.ReplaceText(clang::SourceRange{ SL2, SL2 }, text1);
+														SL2 = SL2.getLocWithOffset(+1);
+													}
+													IF_DEBUG(enclosing_parentheses_text = Rewrite.getRewrittenText(enclosing_parentheses1.back());)
+													int q = 5;
 												}
-												IF_DEBUG(enclosing_parentheses_text = Rewrite.getRewrittenText(enclosing_parentheses1.back());)
 											}
 										}
 									} else {
@@ -2571,7 +2617,7 @@ namespace convm1 {
 							do so in the future. */
 
 							if (!indirection_state_stack[i].m_array_size_expr_read_from_source_text) {
-								auto ArrayLoc = typeLoc.getAs<clang::ArrayTypeLoc>();
+								auto ArrayLoc = definition_TypeLoc(typeLoc).getAs<clang::ArrayTypeLoc>();
 								if (ArrayLoc) {
 									auto brackets_SR = ArrayLoc.getBracketsRange();
 									auto size_expr_SR = clang::SourceRange{ brackets_SR.getBegin().getLocWithOffset(+1), brackets_SR.getEnd().getLocWithOffset(-1) };
@@ -2630,7 +2676,7 @@ namespace convm1 {
 							if (is_function_pointer) {
 								auto functionProtoTypeLoc = pointee_typeLoc.getAsAdjusted<clang::FunctionProtoTypeLoc>();
 								if (true && functionProtoTypeLoc) {
-									auto parens_SR = functionProtoTypeLoc.getParensRange();
+									auto parens_SR = write_once_source_range(nice_source_range(functionProtoTypeLoc.getParensRange(), Rewrite));
 									if (parens_SR.isValid()) {
 										std::string parens_text = Rewrite.getRewrittenText(parens_SR);
 
@@ -2645,16 +2691,26 @@ namespace convm1 {
 											if (ConvertToSCPP && state1_ptr) {
 												/* We've stored the function parameters as a string. Now we're going
 												to "blank out"/erase the original source text of the parameters. */
-												auto SL2 = parens_SR.getBegin();
-												while (!(parens_SR.getEnd() < SL2)) {
-													std::string text1 = Rewrite.getRewrittenText(clang::SourceRange{ SL2, SL2 });
-													for (auto& ch : text1) {
+												if (true) {
+													std::string blank_text = parens_text;
+													for (auto& ch : blank_text) {
 														ch = ' ';
 													}
-													Rewrite.ReplaceText(clang::SourceRange{ SL2, SL2 }, text1);
-													SL2 = SL2.getLocWithOffset(+1);
+													state1_ptr->m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, parens_SR, blank_text);
+													//Rewrite.ReplaceText(parens_SR, blank_text);
+												} else {
+													auto SL2 = parens_SR.getBegin();
+													while (!(parens_SR.getEnd() < SL2)) {
+														std::string text1 = Rewrite.getRewrittenText(clang::SourceRange{ SL2, SL2 });
+														for (auto& ch : text1) {
+															ch = ' ';
+														}
+														Rewrite.ReplaceText(clang::SourceRange{ SL2, SL2 }, text1);
+														SL2 = SL2.getLocWithOffset(+1);
+													}
 												}
 												IF_DEBUG(std::string parens_text2 = Rewrite.getRewrittenText(parens_SR));
+												int q = 5;
 											}
 										}
 										if (!is_last_indirection) {
@@ -3183,7 +3239,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":5737:")) {
+		if (std::string::npos != debug_source_location_str.find(":4152:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5092,7 +5148,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":427:")) {
+				if (std::string::npos != debug_source_location_str.find(":4152:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5292,7 +5348,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":5737:")) {
+				if (std::string::npos != debug_source_location_str.find(":4152:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8578,7 +8634,14 @@ namespace convm1 {
 					const auto qtype = DD->getType();
 					const std::string qtype_str = DD->getType().getAsString();
 
+					auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
+					auto ddcs_map_iter = res1.first;
+					auto& ddcs_ref = (*ddcs_map_iter).second;
+					bool update_declaration_flag = res1.second;
+
 					auto VD = dyn_cast<const clang::VarDecl>(D);
+					auto FD = dyn_cast<const clang::FieldDecl>(D);
+					auto FND = dyn_cast<const clang::FunctionDecl>(DD);
 					if (VD) {
 						if (false) {
 							auto l_DD = VD;
@@ -8735,10 +8798,6 @@ namespace convm1 {
 												}
 											}
 
-											auto res1 = state1.m_ddecl_conversion_state_map.insert(*VD);
-											auto ddcs_map_iter = res1.first;
-											auto& ddcs_ref = (*ddcs_map_iter).second;
-
 											if (1 <= replace_length) {
 												ddcs_ref.m_thread_local_specifier_SR_or_insert_before_point = clang::SourceRange(SR.getBegin().getLocWithOffset(replace_pos), SR.getBegin().getLocWithOffset(replace_pos + replace_length - 1));
 											} else {
@@ -8815,9 +8874,6 @@ namespace convm1 {
 										{
 											/* Here we're adding a missing initialization value to the variable declaration. */
 											auto l_DD = VD;
-											auto res1 = state1.m_ddecl_conversion_state_map.insert(*l_DD);
-											auto ddcs_map_iter = res1.first;
-											auto& ddcs_ref = (*ddcs_map_iter).second;
 
 											/* We're noting that originally there was no initializer. */
 											ddcs_ref.m_original_initialization_expr_str = "";
@@ -8854,67 +8910,62 @@ namespace convm1 {
 								}
 							}
 						}
-					} else {
-						auto FD = dyn_cast<const clang::FieldDecl>(D);
-						if (FD) {
-							if (false && (qtype.getTypePtr()->isPointerType() || qtype.getTypePtr()->isReferenceType())) {
-								/* These are handled in MCSSSRecordDecl2. */
-							} else if (qtype.getTypePtr()->isScalarType()) {
-								const auto* init_EX = FD->getInClassInitializer();
-								if (!init_EX) {
-									const auto grandparent_DC = FD->getParent()->getParentFunctionOrMethod();
-									bool is_lambda_capture_field = false;
+					} else if (FD) {
+						if (false && (qtype.getTypePtr()->isPointerType() || qtype.getTypePtr()->isReferenceType())) {
+							/* These are handled in MCSSSRecordDecl2. */
+						} else if (qtype.getTypePtr()->isScalarType()) {
+							const auto* init_EX = FD->getInClassInitializer();
+							if (!init_EX) {
+								const auto grandparent_DC = FD->getParent()->getParentFunctionOrMethod();
+								bool is_lambda_capture_field = false;
 
-									const auto& parents = MR.Context->getParents(*(FD->getParent()));
-									if ( !(parents.empty()) ) {
-										const auto LE = parents[0].get<LambdaExpr>();
-										if (LE) {
-											is_lambda_capture_field = true;
-										}
+								const auto& parents = MR.Context->getParents(*(FD->getParent()));
+								if ( !(parents.empty()) ) {
+									const auto LE = parents[0].get<LambdaExpr>();
+									if (LE) {
+										is_lambda_capture_field = true;
 									}
-									if (!is_lambda_capture_field) {
-										if (qtype.getTypePtr()->isPointerType()) {
-										} else {
-											const std::string error_desc = std::string("(Non-pointer) scalar fields (such those of type '")
-												+ qtype.getAsString() + "') require direct initializers.";
-											auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-											if (res.second) {
-												//std::cout << (*(res.first)).as_a_string1() << " \n\n";
-											}
+								}
+								if (!is_lambda_capture_field) {
+									if (qtype.getTypePtr()->isPointerType()) {
+									} else {
+										const std::string error_desc = std::string("(Non-pointer) scalar fields (such those of type '")
+											+ qtype.getAsString() + "') require direct initializers.";
+										auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+										if (res.second) {
+											//std::cout << (*(res.first)).as_a_string1() << " \n\n";
+										}
 
-											{
-												/* Here we're adding a missing initialization value to the field declaration. */
-												auto l_DD = FD;
-												auto res1 = state1.m_ddecl_conversion_state_map.insert(*l_DD);
-												auto ddcs_map_iter = res1.first;
-												auto& ddcs_ref = (*ddcs_map_iter).second;
+										{
+											/* Here we're adding a missing initialization value to the field declaration. */
+											auto l_DD = FD;
 
-												std::string initializer_info_str;
-												if (qtype.getTypePtr()->isEnumeralType()) {
-													initializer_info_str += qtype.getAsString();
-													initializer_info_str += "(0)/*auto-generated init val*/";
-												} else if (qtype.getTypePtr()->isPointerType()) {
-													if ("Dual" == ConvertMode) {
-														initializer_info_str += "MSE_LH_NULL_POINTER/*auto-generated init val*/";
-													} else {
-														initializer_info_str += "nullptr/*auto-generated init val*/";
-													}
+											std::string initializer_info_str;
+											if (qtype.getTypePtr()->isEnumeralType()) {
+												initializer_info_str += qtype.getAsString();
+												initializer_info_str += "(0)/*auto-generated init val*/";
+											} else if (qtype.getTypePtr()->isPointerType()) {
+												if ("Dual" == ConvertMode) {
+													initializer_info_str += "MSE_LH_NULL_POINTER/*auto-generated init val*/";
 												} else {
-													initializer_info_str += "0/*auto-generated init val*/";
+													initializer_info_str += "nullptr/*auto-generated init val*/";
 												}
-												ddcs_ref.m_current_initialization_expr_str = initializer_info_str;
-
-												/* Specify that the new initialization string should be
-												inserted at the end of the declaration. */
-												ddcs_ref.m_initializer_SR_or_insert_before_point = ddcs_ref.m_ddecl_cptr->getSourceRange().getEnd().getLocWithOffset(+1);
-
-												update_declaration(*l_DD, Rewrite, state1);
+											} else {
+												initializer_info_str += "0/*auto-generated init val*/";
 											}
+											ddcs_ref.m_current_initialization_expr_str = initializer_info_str;
+
+											/* Specify that the new initialization string should be
+											inserted at the end of the declaration. */
+											ddcs_ref.m_initializer_SR_or_insert_before_point = ddcs_ref.m_ddecl_cptr->getSourceRange().getEnd().getLocWithOffset(+1);
+
+											update_declaration(*l_DD, Rewrite, state1);
 										}
 									}
 								}
 							}
 						}
+					} else if (FND) {
 					}
 
 					const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
@@ -9123,6 +9174,10 @@ namespace convm1 {
 							}
 						}
 					}
+
+					if (update_declaration_flag) {
+						update_declaration(*DD, Rewrite, state1);
+					}
 				} else {
 					auto NAD = dyn_cast<const NamespaceAliasDecl>(D);
 					if (NAD) {
@@ -9220,7 +9275,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":5737:")) {
+				if (std::string::npos != debug_source_location_str.find(":4152:")) {
 					int q = 5;
 				}
 				if (std::string::npos != debug_source_text.find("palette")) {
@@ -10376,7 +10431,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find(":5737:")) {
+					if (std::string::npos != debug_source_location_str.find(":4152:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -10462,7 +10517,7 @@ namespace convm1 {
 							IF_DEBUG(std::string debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str.find(":5737:")) {
+							if (std::string::npos != debug_source_location_str.find(":4152:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -10490,7 +10545,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *suffix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":5737:")) {
+									if (std::string::npos != debug_source_location_str.find(":4152:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
@@ -10525,7 +10580,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":5737:")) {
+									if (std::string::npos != debug_source_location_str.find(":4152:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
