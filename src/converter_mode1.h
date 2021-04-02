@@ -2397,50 +2397,36 @@ namespace convm1 {
 												asterisks, bracketed array size expressions, const qualifiers, etc)
 												that are enclosing the variable/field name. Their semantics should
 												now be expressed in the new converted types. */
-												if (true) {
-													{
-														auto left_SR = write_once_source_range(nice_source_range(
-															clang::SourceRange{ enclosing_parentheses1.back().getBegin(), name_SR.getBegin().getLocWithOffset(-1) }, Rewrite));
-														std::string left_blank_text = Rewrite.getRewrittenText(left_SR);
-														for (auto& ch : left_blank_text) {
-															ch = ' ';
-														}
-														state1_ptr->m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, left_SR, left_blank_text);
+												{
+													auto left_SR = write_once_source_range(nice_source_range(
+														clang::SourceRange{ enclosing_parentheses1.back().getBegin(), name_SR.getBegin().getLocWithOffset(-1) }, Rewrite));
+													std::string left_blank_text = Rewrite.getRewrittenText(left_SR);
+													for (auto& ch : left_blank_text) {
+														ch = ' ';
 													}
-													{
-														auto right_SR = write_once_source_range(nice_source_range(
-															clang::SourceRange{ name_SR.getEnd().getLocWithOffset(+1), enclosing_parentheses1.back().getEnd() }, Rewrite));
-														std::string right_blank_text = Rewrite.getRewrittenText(right_SR);
-														for (auto& ch : right_blank_text) {
-															ch = ' ';
-														}
-														state1_ptr->m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, right_SR, right_blank_text);
-													}
-												} else {
-													auto SL2 = enclosing_parentheses1.back().getBegin();
-													while (SL2 < name_SR.getBegin()) {
-														/* "Blanking out"/erasing enclosing items to the left of the
-														variable/field name. */
-														std::string text1 = Rewrite.getRewrittenText(clang::SourceRange{ SL2, SL2 });
-														for (auto& ch : text1) {
-															ch = ' ';
-														}
-														Rewrite.ReplaceText(clang::SourceRange{ SL2, SL2 }, text1);
-														SL2 = SL2.getLocWithOffset(+1);
-													}
-													SL2 = name_SR.getEnd().getLocWithOffset(+1);
+													state1_ptr->m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, left_SR, left_blank_text);
+												}
+												{
+													/* Instead of blanking out the whole range from the end of the name to the
+													right parenthesis in one operation, here we blank out each element in the
+													range individually. Doing it this ways allows the "blanked out" regions to
+													be subsequently overwitten if necessary. In particular, parts of this region
+													that may have originally conatined array size expressions (in square '[]'
+													brackets) may be subsequently overwritten with
+													"MSE_LH_FIXED_ARRAY_TYPE_POST_NAME_SUFFIX(...)" expressions. */
+													auto SL2 = name_SR.getEnd().getLocWithOffset(+1);
 													while (!(enclosing_parentheses1.back().getEnd() < SL2)) {
 														/* "Blanking out"/erasing enclosing items to the right of the
 														variable/field name. */
-														std::string text1 = Rewrite.getRewrittenText(clang::SourceRange{ SL2, SL2 });
+														auto SR2 = nice_source_range(clang::SourceRange{ SL2, SL2 }, Rewrite);
+														std::string text1 = Rewrite.getRewrittenText(SR2);
 														for (auto& ch : text1) {
 															ch = ' ';
 														}
-														Rewrite.ReplaceText(clang::SourceRange{ SL2, SL2 }, text1);
+														state1_ptr->m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR2, text1);
+														//Rewrite.ReplaceText(clang::SourceRange{ SL2, SL2 }, text1);
 														SL2 = SL2.getLocWithOffset(+1);
 													}
-													IF_DEBUG(enclosing_parentheses_text = Rewrite.getRewrittenText(enclosing_parentheses1.back());)
-													int q = 5;
 												}
 											}
 										}
@@ -2691,26 +2677,12 @@ namespace convm1 {
 											if (ConvertToSCPP && state1_ptr) {
 												/* We've stored the function parameters as a string. Now we're going
 												to "blank out"/erase the original source text of the parameters. */
-												if (true) {
-													std::string blank_text = parens_text;
-													for (auto& ch : blank_text) {
-														ch = ' ';
-													}
-													state1_ptr->m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, parens_SR, blank_text);
-													//Rewrite.ReplaceText(parens_SR, blank_text);
-												} else {
-													auto SL2 = parens_SR.getBegin();
-													while (!(parens_SR.getEnd() < SL2)) {
-														std::string text1 = Rewrite.getRewrittenText(clang::SourceRange{ SL2, SL2 });
-														for (auto& ch : text1) {
-															ch = ' ';
-														}
-														Rewrite.ReplaceText(clang::SourceRange{ SL2, SL2 }, text1);
-														SL2 = SL2.getLocWithOffset(+1);
-													}
+												std::string blank_text = parens_text;
+												for (auto& ch : blank_text) {
+													ch = ' ';
 												}
-												IF_DEBUG(std::string parens_text2 = Rewrite.getRewrittenText(parens_SR));
-												int q = 5;
+												state1_ptr->m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, parens_SR, blank_text);
+												//Rewrite.ReplaceText(parens_SR, blank_text);
 											}
 										}
 										if (!is_last_indirection) {
