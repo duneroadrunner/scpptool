@@ -132,13 +132,13 @@ namespace convm1 {
 	/* If typeLoc refers to a typedef, then we'll return a TypeLoc that refers to the definition
 	in the typedef. */
 	inline auto definition_TypeLoc(clang::TypeLoc typeLoc) {
-		auto tdtl = typeLoc.getAs<clang::TypedefTypeLoc>();
+		auto tdtl = typeLoc.getAsAdjusted<clang::TypedefTypeLoc>();
 		while (tdtl) {
 			auto TDND = tdtl.getTypedefNameDecl();
 			auto tsi = TDND->getTypeSourceInfo();
 			if (tsi) {
 				typeLoc = tsi->getTypeLoc();
-				tdtl = typeLoc.getAs<clang::TypedefTypeLoc>();
+				tdtl = typeLoc.getAsAdjusted<clang::TypedefTypeLoc>();
 			} else {
 				assert(false);
 			}
@@ -223,6 +223,27 @@ namespace convm1 {
 		std::string m_current_pointer_target_state;
 	};
 
+	inline std::string adjusted_qtype_str(std::string qtype_str) {
+		if ("_Bool" == qtype_str) {
+			qtype_str = "bool";
+		} else if ("const _Bool" == qtype_str) {
+			qtype_str = "const bool";
+		} else {
+			/* hack alert */
+			static const std::string struct_space_str = "struct ";
+			static const std::string const_struct_space_str = "const struct ";
+			if (string_begins_with(qtype_str, struct_space_str)) {
+				/* Remove legacy C "struct" type specifer. Apparently C++ doesn't like it when it is
+				applied to C++ (i.e. non-C) struct types. */
+				qtype_str = qtype_str.substr(struct_space_str.size());
+			} else if (string_begins_with(qtype_str, const_struct_space_str)) {
+				qtype_str = qtype_str.substr(const_struct_space_str.size());
+			}
+
+		}
+		return qtype_str;
+	}
+
 	/* CTypeState1 holds information about a type instance (in the source text) and the type, if
 	any, it may/will be converted to. */
 	class CTypeState1 {
@@ -235,8 +256,13 @@ namespace convm1 {
 			m_maybe_original_qtype = qtype;
 			set_current_qtype(qtype);
 		}
-		void set_current_qtype_str(const std::string& qtype_str) {
-			m_current_qtype_str = qtype_str;
+		void set_current_non_function_qtype_str(const std::string& qtype_str) {
+			m_current_qtype_or_return_qtype_str = adjusted_qtype_str(qtype_str);
+			m_current_qtype_is_current = false;
+		}
+		void set_current_function_qtype_str(const std::string& return_qtype_str, const std::string& params_str) {
+			m_current_qtype_or_return_qtype_str = adjusted_qtype_str(return_qtype_str);
+			m_current_params_str = params_str;
 			m_current_qtype_is_current = false;
 		}
 		std::string original_qtype_str() const {
@@ -255,20 +281,45 @@ namespace convm1 {
 				if (!m_maybe_current_qtype.has_value()) {
 					assert(false);
 				} else {
-					std::string retval = m_maybe_current_qtype.value().getAsString();
 					auto qtype = m_maybe_current_qtype.value();
 					if (llvm::isa<const clang::FunctionType>(qtype)) {
 						auto FNQT = llvm::cast<const clang::FunctionType>(qtype);
 						if (FNQT && (!(m_current_params_str.empty()))) {
-							std::string function_type_str = FNQT->getReturnType().getAsString();
+							std::string function_type_str = (m_current_qtype_or_return_qtype_str.empty())
+								? adjusted_qtype_str(FNQT->getReturnType().getAsString()) : m_current_qtype_or_return_qtype_str;
 							function_type_str += m_current_params_str;
 							return function_type_str;
 						}
 					}
-					return m_maybe_current_qtype.value().getAsString();
+					return adjusted_qtype_str(qtype.getAsString());
 				}
 			}
-			return m_current_qtype_str;
+			return m_current_qtype_or_return_qtype_str + m_current_params_str;
+		}
+		std::string current_return_qtype_str() const {
+			if (m_current_qtype_is_current) {
+				if (!m_maybe_current_qtype.has_value()) {
+					assert(false);
+				} else {
+					auto qtype = m_maybe_current_qtype.value();
+					if (llvm::isa<const clang::FunctionType>(qtype)) {
+						auto FNQT = llvm::cast<const clang::FunctionType>(qtype);
+						if (FNQT) {
+							if (!(m_current_params_str.empty())) {
+								std::string function_type_str = (m_current_qtype_or_return_qtype_str.empty())
+									? adjusted_qtype_str(FNQT->getReturnType().getAsString()) : m_current_qtype_or_return_qtype_str;
+								function_type_str += m_current_params_str;
+								return function_type_str;
+							} else {
+								assert(m_current_qtype_or_return_qtype_str.empty());
+								return adjusted_qtype_str(FNQT->getReturnType().getAsString());
+							}
+						}
+					}
+					return adjusted_qtype_str(qtype.getAsString());
+				}
+			}
+			return m_current_qtype_or_return_qtype_str;
 		}
 		std::optional<clang::QualType> current_qtype_if_any() const { return m_maybe_current_qtype;}
 		bool current_qtype_is_current() const { return m_current_qtype_is_current; }
@@ -280,7 +331,7 @@ namespace convm1 {
 				if (m_current_qtype_is_current) {
 					assert(m_maybe_current_qtype.has_value());
 					return (m_maybe_current_qtype.value() != m_maybe_original_qtype.value());
-				} else if (m_maybe_original_qtype.value().getAsString() != m_current_qtype_str)  {
+				} else if (m_maybe_original_qtype.value().getAsString() != m_current_qtype_or_return_qtype_str)  {
 					return true;
 				}
 			}
@@ -321,7 +372,7 @@ namespace convm1 {
 		std::optional<clang::QualType> m_maybe_original_qtype;
 		bool m_current_qtype_is_current = false;
 		std::optional<clang::QualType> m_maybe_current_qtype;
-		std::string m_current_qtype_str;
+		std::string m_current_qtype_or_return_qtype_str;
 	};
 
 	/* CIndirectionStateStack holds information about an instance of a type that is composed of
@@ -381,7 +432,8 @@ namespace convm1 {
 					if (PNQT) {
 						std::optional<clang::TypeLoc> new_maybe_typeLoc;
 						if (maybe_typeLoc.has_value()) {
-							auto ParenLoc = definition_TypeLoc(*maybe_typeLoc).getAs<clang::ParenTypeLoc>();
+							IF_DEBUG(auto typeLocClass = maybe_typeLoc.value().getTypeLocClass();)
+							auto ParenLoc = definition_TypeLoc(maybe_typeLoc.value()).getAsAdjusted<clang::ParenTypeLoc>();
 							if (ParenLoc) {
 								new_maybe_typeLoc = ParenLoc.getInnerLoc();
 							}
@@ -401,7 +453,8 @@ namespace convm1 {
 					l_qtype = FNQT->getReturnType();
 
 					if (maybe_typeLoc.has_value()) {
-						auto FunLoc = definition_TypeLoc(*maybe_typeLoc).getAs<clang::FunctionTypeLoc>();
+						IF_DEBUG(auto typeLocClass = maybe_typeLoc.value().getTypeLocClass();)
+						auto FunLoc = definition_TypeLoc(maybe_typeLoc.value()).getAsAdjusted<clang::FunctionTypeLoc>();
 						if (FunLoc) {
 							l_maybe_typeLoc = FunLoc.getReturnLoc();
 						}
@@ -479,7 +532,8 @@ namespace convm1 {
 
 				std::optional<clang::TypeLoc> new_maybe_typeLoc;
 				if (l_maybe_typeLoc.has_value()) {
-					auto ArrayLoc = definition_TypeLoc(*l_maybe_typeLoc).getAs<clang::ArrayTypeLoc>();
+					IF_DEBUG(auto typeLocClass = l_maybe_typeLoc.value().getTypeLocClass();)
+					auto ArrayLoc = definition_TypeLoc(*l_maybe_typeLoc).getAsAdjusted<clang::ArrayTypeLoc>();
 					if (ArrayLoc) {
 						new_maybe_typeLoc = ArrayLoc.getElementLoc();
 					}
@@ -520,14 +574,14 @@ namespace convm1 {
 				IF_DEBUG(auto typeLocClass = typeLoc.getTypeLocClass();)
 				auto pointerTypeLoc = typeLoc.getAsAdjusted<clang::PointerTypeLoc>();
 				while (!pointerTypeLoc) {
-					auto etl = typeLoc.getAs<clang::ElaboratedTypeLoc>();
-					auto qtl = typeLoc.getAs<clang::QualifiedTypeLoc>();
+					auto etl = typeLoc.getAsAdjusted<clang::ElaboratedTypeLoc>();
+					auto qtl = typeLoc.getAsAdjusted<clang::QualifiedTypeLoc>();
 					if (etl) {
 						typeLoc = definition_TypeLoc(etl.getNamedTypeLoc());
-						pointerTypeLoc = typeLoc.getAs<clang::PointerTypeLoc>();
+						pointerTypeLoc = typeLoc.getAsAdjusted<clang::PointerTypeLoc>();
 					} else if (qtl) {
 						typeLoc = definition_TypeLoc(qtl.getUnqualifiedLoc());
-						pointerTypeLoc = typeLoc.getAs<clang::PointerTypeLoc>();
+						pointerTypeLoc = typeLoc.getAsAdjusted<clang::PointerTypeLoc>();
 					} else {
 						break;
 					}
@@ -566,13 +620,14 @@ namespace convm1 {
 
 			std::optional<clang::TypeLoc> new_maybe_typeLoc;
 			if (l_maybe_typeLoc.has_value()) {
+				IF_DEBUG(auto typeLocClass = l_maybe_typeLoc.value().getTypeLocClass();)
 				auto typeLoc = definition_TypeLoc(*l_maybe_typeLoc);
-				auto ReferenceLoc = typeLoc.getAs<clang::ReferenceTypeLoc>();
+				auto ReferenceLoc = typeLoc.getAsAdjusted<clang::ReferenceTypeLoc>();
 				while (!ReferenceLoc) {
-					auto etl = typeLoc.getAs<clang::ElaboratedTypeLoc>();
+					auto etl = typeLoc.getAsAdjusted<clang::ElaboratedTypeLoc>();
 					if (etl) {
 						typeLoc = definition_TypeLoc(etl.getNamedTypeLoc());
-						ReferenceLoc = typeLoc.getAs<clang::ReferenceTypeLoc>();
+						ReferenceLoc = typeLoc.getAsAdjusted<clang::ReferenceTypeLoc>();
 					} else {
 						break;
 					}
@@ -825,7 +880,8 @@ namespace convm1 {
 			}
 #endif /*!NDEBUG*/
 			QualType QT = ddecl.getType();
-			IF_DEBUG(std::string qtype_str = m_ddecl_cptr->getType().getAsString();)
+			IF_DEBUG(auto typeClass = QT->getTypeClass();)
+			IF_DEBUG(std::string qtype_str = QT.getAsString();)
 			assert(ddecl.isFunctionOrFunctionTemplate() == QT->isFunctionType());
 			if (QT->isFunctionType()) {
 				m_is_a_function = true;
@@ -833,10 +889,28 @@ namespace convm1 {
 			std::optional<clang::TypeLoc> maybe_typeLoc;
 			auto tsi = ddecl.getTypeSourceInfo();
 			if (tsi) {
+				IF_DEBUG(auto typeLocClass = tsi->getTypeLoc().getTypeLocClass();)
+				IF_DEBUG(auto typeLocTypeClass = tsi->getTypeLoc().getType()->getTypeClass();)
 				IF_DEBUG(std::string tl_qtype_str = tsi->getTypeLoc().getType().getAsString();)
+				bool inconsistent_types_flag = false;
+				while (tsi->getTypeLoc().getType() != QT) {
+					if (llvm::isa<const clang::ParenType>(QT)) {
+						auto PN = llvm::cast<const clang::ParenType>(QT);
+						assert(PN);
+						QT = PN->getInnerType();
+					} else {
+						break;
+					}
+				}
 				if (tsi->getTypeLoc().getType() != QT) {
-					int q = 5;
-				} else {
+					if (tsi->getTypeLoc().getType().getAsString() != QT.getAsString()) {
+						inconsistent_types_flag = true;
+					} else {
+						/* ?? */
+						int q = 5;
+					}
+				}
+				if (!inconsistent_types_flag) {
 					maybe_typeLoc = tsi->getTypeLoc();
 				}
 			}
@@ -955,7 +1029,8 @@ namespace convm1 {
 			direct_type_state_ref().set_current_qtype(qtype);
 		}
 		std::string current_direct_qtype_str() const { return direct_type_state_ref().current_qtype_str(); }
-		void set_current_direct_qtype_str(const std::string& new_qtype_str) { direct_type_state_ref().set_current_qtype_str(new_qtype_str); }
+		void set_current_direct_non_function_qtype_str(const std::string& new_qtype_str) { direct_type_state_ref().set_current_non_function_qtype_str(new_qtype_str); }
+		void set_current_direct_function_qtype_str(const std::string& return_qtype_str, const std::string& params_str) { direct_type_state_ref().set_current_function_qtype_str(return_qtype_str, params_str); }
 		std::string non_const_current_direct_qtype_str() const {
 			auto non_const_direct_qtype_str = current_direct_qtype_str();
 			if (direct_type_state_ref().current_qtype_is_current()) {
@@ -963,7 +1038,7 @@ namespace convm1 {
 				auto current_direct_qtype = direct_type_state_ref().current_qtype_if_any().value();
 				auto non_const_direct_qtype = current_direct_qtype;
 				non_const_direct_qtype.removeLocalConst();
-				non_const_direct_qtype_str = non_const_direct_qtype.getAsString();
+				non_const_direct_qtype_str = adjusted_qtype_str(non_const_direct_qtype.getAsString());
 			} else {
 				/* hack alert */
 				static const std::string const_space_str = "const ";
@@ -972,6 +1047,30 @@ namespace convm1 {
 				}
 			}
 			return non_const_direct_qtype_str;
+		}
+		std::string current_direct_return_qtype_str() const { return direct_type_state_ref().current_return_qtype_str(); }
+		std::string non_const_current_direct_return_qtype_str() const {
+			auto non_const_direct_return_qtype_str = current_direct_return_qtype_str();
+			if (direct_type_state_ref().current_qtype_is_current()) {
+				assert(direct_type_state_ref().current_qtype_if_any().has_value());
+				auto current_direct_qtype = direct_type_state_ref().current_qtype_if_any().value();
+				auto non_const_direct_return_qtype = current_direct_qtype;
+				if (llvm::isa<const clang::FunctionType>(current_direct_qtype)) {
+					auto FNQT = llvm::cast<const clang::FunctionType>(current_direct_qtype);
+					if (FNQT) {
+						non_const_direct_return_qtype = FNQT->getReturnType();
+					}
+				}
+				non_const_direct_return_qtype.removeLocalConst();
+				non_const_direct_return_qtype_str = non_const_direct_return_qtype.getAsString();
+			} else {
+				/* hack alert */
+				static const std::string const_space_str = "const ";
+				if (string_begins_with(non_const_direct_return_qtype_str, const_space_str)) {
+					non_const_direct_return_qtype_str = non_const_direct_return_qtype_str.substr(const_space_str.size());
+				}
+			}
+			return non_const_direct_return_qtype_str;
 		}
 
 		const DeclaratorDecl* m_ddecl_cptr = nullptr;
@@ -1978,6 +2077,7 @@ namespace convm1 {
 	public:
 		std::string m_replacement_code;
 		std::string m_replacement_type_str;
+		std::string m_replacement_return_type_str;
 		std::string m_action_species;
 		bool m_changed_from_original = false;
 		bool m_individual_from_compound_declaration = false;
@@ -1987,6 +2087,80 @@ namespace convm1 {
 
 	inline std::string generate_qtype_replacement_code(clang::QualType qtype, Rewriter &Rewrite, bool is_a_function_parameter/* = false*/);
 	inline std::string params_string_from_qtypes(const std::vector<clang::QualType>& qtypes, Rewriter &Rewrite);
+
+	inline std::string current_params_string(Rewriter &Rewrite, std::string& pointee_params_current_str, clang::FunctionProtoTypeLoc functionProtoTypeLoc, clang::FunctionDecl const * FND = nullptr, std::vector<clang::QualType> const * param_qtypes_ptr = nullptr, bool suppress_modifications = false, CTUState *state1_ptr = nullptr) {
+		std::string l_pointee_params_current_str = pointee_params_current_str;
+
+		if ("" == pointee_params_current_str) {
+			if (functionProtoTypeLoc) {
+				auto parens_SR = write_once_source_range(nice_source_range(functionProtoTypeLoc.getParensRange(), Rewrite));
+				if (parens_SR.isValid()) {
+
+#ifndef NDEBUG
+					if (parens_SR.isValid()) {
+						auto& SM = Rewrite.getSourceMgr();
+						IF_DEBUG(std::string debug_source_location_str = parens_SR.getBegin().printToString(SM);)
+
+						DEBUG_SOURCE_TEXT_STR(debug_source_text, parens_SR, Rewrite);
+
+						if (std::string::npos != debug_source_location_str.find(":3991:")) {
+							int q = 5;
+						}
+					}
+#endif /*!NDEBUG*/
+
+					/* We're taking note of the (current) parameters source text. */
+					std::string parens_text = Rewrite.getRewrittenText(parens_SR);
+					l_pointee_params_current_str = parens_text;
+
+					if (ConvertToSCPP && (!suppress_modifications) && state1_ptr) {
+						/* We've stored the function parameters as a string. Now we're going
+						to "blank out"/erase the original source text of the parameters. */
+						std::string blank_text = parens_text;
+						for (auto& ch : blank_text) {
+							ch = ' ';
+						}
+						state1_ptr->m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, parens_SR, blank_text);
+						//Rewrite.ReplaceText(parens_SR, blank_text);
+
+						/* setting pointee_params_current_str to a non-empty string implies that the
+						the original source text of the parameters has (already) been "blanked out"/erased. */
+						pointee_params_current_str = l_pointee_params_current_str;
+					}
+				}
+			}
+		}
+
+		if (FND && state1_ptr) {
+			l_pointee_params_current_str = "(";
+			bool is_first_param = true;
+			for (const auto& param_VD : FND->parameters()) {
+				if (!is_first_param) {
+					l_pointee_params_current_str += ", ";
+				} else {
+					is_first_param = false;
+				}
+				auto res4 = generate_declaration_replacement_code(param_VD, Rewrite, state1_ptr, state1_ptr->m_ddecl_conversion_state_map);
+				l_pointee_params_current_str += res4.m_replacement_type_str;
+			}
+			l_pointee_params_current_str += ")";
+		} else {
+			/* In cases where a compatible function declaration has not (yet) been identified (or
+			when the CTUState is not provided), for the (relocated) function parameters code we can
+			use either the recently existing source code (that we just recorded then "blanked out"
+			/erased), if available, or we can (try to) generate the source code from the parameter
+			types we have stored. The former seems to be not reliably up-to-date, so for now we'll
+			always use the latter. */
+
+			/* if ("" == l_pointee_params_current_str) */
+			{
+				if (param_qtypes_ptr) {
+					l_pointee_params_current_str = params_string_from_qtypes(*param_qtypes_ptr, Rewrite);
+				}
+			}
+		}
+		return l_pointee_params_current_str;
+	}
 
 	/* If given a non-null state1_ptr argument, this function will modify the source text to reflect
 	any currently indicated changes to the declaration. In any case, it will return an information
@@ -2003,7 +2177,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find(":3618:")) {
+			if (std::string::npos != debug_source_location_str.find(":3991:")) {
 				int q = 5;
 			}
 		}
@@ -2032,32 +2206,35 @@ namespace convm1 {
 			for (size_t j = 0; j < indirection_state_stack.size(); j += 1)
 			{
 				size_t i = indirection_state_stack.size() - 1 - j;
-				bool l_changed_from_original = (indirection_state_stack[i].current_species() != indirection_state_stack[i].original_species());
+				auto& indirection_state_ref = indirection_state_stack.at(i);
+				bool l_changed_from_original = (indirection_state_ref.current_species() != indirection_state_ref.original_species());
 
 				bool is_char_star = false;
 				bool is_FILE_star = false;
 				bool is_void_star = false;
+				bool is_void_star_star = false;
 				bool is_function_pointer = false;
 				bool is_last_indirection = (indirection_state_stack.size() == (i+1));
 				if (is_last_indirection && (og_direct_type_was_char_type)) {
 					is_char_star = true;
 					/* For the moment, we leave "char *" types alone. This will change at some point. */
-					l_changed_from_original = ("native pointer" != indirection_state_stack[i].original_species());
+					l_changed_from_original = ("native pointer" != indirection_state_ref.original_species());
 				} else if (is_last_indirection && (og_direct_type_was_FILE_type)) {
 					is_FILE_star = true;
 					/* For the moment, we leave "FILE *" types alone. This may change at some point. */
-					l_changed_from_original = ("native pointer" != indirection_state_stack[i].original_species());
+					l_changed_from_original = ("native pointer" != indirection_state_ref.original_species());
 				} else if (is_last_indirection && (og_direct_type_was_void_type)) {
 					is_void_star = true;
 					l_changed_from_original = true;
 				} else if (is_last_indirection && direct_type_is_function_type) {
 					is_function_pointer = true;
-				} else if ((!is_last_indirection) && indirection_state_stack[i+1].current_is_function_type()) {
+				} else if ((!is_last_indirection) && indirection_state_stack.at(i+1).current_is_function_type()) {
 					is_function_pointer = true;
 				}
 				if (!is_last_indirection) {
 					bool is_second_last_indirection = (indirection_state_stack.size() == (i+2));
 					if (is_second_last_indirection && (og_direct_type_was_void_type)) {
+						is_void_star_star = true;
 						/* In the case of pointers to void (aka "void*"s), the direct type (i.e. "void")
 						will be replaced with "mse::lh::void_star_replacement" and the last indirection
 						will be considered a "transparent"/"pass-through"/"no-op"/"collapsed"/"eliminated"
@@ -2082,11 +2259,11 @@ namespace convm1 {
 				std::string suffix_str;
 				std::string post_name_suffix_str;
 
-				if (indirection_state_stack[i].current_is_function_type()) {
-					//suffix_str = indirection_state_stack[i].current_params_string() + suffix_str;
+				if (indirection_state_ref.current_is_function_type()) {
+					//suffix_str = indirection_state_ref.current_params_string() + suffix_str;
 				}
 
-				if ("inferred array" == indirection_state_stack[i].current_species()) {
+				if ("inferred array" == indirection_state_ref.current_species()) {
 					if (is_char_star) {
 						/* We're assuming this is a null terminated string. We'll just leave it as a
 						* char* for now. At some point we'll replace it with an mse::string or whatever. */
@@ -2127,7 +2304,7 @@ namespace convm1 {
 						}
 						retval.m_action_species = "native pointer to MSE_LH_ARRAY_ITERATOR_TYPE";
 					}
-				} else if ("dynamic array" == indirection_state_stack[i].current_species()) {
+				} else if ("dynamic array" == indirection_state_ref.current_species()) {
 					if (is_char_star) {
 						/* We're assuming this is a null terminated string. We'll just leave it as a
 						* char* for now. At some point we'll replace it with an mse::string or whatever. */
@@ -2160,8 +2337,8 @@ namespace convm1 {
 							retval.m_action_species = "native pointer to DYNAMIC_ARRAY_ITERATOR_TYPE";
 						}
 					}
-				} else if ("native array" == indirection_state_stack[i].current_species()) {
-					std::string size_text = indirection_state_stack[i].m_array_size_expr;
+				} else if ("native array" == indirection_state_ref.current_species()) {
+					std::string size_text = indirection_state_ref.m_array_size_expr;
 
 					if (is_char_star) {
 						/* We're assuming this is a null terminated string. We'll just leave it as a
@@ -2221,7 +2398,7 @@ namespace convm1 {
 							}
 						}
 					}
-				} else if ("native pointer" == indirection_state_stack[i].current_species()) {
+				} else if ("native pointer" == indirection_state_ref.current_species()) {
 					if (is_char_star) {
 						/* We're assuming this is a null terminated string. We'll just leave it as a
 						* char* for now. At some point we'll replace it with an mse::string or whatever. */
@@ -2232,13 +2409,38 @@ namespace convm1 {
 						suffix_str = "* ";
 						retval.m_action_species = "FILE*";
 					} else if (is_void_star) {
+						/* In the case of "void*" we're going to effectively "remove" one level of indirection
+						by making it a "transparent"/"pass-through"/"no-op" indirection, and replacing the
+						direct type (i.e. "void") with a type that replaces "void*" (i.e. the "void" and its
+						indirection). */
 						l_changed_from_original = true;
 						prefix_str = "";
 						suffix_str = "";
+
+						/* This "void*" might actually be a function with a return value of "void*", in which
+						case the direct type should be a function type that includes its parameters. */
+						std::string params_str;
+						if (indirection_state_ref.current_is_function_type()) {
+							clang::FunctionProtoTypeLoc functionProtoTypeLoc;
+							if (indirection_state_ref.m_maybe_typeLoc.has_value()) {
+								functionProtoTypeLoc = definition_TypeLoc(indirection_state_ref.m_maybe_typeLoc.value()).getAsAdjusted<clang::FunctionProtoTypeLoc>();
+							}
+
+							params_str = current_params_string(Rewrite, indirection_state_ref.m_params_current_str
+								, functionProtoTypeLoc, indirection_state_ref.m_function_decl_ptr, &(indirection_state_ref.m_param_qtypes_current)
+								, suppress_modifications, state1_ptr);
+						}
+
+						std::string new_qtype_str;
 						if ("Dual" == ConvertMode) {
-							direct_type_state_ref.set_current_qtype_str("MSE_LH_VOID_STAR");
+							new_qtype_str = "MSE_LH_VOID_STAR";
 						} else {
-							direct_type_state_ref.set_current_qtype_str("mse::lh::void_star_replacement");
+							new_qtype_str = "mse::lh::void_star_replacement";
+						}
+						if (params_str.empty()) {
+							direct_type_state_ref.set_current_non_function_qtype_str(new_qtype_str);
+						} else {
+							direct_type_state_ref.set_current_function_qtype_str(new_qtype_str , params_str);
 						}
 						retval.m_action_species = "void*";
 					} else if (is_function_pointer) {
@@ -2280,7 +2482,7 @@ namespace convm1 {
 							retval.m_action_species = "native pointer";
 						}
 					}
-				} else if ("malloc target" == indirection_state_stack[i].current_species()) {
+				} else if ("malloc target" == indirection_state_ref.current_species()) {
 					if (is_char_star) {
 						/* We're assuming this is a null terminated string. We'll just leave it as a
 						* char* for now. At some point we'll replace it with an mse::string or whatever. */
@@ -2291,19 +2493,43 @@ namespace convm1 {
 						suffix_str = "* ";
 						retval.m_action_species = "FILE*";
 					} else if (is_void_star) {
+						/* In the case of "void*" we're going to effectively "remove" one level of indirection
+						by making it a "transparent"/"pass-through"/"no-op" indirection, and replacing the
+						direct type (i.e. "void") with a type that replaces "void*" (i.e. the "void" and its
+						indirection). */
 						l_changed_from_original = true;
 						prefix_str = "";
 						suffix_str = "";
-						if ("Dual" == ConvertMode) {
-							direct_type_state_ref.set_current_qtype_str("MSE_LH_VOID_STAR");
-						} else {
-							direct_type_state_ref.set_current_qtype_str("mse::lh::void_star_replacement");
+
+						/* This "void*" might actually be a function with a return value of "void*", in which
+						case the direct type should be a function type that includes its parameters. */
+						std::string params_str;
+						if (indirection_state_ref.current_is_function_type()) {
+							clang::FunctionProtoTypeLoc functionProtoTypeLoc;
+							if (indirection_state_ref.m_maybe_typeLoc.has_value()) {
+								functionProtoTypeLoc = definition_TypeLoc(indirection_state_ref.m_maybe_typeLoc.value()).getAsAdjusted<clang::FunctionProtoTypeLoc>();
+							}
+
+							params_str = current_params_string(Rewrite, indirection_state_ref.m_params_current_str
+								, functionProtoTypeLoc, indirection_state_ref.m_function_decl_ptr, &(indirection_state_ref.m_param_qtypes_current)
+								, suppress_modifications, state1_ptr);
 						}
-						retval.m_action_species = "void*";
+
+						std::string new_qtype_str;
+						if ("Dual" == ConvertMode) {
+							new_qtype_str = "MSE_LH_VOID_STAR";
+						} else {
+							new_qtype_str = "mse::lh::void_star_replacement";
+						}
+						if (params_str.empty()) {
+							direct_type_state_ref.set_current_non_function_qtype_str(new_qtype_str);
+						} else {
+							direct_type_state_ref.set_current_function_qtype_str(new_qtype_str , params_str);
+						}
 					} else {
 						if (false) {
 							/* We'll just leaving it as a native pointer for now. Ultimately, this won't be the case. */
-							if ("native pointer" == indirection_state_stack[i].original_species()) {
+							if ("native pointer" == indirection_state_ref.original_species()) {
 								l_changed_from_original = false;
 							}
 							//prefix_str = "";
@@ -2325,7 +2551,7 @@ namespace convm1 {
 							retval.m_action_species = "malloc target to TAnyPointer";
 						}
 					}
-				} else if ("native reference" == indirection_state_stack[i].current_species()) {
+				} else if ("native reference" == indirection_state_ref.current_species()) {
 					{
 						l_changed_from_original = false;
 						//prefix_str = "";
@@ -2337,11 +2563,14 @@ namespace convm1 {
 				}
 
 				auto pointee_maybe_typeLoc = ((i + 1) < indirection_state_stack.size())
-					? indirection_state_stack[i+1].m_maybe_typeLoc
+					? indirection_state_stack.at(i+1).m_maybe_typeLoc
 					: indirection_state_stack.m_direct_type_state.m_maybe_typeLoc;
 
-				if (indirection_state_stack[i].m_maybe_typeLoc.has_value() && pointee_maybe_typeLoc.has_value()) {
-					auto& typeLoc = indirection_state_stack[i].m_maybe_typeLoc.value();
+				bool b1 = indirection_state_ref.m_maybe_typeLoc.has_value();
+				bool b2 = pointee_maybe_typeLoc.has_value();
+
+				if (indirection_state_ref.m_maybe_typeLoc.has_value() && pointee_maybe_typeLoc.has_value()) {
+					auto& typeLoc = indirection_state_ref.m_maybe_typeLoc.value();
 					IF_DEBUG(auto typeLocClass = typeLoc.getTypeLocClass();)
 
 					auto pointee_typeLoc = pointee_maybe_typeLoc.value();
@@ -2349,20 +2578,20 @@ namespace convm1 {
 
 					//auto SR = typeLoc.getSourceRange();
 					bool needs_processing = false;
-					if (!(indirection_state_stack[i].m_maybe_source_range.has_value())) {
+					if (!(indirection_state_ref.m_maybe_source_range.has_value())) {
 						needs_processing = true;
 						const auto l_SR = nice_source_range(typeLoc.getSourceRange(), Rewrite);
-						indirection_state_stack[i].m_maybe_source_range = l_SR;
+						indirection_state_ref.m_maybe_source_range = l_SR;
 						const auto l_defintion_SR = nice_source_range(definition_TypeLoc(typeLoc).getSourceRange(), Rewrite);
 						if (!(l_SR == l_defintion_SR)) {
 							/* This type seems to be a typedef. So its definition is in a different location from
 							where it used (to declare a variable).*/
-							indirection_state_stack[i].m_maybe_typedef_definition_source_range = nice_source_range(definition_TypeLoc(typeLoc).getSourceRange(), Rewrite);
+							indirection_state_ref.m_maybe_typedef_definition_source_range = nice_source_range(definition_TypeLoc(typeLoc).getSourceRange(), Rewrite);
 						}
 					}
-					auto& SR = indirection_state_stack[i].m_maybe_source_range.value();
-					bool is_typedef = indirection_state_stack[i].m_maybe_typedef_definition_source_range.has_value();
-					auto& definition_SR = is_typedef ? indirection_state_stack[i].m_maybe_typedef_definition_source_range.value() : SR;
+					auto& SR = indirection_state_ref.m_maybe_source_range.value();
+					bool is_typedef = indirection_state_ref.m_maybe_typedef_definition_source_range.has_value();
+					auto& definition_SR = is_typedef ? indirection_state_ref.m_maybe_typedef_definition_source_range.value() : SR;
 
 #ifndef NDEBUG
 					if (definition_SR.isValid()) {
@@ -2371,7 +2600,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":3618:")) {
+						if (std::string::npos != debug_source_location_str.find(":3991:")) {
 							int q = 5;
 						}
 					}
@@ -2380,7 +2609,7 @@ namespace convm1 {
 						auto TDDSR = nice_source_range(definition_TypeLoc(typeLoc).getSourceRange(), Rewrite);
 						std::string TDD_text = Rewrite.getRewrittenText(TDDSR);
 
-						auto tdtl = typeLoc.getAs<clang::TypedefTypeLoc>();
+						auto tdtl = typeLoc.getAsAdjusted<clang::TypedefTypeLoc>();
 						if (tdtl) {
 							auto TDND = tdtl.getTypedefNameDecl();
 							if (TDND) {
@@ -2403,8 +2632,8 @@ namespace convm1 {
 					}
 #endif /*!NDEBUG*/
 
-					auto& maybe_lexical_suffix_SR = indirection_state_stack[i].m_maybe_suffix_source_range;
-					auto& maybe_prefix_SR = indirection_state_stack[i].m_maybe_prefix_source_range;
+					auto& maybe_lexical_suffix_SR = indirection_state_ref.m_maybe_suffix_source_range;
+					auto& maybe_prefix_SR = indirection_state_ref.m_maybe_prefix_source_range;
 
 					if (needs_processing && SR.isValid()) {
 						std::string old_definition_text = Rewrite.getRewrittenText(definition_SR);
@@ -2413,7 +2642,7 @@ namespace convm1 {
 						if (indirection_state_stack.m_maybe_DD.has_value()) {
 							std::optional<clang::SourceLocation> maybe_name_SL;
 							if (is_typedef) {
-								auto tdtl = typeLoc.getAs<clang::TypedefTypeLoc>();
+								auto tdtl = typeLoc.getAsAdjusted<clang::TypedefTypeLoc>();
 								if (tdtl) {
 									auto TDND = tdtl.getTypedefNameDecl();
 									if (TDND) {
@@ -2523,7 +2752,7 @@ namespace convm1 {
 
 						bool pointee_needs_processing = false;
 						auto& pointee_maybe_stored_source_range = ((i + 1) < indirection_state_stack.size())
-							? indirection_state_stack[i+1].m_maybe_source_range
+							? indirection_state_stack.at(i+1).m_maybe_source_range
 							: indirection_state_stack.m_direct_type_state.m_maybe_source_range;
 						if (!(pointee_maybe_stored_source_range.has_value())) {
 							pointee_needs_processing = true;
@@ -2561,7 +2790,7 @@ namespace convm1 {
 
 							bool pointee_including_any_const_qualifier_needs_processing = false;
 							auto& pointee_maybe_stored_source_range_including_any_const_qualifier = ((i + 1) < indirection_state_stack.size())
-								? indirection_state_stack[i+1].m_maybe_source_range_including_any_const_qualifier
+								? indirection_state_stack.at(i+1).m_maybe_source_range_including_any_const_qualifier
 								: indirection_state_stack.m_direct_type_state.m_maybe_source_range_including_any_const_qualifier;
 							if (!(pointee_maybe_stored_source_range_including_any_const_qualifier.has_value())) {
 								pointee_including_any_const_qualifier_needs_processing = true;
@@ -2662,7 +2891,7 @@ namespace convm1 {
 
 					if (definition_SR.isValid()) {
 
-						if ("native array" == indirection_state_stack[i].current_species()) {
+						if ("native array" == indirection_state_ref.current_species()) {
 							/* Currently, in the transformation of native array declarations, we blank out
 							the original bracketed size expression and add the size expression to the suffix
 							of the new type (essentially moving the array size expression from the right
@@ -2674,22 +2903,22 @@ namespace convm1 {
 							haven't had cause to switch to such an alternative, but conceivably may need to
 							do so in the future. */
 
-							if (!indirection_state_stack[i].m_array_size_expr_read_from_source_text) {
-								auto ArrayLoc = definition_TypeLoc(typeLoc).getAs<clang::ArrayTypeLoc>();
+							if (!indirection_state_ref.m_array_size_expr_read_from_source_text) {
+								auto ArrayLoc = definition_TypeLoc(typeLoc).getAsAdjusted<clang::ArrayTypeLoc>();
 								if (ArrayLoc) {
 									auto brackets_SR = ArrayLoc.getBracketsRange();
 									auto size_expr_SR = clang::SourceRange{ brackets_SR.getBegin().getLocWithOffset(+1), brackets_SR.getEnd().getLocWithOffset(-1) };
 									if (size_expr_SR.isValid() && (!(size_expr_SR.getEnd() < size_expr_SR.getBegin()))) {
 										std::string size_expr_text = Rewrite.getRewrittenText(size_expr_SR);
 										if ("" != size_expr_text) {
-											indirection_state_stack[i].m_array_size_expr = size_expr_text;
-											indirection_state_stack[i].m_array_size_expr_read_from_source_text = true;
+											indirection_state_ref.m_array_size_expr = size_expr_text;
+											indirection_state_ref.m_array_size_expr_read_from_source_text = true;
 
 											/* We've updated the array size expression text (from the literal number derived from
 											the type to the expression read from the source text), so here we're updating the prefix
 											and sufix strings accordingly. */
 
-											std::string size_text = indirection_state_stack[i].m_array_size_expr;
+											std::string size_text = indirection_state_ref.m_array_size_expr;
 
 											if (is_char_star) {
 											} else if (is_FILE_star) {
@@ -2730,135 +2959,58 @@ namespace convm1 {
 									int q = 3;
 								}
 							}
-						} else if ("native pointer" == indirection_state_stack[i].current_species()) {
-							if (is_function_pointer) {
+						} else if ("native pointer" == indirection_state_ref.current_species()) {
+							if (is_function_pointer || (is_void_star && indirection_state_ref.current_is_function_type())) {
 								auto& pointee_params_current_str = ((i + 1) < indirection_state_stack.size())
-									? indirection_state_stack[i+1].m_params_current_str
+									? indirection_state_stack.at(i+1).m_params_current_str
 									: indirection_state_stack.m_direct_type_state.m_current_params_str;
 
-								std::string l_pointee_params_current_str = pointee_params_current_str;
+								clang::FunctionProtoTypeLoc functionProtoTypeLoc;
 
-								if ("" == pointee_params_current_str) {
-									auto pointerTypeLoc = definition_TypeLoc(typeLoc).getAsAdjusted<clang::PointerTypeLoc>();
-									if (pointerTypeLoc) {
-										auto l_pointee_typeLoc = definition_TypeLoc(pointerTypeLoc.getPointeeLoc());
+								auto pointerTypeLoc = definition_TypeLoc(typeLoc).getAsAdjusted<clang::PointerTypeLoc>();
+								if (pointerTypeLoc) {
+									auto l_pointee_typeLoc = definition_TypeLoc(pointerTypeLoc.getPointeeLoc());
 
-										std::string l_pointee_text2 = Rewrite.getRewrittenText(definition_TypeLoc(l_pointee_typeLoc).getSourceRange());
-										std::string l_pointee_text3 = Rewrite.getRewrittenText(l_pointee_typeLoc.getSourceRange());
-										std::string pointee_text2 = Rewrite.getRewrittenText(definition_TypeLoc(pointee_typeLoc).getSourceRange());
-										std::string pointee_text3 = Rewrite.getRewrittenText(pointee_typeLoc.getSourceRange());
-
-										auto functionProtoTypeLoc2 = definition_TypeLoc(pointee_typeLoc).getAs<clang::FunctionProtoTypeLoc>();
-										auto functionProtoTypeLoc3 = pointee_typeLoc.getAsAdjusted<clang::FunctionProtoTypeLoc>();
-										auto functionProtoTypeLoc4 = pointee_typeLoc.getAs<clang::FunctionProtoTypeLoc>();
-										if (functionProtoTypeLoc2 || functionProtoTypeLoc3 || functionProtoTypeLoc4) {
-											int q = 5;
-										}
-
-										auto functionProtoTypeLoc = definition_TypeLoc(l_pointee_typeLoc).getAsAdjusted<clang::FunctionProtoTypeLoc>();
-										if (functionProtoTypeLoc) {
-											auto parens_SR = write_once_source_range(nice_source_range(functionProtoTypeLoc.getParensRange(), Rewrite));
-											if (parens_SR.isValid()) {
-
-	#ifndef NDEBUG
-												if (parens_SR.isValid()) {
-													auto& SM = Rewrite.getSourceMgr();
-													IF_DEBUG(std::string debug_source_location_str = parens_SR.getBegin().printToString(SM);)
-
-													DEBUG_SOURCE_TEXT_STR(debug_source_text, parens_SR, Rewrite);
-
-													if (std::string::npos != debug_source_location_str.find(":3618:")) {
-														int q = 5;
-													}
-												}
-	#endif /*!NDEBUG*/
-
-												/* We're taking note of the (current) parameters source text. */
-												std::string parens_text = Rewrite.getRewrittenText(parens_SR);
-												l_pointee_params_current_str = parens_text;
-
-												if (ConvertToSCPP && (!suppress_modifications) && state1_ptr) {
-													/* We've stored the function parameters as a string. Now we're going
-													to "blank out"/erase the original source text of the parameters. */
-													std::string blank_text = parens_text;
-													for (auto& ch : blank_text) {
-														ch = ' ';
-													}
-													state1_ptr->m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, parens_SR, blank_text);
-													//Rewrite.ReplaceText(parens_SR, blank_text);
-
-													/* setting pointee_params_current_str to a non-empty string implies that the
-													the original source text of the parameters has (already) been "blanked out"/erased. */
-													pointee_params_current_str = l_pointee_params_current_str;
-												}
-											}
-										}
-									} else {
-										int q = 3;
-									}
+									functionProtoTypeLoc = definition_TypeLoc(l_pointee_typeLoc).getAsAdjusted<clang::FunctionProtoTypeLoc>();
+								} else {
+									int q = 3;
 								}
 
 								auto FND = ((i + 1) < indirection_state_stack.size())
-									? indirection_state_stack[i+1].m_function_decl_ptr
+									? indirection_state_stack.at(i+1).m_function_decl_ptr
 									: indirection_state_stack.m_direct_type_state.m_function_decl_ptr;
 
-								if (FND) {
-									int q = 5;
-								}
-
-								if (FND && state1_ptr) {
-									l_pointee_params_current_str = "(";
-									bool is_first_param = true;
-									for (const auto& param_VD : FND->parameters()) {
-										if (!is_first_param) {
-											l_pointee_params_current_str += ", ";
-										} else {
-											is_first_param = false;
-										}
-										auto res4 = generate_declaration_replacement_code(param_VD, Rewrite, state1_ptr, state1_ptr->m_ddecl_conversion_state_map);
-										l_pointee_params_current_str += res4.m_replacement_type_str;
-									}
-									l_pointee_params_current_str += ")";
+								std::vector<clang::QualType> param_qtypes;
+								if ((i + 1) < indirection_state_stack.size()) {
+									param_qtypes = indirection_state_stack.at(i+1).m_param_qtypes_current;
 								} else {
-									/* In cases where a compatible function declaration has not (yet) been identified (or
-									when the CTUState is not provided), for the (relocated) function parameters code we can
-									use either the recently existing source code (that we just recorded then "blanked out"
-									/erased), if available, or we can (try to) generate the source code from the parameter
-									types we have stored. The former seems to be not reliably up-to-date, so for now we'll
-									always use the latter. */
-
-									/* if ("" == l_pointee_params_current_str) */
-									{
-										std::vector<clang::QualType> param_qtypes;
-										if ((i + 1) < indirection_state_stack.size()) {
-											param_qtypes = indirection_state_stack[i+1].m_param_qtypes_current;
-										} else {
-											/* In this case the function pointer pointee (i.e. the function) is the
-											direct type. We don't (currently) store the function parameter types in
-											the "direct type state", so we'll attempt to deduce parameter types here. */
-											auto qtype = indirection_state_stack.m_direct_type_state.current_qtype_if_any().value();
-											if (llvm::isa<const clang::FunctionType>(qtype)) {
-												auto type_class = qtype->getTypeClass();
-												if (clang::Type::FunctionProto == type_class) {
-													if (llvm::isa<const clang::FunctionProtoType>(qtype)) {
-														auto FNQT = llvm::cast<const clang::FunctionProtoType>(qtype);
-														if (FNQT) {
-															FNQT->getAsRecordDecl();
-															auto num_params = FNQT->getNumParams();
-															auto param_types = FNQT->param_types();
-															for (auto& param_type : param_types) {
-																param_qtypes.push_back(param_type);
-															}
-														} else {
-															assert(false);
-														}
+									/* In this case the function pointer pointee (i.e. the function) is the
+									direct type. We don't (currently) store the function parameter types in
+									the "direct type state", so we'll attempt to deduce parameter types here. */
+									auto qtype = indirection_state_stack.m_direct_type_state.current_qtype_if_any().value();
+									IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+									if (llvm::isa<const clang::FunctionType>(qtype)) {
+										auto type_class = qtype->getTypeClass();
+										if (clang::Type::FunctionProto == type_class) {
+											if (llvm::isa<const clang::FunctionProtoType>(qtype)) {
+												auto FNQT = llvm::cast<const clang::FunctionProtoType>(qtype);
+												if (FNQT) {
+													FNQT->getAsRecordDecl();
+													auto num_params = FNQT->getNumParams();
+													auto param_types = FNQT->param_types();
+													for (auto& param_type : param_types) {
+														param_qtypes.push_back(param_type);
 													}
+												} else {
+													assert(false);
 												}
 											}
 										}
-										l_pointee_params_current_str = params_string_from_qtypes(param_qtypes, Rewrite);
 									}
 								}
+								auto l_pointee_params_current_str = current_params_string(Rewrite, pointee_params_current_str, functionProtoTypeLoc, FND, &param_qtypes, suppress_modifications, state1_ptr);
+								/* The last indirection doesn't need the parameters prepended to the suffix because the direct type
+								(string) will already include its parameters. */
 								if (!is_last_indirection) {
 									suffix_str = l_pointee_params_current_str + suffix_str;
 								}
@@ -2869,13 +3021,13 @@ namespace convm1 {
 #define REGOBJ_TEST1_FLAG false
 
 					if (!is_argv) {
-						if ((REGOBJ_TEST1_FLAG || ("pointer target" == indirection_state_stack[i].current_pointer_target_state()))
+						if ((REGOBJ_TEST1_FLAG || ("pointer target" == indirection_state_ref.current_pointer_target_state()))
 							&& (!string_begins_with(prefix_str, "mse::TRegisteredObj<"))
 							&& (!string_begins_with(prefix_str, "MSE_LH_ADDRESSABLE_TYPE("))
 							&& (!string_begins_with(prefix_str, "const mse::TRegisteredObj<"))
 							&& (!string_begins_with(prefix_str, "const MSE_LH_ADDRESSABLE_TYPE("))
 							&& ("" == post_name_suffix_str)) {
-							if ("native reference" != indirection_state_stack[i].current_species()) {
+							if ("native reference" != indirection_state_ref.current_species()) {
 								if ("Dual" == ConvertMode) {
 									prefix_str = "MSE_LH_ADDRESSABLE_TYPE(" + prefix_str;
 									suffix_str = suffix_str + ")";
@@ -2893,22 +3045,22 @@ namespace convm1 {
 					if (definition_SR.isValid()) {
 						if ((!suppress_modifications) && state1_ptr) {
 							auto& state1 = *state1_ptr;
-							//suffix_str = indirection_state_stack[i].m_params_current_str + suffix_str;
+							//suffix_str = indirection_state_ref.m_params_current_str + suffix_str;
 							if ("" != suffix_str) {
-								indirection_state_stack[i].m_suffix_str = suffix_str;
+								indirection_state_ref.m_suffix_str = suffix_str;
 								if (maybe_lexical_suffix_SR.has_value()) {
 									//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, maybe_lexical_suffix_SR.value(), suffix_str);
-									indirection_state_stack[i].m_suffix_SR_or_insert_before_point = maybe_lexical_suffix_SR.value();
+									indirection_state_ref.m_suffix_SR_or_insert_before_point = maybe_lexical_suffix_SR.value();
 								} else {
-									indirection_state_stack[i].m_suffix_SR_or_insert_before_point = definition_SR.getEnd().getLocWithOffset(+1);
+									indirection_state_ref.m_suffix_SR_or_insert_before_point = definition_SR.getEnd().getLocWithOffset(+1);
 								}
 
-								indirection_state_stack[i].m_prefix_str = prefix_str;
+								indirection_state_ref.m_prefix_str = prefix_str;
 								if (maybe_prefix_SR.has_value()) {
 									//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, maybe_prefix_SR.value(), prefix_str);
-									indirection_state_stack[i].m_prefix_SR_or_insert_before_point = maybe_prefix_SR.value();
+									indirection_state_ref.m_prefix_SR_or_insert_before_point = maybe_prefix_SR.value();
 								} else {
-									indirection_state_stack[i].m_prefix_SR_or_insert_before_point = definition_SR.getBegin();
+									indirection_state_ref.m_prefix_SR_or_insert_before_point = definition_SR.getBegin();
 								}
 
 								auto arrayTypeLoc = typeLoc.getAsAdjusted<clang::ArrayTypeLoc>();
@@ -3013,16 +3165,12 @@ namespace convm1 {
 		auto ddcs_map_iter = res1.first;
 		auto& ddcs_ref = (*ddcs_map_iter).second;
 
-		QualType QT = DD->getType();
-
 		const clang::FunctionDecl* FND = nullptr;
 		bool type_is_function_type = false;
-		assert(DD->isFunctionOrFunctionTemplate() == QT->isFunctionType());
-		if (QT->isFunctionType()) {
+		if (DD->getType()->isFunctionType()) {
 			FND = dyn_cast<const clang::FunctionDecl>(DD);
 			if (FND) {
 				type_is_function_type = true;
-				QT = FND->getReturnType();
 			}
 		}
 
@@ -3128,6 +3276,7 @@ namespace convm1 {
 		bool changed_from_original = false;
 		std::string replacement_code;
 		std::string replacement_type_str;
+		std::string replacement_return_type_str;
 		std::string prefix_str;
 		std::string suffix_str;
 		std::string post_name_suffix_str;
@@ -3138,19 +3287,9 @@ namespace convm1 {
 		retval.m_action_species = res4.m_action_species;
 
 
-		const clang::Type* TP = QT.getTypePtr();
-		auto qtype_str = QT.getAsString();
-		auto direct_qtype_str = ddcs_ref.current_direct_qtype_str();
-		auto non_const_direct_qtype_str = ddcs_ref.non_const_current_direct_qtype_str();
-
-		if ("_Bool" == direct_qtype_str) {
-			direct_qtype_str = "bool";
-		} else if ("const _Bool" == direct_qtype_str) {
-			direct_qtype_str = "const bool";
-		}
-		if ("_Bool" == non_const_direct_qtype_str) {
-			non_const_direct_qtype_str = "bool";
-		}
+		auto qtype_str = adjusted_qtype_str(DD->getType().getAsString());
+		auto direct_qtype_str = adjusted_qtype_str(ddcs_ref.current_direct_qtype_str());
+		auto non_const_direct_qtype_str = adjusted_qtype_str(ddcs_ref.non_const_current_direct_qtype_str());
 
 		if (!(ddcs_ref.m_original_source_text_has_been_noted)) {
 			ddcs_ref.m_original_source_text_str = Rewrite.getRewrittenText(decl_source_range);
@@ -3167,25 +3306,6 @@ namespace convm1 {
 				ddcs_ref.m_function_return_type_original_source_text_str = Rewrite.getRewrittenText(return_type_source_range);
 			}
 			ddcs_ref.m_original_source_text_has_been_noted = true;
-		}
-
-		{
-			/* hack alert */
-			static const std::string struct_space_str = "struct ";
-			if (string_begins_with(non_const_direct_qtype_str, struct_space_str)) {
-				/* Remove legacy C "struct" type specifer. Apparently C++ doesn't like it when it is
-				applied to C++ (i.e. non-C) struct types. */
-				non_const_direct_qtype_str = non_const_direct_qtype_str.substr(struct_space_str.size());
-				auto index = direct_qtype_str.find(struct_space_str);
-				if (std::string::npos == index) {
-					/* unexpected */
-					int q = 5;
-				} else {
-					direct_qtype_str.replace(index, struct_space_str.length(), "");
-					ddcs_ref.set_current_direct_qtype_str(direct_qtype_str);
-					changed_from_original = true;
-				}
-			}
 		}
 
 		if (res4.m_direct_type_must_be_non_const) {
@@ -3265,14 +3385,14 @@ namespace convm1 {
 						if (ddcs_ref.direct_type_state_ref().is_const()) {
 							direct_qtype_str = "const " + direct_qtype_str;
 						}
-						ddcs_ref.set_current_direct_qtype_str(direct_qtype_str);
+						ddcs_ref.set_current_direct_non_function_qtype_str(direct_qtype_str);
 					} else if ("FasterAndStricter" == ConvertMode) {
 					} else {
 						direct_qtype_str = "mse::TRegisteredObj<" + non_const_direct_qtype_str + " >";
 						if (ddcs_ref.direct_type_state_ref().is_const()) {
 							direct_qtype_str = "const " + direct_qtype_str;
 						}
-						ddcs_ref.set_current_direct_qtype_str(direct_qtype_str);
+						ddcs_ref.set_current_direct_non_function_qtype_str(direct_qtype_str);
 					}
 				} else {
 					int q = 5;
@@ -3305,13 +3425,14 @@ namespace convm1 {
 
 		if (FND) {
 			assert(type_is_function_type);
+			auto direct_return_qtype_str = adjusted_qtype_str(ddcs_ref.current_direct_return_qtype_str());
 			if (changed_from_original || individual_from_compound_declaration) {
-				replacement_type_str += prefix_str + direct_qtype_str + suffix_str;
+				replacement_return_type_str += prefix_str + direct_return_qtype_str + suffix_str;
 			} else {
-				replacement_type_str = ddcs_ref.m_function_return_type_original_source_text_str;
+				replacement_return_type_str = ddcs_ref.m_function_return_type_original_source_text_str;
 			}
-			replacement_code = replacement_type_str;
-		} else {
+		}
+		{
 			if (changed_from_original || individual_from_compound_declaration) {
 				if (is_extern) {
 					if ("" == ddcs_ref.m_original_initialization_expr_str) {
@@ -3377,6 +3498,7 @@ namespace convm1 {
 
 		retval.m_replacement_code = replacement_code;
 		retval.m_replacement_type_str = replacement_type_str;
+		retval.m_replacement_return_type_str = replacement_return_type_str.empty() ? replacement_type_str : replacement_return_type_str;
 		retval.m_changed_from_original = changed_from_original;
 		retval.m_individual_from_compound_declaration = individual_from_compound_declaration;
 		return retval;
@@ -3406,7 +3528,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":3618:")) {
+		if (std::string::npos != debug_source_location_str.find(":3991:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -3439,7 +3561,7 @@ namespace convm1 {
 		bool changed_from_original = false;
 
 		assert(ddecl.isFunctionOrFunctionTemplate() == QT->isFunctionType());
-		if ((TP->isFunctionType()) || (false)) {
+		if (true && (TP->isFunctionType())) {
 			const clang::FunctionDecl* FND = dyn_cast<const clang::FunctionDecl>(DD);
 			if (FND) {
 				auto name_str = FND->getNameAsString();
@@ -3461,15 +3583,20 @@ namespace convm1 {
 						return_type_source_range.setBegin(SR.getBegin());
 					}
 				}
+				IF_DEBUG(std::string old_retval_text = Rewrite.getRewrittenText(return_type_source_range);)
 
 				auto res = generate_declaration_replacement_code(&ddecl, Rewrite, &state1, state1.m_ddecl_conversion_state_map, options_str);
 				changed_from_original |= res.m_changed_from_original;
 
+				auto res1 = state1.m_ddecl_conversion_state_map.insert(ddecl);
+				auto ddcs_map_iter = res1.first;
+				auto& ddcs_ref = (*ddcs_map_iter).second;
+				bool update_declaration_flag = res1.second;
+
 				if (ConvertToSCPP && return_type_source_range.isValid() && (1 <= res.m_replacement_code.size())
 						&& changed_from_original) {
 					IF_DEBUG(std::string code_to_be_replaced = return_type_source_range.isValid() ? Rewrite.getRewrittenText(return_type_source_range) : std::string("[invalid]");)
-					state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, return_type_source_range, res.m_replacement_code);
-					//auto res2 = Rewrite.ReplaceText(return_type_source_range, res.m_replacement_code);
+					state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, return_type_source_range, res.m_replacement_return_type_str);
 				} else {
 					int q = 7;
 				}
@@ -3545,7 +3672,7 @@ namespace convm1 {
 						int q = 7;
 					}
 				} else {
-					declaration_modifier_helper1(&ddecl, Rewrite, &state1, state1.m_ddecl_conversion_state_map, false/*suppress_modifications*/, options_str);
+					auto res = declaration_modifier_helper1(&ddecl, Rewrite, &state1, state1.m_ddecl_conversion_state_map, false/*suppress_modifications*/, options_str);
 				}
 			} else {
 				int q = 7;
@@ -4781,12 +4908,12 @@ namespace convm1 {
 			assert(ddcs_ref.direct_type_state_ref().current_qtype_if_any().has_value());
 			if (llvm::isa<const clang::FunctionType>(ddcs_ref.direct_type_state_ref().current_qtype_if_any().value())) {
 				auto FNQT = llvm::cast<const clang::FunctionType>(ddcs_ref.direct_type_state_ref().current_qtype_if_any().value());
-				std::string new_function_type_code = FNQT->getReturnType().getAsString();
-				new_function_type_code += "(";
+				std::string new_return_type_code = FNQT->getReturnType().getAsString();
+				std::string new_params_code = "(";
 
 				for (size_t i = 0; (i < CE->getNumArgs()); i += 1) {
 					if (1 <= i) {
-						new_function_type_code += ", ";
+						new_params_code += ", ";
 					}
 
 					auto arg = CE->getArg(i);
@@ -4830,7 +4957,7 @@ namespace convm1 {
 
 							std::string new_param_type_str = res3.m_prefix_str + rhs_direct_qtype_str + res3.m_suffix_str;
 
-							new_function_type_code += new_param_type_str;
+							new_params_code += new_param_type_str;
 						} else {
 							auto res3 = generate_type_indirection_prefix_and_suffix((*rhs_res2.ddecl_conversion_state_ptr).m_indirection_state_stack, Rewrite, 
 								true/*rhs_is_a_function_parameter*/);
@@ -4839,16 +4966,16 @@ namespace convm1 {
 
 							std::string new_param_type_str = res3.m_prefix_str + rhs_direct_qtype_str + res3.m_suffix_str;
 
-							new_function_type_code += new_param_type_str;
+							new_params_code += new_param_type_str;
 						}
 					} else {
-						new_function_type_code += arg->getType().getAsString();
+						new_params_code += arg->getType().getAsString();
 						int q = 7;
 					}
 				}
-				new_function_type_code += ")";
+				new_params_code += ")";
 
-				ddcs_ref.set_current_direct_qtype_str(new_function_type_code);
+				ddcs_ref.set_current_direct_function_qtype_str(new_return_type_code, new_params_code);
 
 				update_declaration(*((*this).m_indirect_function_DD), (*this).m_Rewrite, state1);
 			} else {
@@ -5313,7 +5440,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":3618:")) {
+				if (std::string::npos != debug_source_location_str.find(":3991:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5513,7 +5640,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":3618:")) {
+				if (std::string::npos != debug_source_location_str.find(":3991:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7500,7 +7627,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":3618:")) {
+				if (std::string::npos != debug_source_location_str.find(":3991:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -9165,7 +9292,7 @@ namespace convm1 {
 							for (const auto& unsupported_element_encounterred : unsupported_elements_encounterred) {
 								std::string tmp_str = ddcs_ref.current_direct_qtype_str();
 								replace_whole_instances_of_given_string(tmp_str, unsupported_element_encounterred.m_element_type_name, unsupported_element_encounterred.m_replacement_element_type_name);
-								ddcs_ref.set_current_direct_qtype_str(tmp_str);
+								ddcs_ref.set_current_direct_non_function_qtype_str(tmp_str);
 								update_declaration(*DD, Rewrite, state1);
 							}
 						}
@@ -9271,7 +9398,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":3618:")) {
+				if (std::string::npos != debug_source_location_str.find(":3991:")) {
 					int q = 5;
 				}
 				if (std::string::npos != debug_source_text.find("palette")) {
@@ -10487,7 +10614,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find(":3618:")) {
+					if (std::string::npos != debug_source_location_str.find(":3991:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -10565,15 +10692,15 @@ namespace convm1 {
 					for (int j = 0; j < int(indirection_state_stack.size()); j+=1) {
 						int i = indirection_state_stack.size() - 1 - j;
 
-						if (indirection_state_stack[i].m_maybe_typeLoc.has_value()) {
-							const auto definition_typeLoc = definition_TypeLoc(indirection_state_stack[i].m_maybe_typeLoc.value());
+						if (indirection_state_stack.at(i).m_maybe_typeLoc.has_value()) {
+							const auto definition_typeLoc = definition_TypeLoc(indirection_state_stack.at(i).m_maybe_typeLoc.value());
 
 							auto definition_SR = nice_source_range(definition_typeLoc.getSourceRange(), Rewrite);
 
 							IF_DEBUG(std::string debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str.find(":3618:")) {
+							if (std::string::npos != debug_source_location_str.find(":3991:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -10592,8 +10719,8 @@ namespace convm1 {
 
 						bool suffix_mod_vetoed = false;
 						{
-							auto suffix_SR_ptr = std::get_if<clang::SourceRange>(&(indirection_state_stack[i].m_suffix_SR_or_insert_before_point));
-							auto insert_before_point_ptr = std::get_if<clang::SourceLocation>(&(indirection_state_stack[i].m_suffix_SR_or_insert_before_point));
+							auto suffix_SR_ptr = std::get_if<clang::SourceRange>(&(indirection_state_stack.at(i).m_suffix_SR_or_insert_before_point));
+							auto insert_before_point_ptr = std::get_if<clang::SourceLocation>(&(indirection_state_stack.at(i).m_suffix_SR_or_insert_before_point));
 							if (suffix_SR_ptr) {
 								/* If a superset of the region that would be modified here has already been
 								modified then this region can no longer be (reliably) modified. */
@@ -10601,12 +10728,12 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *suffix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":3618:")) {
+									if (std::string::npos != debug_source_location_str.find(":3991:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
 
-									TheRewriter.ReplaceText(*suffix_SR_ptr, indirection_state_stack[i].m_suffix_str);
+									TheRewriter.ReplaceText(*suffix_SR_ptr, indirection_state_stack.at(i).m_suffix_str);
 
 									m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(*suffix_SR_ptr);
 								} else {
@@ -10618,7 +10745,7 @@ namespace convm1 {
 								then this insertion point is no longer (reliably) valid. */
 								if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.contains({ insert_after_point, *insert_before_point_ptr })) {
 										TheRewriter.InsertTextAfterToken((*insert_before_point_ptr).getLocWithOffset(-1)
-											, indirection_state_stack[i].m_suffix_str);
+											, indirection_state_stack.at(i).m_suffix_str);
 								} else {
 									suffix_mod_vetoed = true;
 								}
@@ -10627,8 +10754,8 @@ namespace convm1 {
 
 						/* If the modification of the suffix was vetoed then don't attempt to the prefix modification. */
 						if (!suffix_mod_vetoed) {
-							auto prefix_SR_ptr = std::get_if<clang::SourceRange>(&(indirection_state_stack[i].m_prefix_SR_or_insert_before_point));
-							auto insert_before_point_ptr = std::get_if<clang::SourceLocation>(&(indirection_state_stack[i].m_prefix_SR_or_insert_before_point));
+							auto prefix_SR_ptr = std::get_if<clang::SourceRange>(&(indirection_state_stack.at(i).m_prefix_SR_or_insert_before_point));
+							auto insert_before_point_ptr = std::get_if<clang::SourceLocation>(&(indirection_state_stack.at(i).m_prefix_SR_or_insert_before_point));
 							if (prefix_SR_ptr) {
 								/* If a superset of the region that would be modified here has already been
 								modified then this region can no longer be (reliably) modified. */
@@ -10636,12 +10763,12 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":3618:")) {
+									if (std::string::npos != debug_source_location_str.find(":3991:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
 
-									TheRewriter.ReplaceText(*prefix_SR_ptr, indirection_state_stack[i].m_prefix_str);
+									TheRewriter.ReplaceText(*prefix_SR_ptr, indirection_state_stack.at(i).m_prefix_str);
 									m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(*prefix_SR_ptr);
 								}
 							} else if (insert_before_point_ptr) {
@@ -10649,7 +10776,7 @@ namespace convm1 {
 								/* If a region that contains (both sides of) the insertion point has already been modified
 								then this insertion point is no longer (reliably) valid. */
 								if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.contains({ insert_after_point, *insert_before_point_ptr })) {
-									TheRewriter.InsertTextBefore(*insert_before_point_ptr, indirection_state_stack[i].m_prefix_str);
+									TheRewriter.InsertTextBefore(*insert_before_point_ptr, indirection_state_stack.at(i).m_prefix_str);
 								}
 							}
 						}
