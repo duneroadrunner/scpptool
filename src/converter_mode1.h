@@ -3021,11 +3021,16 @@ namespace convm1 {
 #define REGOBJ_TEST1_FLAG false
 
 					if (!is_argv) {
-						if ((REGOBJ_TEST1_FLAG || ("pointer target" == indirection_state_ref.current_pointer_target_state()))
+						if ((REGOBJ_TEST1_FLAG
+								|| (("pointer target" == indirection_state_ref.current_pointer_target_state())
+									&& ("native pointer target" == indirection_state_ref.original_pointer_target_state()))
+							)
+							/*
 							&& (!string_begins_with(prefix_str, "mse::TRegisteredObj<"))
 							&& (!string_begins_with(prefix_str, "MSE_LH_ADDRESSABLE_TYPE("))
 							&& (!string_begins_with(prefix_str, "const mse::TRegisteredObj<"))
 							&& (!string_begins_with(prefix_str, "const MSE_LH_ADDRESSABLE_TYPE("))
+							*/
 							&& ("" == post_name_suffix_str)) {
 							if ("native reference" != indirection_state_ref.current_species()) {
 								if ("Dual" == ConvertMode) {
@@ -5865,7 +5870,7 @@ namespace convm1 {
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 #ifndef NDEBUG
-					if (std::string::npos != decl_debug_source_location_str.find(":6086:")) {
+					if (std::string::npos != decl_debug_source_location_str.find(":3991:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -5919,25 +5924,24 @@ namespace convm1 {
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 					bool update_declaration_flag = res1.second;
 
-					int i_target_indirection_index = -1;
+					size_t target_indirection_index = CDDeclIndirection::no_indirection;
 					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-						i_target_indirection_index = int(ddcs_ref.m_indirection_state_stack.size()) - 1;
-						while ((0 <= i_target_indirection_index)
-							&& ("native reference" == ddcs_ref.m_indirection_state_stack.at(i_target_indirection_index).current_species())) {
+						target_indirection_index = 0;
+						while ((int(ddcs_ref.m_indirection_state_stack.size()) > target_indirection_index)
+							&& ("native reference" == ddcs_ref.m_indirection_state_stack.at(target_indirection_index).current_species())) {
 							/* Since taking the address of a native reference actually takes the address of the
 							reference's target, we adjust the indirection_index accordingly. */
-							i_target_indirection_index -= 1;
+							target_indirection_index += 1;
 						}
 					}
-					if (0 <= i_target_indirection_index) {
-						ddcs_ref.m_indirection_state_stack.at(i_target_indirection_index).set_original_pointer_target_state("native pointer target");
-						ddcs_ref.m_indirection_state_stack.at(i_target_indirection_index).set_current_pointer_target_state("pointer target");
+					if (CDDeclIndirection::no_indirection != target_indirection_index) {
+						ddcs_ref.m_indirection_state_stack.at(target_indirection_index).set_original_pointer_target_state("native pointer target");
+						ddcs_ref.m_indirection_state_stack.at(target_indirection_index).set_current_pointer_target_state("pointer target");
 					} else {
 						ddcs_ref.direct_type_state_ref().set_original_pointer_target_state("native pointer target");
 						ddcs_ref.direct_type_state_ref().set_current_pointer_target_state("pointer target");
 					}
 
-					size_t target_indirection_index = (0 <= i_target_indirection_index) ? i_target_indirection_index : CDDeclIndirection::no_indirection;
 					m_state1.m_pointer_target_contingent_replacement_map.do_and_dispose_matching_replacements(m_state1, CDDeclIndirection(*ddcs_ref.m_ddecl_cptr, target_indirection_index));
 
 					update_declaration(*ddcs_ref.m_ddecl_cptr, Rewrite, m_state1);
