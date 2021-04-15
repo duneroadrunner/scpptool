@@ -1188,7 +1188,11 @@ namespace convm1 {
 	class CNullableAnyRandomAccessIterCastExprTextModifier : public CWrapExprTextModifier {
 	public:
 		CNullableAnyRandomAccessIterCastExprTextModifier(const clang::QualType& qtype) :
-			CWrapExprTextModifier("mse::lh::TLHNullableAnyRandomAccessIterator<" + qtype.getAsString() + " >(", ")"),
+			CWrapExprTextModifier((("Dual" == ConvertMode) ?
+						("MSE_LH_ARRAY_ITERATOR_TYPE(" + qtype.getAsString() + ")") :
+						("mse::lh::TLHNullableAnyRandomAccessIterator<" + qtype.getAsString() + " >")
+					) + "("
+				, ")"),
 			m_qtype(qtype) {}
 		virtual ~CNullableAnyRandomAccessIterCastExprTextModifier() {}
 		virtual std::string species_str() const {
@@ -1416,6 +1420,20 @@ namespace convm1 {
 		CExprTextReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const Expr* EX,
 			const std::string& replacement_code) : CReplacementAction(Rewrite, MR), m_EX(EX), m_replacement_code(replacement_code) {}
 		virtual ~CExprTextReplacementAction() {}
+
+		virtual void do_replacement(CTUState& state1) const;
+
+		const Expr* m_EX = nullptr;
+		std::string m_replacement_code;
+	};
+
+	/* A CExprTextYieldingReplacementAction is just like a regular CExprTextReplacementAction, except
+	that it will not attempt the modification if the expression already has any modifications pending. */
+	class CExprTextYieldingReplacementAction : public CReplacementAction {
+	public:
+		CExprTextYieldingReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const Expr* EX,
+			const std::string& replacement_code) : CReplacementAction(Rewrite, MR), m_EX(EX), m_replacement_code(replacement_code) {}
+		virtual ~CExprTextYieldingReplacementAction() {}
 
 		virtual void do_replacement(CTUState& state1) const;
 
@@ -2103,7 +2121,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, parens_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":3991:")) {
+						if (std::string::npos != debug_source_location_str.find(":5785:")) {
 							int q = 5;
 						}
 					}
@@ -2177,7 +2195,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find(":3991:")) {
+			if (std::string::npos != debug_source_location_str.find(":5785:")) {
 				int q = 5;
 			}
 		}
@@ -2600,7 +2618,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":3991:")) {
+						if (std::string::npos != debug_source_location_str.find(":5785:")) {
 							int q = 5;
 						}
 					}
@@ -3533,7 +3551,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":3991:")) {
+		if (std::string::npos != debug_source_location_str.find(":5785:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -4008,6 +4026,38 @@ namespace convm1 {
 
 					state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, EXSR, (*excs_shptr_ref).m_current_text_str);
 					//(*this).m_Rewrite.ReplaceText(EXSR, (*excs_shptr_ref).m_current_text_str);
+				}
+			}
+		}
+	}
+
+	/* A CExprTextYieldingReplacementAction is just like a regular CExprTextReplacementAction, except
+	that it will not attempt the modification if the expression already has any modifications pending. */
+	void CExprTextYieldingReplacementAction::do_replacement(CTUState& state1) const {
+		Rewriter &Rewrite = m_Rewrite;
+		const MatchFinder::MatchResult &MR = m_MR;
+
+		const Expr* EX = m_EX;
+		if (EX) {
+			auto EXSR = write_once_source_range(nice_source_range(EX->getSourceRange(), (*this).m_Rewrite));
+			if (EXSR.isValid()) {
+				auto excs_iter = state1.m_expr_conversion_state_map.find(EX);
+				if (state1.m_expr_conversion_state_map.end() == excs_iter) {
+					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*EX, m_Rewrite);
+					excs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+				}
+				auto& excs_shptr_ref = (*excs_iter).second;
+				if (0 == (*excs_shptr_ref).m_expr_text_modifier_stack.size()) {
+					if (ConvertToSCPP) {
+						std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>((*this).m_replacement_code);
+						(*excs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
+						(*excs_shptr_ref).update_current_text();
+
+						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, EXSR, (*excs_shptr_ref).m_current_text_str);
+						//(*this).m_Rewrite.ReplaceText(EXSR, (*excs_shptr_ref).m_current_text_str);
+					}
+				} else {
+					int q = 5;
 				}
 			}
 		}
@@ -4991,6 +5041,108 @@ namespace convm1 {
 		}
 	}
 
+	class CCStyleCastReplacementCodeItem {
+	public:
+		std::string m_whole_cast_expression_replacement_text;
+		std::string m_cast_target_expression_extra_prefix;
+		std::string m_cast_target_expression_extra_suffix;
+	};
+	inline CCStyleCastReplacementCodeItem generate_c_style_cast_replacement_code(Rewriter &Rewrite, const clang::CStyleCastExpr* CSCE, std::optional<std::string> maybe_replacement_qtype_str = {}) {
+		CCStyleCastReplacementCodeItem retval;
+		if (CSCE) {
+			auto whole_cast_expression_SR = write_once_source_range({ CSCE->getBeginLoc(), CSCE->getEndLoc() });
+			auto cast_operation_SR = write_once_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() });
+			auto cast_target_expression_SR = write_once_source_range({ CSCE->getRParenLoc().getLocWithOffset(+1), CSCE->getEndLoc() });
+
+			if (whole_cast_expression_SR.isValid()) {
+				IF_DEBUG(auto cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);)
+				IF_DEBUG(auto whole_cast_expression_text = Rewrite.getRewrittenText(whole_cast_expression_SR);)
+				auto cast_target_expression_text = Rewrite.getRewrittenText(cast_target_expression_SR);
+
+				if (!(maybe_replacement_qtype_str.has_value())) {
+					maybe_replacement_qtype_str = generate_qtype_replacement_code(CSCE->getType(), Rewrite);
+				}
+				auto replacement_qtype_str = maybe_replacement_qtype_str.value();
+				/* remove trailing whitespace */
+				while (!replacement_qtype_str.empty()) {
+					if (isspace(replacement_qtype_str.back())) {
+						replacement_qtype_str.pop_back();
+					} else {
+						break;
+					}
+				}
+
+				std::string whole_cast_expression_replacement_text;
+				std::string cast_target_expression_extra_prefix;
+				std::string cast_target_expression_extra_suffix;
+				if (CSCE->getType()->isPointerType() && CSCE->getSubExpr()->getType()->isPointerType()) {
+					const std::string og_target_pointee_qtype_str = CSCE->getType()->getPointeeType().getAsString();
+					const std::string og_csce_pointee_qtype_str = CSCE->getSubExpr()->getType()->getPointeeType().getAsString();
+					const bool og_target_is_char_star = ("char" == og_target_pointee_qtype_str) || ("const char" == og_target_pointee_qtype_str);
+					const bool og_target_is_unsigned_char_star = ("unsigned char" == og_target_pointee_qtype_str) || ("const unsigned char" == og_target_pointee_qtype_str);
+					const bool og_csce_is_char_star = ("char" == og_csce_pointee_qtype_str) || ("const char" == og_csce_pointee_qtype_str);
+					const bool og_csce_is_unsigned_char_star = ("unsigned char" == og_csce_pointee_qtype_str) || ("const unsigned char" == og_csce_pointee_qtype_str);
+
+					/* Currently, we leave 'char*'s as raw pointers, so (C-style) casting between them
+					and pointers that have been converted to (safe) pointer/iterator objects might not
+					work without some massaging. */
+					if (og_target_is_unsigned_char_star && og_csce_is_char_star) {
+						/* We're (unsafely) casting from a 'char*' to a (safe) pointer object to an 'unsigned char'. */
+						std::string const_qual_str;
+						if (CSCE->getSubExpr()->getType()->getPointeeType().isConstQualified()) {
+							const_qual_str += "const ";
+						}
+						if ("Dual" == ConvertMode) {
+							cast_target_expression_extra_prefix = "MSE_LH_CAST(MSE_LH_ARRAY_ITERATOR_TYPE(";
+							cast_target_expression_extra_prefix += const_qual_str + "char), ";
+						} else if ("FasterAndStricter" == ConvertMode) {
+							cast_target_expression_extra_prefix = "mse::TXScopeCSSSXSTERAIterator<";
+							cast_target_expression_extra_prefix += const_qual_str + "char>(";
+						} else {
+							cast_target_expression_extra_prefix = "mse::lh::TLHNullableAnyRandomAccessIterator<";
+							cast_target_expression_extra_prefix += const_qual_str + "char>(";
+						}
+						cast_target_expression_extra_suffix = ")";
+					} else if (og_target_is_char_star) {
+						/* We're (unsafely) casting to a 'char*'. */
+						std::string addressof_str;
+						if ("Dual" == ConvertMode) {
+							addressof_str = "MSE_LH_UNSAFE_MAKE_RAW_POINTER_TO";
+						} else {
+							addressof_str = "std::addressof";
+						}
+						if (og_csce_is_char_star) {
+							addressof_str = "&";
+						}
+						whole_cast_expression_replacement_text = "(" + og_target_pointee_qtype_str
+							+ "*)" + addressof_str + "(*(" + cast_target_expression_text + "))";
+					}
+				}
+				if (whole_cast_expression_replacement_text.empty()) {
+					if ("Dual" == ConvertMode) {
+						whole_cast_expression_replacement_text = "MSE_LH_UNSAFE_CAST(" + replacement_qtype_str
+							+ ", " + cast_target_expression_extra_prefix + cast_target_expression_text
+							+ cast_target_expression_extra_suffix + ")";
+					} else {
+						whole_cast_expression_replacement_text = "mse::us::lh::unsafe_cast<" + replacement_qtype_str
+							+ ">(" + cast_target_expression_extra_prefix + cast_target_expression_text
+							+ cast_target_expression_extra_suffix+ ")";
+					}
+				}
+				/* This is not the proper way to modify an expression. See the function
+				* CConditionalOperatorReconciliation2ReplacementAction::do_replacement() for an example of
+				* the proper way to do it. But for now this is good enough. */
+				//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite
+				//	, whole_cast_expression_SR, whole_cast_expression_replacement_text);
+				retval.m_whole_cast_expression_replacement_text = whole_cast_expression_replacement_text;
+				retval.m_cast_target_expression_extra_prefix = cast_target_expression_extra_prefix;
+				retval.m_cast_target_expression_extra_suffix = cast_target_expression_extra_suffix;
+			}
+		}
+
+		return retval;
+	}
+
 	void CTargetConstrainsCStyleCastExprArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
 		const MatchFinder::MatchResult &MR = m_MR;
@@ -4999,93 +5151,15 @@ namespace convm1 {
 		assert((*this).m_c_style_cast_expr_cptr);
 		auto res1 = generate_declaration_replacement_code((*this).m_ddecl_indirection.m_ddecl_cptr, Rewrite, &state1, state1.m_ddecl_conversion_state_map);
 
-		if (true || res1.m_changed_from_original) {
+		if (ConvertToSCPP && (true || res1.m_changed_from_original)) {
 			auto whole_cast_expression_SR = write_once_source_range({ m_c_style_cast_expr_cptr->getBeginLoc(), m_c_style_cast_expr_cptr->getEndLoc() });
-			auto cast_operation_SR = write_once_source_range({ m_c_style_cast_expr_cptr->getLParenLoc(), m_c_style_cast_expr_cptr->getRParenLoc() });
-			auto cast_target_expression_SR = write_once_source_range({ m_c_style_cast_expr_cptr->getRParenLoc().getLocWithOffset(+1), m_c_style_cast_expr_cptr->getEndLoc() });
-
 			if (whole_cast_expression_SR.isValid()) {
-				if (ConvertToSCPP) {
-					IF_DEBUG(auto cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);)
-					IF_DEBUG(auto whole_cast_expression_text = Rewrite.getRewrittenText(whole_cast_expression_SR);)
-					auto cast_target_expression_text = Rewrite.getRewrittenText(cast_target_expression_SR);
+				IF_DEBUG(auto whole_cast_expression_text = Rewrite.getRewrittenText(whole_cast_expression_SR);)
+				auto replacement_qtype_str = res1.m_replacement_type_str;
 
-					auto replacement_qtype_str = res1.m_replacement_type_str;
-					/* remove trailing whitespace */
-					while (!replacement_qtype_str.empty()) {
-						if (isspace(replacement_qtype_str.back())) {
-							replacement_qtype_str.pop_back();
-						} else {
-							break;
-						}
-					}
+				auto res = generate_c_style_cast_replacement_code(Rewrite, m_c_style_cast_expr_cptr, replacement_qtype_str);
 
-					std::string whole_cast_expression_replacement_text;
-					std::string cast_target_expression_extra_prefix;
-					std::string cast_target_expression_extra_suffix;
-					if ((*this).m_ddecl_indirection.m_ddecl_cptr->getType()->isPointerType() && m_c_style_cast_expr_cptr->getSubExpr()->getType()->isPointerType()) {
-						const std::string og_target_pointee_qtype_str = (*this).m_ddecl_indirection.m_ddecl_cptr->getType()->getPointeeType().getAsString();
-						const std::string og_csce_pointee_qtype_str = m_c_style_cast_expr_cptr->getSubExpr()->getType()->getPointeeType().getAsString();
-						const bool og_target_is_char_star = ("char" == og_target_pointee_qtype_str) || ("const char" == og_target_pointee_qtype_str);
-						const bool og_target_is_unsigned_char_star = ("unsigned char" == og_target_pointee_qtype_str) || ("const unsigned char" == og_target_pointee_qtype_str);
-						const bool og_csce_is_char_star = ("char" == og_csce_pointee_qtype_str) || ("const char" == og_csce_pointee_qtype_str);
-						const bool og_csce_is_unsigned_char_star = ("unsigned char" == og_csce_pointee_qtype_str) || ("const unsigned char" == og_csce_pointee_qtype_str);
-
-						/* Currently, we leave 'char*'s as raw pointers, so (C-style) casting between them
-						and pointers that have been converted to (safe) pointer/iterator objects might not
-						work without some massaging. */
-						if (og_target_is_unsigned_char_star && og_csce_is_char_star) {
-							/* We're (unsafely) casting from a 'char*' to a (safe) pointer object to an 'unsigned char'. */
-							std::string const_qual_str;
-							if (m_c_style_cast_expr_cptr->getSubExpr()->getType()->getPointeeType().isConstQualified()) {
-								const_qual_str += "const ";
-							}
-							if ("Dual" == ConvertMode) {
-								cast_target_expression_extra_prefix = "MSE_LH_CAST(MSE_LH_ARRAY_ITERATOR_TYPE(";
-								cast_target_expression_extra_prefix += const_qual_str + "char), ";
-							} else if ("FasterAndStricter" == ConvertMode) {
-								cast_target_expression_extra_prefix = "mse::TXScopeCSSSXSTERAIterator<";
-								cast_target_expression_extra_prefix += const_qual_str + "char>(";
-							} else {
-								cast_target_expression_extra_prefix = "mse::lh::TLHNullableAnyRandomAccessIterator<";
-								cast_target_expression_extra_prefix += const_qual_str + "char>(";
-							}
-							cast_target_expression_extra_suffix = ")";
-						} else if (og_target_is_char_star) {
-							/* We're (unsafely) casting to a 'char*'. */
-							std::string addressof_str;
-							if ("Dual" == ConvertMode) {
-								addressof_str = "MSE_LH_UNSAFE_MAKE_RAW_POINTER_TO";
-							} else {
-								addressof_str = "std::addressof";
-							}
-							if (og_csce_is_char_star) {
-								addressof_str = "&";
-							}
-							whole_cast_expression_replacement_text = "(" + og_target_pointee_qtype_str
-								+ "*)" + addressof_str + "(*(" + cast_target_expression_text + "))";
-						}
-					}
-					if (whole_cast_expression_replacement_text.empty()) {
-						if ("Dual" == ConvertMode) {
-							whole_cast_expression_replacement_text = "MSE_LH_UNSAFE_CAST(" + replacement_qtype_str
-								+ ", " + cast_target_expression_extra_prefix + cast_target_expression_text
-								+ cast_target_expression_extra_suffix + ")";
-						} else {
-							whole_cast_expression_replacement_text = "mse::us::lh::unsafe_cast<" + replacement_qtype_str
-								+ ">(" + cast_target_expression_extra_prefix + cast_target_expression_text
-								+ cast_target_expression_extra_suffix+ ")";
-						}
-					}
-					/* This is not the proper way to modify an expression. See the function
-					* CConditionalOperatorReconciliation2ReplacementAction::do_replacement() for an example of
-					* the proper way to do it. But for now this is good enough. */
-					state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite
-						, whole_cast_expression_SR, whole_cast_expression_replacement_text);
-				}
-			} else {
-				int q = 5;
-				assert(false);
+				CExprTextReplacementAction(Rewrite, MR, m_c_style_cast_expr_cptr, res.m_whole_cast_expression_replacement_text).do_replacement(state1);
 			}
 		}
 	}
@@ -5107,10 +5181,10 @@ namespace convm1 {
 			bool lhs_is_dynamic_array = false;
 			bool lhs_is_native_array = false;
 
-			auto COSR = nice_source_range(CO->getSourceRange(), (*this).m_Rewrite);
-			auto cond_SR = nice_source_range(COND->getSourceRange(), (*this).m_Rewrite);
-			auto lhs_SR = nice_source_range(LHS->getSourceRange(), (*this).m_Rewrite);
-			auto rhs_SR = nice_source_range(RHS->getSourceRange(), (*this).m_Rewrite);
+			auto COSR = write_once_source_range(nice_source_range(CO->getSourceRange(), (*this).m_Rewrite));
+			auto cond_SR = write_once_source_range(nice_source_range(COND->getSourceRange(), (*this).m_Rewrite));
+			auto lhs_SR = write_once_source_range(nice_source_range(LHS->getSourceRange(), (*this).m_Rewrite));
+			auto rhs_SR = write_once_source_range(nice_source_range(RHS->getSourceRange(), (*this).m_Rewrite));
 			if ((COSR.isValid()) && (cond_SR.isValid()) && (lhs_SR.isValid()) && (rhs_SR.isValid())) {
 				auto res1 = state1.m_ddecl_conversion_state_map.insert(*lhs_DD);
 				auto ddcs_map_iter = res1.first;
@@ -5445,7 +5519,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":3991:")) {
+				if (std::string::npos != debug_source_location_str.find(":5785:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5645,7 +5719,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":3991:")) {
+				if (std::string::npos != debug_source_location_str.find(":5785:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5870,7 +5944,7 @@ namespace convm1 {
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 #ifndef NDEBUG
-					if (std::string::npos != decl_debug_source_location_str.find(":3991:")) {
+					if (std::string::npos != decl_debug_source_location_str.find(":5785:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -7631,7 +7705,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":3991:")) {
+				if (std::string::npos != debug_source_location_str.find(":5785:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -9402,7 +9476,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":3991:")) {
+				if (std::string::npos != debug_source_location_str.find(":5785:")) {
 					int q = 5;
 				}
 				if (std::string::npos != debug_source_text.find("palette")) {
@@ -9482,13 +9556,24 @@ namespace convm1 {
 				auto *CSCE = dyn_cast<const clang::CStyleCastExpr>(E);
 				if (CSCE) {
 					auto csce_QT = definition_qtype(CSCE->getType());
+					IF_DEBUG(std::string csce_QT_str = csce_QT.getAsString();)
 					auto precasted_expr_ptr = CSCE->IgnoreCasts();
 					assert(precasted_expr_ptr);
+					auto precasted_expr_QT = precasted_expr_ptr->getType();
+					IF_DEBUG(std::string precasted_expr_QT_str = precasted_expr_QT.getAsString();)
 					auto precasted_expr_SR = nice_source_range(precasted_expr_ptr->getSourceRange(), Rewrite);
 					auto CSCESR = write_once_source_range(nice_source_range(CSCE->getSourceRange(), Rewrite));
 					auto cast_operation_SR = write_once_source_range(clang::SourceRange(CSCE->getLParenLoc(), CSCE->getRParenLoc()));
 
-					if ((csce_QT->isPointerType()) && precasted_expr_ptr->getType()->isPointerType() && cast_operation_SR.isValid()) {
+					if ((csce_QT->isPointerType() || csce_QT->isArrayType())
+						&& (precasted_expr_QT->isPointerType() || precasted_expr_QT->isArrayType())
+						&& cast_operation_SR.isValid()) {
+
+						auto csce_pointee_QT = llvm::isa<clang::ArrayType>(csce_QT) ? llvm::cast<clang::ArrayType>(csce_QT)->getElementType() : csce_QT->getPointeeType();
+						IF_DEBUG(std::string csce_pointee_QT_str = csce_pointee_QT.getAsString();)
+						auto non_const_csce_pointee_QT = csce_pointee_QT; non_const_csce_pointee_QT.removeLocalConst();
+						auto precasted_expr_pointee_QT = llvm::isa<clang::ArrayType>(precasted_expr_QT) ? llvm::cast<clang::ArrayType>(precasted_expr_QT)->getElementType() : precasted_expr_QT->getPointeeType();
+						IF_DEBUG(std::string precasted_expr_pointee_QT_str = precasted_expr_pointee_QT.getAsString();)
 						if (ConvertToSCPP) {
 							std::string og_cast_operation_str = Rewrite.getRewrittenText(cast_operation_SR);
 							std::string expression_replacement_code;
@@ -9519,22 +9604,9 @@ namespace convm1 {
 									expression_replacement_code = new_cast_prefix + cast_expr_str + ")";
 									CExprTextReplacementAction(Rewrite, MR, E, expression_replacement_code).do_replacement(state1);
 								}
-							}
-							if (false) {
-								std::string new_qtype_str = og_cast_operation_str;
-								if (csce_QT->isPointerType()) {
-									new_qtype_str = generate_qtype_replacement_code(csce_QT, Rewrite);
-								}
-								std::string new_cast_prefix;
-								if ("Dual" == ConvertMode) {
-									new_cast_prefix = "MSE_LH_CAST(" + new_qtype_str + ", ";
-								} else {
-									new_cast_prefix = new_qtype_str + "(";
-								}
-								std::string cast_expr_str = Rewrite.getRewrittenText(precasted_expr_SR);
-
-								expression_replacement_code = new_cast_prefix + cast_expr_str + ")";
-								CExprTextReplacementAction(Rewrite, MR, E, expression_replacement_code).do_replacement(state1);
+							} else /*if (("char" == non_const_csce_pointee_QT.getAsString()) )*/ {
+								auto res = generate_c_style_cast_replacement_code(Rewrite, CSCE);
+								CExprTextYieldingReplacementAction(Rewrite, MR, E, res.m_whole_cast_expression_replacement_text).do_replacement(state1);
 							}
 						}
 					}
@@ -10618,7 +10690,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find(":3991:")) {
+					if (std::string::npos != debug_source_location_str.find(":5785:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -10704,7 +10776,7 @@ namespace convm1 {
 							IF_DEBUG(std::string debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str.find(":3991:")) {
+							if (std::string::npos != debug_source_location_str.find(":5785:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -10732,7 +10804,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *suffix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":3991:")) {
+									if (std::string::npos != debug_source_location_str.find(":5785:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
@@ -10767,7 +10839,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":3991:")) {
+									if (std::string::npos != debug_source_location_str.find(":5785:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
