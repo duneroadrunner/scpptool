@@ -45,7 +45,7 @@ From the `src` subdirectory of the scpptool directory, you can build the tool by
 make LLVM_CONF={the llvm8 directory}/bin/llvm-config
 ```
 
-Substituting the `{the llvm8 directory}` part with the directory where you extracted llvm 8.
+Substituting the `{the llvm8 directory}` part with the directory where you extracted llvm 8. (You can also add the `BUILD_MODE=DEBUG` option. Currently, the debug build is more extensively tested.)
 
 ### How to Use:
 
