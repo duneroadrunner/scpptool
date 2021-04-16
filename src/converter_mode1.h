@@ -2121,7 +2121,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, parens_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":5785:")) {
+						if (std::string::npos != debug_source_location_str.find(":7977:")) {
 							int q = 5;
 						}
 					}
@@ -2195,7 +2195,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find(":5785:")) {
+			if (std::string::npos != debug_source_location_str.find(":7977:")) {
 				int q = 5;
 			}
 		}
@@ -2618,7 +2618,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":5785:")) {
+						if (std::string::npos != debug_source_location_str.find(":7977:")) {
 							int q = 5;
 						}
 					}
@@ -3551,7 +3551,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":5785:")) {
+		if (std::string::npos != debug_source_location_str.find(":7977:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5519,7 +5519,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":5785:")) {
+				if (std::string::npos != debug_source_location_str.find(":7977:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5719,7 +5719,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":5785:")) {
+				if (std::string::npos != debug_source_location_str.find(":7977:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5944,7 +5944,7 @@ namespace convm1 {
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 #ifndef NDEBUG
-					if (std::string::npos != decl_debug_source_location_str.find(":5785:")) {
+					if (std::string::npos != decl_debug_source_location_str.find(":7977:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -7444,6 +7444,79 @@ namespace convm1 {
 		CTUState& m_state1;
 	};
 
+	inline static void handle_c_style_cast_without_context(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+		, const clang::CStyleCastExpr* CSCE) {
+
+		if (CSCE) {
+			auto csce_QT = definition_qtype(CSCE->getType());
+			IF_DEBUG(std::string csce_QT_str = csce_QT.getAsString();)
+			auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
+			assert(precasted_expr_ptr);
+			auto precasted_expr_QT = precasted_expr_ptr->getType();
+			IF_DEBUG(std::string precasted_expr_QT_str = precasted_expr_QT.getAsString();)
+			auto precasted_expr_SR = nice_source_range(precasted_expr_ptr->getSourceRange(), Rewrite);
+			auto CSCESR = write_once_source_range(nice_source_range(CSCE->getSourceRange(), Rewrite));
+			auto cast_operation_SR = clang::SourceRange(CSCE->getLParenLoc(), CSCE->getRParenLoc());
+
+			if ((csce_QT->isPointerType() || csce_QT->isArrayType())
+				&& (precasted_expr_QT->isPointerType() || precasted_expr_QT->isArrayType())
+				&& cast_operation_SR.isValid()) {
+
+				auto csce_pointee_QT = llvm::isa<clang::ArrayType>(csce_QT) ? llvm::cast<clang::ArrayType>(csce_QT)->getElementType() : csce_QT->getPointeeType();
+				IF_DEBUG(std::string csce_pointee_QT_str = csce_pointee_QT.getAsString();)
+				auto non_const_csce_pointee_QT = csce_pointee_QT; non_const_csce_pointee_QT.removeLocalConst();
+				auto precasted_expr_pointee_QT = llvm::isa<clang::ArrayType>(precasted_expr_QT) ? llvm::cast<clang::ArrayType>(precasted_expr_QT)->getElementType() : precasted_expr_QT->getPointeeType();
+				IF_DEBUG(std::string precasted_expr_pointee_QT_str = precasted_expr_pointee_QT.getAsString();)
+				if (ConvertToSCPP) {
+					std::string og_cast_operation_str = Rewrite.getRewrittenText(cast_operation_SR);
+					std::string expression_replacement_code;
+					if ("void *" == csce_QT.getAsString()) {
+						auto IL = dyn_cast<const clang::IntegerLiteral>(precasted_expr_ptr);
+						if (IL) {
+							if (0 == IL->getValue().getLimitedValue()) {
+								/* The expression seems to be (something like) "(void*)0" which is equivalent to NULL. */
+								std::string null_value_str;
+								if ("Dual" == ConvertMode) {
+									null_value_str = "MSE_LH_NULL_POINTER";
+								} else {
+									null_value_str = "nullptr";
+								}
+								CExprTextReplacementAction(Rewrite, MR, CSCE, null_value_str).do_replacement(state1);
+								return;
+							}
+						}
+						if (false) {
+							std::string new_cast_prefix;
+							if ("Dual" == ConvertMode) {
+								new_cast_prefix = "MSE_LH_CAST(" + std::string("MSE_LH_VOID_STAR") + ", ";
+							} else {
+								new_cast_prefix = std::string("MSE_LH_VOID_STAR") + "(";
+							}
+							std::string cast_expr_str = Rewrite.getRewrittenText(precasted_expr_SR);
+
+							expression_replacement_code = new_cast_prefix + cast_expr_str + ")";
+							CExprTextReplacementAction(Rewrite, MR, CSCE, expression_replacement_code).do_replacement(state1);
+							return;
+						}
+					}
+					if (("char" == non_const_csce_pointee_QT.getAsString())) {
+						auto res = generate_c_style_cast_replacement_code(Rewrite, CSCE);
+						CExprTextYieldingReplacementAction(Rewrite, MR, CSCE, res.m_whole_cast_expression_replacement_text).do_replacement(state1);
+					} else {
+						std::string cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);
+						/* We're going to "blank out"/erase the original source text of the C-style cast operation
+						(including the paranthesis) (but not the expression that was being casted). */
+						std::string blank_text = cast_operation_text;
+						for (auto& ch : blank_text) {
+							ch = ' ';
+						}
+						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, blank_text);
+					}
+				}
+			}
+		}
+	}
+
 	class MCSSSAssignment : public MatchFinder::MatchCallback
 	{
 	public:
@@ -7502,7 +7575,7 @@ namespace convm1 {
 
 				{
 					auto csce_QT = definition_qtype(CSCE->getType());
-					auto precasted_expr_ptr = CSCE->IgnoreCasts();
+					auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
 					assert(precasted_expr_ptr);
 					auto precasted_expr_SR = nice_source_range(precasted_expr_ptr->getSourceRange(), Rewrite);
 					auto CSCESR = write_once_source_range(nice_source_range(CSCE->getSourceRange(), Rewrite));
@@ -7541,8 +7614,8 @@ namespace convm1 {
 							IF_DEBUG(std::string const_cast_pointee_qtype_str = const_cast_pointee_qtype.getAsString();)
 							IF_DEBUG(std::string DD_qtype_str = definition_qtype(DD->getType()).getAsString();)
 
-							if (DD_pointee_qtype == const_adjusted_cast_pointee_qtype) {
-								if (ConvertToSCPP) {
+							if (ConvertToSCPP) {
+								if (DD_pointee_qtype == const_adjusted_cast_pointee_qtype) {
 									for (size_t i = 0; i < ddcs_ref.m_indirection_state_stack.size(); ++i) {
 										std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CTargetConstrainsCStyleCastExprArray2ReplacementAction>(Rewrite, MR,
 												CDDeclIndirection(*DD, i), *CSCE);
@@ -7553,6 +7626,8 @@ namespace convm1 {
 											state1.m_array2_contingent_replacement_map.insert(cr_shptr);
 										}
 									}
+								} else {
+									handle_c_style_cast_without_context(MR, Rewrite, state1, CSCE);
 								}
 							}
 						}
@@ -7705,7 +7780,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":5785:")) {
+				if (std::string::npos != debug_source_location_str.find(":7977:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8122,15 +8197,8 @@ namespace convm1 {
 					if (rhs_is_an_indirect_type && (retvalii_EX->getStmtClass() == clang::Stmt::StmtClass::CStyleCastExprClass)) {
 						auto CSCE = llvm::cast<const clang::CStyleCastExpr>(retvalii_EX);
 						if (CSCE) {
+							handle_c_style_cast_without_context(MR, Rewrite, m_state1, CSCE);
 							auto cast_operation_SR = clang::SourceRange(CSCE->getLParenLoc(), CSCE->getRParenLoc());
-							if (ConvertToSCPP && cast_operation_SR.isValid()) {
-								IF_DEBUG(auto cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);)
-								m_state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, "");
-								//auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
-							}
-
-							auto cast_kind_name = CSCE->getCastKindName();
-							auto cast_kind = CSCE->getCastKind();
 						} else { assert(false); }
 					}
 
@@ -9476,10 +9544,10 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":5785:")) {
+				if (std::string::npos != debug_source_location_str.find(":7977:")) {
 					int q = 5;
 				}
-				if (std::string::npos != debug_source_text.find("palette")) {
+				if (std::string::npos != debug_source_text.find("png_malloc")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -9555,63 +9623,9 @@ namespace convm1 {
 				}
 				auto *CSCE = dyn_cast<const clang::CStyleCastExpr>(E);
 				if (CSCE) {
-					auto csce_QT = definition_qtype(CSCE->getType());
-					IF_DEBUG(std::string csce_QT_str = csce_QT.getAsString();)
-					auto precasted_expr_ptr = CSCE->IgnoreCasts();
-					assert(precasted_expr_ptr);
-					auto precasted_expr_QT = precasted_expr_ptr->getType();
-					IF_DEBUG(std::string precasted_expr_QT_str = precasted_expr_QT.getAsString();)
-					auto precasted_expr_SR = nice_source_range(precasted_expr_ptr->getSourceRange(), Rewrite);
-					auto CSCESR = write_once_source_range(nice_source_range(CSCE->getSourceRange(), Rewrite));
-					auto cast_operation_SR = write_once_source_range(clang::SourceRange(CSCE->getLParenLoc(), CSCE->getRParenLoc()));
-
-					if ((csce_QT->isPointerType() || csce_QT->isArrayType())
-						&& (precasted_expr_QT->isPointerType() || precasted_expr_QT->isArrayType())
-						&& cast_operation_SR.isValid()) {
-
-						auto csce_pointee_QT = llvm::isa<clang::ArrayType>(csce_QT) ? llvm::cast<clang::ArrayType>(csce_QT)->getElementType() : csce_QT->getPointeeType();
-						IF_DEBUG(std::string csce_pointee_QT_str = csce_pointee_QT.getAsString();)
-						auto non_const_csce_pointee_QT = csce_pointee_QT; non_const_csce_pointee_QT.removeLocalConst();
-						auto precasted_expr_pointee_QT = llvm::isa<clang::ArrayType>(precasted_expr_QT) ? llvm::cast<clang::ArrayType>(precasted_expr_QT)->getElementType() : precasted_expr_QT->getPointeeType();
-						IF_DEBUG(std::string precasted_expr_pointee_QT_str = precasted_expr_pointee_QT.getAsString();)
-						if (ConvertToSCPP) {
-							std::string og_cast_operation_str = Rewrite.getRewrittenText(cast_operation_SR);
-							std::string expression_replacement_code;
-							if ("void *" == csce_QT.getAsString()) {
-								auto IL = dyn_cast<const clang::IntegerLiteral>(precasted_expr_ptr);
-								if (IL) {
-									if (0 == IL->getValue().getLimitedValue()) {
-										/* The expression seems to be (something like) "(void*)0" which is equivalent to NULL. */
-										std::string null_value_str;
-										if ("Dual" == ConvertMode) {
-											null_value_str = "MSE_LH_NULL_POINTER";
-										} else {
-											null_value_str = "nullptr";
-										}
-										CExprTextReplacementAction(Rewrite, MR, E, null_value_str).do_replacement(state1);
-										return;
-									}
-								}
-								{
-									std::string new_cast_prefix;
-									if ("Dual" == ConvertMode) {
-										new_cast_prefix = "MSE_LH_CAST(" + std::string("MSE_LH_VOID_STAR") + ", ";
-									} else {
-										new_cast_prefix = std::string("MSE_LH_VOID_STAR") + "(";
-									}
-									std::string cast_expr_str = Rewrite.getRewrittenText(precasted_expr_SR);
-
-									expression_replacement_code = new_cast_prefix + cast_expr_str + ")";
-									CExprTextReplacementAction(Rewrite, MR, E, expression_replacement_code).do_replacement(state1);
-								}
-							} else /*if (("char" == non_const_csce_pointee_QT.getAsString()) )*/ {
-								auto res = generate_c_style_cast_replacement_code(Rewrite, CSCE);
-								CExprTextYieldingReplacementAction(Rewrite, MR, E, res.m_whole_cast_expression_replacement_text).do_replacement(state1);
-							}
-						}
-					}
+					handle_c_style_cast_without_context(MR, Rewrite, state1, CSCE);
+					return;
 				}
-
 			}
 		}
 
@@ -10690,7 +10704,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find(":5785:")) {
+					if (std::string::npos != debug_source_location_str.find(":7977:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -10776,7 +10790,7 @@ namespace convm1 {
 							IF_DEBUG(std::string debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str.find(":5785:")) {
+							if (std::string::npos != debug_source_location_str.find(":7977:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -10804,7 +10818,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *suffix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":5785:")) {
+									if (std::string::npos != debug_source_location_str.find(":7977:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
@@ -10839,7 +10853,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":5785:")) {
+									if (std::string::npos != debug_source_location_str.find(":7977:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
