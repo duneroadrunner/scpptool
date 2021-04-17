@@ -5394,7 +5394,6 @@ namespace convm1 {
 	struct CAllocFunctionInfo {
 		bool m_seems_to_be_some_kind_of_malloc_or_realloc = false;
 		bool m_seems_to_be_some_kind_of_realloc = false;
-		clang::CallExpr::const_arg_iterator m_num_bytes_arg_iter;
 		std::string m_num_bytes_arg_source_text;
 		std::string m_realloc_pointer_arg_source_text;
 	};
@@ -5404,49 +5403,57 @@ namespace convm1 {
 		auto CE = &call_expr;
 		auto function_decl = CE->getDirectCallee();
 		auto num_args = CE->getNumArgs();
-		if (function_decl && ((1 == num_args) || (2 == num_args))) {
+		if (function_decl && (1 <= num_args)) {
+			std::string return_type_str = definition_qtype(function_decl->getReturnType()).getAsString();
+			bool return_type_is_void_star = ("void *" == return_type_str);
+
 			std::string function_name = function_decl->getNameAsString();
 			static const std::string alloc_str = "alloc";
 			static const std::string realloc_str = "realloc";
 			auto lc_function_name = tolowerstr(function_name);
+
 			bool ends_with_alloc = ((lc_function_name.size() >= alloc_str.size())
 					&& (0 == lc_function_name.compare(lc_function_name.size() - alloc_str.size(), alloc_str.size(), alloc_str)));
 			bool ends_with_realloc = (ends_with_alloc && (lc_function_name.size() >= realloc_str.size())
 					&& (0 == lc_function_name.compare(lc_function_name.size() - realloc_str.size(), realloc_str.size(), realloc_str)));
-			bool still_potentially_valid1 = (ends_with_alloc && (1 == num_args)) || (ends_with_realloc && (2 == num_args));
-			if (still_potentially_valid1) {
+
+			bool contains_alloc = (std::string::npos != lc_function_name.find(alloc_str));
+			bool contains_realloc = (std::string::npos != lc_function_name.find(realloc_str));
+
+			bool not_yet_ruled_out1 = (contains_alloc && (1 <= num_args)) || (contains_realloc && (2 <= num_args));
+			not_yet_ruled_out1 = (not_yet_ruled_out1 && return_type_is_void_star);
+			if (not_yet_ruled_out1) {
 				std::string realloc_pointer_arg_source_text;
-				auto arg_iter = CE->arg_begin();
-
-				if (ends_with_realloc) {
-					auto arg_source_range = nice_source_range((*arg_iter)->getSourceRange(), Rewrite);
-					if (arg_source_range.isValid()) {
-						realloc_pointer_arg_source_text = Rewrite.getRewrittenText(arg_source_range);
+				std::string num_bytes_arg_source_text;
+				for (auto& arg : CE->arguments()) {
+					auto arg_qtype = arg->getType();
+					IF_DEBUG(std::string arg_qtype_str = arg_qtype.getAsString();)
+					auto arg_source_range = nice_source_range(arg->getSourceRange(), Rewrite);
+					if (!arg_source_range.isValid()) {
+						assert(false); continue;
 					}
-
-					arg_iter++;
+					std::string l_arg_source_text = Rewrite.getRewrittenText(arg_source_range);
+					if (contains_realloc && arg->getType()->isPointerType()) {
+						realloc_pointer_arg_source_text = l_arg_source_text;
+					} else if (arg_qtype->isUnsignedIntegerType()) {
+						num_bytes_arg_source_text = l_arg_source_text;
+						//auto num_bytes_arg_source_text_sans_ws = with_whitespace_removed(num_bytes_arg_source_text);
+						break;
+					}
 				}
-				bool argIsIntegerType = false;
-				if (*arg_iter) {
-					argIsIntegerType = (*arg_iter)->getType()->isIntegerType();
-				}
-				if (argIsIntegerType) {
-					auto arg_source_range = nice_source_range((*arg_iter)->getSourceRange(), Rewrite);
-					std::string arg_source_text;
-					if (arg_source_range.isValid()) {
-						arg_source_text = Rewrite.getRewrittenText(arg_source_range);
-						//auto arg_source_text_sans_ws = with_whitespace_removed(arg_source_text);
 
+				if (!num_bytes_arg_source_text.empty()) {
+					{
 						bool asterisk_found = false;
-						auto sizeof_start_index = arg_source_text.find("sizeof(");
+						auto sizeof_start_index = num_bytes_arg_source_text.find("sizeof(");
 						if (std::string::npos != sizeof_start_index) {
-							auto sizeof_end_index = arg_source_text.find(")", sizeof_start_index);
+							auto sizeof_end_index = num_bytes_arg_source_text.find(")", sizeof_start_index);
 							if (std::string::npos != sizeof_end_index) {
 								assert(sizeof_end_index > sizeof_start_index);
-								std::string before_str = arg_source_text.substr(0, sizeof_start_index);
+								std::string before_str = num_bytes_arg_source_text.substr(0, sizeof_start_index);
 								std::string after_str;
-								if (sizeof_end_index + 1 < arg_source_text.size()) {
-									after_str = arg_source_text.substr(sizeof_end_index + 1);
+								if (sizeof_end_index + 1 < num_bytes_arg_source_text.size()) {
+									after_str = num_bytes_arg_source_text.substr(sizeof_end_index + 1);
 								}
 
 								auto index = before_str.size() - 1;
@@ -5481,10 +5488,9 @@ namespace convm1 {
 							}
 						}
 						if (true || asterisk_found) {
-							retval.m_num_bytes_arg_iter = arg_iter;
 							retval.m_seems_to_be_some_kind_of_malloc_or_realloc = true;
-							retval.m_num_bytes_arg_source_text = arg_source_text;
-							if (ends_with_realloc) {
+							retval.m_num_bytes_arg_source_text = num_bytes_arg_source_text;
+							if (contains_realloc && (2 <= num_args)) {
 								retval.m_seems_to_be_some_kind_of_realloc = true;
 								retval.m_realloc_pointer_arg_source_text = realloc_pointer_arg_source_text;
 							}
