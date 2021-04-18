@@ -276,6 +276,17 @@ namespace convm1 {
 			}
 			return retval;
 		}
+		std::string original_definition_qtype_str() const {
+			std::string retval;
+			{
+				if (!m_maybe_original_qtype.has_value()) {
+					assert(false);
+				} else {
+					retval = definition_qtype(m_maybe_original_qtype.value()).getAsString();
+				}
+			}
+			return retval;
+		}
 		std::string current_qtype_str() const {
 			if (m_current_qtype_is_current) {
 				if (!m_maybe_current_qtype.has_value()) {
@@ -2089,6 +2100,7 @@ namespace convm1 {
 		bool m_changed_from_original = false;
 		bool m_just_a_native_array = false;
 		std::string m_native_array_size_text;
+		bool m_some_addressable_indirection = false;
 	};
 
 	class CDeclarationReplacementCodeItem {
@@ -2121,7 +2133,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, parens_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":7977:")) {
+						if (std::string::npos != debug_source_location_str.find(":5153:")) {
 							int q = 5;
 						}
 					}
@@ -2195,16 +2207,18 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find(":7977:")) {
+			if (std::string::npos != debug_source_location_str.find(":5153:")) {
 				int q = 5;
 			}
 		}
 #endif /*!NDEBUG*/
 
 		auto& direct_type_state_ref = indirection_state_stack.m_direct_type_state;
-		bool og_direct_type_was_char_type = (("char" == direct_type_state_ref.original_qtype_str()) || ("const char" == direct_type_state_ref.original_qtype_str()));
-		bool og_direct_type_was_FILE_type = (("FILE" == direct_type_state_ref.original_qtype_str()) || ("const FILE" == direct_type_state_ref.original_qtype_str()));
-		bool og_direct_type_was_void_type = (("void" == direct_type_state_ref.original_qtype_str()) || ("const void" == direct_type_state_ref.original_qtype_str()));
+		std::string direct_type_original_qtype_str = direct_type_state_ref.original_qtype_str();
+		bool og_direct_type_was_char_type = (("char" == direct_type_original_qtype_str) || ("const char" == direct_type_original_qtype_str));
+		bool og_direct_type_was_FILE_type = (("FILE" == direct_type_original_qtype_str) || ("const FILE" == direct_type_original_qtype_str)
+											|| ("struct _IO_FILE" == direct_type_original_qtype_str) || ("const struct _IO_FILE" == direct_type_original_qtype_str));
+		bool og_direct_type_was_void_type = (("void" == direct_type_original_qtype_str) || ("const void" == direct_type_original_qtype_str));
 		bool direct_type_is_function_type = false;
 		if (direct_type_state_ref.current_qtype_if_any().has_value()) {
 			direct_type_is_function_type = direct_type_state_ref.current_qtype_if_any().value().getTypePtr()->isFunctionType();
@@ -2618,7 +2632,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":7977:")) {
+						if (std::string::npos != debug_source_location_str.find(":5153:")) {
 							int q = 5;
 						}
 					}
@@ -3048,8 +3062,10 @@ namespace convm1 {
 							&& (!string_begins_with(prefix_str, "MSE_LH_ADDRESSABLE_TYPE("))
 							&& (!string_begins_with(prefix_str, "const mse::TRegisteredObj<"))
 							&& (!string_begins_with(prefix_str, "const MSE_LH_ADDRESSABLE_TYPE("))
+							&& ("" == post_name_suffix_str)
 							*/
-							&& ("" == post_name_suffix_str)) {
+							) {
+
 							if ("native reference" != indirection_state_ref.current_species()) {
 								if ("Dual" == ConvertMode) {
 									prefix_str = "MSE_LH_ADDRESSABLE_TYPE(" + prefix_str;
@@ -3059,6 +3075,7 @@ namespace convm1 {
 									prefix_str = "mse::TRegisteredObj<" + prefix_str;
 									suffix_str = suffix_str + " >";
 								}
+								retval.m_some_addressable_indirection = true;
 							} else {
 								int q = 5;
 							}
@@ -3464,7 +3481,7 @@ namespace convm1 {
 				} else if (is_static) {
 					replacement_code += "static ";
 				}
-				if (res4.m_just_a_native_array) {
+				if (res4.m_just_a_native_array && (!res4.m_some_addressable_indirection) && ("Dual" == ConvertMode)) {
 					replacement_code += "MSE_LH_FIXED_ARRAY_DECLARATION(" + direct_qtype_str;
 					replacement_code += ", " + res4.m_native_array_size_text;
 					replacement_code += ", " + variable_name + ")";
@@ -3551,7 +3568,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":7977:")) {
+		if (std::string::npos != debug_source_location_str.find(":5153:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5525,7 +5542,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":7977:")) {
+				if (std::string::npos != debug_source_location_str.find(":5153:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5725,7 +5742,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":7977:")) {
+				if (std::string::npos != debug_source_location_str.find(":5153:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5881,7 +5898,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":6039:")) {
+				if (std::string::npos != debug_source_location_str.find(":5197:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5950,7 +5967,7 @@ namespace convm1 {
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 #ifndef NDEBUG
-					if (std::string::npos != decl_debug_source_location_str.find(":7977:")) {
+					if (std::string::npos != decl_debug_source_location_str.find(":5153:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -7786,7 +7803,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":7977:")) {
+				if (std::string::npos != debug_source_location_str.find(":5153:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -9550,7 +9567,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":7977:")) {
+				if (std::string::npos != debug_source_location_str.find(":5153:")) {
 					int q = 5;
 				}
 				if (std::string::npos != debug_source_text.find("png_malloc")) {
@@ -10710,7 +10727,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find(":7977:")) {
+					if (std::string::npos != debug_source_location_str.find(":5153:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -10796,7 +10813,7 @@ namespace convm1 {
 							IF_DEBUG(std::string debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str.find(":7977:")) {
+							if (std::string::npos != debug_source_location_str.find(":5153:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -10824,7 +10841,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *suffix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":7977:")) {
+									if (std::string::npos != debug_source_location_str.find(":5153:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
@@ -10859,7 +10876,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":7977:")) {
+									if (std::string::npos != debug_source_location_str.find(":5153:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
