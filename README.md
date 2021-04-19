@@ -34,7 +34,10 @@ sudo apt-get install zlib1g-dev
 sudo apt-get install libtinfo-dev
 sudo apt-get install libxml2-dev
 ```
-
+And on Ubuntu 19 and later, llvm10 depends on an older version of libtinfo:
+```
+sudo apt-get install libtinfo5
+```
 scpptool also uses the `yaml-cpp` library which can be installed as follows:
 ```
 sudo apt-get install libyaml-cpp-dev
