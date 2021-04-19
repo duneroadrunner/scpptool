@@ -1,5 +1,5 @@
 
-Mar 2021
+Apr 2021
 
 ### Overview
 
@@ -25,9 +25,9 @@ Note that this tool is still in development and not well tested.
 
 ### How to Build:
 
-On Ubuntu Linux: Download the [llvm 8 pre-built binaries](http://releases.llvm.org/download.html#8.0.0) and extract them to a directory of your choosing. Download the [scpptool source code](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract it to a directory of your choosing. 
+On Ubuntu Linux: Download the [llvm 10 pre-built binaries](https://releases.llvm.org/download.html#10.0.0) and extract them to a directory of your choosing. Download the [scpptool source code](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract it to a directory of your choosing. 
 
-llvm8 requires some additional libraries that can be installed as follows:
+llvm requires some additional libraries that can be installed as follows:
 ```
 sudo apt-get update
 sudo apt-get install zlib1g-dev
@@ -42,21 +42,22 @@ sudo apt-get install libyaml-cpp-dev
 
 From the `src` subdirectory of the scpptool directory, you can build the tool by typing:
 ```
-make LLVM_CONF={the llvm8 directory}/bin/llvm-config
+make LLVM_CONF={the llvm10 directory}/bin/llvm-config
 ```
 
-Substituting the `{the llvm8 directory}` part with the directory where you extracted llvm 8. (You can also add the `BUILD_MODE=DEBUG` option. Currently, the debug build is more extensively tested.)
+Substituting the `{the llvm10 directory}` part with the directory where you extracted llvm 10. (You can also add the `BUILD_MODE=DEBUG` option. Currently, the debug build is more extensively tested.)
 
 ### How to Use:
 
 The syntax is as follows:
 
-`scpptool {source filename(s)} -- {compiler options} -I'{the llvm8 directory}/lib/clang/8.0.0/include'`
+`scpptool {source filename(s)} -- {compiler options} -I'{the llvm10 directory}/lib/clang/10.0.0/include'`
 
 So for example:
 
-`scpptool hello_world.cpp -- -I./msetl -std=c++17 -I'/home/user1/clang+llvm-8.0.0-x86_64-linux-gnu-ubuntu-18.04/lib/clang/8.0.0/include'`
+`scpptool hello_world.cpp -- -I./msetl -std=c++17 -I'/home/user1/clang+llvm-10.0.0-x86_64-linux-gnu-ubuntu-18.04/lib/clang/10.0.0/include'`
 
+(If you happen to have version 10 of the clang compiler installed on your system then you may be able to omit the lengthy "include directory specifier" option.)
 
 ### Local Suppression of the Checks
 
@@ -88,7 +89,7 @@ The presence of `MSE_SUPPRESS_CHECK_IN_XSCOPE` (a macro provided in the SaferCPl
 
 The SaferCPlusPlus library is designed to enable you to avoid potentially unsafe C++ elements, including native pointers and references. But in some cases it might be more convenient to use (or continue using) native pointers and references when their use can be verified to be safe. So native pointers (including `this` pointers) are treated in similar fashion to (and are in large part interchangeable with) [non-owning scope pointers](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#txscopeitemfixedpointer) by this tool, and similar restrictions are imposed. You can use `operator &` or `std::addressof()` in the usual way to initialize the value of a native pointer, but the tool restricts their application to expressions that it can verify are safe. These are generally limited to local (or `thread_local`) variables, objects of "scope type", or direct dereferences of a scope pointer/reference.
 
-So for example, this tool would not condone directly taking the address of an element in a (resizable) vector. In order to obtain a native pointer to a vector element, you would first need to obtain a scope pointer to the element (which in turn [requires obtaining a scope iterator](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#xscope_borrowing_fixed_nii_vector) to the element). Converting between native and scope pointers can be done as follows:
+So for example, this tool would not condone directly taking the address of an element in a (resizable) vector. In order to obtain a native pointer to a vector element, you would first need to obtain a scope pointer to the element (which in turn [requires obtaining](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#vectors) a [scope iterator](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#xscope_iterator) to the element). Converting between native and scope pointers can be done as follows:
 
 ```cpp
 #include "msescope.h"
