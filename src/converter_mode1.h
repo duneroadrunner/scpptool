@@ -5442,7 +5442,7 @@ namespace convm1 {
 			if (not_yet_ruled_out1) {
 				std::string realloc_pointer_arg_source_text;
 				std::string num_bytes_arg_source_text;
-				for (auto& arg : CE->arguments()) {
+				for (auto arg : CE->arguments()) {
 					auto arg_qtype = arg->getType();
 					IF_DEBUG(std::string arg_qtype_str = arg_qtype.getAsString();)
 					auto arg_source_range = nice_source_range(arg->getSourceRange(), Rewrite);
@@ -7949,7 +7949,7 @@ namespace convm1 {
 
 						if (ConvertToSCPP) {
 							auto args = CE->arguments();
-							for (auto& arg : args) {
+							for (auto arg : args) {
 								auto rhs_res2 = infer_array_type_info_from_stmt(*arg, "", (*this).m_state1);
 								bool rhs_is_an_indirect_type = is_an_indirect_type(arg->getType());
 
@@ -10000,7 +10000,11 @@ namespace convm1 {
 
 	void import_decl(ASTImporter& Importer, clang::Decl& decl_ref, clang::Rewriter& localRewriter, CompilerInstance &CI) {
 		auto D = &decl_ref;
+#if MU_LLVM_MAJOR <= 8
 		auto *ToDecl = Importer.Import(D);
+#elif MU_LLVM_MAJOR > 8
+		const clang::Decl *ToDecl = nullptr;
+#endif /*MU_LLVM_MAJOR*/
 		if (ToDecl) {
 			auto TDSR = nice_source_range(ToDecl->getSourceRange(), localRewriter);
 			if (TDSR.isValid()) {
@@ -10122,11 +10126,15 @@ namespace convm1 {
 								assert(NSD);
 								auto NNS = clang::NestedNameSpecifier::Create(multi_tu_state_ptr->ast_units.at(I)->getASTContext(), nullptr, NSD);
 								if (false && NNS) {
+#if MU_LLVM_MAJOR <= 8
 									auto *NNSToDecl = Importer.Import(NNS);
+#elif MU_LLVM_MAJOR > 8
+									clang::NestedNameSpecifier *NNSToDecl = nullptr;
+#endif /*MU_LLVM_MAJOR*/
 									if (NNSToDecl) {
-									int q = 5;
-								} else {
-									int q = 7;
+										int q = 5;
+									} else {
+										int q = 7;
 									}
 								} else {
 									int q = 7;
@@ -10993,7 +11001,7 @@ namespace convm1 {
 
 		std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI, StringRef file) override {
 			TheRewriter.setSourceMgr(CI.getSourceManager(), CI.getLangOpts());
-			return llvm::make_unique<MyASTConsumer>(TheRewriter, CI, (*this).m_tu_state);
+			return std::make_unique<MyASTConsumer>(TheRewriter, CI, (*this).m_tu_state);
 		}
 
 		bool overwriteChangedFiles() {

@@ -26,12 +26,18 @@
 #define SCPPT_FUNCTION_CATCH_ANY void SCPPT_placeholder_function_catch_any()
 #endif // __cpp_exceptions >= 199711
 
+#include "llvm/Config/llvm-config.h"
+
 #ifndef MU_LLVM_MAJOR
-#ifdef __clang_major__z
+#ifdef LLVM_VERSION_MAJOR
+#define MU_LLVM_MAJOR LLVM_VERSION_MAJOR
+#else /*LLVM_VERSION_MAJOR*/
+#ifdef __clang_major__
 #define MU_LLVM_MAJOR __clang_major__
 #else /*__clang_major__*/
-#define MU_LLVM_MAJOR 8
+#define MU_LLVM_MAJOR 10
 #endif /*__clang_major__*/
+#endif /*LLVM_VERSION_MAJOR*/
 #endif /*MU_LLVM_MAJOR*/
 
 #ifndef MSE_NAMESPACE_STR

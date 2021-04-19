@@ -3495,7 +3495,11 @@ namespace checker {
 
 	void import_decl(ASTImporter& Importer, clang::Decl& decl_ref, clang::Rewriter& localRewriter, CompilerInstance &CI) {
 		auto D = &decl_ref;
+#if MU_LLVM_MAJOR <= 8
 		auto *ToDecl = Importer.Import(D);
+#elif MU_LLVM_MAJOR > 8
+		const clang::Decl *ToDecl = nullptr;
+#endif /*MU_LLVM_MAJOR*/
 		if (ToDecl) {
 			auto TDSR = nice_source_range(ToDecl->getSourceRange(), localRewriter);
 			if (TDSR.isValid()) {
@@ -3617,11 +3621,15 @@ namespace checker {
 								assert(NSD);
 								auto NNS = clang::NestedNameSpecifier::Create(multi_tu_state_ptr->ast_units.at(I)->getASTContext(), nullptr, NSD);
 								if (false && NNS) {
+#if MU_LLVM_MAJOR <= 8
 									auto *NNSToDecl = Importer.Import(NNS);
+#elif MU_LLVM_MAJOR > 8
+									clang::NestedNameSpecifier *NNSToDecl = nullptr;
+#endif /*MU_LLVM_MAJOR*/
 									if (NNSToDecl) {
-									int q = 5;
-								} else {
-									int q = 7;
+										int q = 5;
+									} else {
+										int q = 7;
 									}
 								} else {
 									int q = 7;
@@ -4063,7 +4071,7 @@ namespace checker {
 
 		std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI, StringRef file) override {
 			TheRewriter.setSourceMgr(CI.getSourceManager(), CI.getLangOpts());
-			return llvm::make_unique<MyASTConsumer>(TheRewriter, CI, (*this).m_tu_state);
+			return std::make_unique<MyASTConsumer>(TheRewriter, CI, (*this).m_tu_state);
 		}
 
 	private:

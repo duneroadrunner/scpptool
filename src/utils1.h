@@ -509,7 +509,8 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 	inline bool statement_makes_reference_to_decl(const clang::ValueDecl& VLD_cref, const clang::Stmt& ST1_cref) {
 		bool retval = false;
 
-		auto ST = ST1_cref.IgnoreImplicit();
+		//auto ST = ST1_cref.IgnoreImplicit();
+		auto ST = &ST1_cref;
 
 		auto DRE1 = clang::dyn_cast<const clang::DeclRefExpr>(ST);
 		if (DRE1) {
@@ -532,7 +533,8 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 	inline std::vector<const ContainedElementT*> Tget_contained_elements_of_type(const clang::Stmt& ST1_cref) {
 		std::vector<const ContainedElementT*> retval;
 
-		auto ST = ST1_cref.IgnoreImplicit();
+		//auto ST = ST1_cref.IgnoreImplicit();
+		auto ST = &ST1_cref;
 
 		const ContainedElementT* contained_element_of_given_type = clang::dyn_cast<const ContainedElementT>(ST);
 
