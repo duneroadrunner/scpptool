@@ -716,7 +716,7 @@ namespace checker {
 							if (!satisfies_checks) {
 								if (clang::StorageDuration::SD_Static == storage_duration) {
 									DECLARE_CACHED_CONST_STRING(const_char_star_str, "const char *");
-									if ((qtype.isConstQualified()) && (is_async_shareable(qtype, (*this).m_state1))) {
+									if ((qtype.isConstQualified()) && (is_async_shareable(qtype))) {
 										satisfies_checks = true;
 									} else if (qtype.getAsString() == const_char_star_str) {
 										/* This isn't technically safe, but presumably this is likely
@@ -739,7 +739,7 @@ namespace checker {
 									}
 								} else {
 									assert(clang::StorageDuration::SD_Thread == storage_duration);
-									if (true || is_async_shareable(qtype, (*this).m_state1)) {
+									if (true || is_async_shareable(qtype)) {
 										satisfies_checks = true;
 									} else {
 										const std::string error_desc = std::string("Unable to verify the safety of variable '")
@@ -881,7 +881,7 @@ namespace checker {
 								const auto& base = *(CXXRD->bases_begin());
 								const auto base_qtype = base.getType();
 								const auto base_qtype_str = base_qtype.getAsString();
-								if (!is_async_shareable(base_qtype, (*this).m_state1)) {
+								if (!is_async_shareable(base_qtype)) {
 									const std::string error_desc = std::string("Unable to verify that the ")
 										+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableObj<> template, '"
 										+ base_qtype_str + "', is eligible to be safely shared (among threads). "
@@ -900,7 +900,7 @@ namespace checker {
 								const auto& base = *(CXXRD->bases_begin());
 								const auto base_qtype = base.getType();
 								const auto base_qtype_str = base_qtype.getAsString();
-								if (!is_async_passable(base_qtype, (*this).m_state1)) {
+								if (!is_async_passable(base_qtype)) {
 									const std::string error_desc = std::string("Unable to verify that the ")
 										+ "given (adjusted) parameter of the mse::rsv::TAsyncPassableObj<> template, '"
 										+ base_qtype_str + "', is eligible to be safely passed (between threads). "
@@ -919,7 +919,7 @@ namespace checker {
 								const auto& base = *(CXXRD->bases_begin());
 								const auto base_qtype = base.getType();
 								const auto base_qtype_str = base_qtype.getAsString();
-								if ((!is_async_shareable(base_qtype, (*this).m_state1)) || (!is_async_passable(base_qtype, (*this).m_state1))) {
+								if ((!is_async_shareable(base_qtype)) || (!is_async_passable(base_qtype))) {
 									const std::string error_desc = std::string("Unable to verify that the ")
 										+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableAndPassableObj<> template, '"
 										+ base_qtype_str + "', is eligible to be safely shared and passed (among threads). "
@@ -1850,13 +1850,13 @@ namespace checker {
 						if (VD_qtype.getTypePtr()->isPointerType()) {
 							const auto pointee_VD_qtype = VD_qtype.getTypePtr()->getPointeeType();
 							IF_DEBUG(const auto pointee_VD_qtype_str = pointee_VD_qtype.getAsString();)
-							if (pointee_VD_qtype.isConstQualified() && is_async_shareable(pointee_VD_qtype, tu_state_cref)) {
+							if (pointee_VD_qtype.isConstQualified() && is_async_shareable(pointee_VD_qtype)) {
 								/* This case includes "C"-string literals. */
 								satisfies_checks = true;
 								retval = VD;
 								return retval;
 							}
-						} else if (VD_qtype.isConstQualified() && is_async_shareable(VD_qtype, tu_state_cref)) {
+						} else if (VD_qtype.isConstQualified() && is_async_shareable(VD_qtype)) {
 							satisfies_checks = true;
 							retval = VD;
 							return retval;
@@ -2234,13 +2234,13 @@ namespace checker {
 						if (VD_qtype.getTypePtr()->isPointerType()) {
 							const auto pointee_VD_qtype = VD_qtype.getTypePtr()->getPointeeType();
 							IF_DEBUG(const auto pointee_VD_qtype_str = pointee_VD_qtype.getAsString();)
-							if (pointee_VD_qtype.isConstQualified() && is_async_shareable(pointee_VD_qtype, tu_state_cref)) {
+							if (pointee_VD_qtype.isConstQualified() && is_async_shareable(pointee_VD_qtype)) {
 								/* This case includes "C"-string literals. */
 								satisfies_checks = true;
 								retval = VD;
 								return retval;
 							}
-						} else if (VD_qtype.isConstQualified() && is_async_shareable(VD_qtype, tu_state_cref)) {
+						} else if (VD_qtype.isConstQualified() && is_async_shareable(VD_qtype)) {
 							satisfies_checks = true;
 							retval = VD;
 							return retval;

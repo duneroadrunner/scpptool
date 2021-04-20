@@ -1102,6 +1102,7 @@ namespace convm1 {
 
 		std::optional<clang::StorageDuration> m_maybe_original_storage_duration;
 		std::optional<clang::StorageDuration> m_maybe_current_storage_duration;
+		bool m_has_been_replaced_as_a_whole = false;
 	};
 
 	class CDDeclConversionStateMap : public std::unordered_map<const clang::DeclaratorDecl*, CDDeclConversionState> {
@@ -2133,7 +2134,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, parens_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":5153:")) {
+						if (std::string::npos != debug_source_location_str.find(":8185:")) {
 							int q = 5;
 						}
 					}
@@ -2207,7 +2208,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find(":5153:")) {
+			if (std::string::npos != debug_source_location_str.find(":8185:")) {
 				int q = 5;
 			}
 		}
@@ -2632,7 +2633,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":5153:")) {
+						if (std::string::npos != debug_source_location_str.find(":8185:")) {
 							int q = 5;
 						}
 					}
@@ -3189,6 +3190,71 @@ namespace convm1 {
 		return retval;
 	}
 
+	inline bool satisfies_restrictions_for_static_storage_duration(clang::QualType qtype) {
+		bool satisfies_checks = false;
+		DECLARE_CACHED_CONST_STRING(const_char_star_str, "const char *");
+		if ((qtype.isConstQualified()) && (is_async_shareable(qtype))) {
+			satisfies_checks = true;
+		} else if (qtype.getAsString() == const_char_star_str) {
+			/* This isn't technically safe, but presumably this is likely
+			to be a string literal, which should be fine, so for now we'll
+			let it go. */
+			satisfies_checks = true;
+		} else {
+			const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+			if (CXXRD) {
+				auto type_name1 = CXXRD->getQualifiedNameAsString();
+				const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
+				if (tmplt_CXXRD) {
+					type_name1 = tmplt_CXXRD->getQualifiedNameAsString();
+				}
+
+				DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, mse_namespace_str() + "::rsv::TStaticImmutableObj");
+				static const std::string std_atomic_str = std::string("std::atomic");
+				DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadWriteAccessRequester_str, mse_namespace_str() + "::TAsyncSharedV2ReadWriteAccessRequester");
+				DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadOnlyAccessRequester_str, mse_namespace_str() + "::TAsyncSharedV2ReadOnlyAccessRequester");
+				DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2ImmutableFixedPointer_str, mse_namespace_str() + "::TAsyncSharedV2ImmutableFixedPointer");
+				DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2AtomicFixedPointer_str, mse_namespace_str() + "::TAsyncSharedV2AtomicFixedPointer");
+
+				if ((type_name1 == mse_rsv_static_immutable_obj_str1)
+					|| (type_name1 == std_atomic_str)
+					|| (type_name1 == mse_AsyncSharedV2ReadWriteAccessRequester_str)
+					|| (type_name1 == mse_AsyncSharedV2ReadOnlyAccessRequester_str)
+					|| (type_name1 == mse_TAsyncSharedV2ImmutableFixedPointer_str)
+					|| (type_name1 == mse_TAsyncSharedV2AtomicFixedPointer_str)
+					) {
+					satisfies_checks = true;
+				}
+			}
+		}
+		return satisfies_checks;
+	}
+
+	inline bool satisfies_restrictions_for_thread_local_storage_duration(clang::QualType qtype) {
+		bool satisfies_checks = satisfies_restrictions_for_static_storage_duration(qtype);
+		if (!satisfies_checks) {
+			const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+			if (CXXRD) {
+				auto type_name1 = CXXRD->getQualifiedNameAsString();
+				const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
+				if (tmplt_CXXRD) {
+					type_name1 = tmplt_CXXRD->getQualifiedNameAsString();
+				}
+
+				DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, mse_namespace_str() + "::rsv::TThreadLocalObj");
+				if (type_name1 == mse_rsv_ThreadLocalObj_str) {
+					satisfies_checks = true;
+				}
+			}
+			if (!satisfies_checks) {
+				if (is_async_shareable(qtype)) {
+					satisfies_checks = true;
+				}
+			}
+		}
+		return satisfies_checks;
+	}
+
 	static CDeclarationReplacementCodeItem declaration_modifier_helper1(const DeclaratorDecl* DD,
 			Rewriter &Rewrite, CTUState* state1_ptr, CDDeclConversionStateMap& ddecl_conversion_state_map, bool suppress_modifications = false, std::string options_str = "") {
 		CDeclarationReplacementCodeItem retval;
@@ -3229,7 +3295,7 @@ namespace convm1 {
 		clang::StorageClass storage_class = clang::StorageClass::SC_None;
 		bool is_extern = false;
 		clang::StorageDuration storage_duration = ddcs_ref.m_maybe_current_storage_duration.value_or(clang::StorageDuration::SD_Automatic);
-		bool is_static = false;
+		bool has_static_storage_class = false;
 		bool is_a_function_parameter = false;
 		bool is_member = false;
 		bool is_vardecl = false;
@@ -3247,8 +3313,8 @@ namespace convm1 {
 			if (!ddcs_ref.m_maybe_current_storage_duration.has_value()) { ddcs_ref.m_maybe_current_storage_duration = ddcs_ref.m_maybe_original_storage_duration; }
 			storage_duration = ddcs_ref.m_maybe_current_storage_duration.value();
 
-			is_static = (clang::StorageClass::SC_Static == storage_class);
-			if ((clang::StorageDuration::SD_Static == storage_duration) && (!is_static)) {
+			has_static_storage_class = (clang::StorageClass::SC_Static == storage_class);
+			if ((clang::StorageDuration::SD_Static == storage_duration) && (!has_static_storage_class)) {
 				int q = 5;
 			}
 			is_a_function_parameter = (VD->isLocalVarDeclOrParm() && (!VD->isLocalVarDecl()));
@@ -3348,8 +3414,12 @@ namespace convm1 {
 			ddcs_ref.m_original_source_text_has_been_noted = true;
 		}
 
+		bool const_qualifier_stripped_from_direct_qtype_str = false;
 		if (res4.m_direct_type_must_be_non_const) {
-			direct_qtype_str = non_const_direct_qtype_str;
+			if (direct_qtype_str != non_const_direct_qtype_str) {
+				const_qualifier_stripped_from_direct_qtype_str = true;
+				direct_qtype_str = non_const_direct_qtype_str;
+			}
 		}
 		prefix_str = res4.m_prefix_str;
 		suffix_str = res4.m_suffix_str;
@@ -3478,10 +3548,31 @@ namespace convm1 {
 					if ("" == ddcs_ref.m_original_initialization_expr_str) {
 						replacement_code += "extern ";
 					}
-				} else if (is_static) {
-					replacement_code += "static ";
+				}
+				bool is_thread_local = (clang::StorageDuration::SD_Thread == storage_duration);
+				if ((!is_thread_local) && VD && (clang::StorageDuration::SD_Static == storage_duration)) {
+					if (!satisfies_restrictions_for_static_storage_duration(VD->getType())) {
+						/* was originally static storage duration, but needs to be converted to thread_local */
+						is_thread_local = true;
+					}
+				}
+				if (is_thread_local) {
+					replacement_code += "thread_local ";
+				}
+				if (VD && (!VD->isFileVarDecl())) {
+					if ((clang::StorageDuration::SD_Static == storage_duration) && (!is_thread_local)) {
+						replacement_code += "static ";
+					}
+				} else {
+					if (has_static_storage_class) {
+						assert(!is_extern);
+						replacement_code += "static ";
+					}
 				}
 				if (res4.m_just_a_native_array && (!res4.m_some_addressable_indirection) && ("Dual" == ConvertMode)) {
+					if (const_qualifier_stripped_from_direct_qtype_str) {
+						replacement_code += "const ";
+					}
 					replacement_code += "MSE_LH_FIXED_ARRAY_DECLARATION(" + direct_qtype_str;
 					replacement_code += ", " + res4.m_native_array_size_text;
 					replacement_code += ", " + variable_name + ")";
@@ -3568,7 +3659,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":5153:")) {
+		if (std::string::npos != debug_source_location_str.find(":8185:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -3702,6 +3793,8 @@ namespace convm1 {
 						the end of the declaration. */
 						//ddcs_ref.m_maybe_embedded_initializer_insert_before_point = {};
 						ddcs_ref.m_initializer_SR_or_insert_before_point = {};
+						ddcs_ref.m_thread_local_specifier_SR_or_insert_before_point = {};
+						ddcs_ref.m_has_been_replaced_as_a_whole = true;
 					}
 
 					if (ConvertToSCPP && last_decl_source_range.isValid() && (3 <= replacement_code.size())
@@ -5542,7 +5635,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":5153:")) {
+				if (std::string::npos != debug_source_location_str.find(":8185:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5742,7 +5835,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":5153:")) {
+				if (std::string::npos != debug_source_location_str.find(":8185:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5967,7 +6060,7 @@ namespace convm1 {
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 #ifndef NDEBUG
-					if (std::string::npos != decl_debug_source_location_str.find(":5153:")) {
+					if (std::string::npos != decl_debug_source_location_str.find(":8185:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -7803,7 +7896,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":5153:")) {
+				if (std::string::npos != debug_source_location_str.find(":8185:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8908,7 +9001,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":427:")) {
+				if (std::string::npos != debug_source_location_str.find(":8185:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8999,111 +9092,73 @@ namespace convm1 {
 						const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 
 						if ((clang::StorageDuration::SD_Static == storage_duration) || (clang::StorageDuration::SD_Thread == storage_duration)) {
-							bool satisfies_checks = false;
-							if (CXXRD) {
-								auto type_name1 = CXXRD->getQualifiedNameAsString();
-								const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
-								if (tmplt_CXXRD) {
-									type_name1 = tmplt_CXXRD->getQualifiedNameAsString();
-								}
-
-								DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, mse_namespace_str() + "::rsv::TStaticImmutableObj");
-								static const std::string std_atomic_str = std::string("std::atomic");
-								DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadWriteAccessRequester_str, mse_namespace_str() + "::TAsyncSharedV2ReadWriteAccessRequester");
-								DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadOnlyAccessRequester_str, mse_namespace_str() + "::TAsyncSharedV2ReadOnlyAccessRequester");
-								DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2ImmutableFixedPointer_str, mse_namespace_str() + "::TAsyncSharedV2ImmutableFixedPointer");
-								DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2AtomicFixedPointer_str, mse_namespace_str() + "::TAsyncSharedV2AtomicFixedPointer");
-								DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, mse_namespace_str() + "::rsv::TThreadLocalObj");
-
-								if ((type_name1 == mse_rsv_static_immutable_obj_str1)
-									|| (type_name1 == std_atomic_str)
-									|| (type_name1 == mse_AsyncSharedV2ReadWriteAccessRequester_str)
-									|| (type_name1 == mse_AsyncSharedV2ReadOnlyAccessRequester_str)
-									|| (type_name1 == mse_TAsyncSharedV2ImmutableFixedPointer_str)
-									|| (type_name1 == mse_TAsyncSharedV2AtomicFixedPointer_str)
-									|| ((type_name1 == mse_rsv_ThreadLocalObj_str) && (clang::StorageDuration::SD_Thread == storage_duration))
-									) {
-									satisfies_checks = true;
-								}
-							}
-
+							bool satisfies_checks = satisfies_restrictions_for_static_storage_duration(qtype);
 							if (!satisfies_checks) {
 								if (clang::StorageDuration::SD_Static == storage_duration) {
-									DECLARE_CACHED_CONST_STRING(const_char_star_str, "const char *");
-									if ((qtype.isConstQualified()) && (is_async_shareable(qtype, state1))) {
-										satisfies_checks = true;
-									} else if (qtype.getAsString() == const_char_star_str) {
-										/* This isn't technically safe, but presumably this is likely
-										to be a string literal, which should be fine, so for now we'll
-										let it go. */
-										satisfies_checks = true;
-									} else {
-										const std::string error_desc = std::string("Unable to verify the safety of variable '")
-											+ var_qualified_name + "' of type '" + qtype_str + "' with 'static storage duration'. "
-											+ "'static storage duration' is supported for eligible types wrapped in the "
-											+ "'mse::rsv::TStaticImmutableObj<>' transparent template wrapper. Other supported wrappers include: "
-											+ "mse::rsv::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
-											+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>. "
-											+ "Note that objects with 'static storage duration' may be simultaneously accessible from different threads "
-											+ "and so have more stringent safety requirements than objects with 'thread_local storage duration'.";
-										auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-										if (res.second) {
-											//std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
+									const std::string error_desc = std::string("Unable to verify the safety of variable '")
+										+ var_qualified_name + "' of type '" + qtype_str + "' with 'static storage duration'. "
+										+ "'static storage duration' is supported for eligible types wrapped in the "
+										+ "'mse::rsv::TStaticImmutableObj<>' transparent template wrapper. Other supported wrappers include: "
+										+ "mse::rsv::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
+										+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>. "
+										+ "Note that objects with 'static storage duration' may be simultaneously accessible from different threads "
+										+ "and so have more stringent safety requirements than objects with 'thread_local storage duration'.";
+									auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									if (res.second) {
+										//std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									}
 
-										if (true) {
-											/* Here we're (unjustifiably) assuming that the program is single threaded 
-											and changing variables with static duration to thread_local duration. */
-											std::string l_source_text1 = Rewrite.getRewrittenText(SR);
-											std::size_t replace_pos = 0;
-											std::size_t replace_length = 0;
-											if (VD->isFileVarDecl()) {
-												{
-													static const std::string extern_and_space_str = "extern ";
-													auto pos1 = l_source_text1.find(extern_and_space_str);
-													if (std::string::npos != pos1) {
-														replace_pos = pos1 + extern_and_space_str.length();
-													}
-												}
-												{
-													static const std::string inline_and_space_str = "inline ";
-													auto pos1 = l_source_text1.find(inline_and_space_str);
-													if ((std::string::npos) != pos1 && (pos1 > replace_pos)) {
-														replace_pos = pos1 + inline_and_space_str.length();
-													}
-												}
-											} else {
-												{
-													static const std::string static_and_space_str = "static ";
-													auto pos1 = l_source_text1.find(static_and_space_str);
-													if (std::string::npos != pos1) {
-														replace_pos = pos1;
-														replace_length = static_and_space_str.length();
-													}
-												}
-												if (0 == replace_length) {
-													static const std::string inline_and_space_str = "inline ";
-													auto pos1 = l_source_text1.find(inline_and_space_str);
-													if ((std::string::npos) != pos1 && (pos1 > replace_pos)) {
-														replace_pos = pos1 + inline_and_space_str.length();
-													}
+									if (!ddcs_ref.m_has_been_replaced_as_a_whole) {
+										/* Here we're (unjustifiably) assuming that the program is single threaded 
+										and changing variables with static duration to thread_local duration. */
+										std::string l_source_text1 = Rewrite.getRewrittenText(SR);
+										std::size_t replace_pos = 0;
+										std::size_t replace_length = 0;
+										if (VD->isFileVarDecl()) {
+											{
+												static const std::string extern_and_space_str = "extern ";
+												auto pos1 = l_source_text1.find(extern_and_space_str);
+												if (std::string::npos != pos1) {
+													replace_pos = pos1 + extern_and_space_str.length();
 												}
 											}
-
-											if (1 <= replace_length) {
-												ddcs_ref.m_thread_local_specifier_SR_or_insert_before_point = clang::SourceRange(SR.getBegin().getLocWithOffset(replace_pos), SR.getBegin().getLocWithOffset(replace_pos + replace_length - 1));
-											} else {
-												ddcs_ref.m_thread_local_specifier_SR_or_insert_before_point = SR.getBegin().getLocWithOffset(replace_pos);
+											{
+												static const std::string inline_and_space_str = "inline ";
+												auto pos1 = l_source_text1.find(inline_and_space_str);
+												if ((std::string::npos) != pos1 && (pos1 > replace_pos)) {
+													replace_pos = pos1 + inline_and_space_str.length();
+												}
 											}
-
-											int q = 5;
+										} else {
+											{
+												static const std::string static_and_space_str = "static ";
+												auto pos1 = l_source_text1.find(static_and_space_str);
+												if (std::string::npos != pos1) {
+													replace_pos = pos1;
+													replace_length = static_and_space_str.length();
+												}
+											}
+											if (0 == replace_length) {
+												static const std::string inline_and_space_str = "inline ";
+												auto pos1 = l_source_text1.find(inline_and_space_str);
+												if ((std::string::npos) != pos1 && (pos1 > replace_pos)) {
+													replace_pos = pos1 + inline_and_space_str.length();
+												}
+											}
 										}
+
+										if (1 <= replace_length) {
+											ddcs_ref.m_thread_local_specifier_SR_or_insert_before_point = clang::SourceRange(SR.getBegin().getLocWithOffset(replace_pos), SR.getBegin().getLocWithOffset(replace_pos + replace_length - 1));
+										} else {
+											ddcs_ref.m_thread_local_specifier_SR_or_insert_before_point = SR.getBegin().getLocWithOffset(replace_pos);
+										}
+
+										int q = 5;
 									}
 								} else {
 									assert(clang::StorageDuration::SD_Thread == storage_duration);
-									if (is_async_shareable(qtype, state1)) {
-										satisfies_checks = true;
-									} else {
+									satisfies_checks |= satisfies_restrictions_for_thread_local_storage_duration(qtype);
+									if (!satisfies_checks) {
 										const std::string error_desc = std::string("Unable to verify the safety of variable '")
 											+ var_qualified_name + "' of type '" + qtype_str + "' with 'thread local storage duration'. "
 											+ "'thread local storage duration' is supported for eligible types wrapped in the "
@@ -9174,10 +9229,12 @@ namespace convm1 {
 											std::string initializer_info_str = default_init_value_str(qtype);
 											ddcs_ref.m_current_initialization_expr_str = initializer_info_str;
 
-											/* Specify that the new initialization string should be
-											inserted at the end of the declaration. */
-											//ddcs_ref.m_maybe_embedded_initializer_insert_before_point = ddcs_ref.m_ddecl_cptr->getSourceRange().getEnd().getLocWithOffset(+1);
-											ddcs_ref.m_initializer_SR_or_insert_before_point = ddcs_ref.m_ddecl_cptr->getSourceRange().getEnd().getLocWithOffset(+1);
+											if (!(ddcs_ref.m_has_been_replaced_as_a_whole)) {
+												/* Specify that the new initialization string should be
+												inserted at the end of the declaration. */
+												//ddcs_ref.m_maybe_embedded_initializer_insert_before_point = ddcs_ref.m_ddecl_cptr->getSourceRange().getEnd().getLocWithOffset(+1);
+												ddcs_ref.m_initializer_SR_or_insert_before_point = ddcs_ref.m_ddecl_cptr->getSourceRange().getEnd().getLocWithOffset(+1);
+											}
 
 											update_declaration(*l_DD, Rewrite, state1);
 										}
@@ -9247,9 +9304,11 @@ namespace convm1 {
 											}
 											ddcs_ref.m_current_initialization_expr_str = initializer_info_str;
 
-											/* Specify that the new initialization string should be
-											inserted at the end of the declaration. */
-											ddcs_ref.m_initializer_SR_or_insert_before_point = ddcs_ref.m_ddecl_cptr->getSourceRange().getEnd().getLocWithOffset(+1);
+											if (!(ddcs_ref.m_has_been_replaced_as_a_whole)) {
+												/* Specify that the new initialization string should be
+												inserted at the end of the declaration. */
+												ddcs_ref.m_initializer_SR_or_insert_before_point = ddcs_ref.m_ddecl_cptr->getSourceRange().getEnd().getLocWithOffset(+1);
+											}
 
 											update_declaration(*l_DD, Rewrite, state1);
 										}
@@ -9276,7 +9335,7 @@ namespace convm1 {
 								const auto& base = *(CXXRD->bases_begin());
 								const auto base_qtype = base.getType();
 								const auto base_qtype_str = base_qtype.getAsString();
-								if (!is_async_shareable(base_qtype, state1)) {
+								if (!is_async_shareable(base_qtype)) {
 									const std::string error_desc = std::string("Unable to verify that the ")
 										+ "given (adjusted) parameter of mse::rsv::TAsyncShareableObj<>, '"
 										+ base_qtype_str + "', is eligible to be safely shared (among threads). "
@@ -9295,7 +9354,7 @@ namespace convm1 {
 								const auto& base = *(CXXRD->bases_begin());
 								const auto base_qtype = base.getType();
 								const auto base_qtype_str = base_qtype.getAsString();
-								if (!is_async_passable(base_qtype, state1)) {
+								if (!is_async_passable(base_qtype)) {
 									const std::string error_desc = std::string("Unable to verify that the ")
 										+ "given (adjusted) parameter of mse::rsv::TAsyncPassableObj<>, '"
 										+ base_qtype_str + "', is eligible to be safely passed (between threads). "
@@ -9314,7 +9373,7 @@ namespace convm1 {
 								const auto& base = *(CXXRD->bases_begin());
 								const auto base_qtype = base.getType();
 								const auto base_qtype_str = base_qtype.getAsString();
-								if ((!is_async_shareable(base_qtype, state1)) || (!is_async_passable(base_qtype, state1))) {
+								if ((!is_async_shareable(base_qtype)) || (!is_async_passable(base_qtype))) {
 									const std::string error_desc = std::string("Unable to verify that the ")
 										+ "given (adjusted) parameter of mse::rsv::TAsyncShareableAndPassableObj<>, '"
 										+ base_qtype_str + "', is eligible to be safely shared and passed (among threads). "
@@ -9567,7 +9626,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":5153:")) {
+				if (std::string::npos != debug_source_location_str.find(":8185:")) {
 					int q = 5;
 				}
 				if (std::string::npos != debug_source_text.find("png_malloc")) {
@@ -10735,7 +10794,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find(":5153:")) {
+					if (std::string::npos != debug_source_location_str.find(":8185:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -10821,7 +10880,7 @@ namespace convm1 {
 							IF_DEBUG(std::string debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str.find(":5153:")) {
+							if (std::string::npos != debug_source_location_str.find(":8185:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -10849,7 +10908,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *suffix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":5153:")) {
+									if (std::string::npos != debug_source_location_str.find(":8185:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
@@ -10884,7 +10943,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":5153:")) {
+									if (std::string::npos != debug_source_location_str.find(":8185:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/

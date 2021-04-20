@@ -931,8 +931,8 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		return retval;
 	}
 
-	inline bool is_async_shareable(const clang::QualType qtype, const CCommonTUState1& tu_state_cref);
-	inline bool is_async_shareable(const clang::Type& type, const CCommonTUState1& tu_state_cref) {
+	inline bool is_async_shareable(const clang::QualType qtype);
+	inline bool is_async_shareable(const clang::Type& type) {
 		bool retval = false;
 
 		const auto TP = &type;
@@ -955,7 +955,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 						const auto FD_qtype = FD->getType();
 						IF_DEBUG(auto FD_qtype_str = FD_qtype.getAsString();)
 
-						if ((!is_async_shareable(FD->getType(), tu_state_cref))
+						if ((!is_async_shareable(FD->getType()))
 							|| (FD->isMutable())) {
 							return false;
 						}
@@ -977,19 +977,19 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 
 		return retval;
 	}
-	inline bool is_async_shareable(const clang::QualType qtype, const CCommonTUState1& tu_state_cref) {
+	inline bool is_async_shareable(const clang::QualType qtype) {
 		bool retval = false;
 
 		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
 		const auto TP = qtype.getTypePtr();
 		if (!TP) { assert(false); } else {
-			retval = is_async_shareable(*TP, tu_state_cref);
+			retval = is_async_shareable(*TP);
 		}
 		return retval;
 	}
 
-	inline bool is_async_passable(const clang::QualType qtype, const CCommonTUState1& tu_state_cref);
-	inline bool is_async_passable(const clang::Type& type, const CCommonTUState1& tu_state_cref) {
+	inline bool is_async_passable(const clang::QualType qtype);
+	inline bool is_async_passable(const clang::Type& type) {
 		bool retval = false;
 
 		const auto TP = &type;
@@ -1012,7 +1012,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 						const auto FD_qtype = FD->getType();
 						IF_DEBUG(auto FD_qtype_str = FD_qtype.getAsString();)
 
-						if (!is_async_passable(FD->getType(), tu_state_cref)) {
+						if (!is_async_passable(FD->getType())) {
 							return false;
 						}
 					}
@@ -1029,13 +1029,13 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 
 		return retval;
 	}
-	inline bool is_async_passable(const clang::QualType qtype, const CCommonTUState1& tu_state_cref) {
+	inline bool is_async_passable(const clang::QualType qtype) {
 		bool retval = false;
 
 		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
 		const auto TP = qtype.getTypePtr();
 		if (!TP) { assert(false); } else {
-			retval = is_async_passable(*TP, tu_state_cref);
+			retval = is_async_passable(*TP);
 		}
 		return retval;
 	}
