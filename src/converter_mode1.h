@@ -2137,7 +2137,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, parens_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":8185:")) {
+						if (std::string::npos != debug_source_location_str.find(":7868:")) {
 							int q = 5;
 						}
 					}
@@ -2212,7 +2212,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find(":8185:")) {
+			if (std::string::npos != debug_source_location_str.find(":7868:")) {
 				int q = 5;
 			}
 		}
@@ -2286,7 +2286,7 @@ namespace convm1 {
 					if (is_second_innermost_indirection && (og_direct_type_was_void_type)) {
 						is_void_star_star = true;
 						/* In the case of pointers to void (aka "void*"s), the direct type (i.e. "void")
-						will be replaced with "mse::lh::void_star_replacement" and the last indirection
+						will be replaced with "mse::lh::void_star_replacement " and the last indirection
 						will be considered a "transparent"/"pass-through"/"no-op"/"collapsed"/"eliminated"
 						indirection, so this second-to-last indirection should be considered the last
 						indirection. */
@@ -2483,9 +2483,9 @@ namespace convm1 {
 
 						std::string new_qtype_str;
 						if ("Dual" == ConvertMode) {
-							new_qtype_str = "MSE_LH_VOID_STAR";
+							new_qtype_str = "MSE_LH_VOID_STAR ";
 						} else {
-							new_qtype_str = "mse::lh::void_star_replacement";
+							new_qtype_str = "mse::lh::void_star_replacement ";
 						}
 						if (params_str.empty()) {
 							direct_type_state_ref.set_current_non_function_qtype_str(new_qtype_str);
@@ -2567,9 +2567,9 @@ namespace convm1 {
 
 						std::string new_qtype_str;
 						if ("Dual" == ConvertMode) {
-							new_qtype_str = "MSE_LH_VOID_STAR";
+							new_qtype_str = "MSE_LH_VOID_STAR ";
 						} else {
-							new_qtype_str = "mse::lh::void_star_replacement";
+							new_qtype_str = "mse::lh::void_star_replacement ";
 						}
 						if (params_str.empty()) {
 							direct_type_state_ref.set_current_non_function_qtype_str(new_qtype_str);
@@ -2650,7 +2650,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":8185:")) {
+						if (std::string::npos != debug_source_location_str.find(":7868:")) {
 							int q = 5;
 						}
 					}
@@ -3678,7 +3678,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":8185:")) {
+		if (std::string::npos != debug_source_location_str.find(":7868:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5554,7 +5554,7 @@ namespace convm1 {
 					std::string l_arg_source_text = Rewrite.getRewrittenText(arg_source_range);
 					if (contains_realloc && arg->getType()->isPointerType()) {
 						realloc_pointer_arg_source_text = l_arg_source_text;
-					} else if (arg_qtype->isUnsignedIntegerType()) {
+					} else if (arg_qtype->isIntegerType()) {
 						num_bytes_arg_source_text = l_arg_source_text;
 						//auto num_bytes_arg_source_text_sans_ws = with_whitespace_removed(num_bytes_arg_source_text);
 						break;
@@ -5644,7 +5644,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":8185:")) {
+				if (std::string::npos != debug_source_location_str.find(":7868:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5844,7 +5844,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":8185:")) {
+				if (std::string::npos != debug_source_location_str.find(":7868:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -6069,7 +6069,7 @@ namespace convm1 {
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 #ifndef NDEBUG
-					if (std::string::npos != decl_debug_source_location_str.find(":8185:")) {
+					if (std::string::npos != decl_debug_source_location_str.find(":7868:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -7613,9 +7613,9 @@ namespace convm1 {
 						if (false) {
 							std::string new_cast_prefix;
 							if ("Dual" == ConvertMode) {
-								new_cast_prefix = "MSE_LH_CAST(" + std::string("MSE_LH_VOID_STAR") + ", ";
+								new_cast_prefix = "MSE_LH_CAST(" + std::string("MSE_LH_VOID_STAR ") + ", ";
 							} else {
-								new_cast_prefix = std::string("MSE_LH_VOID_STAR") + "(";
+								new_cast_prefix = std::string("MSE_LH_VOID_STAR ") + "(";
 							}
 							std::string cast_expr_str = Rewrite.getRewrittenText(precasted_expr_SR);
 
@@ -7905,7 +7905,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":8185:")) {
+				if (std::string::npos != debug_source_location_str.find(":7868:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -9010,7 +9010,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":8185:")) {
+				if (std::string::npos != debug_source_location_str.find(":7868:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -9635,7 +9635,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":8185:")) {
+				if (std::string::npos != debug_source_location_str.find(":7868:")) {
 					int q = 5;
 				}
 				if (std::string::npos != debug_source_text.find("png_malloc")) {
@@ -10803,7 +10803,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find(":8185:")) {
+					if (std::string::npos != debug_source_location_str.find(":7868:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -10889,7 +10889,7 @@ namespace convm1 {
 							IF_DEBUG(std::string debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str.find(":8185:")) {
+							if (std::string::npos != debug_source_location_str.find(":7868:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -10917,7 +10917,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *suffix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":8185:")) {
+									if (std::string::npos != debug_source_location_str.find(":7868:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
@@ -10952,7 +10952,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":8185:")) {
+									if (std::string::npos != debug_source_location_str.find(":7868:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
