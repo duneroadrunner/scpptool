@@ -2116,7 +2116,10 @@ namespace convm1 {
 	inline CDeclarationReplacementCodeItem generate_declaration_replacement_code(const DeclaratorDecl* DD,
 		Rewriter &Rewrite, CTUState* state1_ptr, CDDeclConversionStateMap& ddecl_conversion_state_map, std::string options_str = "");
 
-	inline std::string generate_qtype_replacement_code(clang::QualType qtype, Rewriter &Rewrite, bool is_a_function_parameter/* = false*/);
+	enum class EIsFunctionParam { No, Yes };
+	enum class ESuppressModifications { No, Yes };
+
+	inline std::string generate_qtype_replacement_code(clang::QualType qtype, Rewriter &Rewrite, EIsFunctionParam is_a_function_parameter/* = EIsFunctionParam::No*/, std::optional<clang::StorageDuration> maybe_storage_duration/* = {}*/);
 	inline std::string params_string_from_qtypes(const std::vector<clang::QualType>& qtypes, Rewriter &Rewrite);
 
 	inline std::string current_params_string(Rewriter &Rewrite, std::string& pointee_params_current_str, clang::FunctionProtoTypeLoc functionProtoTypeLoc, clang::FunctionDecl const * FND = nullptr, std::vector<clang::QualType> const * param_qtypes_ptr = nullptr, bool suppress_modifications = false, CTUState *state1_ptr = nullptr) {
@@ -2197,7 +2200,8 @@ namespace convm1 {
 	any currently indicated changes to the declaration. In any case, it will return an information
 	object that can be used to construct a text string of the currently indicated replacement type. */
 	static CTypeIndirectionPrefixAndSuffixItem type_indirection_prefix_and_suffix_modifier_and_code_generator(CIndirectionStateStack& indirection_state_stack,
-			Rewriter &Rewrite, bool is_a_function_parameter, bool suppress_modifications = false, CTUState* state1_ptr = nullptr) {
+			Rewriter &Rewrite, EIsFunctionParam is_a_function_parameter_enum, std::optional<clang::StorageDuration> maybe_storage_duration = {}
+			, ESuppressModifications suppress_modifications_enum = ESuppressModifications::No, CTUState* state1_ptr = nullptr) {
 		CTypeIndirectionPrefixAndSuffixItem retval;
 
 #ifndef NDEBUG
@@ -2213,6 +2217,18 @@ namespace convm1 {
 			}
 		}
 #endif /*!NDEBUG*/
+
+		bool is_a_function_parameter = (EIsFunctionParam::Yes == is_a_function_parameter_enum);
+		bool suppress_modifications = (ESuppressModifications::Yes == suppress_modifications_enum);
+		if ((!maybe_storage_duration.has_value()) && is_a_function_parameter) {
+			maybe_storage_duration = clang::StorageDuration::SD_Automatic;
+		}
+		bool is_a_local_variable = is_a_function_parameter;
+		if (maybe_storage_duration.has_value()) {
+			if (clang::StorageDuration::SD_Automatic == maybe_storage_duration.value()) {
+				is_a_local_variable = true;
+			}
+		}
 
 		auto& direct_type_state_ref = indirection_state_stack.m_direct_type_state;
 		std::string direct_type_original_qtype_str = direct_type_state_ref.original_qtype_str();
@@ -2247,33 +2263,34 @@ namespace convm1 {
 				bool is_void_star = false;
 				bool is_void_star_star = false;
 				bool is_function_pointer = false;
-				bool is_last_indirection = (indirection_state_stack.size() == (i+1));
-				if (is_last_indirection && (og_direct_type_was_char_type)) {
+				bool is_outermost_indirection = (0 == i);
+				bool is_innermost_indirection = (indirection_state_stack.size() == (i+1));
+				if (is_innermost_indirection && (og_direct_type_was_char_type)) {
 					is_char_star = true;
 					/* For the moment, we leave "char *" types alone. This will change at some point. */
 					l_changed_from_original = ("native pointer" != indirection_state_ref.original_species());
-				} else if (is_last_indirection && (og_direct_type_was_FILE_type)) {
+				} else if (is_innermost_indirection && (og_direct_type_was_FILE_type)) {
 					is_FILE_star = true;
 					/* For the moment, we leave "FILE *" types alone. This may change at some point. */
 					l_changed_from_original = ("native pointer" != indirection_state_ref.original_species());
-				} else if (is_last_indirection && (og_direct_type_was_void_type)) {
+				} else if (is_innermost_indirection && (og_direct_type_was_void_type)) {
 					is_void_star = true;
 					l_changed_from_original = true;
-				} else if (is_last_indirection && direct_type_is_function_type) {
+				} else if (is_innermost_indirection && direct_type_is_function_type) {
 					is_function_pointer = true;
-				} else if ((!is_last_indirection) && indirection_state_stack.at(i+1).current_is_function_type()) {
+				} else if ((!is_innermost_indirection) && indirection_state_stack.at(i+1).current_is_function_type()) {
 					is_function_pointer = true;
 				}
-				if (!is_last_indirection) {
-					bool is_second_last_indirection = (indirection_state_stack.size() == (i+2));
-					if (is_second_last_indirection && (og_direct_type_was_void_type)) {
+				if (!is_innermost_indirection) {
+					bool is_second_innermost_indirection = (indirection_state_stack.size() == (i+2));
+					if (is_second_innermost_indirection && (og_direct_type_was_void_type)) {
 						is_void_star_star = true;
 						/* In the case of pointers to void (aka "void*"s), the direct type (i.e. "void")
 						will be replaced with "mse::lh::void_star_replacement" and the last indirection
 						will be considered a "transparent"/"pass-through"/"no-op"/"collapsed"/"eliminated"
 						indirection, so this second-to-last indirection should be considered the last
 						indirection. */
-						is_last_indirection = true;
+						is_innermost_indirection = true;
 					}
 				}
 
@@ -2310,16 +2327,16 @@ namespace convm1 {
 						suffix_str = "* ";
 						retval.m_action_species = "char** argv";
 					} else {
-						if (is_last_indirection) {
+						if (is_innermost_indirection) {
 							//retval.m_direct_type_must_be_non_const = true;
 						}
 						if ("FasterAndStricter" == ConvertMode) {
 							prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
 							suffix_str = "> ";
 						} else {
-							if (is_a_function_parameter && ScopeTypeFunctionParameters) {
+							if (is_a_function_parameter && ScopeTypeFunctionParameters && is_outermost_indirection) {
 								if ("Dual" == ConvertMode) {
-									prefix_str = "MSE_LH_PARAM_ONLY_ARRAY_ITERATOR_TYPE(";
+									prefix_str = "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(";
 									suffix_str = ") ";
 								} else {
 									prefix_str = "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<";
@@ -2348,7 +2365,7 @@ namespace convm1 {
 						suffix_str = "* ";
 						retval.m_action_species = "FILE*";
 					} else {
-						if (is_last_indirection) {
+						if (is_innermost_indirection) {
 							retval.m_direct_type_must_be_non_const = true;
 						}
 						if ("Dual" == ConvertMode) {
@@ -2388,9 +2405,9 @@ namespace convm1 {
 								prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
 								suffix_str = "> ";
 							} else {
-								if (ScopeTypeFunctionParameters) {
+								if (ScopeTypeFunctionParameters && is_outermost_indirection) {
 									if ("Dual" == ConvertMode) {
-										prefix_str = "MSE_LH_PARAM_ONLY_ARRAY_ITERATOR_TYPE(";
+										prefix_str = "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(";
 										suffix_str = ") ";
 									} else {
 										prefix_str = "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<";
@@ -2408,7 +2425,7 @@ namespace convm1 {
 							}
 							retval.m_action_species = "native array parameter to MSE_LH_ARRAY_ITERATOR_TYPE";
 						} else {
-							if (is_last_indirection) {
+							if (is_innermost_indirection) {
 								//retval.m_direct_type_must_be_non_const = true;
 							}
 
@@ -2489,9 +2506,9 @@ namespace convm1 {
 								prefix_str = "mse::TXScopeAnyPointer<";
 								suffix_str = "> ";
 							} else {
-								if (is_a_function_parameter && (ScopeTypePointerFunctionParameters || ScopeTypeFunctionParameters)) {
+								if (is_a_function_parameter && (ScopeTypePointerFunctionParameters || ScopeTypeFunctionParameters) && is_outermost_indirection) {
 									if ("Dual" == ConvertMode) {
-										prefix_str = "MSE_LH_PARAM_ONLY_POINTER_TYPE(";
+										prefix_str = "MSE_LH_LOCAL_VAR_ONLY_POINTER_TYPE(";
 										suffix_str = ") ";
 									} else {
 										prefix_str = "mse::lh::TXScopeLHNullableAnyPointer<";
@@ -2917,7 +2934,7 @@ namespace convm1 {
 								maybe_prefix_SR = prefix_SR;
 							}
 						}
-						if (!is_last_indirection) {
+						if (!is_innermost_indirection) {
 							int q = 5;
 						}
 					}
@@ -2958,7 +2975,7 @@ namespace convm1 {
 											} else {
 												if (is_a_function_parameter) {
 												} else {
-													if (is_last_indirection) {
+													if (is_innermost_indirection) {
 														//retval.m_direct_type_must_be_non_const = true;
 													}
 
@@ -3044,7 +3061,7 @@ namespace convm1 {
 								auto l_pointee_params_current_str = current_params_string(Rewrite, pointee_params_current_str, functionProtoTypeLoc, FND, &param_qtypes, suppress_modifications, state1_ptr);
 								/* The last indirection doesn't need the parameters prepended to the suffix because the direct type
 								(string) will already include its parameters. */
-								if (!is_last_indirection) {
+								if (!is_innermost_indirection) {
 									suffix_str = l_pointee_params_current_str + suffix_str;
 								}
 							}
@@ -3145,27 +3162,27 @@ namespace convm1 {
 	/* This function will modify the source text to reflect any currently indicated changes to the
 	declaration. */
 	static CTypeIndirectionPrefixAndSuffixItem type_indirection_prefix_and_suffix_modifier(CIndirectionStateStack& indirection_state_stack,
-			Rewriter &Rewrite, CTUState* state1_ptr, bool is_a_function_parameter) {
+			Rewriter &Rewrite, CTUState* state1_ptr, EIsFunctionParam is_a_function_parameter, std::optional<clang::StorageDuration> maybe_storage_duration = {}) {
 
-			return type_indirection_prefix_and_suffix_modifier_and_code_generator(indirection_state_stack, Rewrite, is_a_function_parameter, false/*suppress_modifications*/, state1_ptr);
+			return type_indirection_prefix_and_suffix_modifier_and_code_generator(indirection_state_stack, Rewrite, is_a_function_parameter, maybe_storage_duration, ESuppressModifications::No, state1_ptr);
 	}
 
 	/* This function will return an information object that can be used to construct a text string 
 	f the currently indicated replacement type. */
 	static CTypeIndirectionPrefixAndSuffixItem generate_type_indirection_prefix_and_suffix(CIndirectionStateStack& indirection_state_stack,
-			Rewriter &Rewrite, bool is_a_function_parameter) {
+			Rewriter &Rewrite, EIsFunctionParam is_a_function_parameter, std::optional<clang::StorageDuration> maybe_storage_duration = {}) {
 
-		return type_indirection_prefix_and_suffix_modifier_and_code_generator(indirection_state_stack, Rewrite, is_a_function_parameter, true/*suppress_modifications*/);
+		return type_indirection_prefix_and_suffix_modifier_and_code_generator(indirection_state_stack, Rewrite, is_a_function_parameter, maybe_storage_duration, ESuppressModifications::Yes);
 	}
 
-	inline std::string generate_qtype_replacement_code(clang::QualType qtype, Rewriter &Rewrite, bool is_a_function_parameter = false) {
+	inline std::string generate_qtype_replacement_code(clang::QualType qtype, Rewriter &Rewrite, EIsFunctionParam is_a_function_parameter = EIsFunctionParam::No, std::optional<clang::StorageDuration> maybe_storage_duration = {}) {
 		CIndirectionStateStack indirection_state_stack;
 
 		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
 		auto direct_qtype = populateQTypeIndirectionStack(indirection_state_stack, qtype);
 		indirection_state_stack.m_direct_type_state.set_original_qtype(direct_qtype);
 
-		auto res1 = type_indirection_prefix_and_suffix_modifier_and_code_generator(indirection_state_stack, Rewrite, is_a_function_parameter, true/*suppress_modifications*/);
+		auto res1 = type_indirection_prefix_and_suffix_modifier_and_code_generator(indirection_state_stack, Rewrite, is_a_function_parameter, maybe_storage_duration, ESuppressModifications::Yes);
 		if (res1.m_direct_type_must_be_non_const) {
 			direct_qtype.removeLocalConst();
 		}
@@ -3184,7 +3201,7 @@ namespace convm1 {
 				is_first_param = false;
 			}
 			//retval += qtype.getAsString();
-			retval += generate_qtype_replacement_code(qtype, Rewrite, true/*is_a_function_parameter*/);
+			retval += generate_qtype_replacement_code(qtype, Rewrite, EIsFunctionParam::Yes);
 		}
 		retval += ")";
 		return retval;
@@ -3256,7 +3273,7 @@ namespace convm1 {
 	}
 
 	static CDeclarationReplacementCodeItem declaration_modifier_helper1(const DeclaratorDecl* DD,
-			Rewriter &Rewrite, CTUState* state1_ptr, CDDeclConversionStateMap& ddecl_conversion_state_map, bool suppress_modifications = false, std::string options_str = "") {
+			Rewriter &Rewrite, CTUState* state1_ptr, CDDeclConversionStateMap& ddecl_conversion_state_map, ESuppressModifications suppress_modifications = ESuppressModifications::No, std::string options_str = "") {
 		CDeclarationReplacementCodeItem retval;
 
 		if (!DD) {
@@ -3387,8 +3404,10 @@ namespace convm1 {
 		std::string suffix_str;
 		std::string post_name_suffix_str;
 
+		EIsFunctionParam is_a_function_parameter_enum = is_a_function_parameter ? EIsFunctionParam::Yes : EIsFunctionParam::No;
+
 		auto res4 = type_indirection_prefix_and_suffix_modifier_and_code_generator(ddcs_ref.m_indirection_state_stack,
-				Rewrite, is_a_function_parameter, suppress_modifications, state1_ptr);
+				Rewrite, is_a_function_parameter_enum, ddcs_ref.m_maybe_current_storage_duration, suppress_modifications, state1_ptr);
 
 		retval.m_action_species = res4.m_action_species;
 
@@ -3637,7 +3656,7 @@ namespace convm1 {
 
 	inline CDeclarationReplacementCodeItem generate_declaration_replacement_code(const DeclaratorDecl* DD,
 			Rewriter &Rewrite, CTUState* state1_ptr, CDDeclConversionStateMap& ddecl_conversion_state_map, std::string options_str/* = ""*/) {
-		return declaration_modifier_helper1(DD, Rewrite, state1_ptr, ddecl_conversion_state_map, true/*suppress_modifications*/, options_str);
+		return declaration_modifier_helper1(DD, Rewrite, state1_ptr, ddecl_conversion_state_map, ESuppressModifications::Yes, options_str);
 	}
 
 	static void declaration_modifier(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1, std::string options_str = "") {
@@ -3805,7 +3824,7 @@ namespace convm1 {
 						int q = 7;
 					}
 				} else {
-					auto res = declaration_modifier_helper1(&ddecl, Rewrite, &state1, state1.m_ddecl_conversion_state_map, false/*suppress_modifications*/, options_str);
+					auto res = declaration_modifier_helper1(&ddecl, Rewrite, &state1, state1.m_ddecl_conversion_state_map, ESuppressModifications::No, options_str);
 				}
 			} else {
 				int q = 7;
@@ -5097,24 +5116,14 @@ namespace convm1 {
 							assert((*(rhs_res2.ddecl_conversion_state_ptr)).direct_type_state_ref().current_qtype_if_any().has_value());
 							auto rhs_direct_qtype = (*(rhs_res2.ddecl_conversion_state_ptr)).direct_type_state_ref().current_qtype_if_any().value();
 
-							bool rhs_is_a_function_parameter = true;
-
 							std::string rhs_direct_qtype_str = (*(rhs_res2.ddecl_conversion_state_ptr)).current_direct_qtype_str();
 
-							if ("_Bool" == rhs_direct_qtype_str) {
-								rhs_direct_qtype_str = "bool";
-							} else if ("const _Bool" == rhs_direct_qtype_str) {
-								rhs_direct_qtype_str = "const bool";
-							}
 							auto rhs_non_const_direct_qtype = rhs_direct_qtype;
 							rhs_non_const_direct_qtype.removeLocalConst();
-							std::string rhs_non_const_direct_qtype_str = rhs_non_const_direct_qtype.getAsString();
-							if ("_Bool" == rhs_non_const_direct_qtype_str) {
-								rhs_non_const_direct_qtype_str = "bool";
-							}
+							std::string rhs_non_const_direct_qtype_str = adjusted_qtype_str(rhs_non_const_direct_qtype.getAsString());
 
 							auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack, Rewrite, 
-								rhs_is_a_function_parameter);
+								EIsFunctionParam::Yes);
 
 							if (res3.m_direct_type_must_be_non_const) {
 								rhs_direct_qtype_str = rhs_non_const_direct_qtype_str;
@@ -5125,7 +5134,7 @@ namespace convm1 {
 							new_params_code += new_param_type_str;
 						} else {
 							auto res3 = generate_type_indirection_prefix_and_suffix((*rhs_res2.ddecl_conversion_state_ptr).m_indirection_state_stack, Rewrite, 
-								true/*rhs_is_a_function_parameter*/);
+								EIsFunctionParam::Yes);
 
 							auto rhs_direct_qtype_str = (*rhs_res2.ddecl_conversion_state_ptr).current_direct_qtype_str();
 
