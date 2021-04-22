@@ -203,12 +203,12 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 
 
 	template<typename TPtr>
-	inline auto IgnoreParenImpCasts(const TPtr ptr) -> decltype(ptr->IgnoreImplicit()->IgnoreParenImpCasts()) {
+	inline auto IgnoreParenImpCasts(TPtr ptr) -> decltype(ptr->IgnoreImplicit()->IgnoreParenImpCasts()) {
 		if (!ptr) { return ptr; }
 		return ptr->IgnoreImplicit()->IgnoreParenImpCasts();
 	}
 	template<typename TPtr>
-	inline auto IgnoreParenImpNoopCasts(const TPtr ptr, clang::ASTContext& Ctx) -> decltype(IgnoreParenImpCasts(ptr)->IgnoreParenNoopCasts(Ctx)) {
+	inline auto IgnoreParenImpNoopCasts(TPtr ptr, clang::ASTContext& Ctx) -> decltype(IgnoreParenImpCasts(ptr)->IgnoreParenNoopCasts(Ctx)) {
 		if (!ptr) { return ptr; }
 		return IgnoreParenImpCasts(ptr)->IgnoreParenNoopCasts(Ctx);
 	}
