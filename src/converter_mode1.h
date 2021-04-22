@@ -667,6 +667,7 @@ namespace convm1 {
 		const clang::Stmt* ST = &stmt;
 		auto stmt_class = ST->getStmtClass();
 		auto stmt_class_name = ST->getStmtClassName();
+		const clang::Stmt* next_ST = nullptr;
 		bool process_child_flag = false;
 		if (clang::Stmt::StmtClass::ArraySubscriptExprClass == stmt_class) {
 			stack.push_back("ArraySubscriptExpr");
@@ -729,6 +730,11 @@ namespace convm1 {
 			process_child_flag = true;
 		} else if ((clang::Stmt::StmtClass::CallExprClass == stmt_class)) {
 			process_child_flag = true;
+		} else if ((clang::Stmt::StmtClass::BinaryOperatorClass == stmt_class)) {
+			auto BO = llvm::cast<const clang::BinaryOperator>(ST);
+			if (BO) {
+				next_ST = BO->getLHS();
+			} else { assert(false); }
 		} else if(clang::Stmt::StmtClass::DeclRefExprClass == stmt_class) {
 			auto DRE = llvm::cast<const clang::DeclRefExpr>(ST);
 			if (DRE) {
@@ -741,14 +747,19 @@ namespace convm1 {
 			auto ME = llvm::cast<const clang::MemberExpr>(ST);
 			if (ME) {
 				retval = ME;
-			} else {
-				assert(false);
-			}
+			} else { assert(false); }
 		} else {
 			if (0 == depth) {
 				int q = 5;
 			}
 			int q = 5;
+		}
+		if (next_ST) {
+			const auto noted_stack_size = stack.size();
+			auto res = populateStmtIndirectionStack(stack, *next_ST, depth+1);
+			if ((nullptr == retval) || (stack.size() > noted_stack_size)) {
+				retval = res;
+			}
 		}
 		if (process_child_flag) {
 			auto child_iter = ST->child_begin();
@@ -2212,7 +2223,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find(":7868:")) {
+			if (std::string::npos != debug_source_location_str.find(":7853:")) {
 				int q = 5;
 			}
 		}
@@ -4026,6 +4037,7 @@ namespace convm1 {
 				} else if (("malloc target" == stmt_indirection_stack[i])) {
 					ddcs_ref.set_indirection_current(i, "malloc target");
 					retval.indirection_level = i;
+					retval.update_declaration_flag = true;
 				} else if (("set to null" == stmt_indirection_stack[i]) ||
 						("memset/cpy target" == stmt_indirection_stack[i])) {
 					retval.indirection_level = i;
@@ -5774,34 +5786,49 @@ namespace convm1 {
 						}
 
 						if (ConvertToSCPP && (rhs_res2.ddecl_conversion_state_ptr) && lhs_is_an_indirect_type) {
-							for (size_t i = 0; (rhs_res2.indirection_level + i < ddcs_ref.m_indirection_state_stack.size())
+							for (size_t i = 0; ((0 + i) < ddcs_ref.m_indirection_state_stack.size())
 														&& (rhs_res2.indirection_level + i < (*(rhs_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack.size()); i += 1) {
 								{
 									/* Here we're establishing and "enforcing" the constraint that the rhs value must
 									* be of an (array) type that can be assigned to the lhs. */
-									auto cr_shptr = std::make_shared<CAssignmentTargetConstrainsSourceArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0 + i), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i));
-									auto cr_shptr2 = std::make_shared<CAssignmentTargetConstrainsSourceDynamicArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0 + i), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i));
+									std::shared_ptr<CArray2ReplacementAction> cr_shptr;
+									if (1 > (0 + i)) {
+										cr_shptr = std::make_shared<CAssignmentTargetConstrainsSourceArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0 + i), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i));
+									} else {
+										/* Levels of indirection beyond the first one must be of the same type,
+										* not just of "compatible" types. */
+										cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0 + i), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i));
+									}
 
 									if (ddcs_ref.has_been_determined_to_be_an_array(0 + i)) {
 										(*cr_shptr).do_replacement(m_state1);
-										if (ddcs_ref.has_been_determined_to_be_a_dynamic_array(0 + i)) {
-											(*cr_shptr2).do_replacement(m_state1);
-										} else {
-											m_state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr2);
+										if (!ddcs_ref.has_been_determined_to_be_a_dynamic_array(0 + i)) {
+											m_state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
 										}
 									} else {
 										m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
-										m_state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr2);
+										m_state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
 									}
 								}
 								{
 									/* Here we're establishing the constraint in the opposite direction as well. */
-									auto cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i), CDDeclIndirection(*DD, 0 + i));
+									std::shared_ptr<CArray2ReplacementAction> cr_shptr;
+									if (1 > (0 + i)) {
+										cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i), CDDeclIndirection(*DD, 0 + i));
+									} else {
+										/* Levels of indirection beyond the first one must be of the same type,
+										* not just of "compatible" types. */
+										cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0 + i), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i));
+									}
 
 									if ((*(rhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(rhs_res2.indirection_level + i)) {
 										(*cr_shptr).do_replacement(m_state1);
+										if (!(*(rhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_a_dynamic_array(rhs_res2.indirection_level + i)) {
+											m_state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+										}
 									} else {
 										m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+										m_state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
 									}
 								}
 							}
