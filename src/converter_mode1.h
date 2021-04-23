@@ -1431,7 +1431,7 @@ namespace convm1 {
 	class CReplacementAction {
 	public:
 		CReplacementAction(Rewriter &Rewrite) : m_Rewrite(Rewrite) {}
-		/* Just for backward compatibility */
+		/* with redundant parameter just for backward compatibility */
 		CReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR) : m_Rewrite(Rewrite) {}
 		virtual ~CReplacementAction() {}
 		virtual void do_replacement(CTUState& state1) const = 0;
@@ -1443,7 +1443,7 @@ namespace convm1 {
 	public:
 		CExprTextReplacementAction(Rewriter &Rewrite, const Expr* EX,
 			const std::string& replacement_code) : CReplacementAction(Rewrite), m_EX(EX), m_replacement_code(replacement_code) {}
-		/* Just for backward compatibility */
+		/* with redundant parameter just for backward compatibility */
 		CExprTextReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const Expr* EX,
 			const std::string& replacement_code) : CReplacementAction(Rewrite), m_EX(EX), m_replacement_code(replacement_code) {}
 		virtual ~CExprTextReplacementAction() {}
@@ -1472,7 +1472,7 @@ namespace convm1 {
 	public:
 		CDDeclIndirectionReplacementAction(Rewriter &Rewrite, const CDDeclIndirection& ddecl_indirection)
 			: CReplacementAction(Rewrite), m_ddecl_indirection(ddecl_indirection) {}
-		/* Just for backward compatibility */
+		/* with redundant parameter just for backward compatibility */
 		CDDeclIndirectionReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR,
 				const CDDeclIndirection& ddecl_indirection) : CReplacementAction(Rewrite), m_ddecl_indirection(ddecl_indirection) {}
 		virtual ~CDDeclIndirectionReplacementAction() {}
@@ -1501,26 +1501,24 @@ namespace convm1 {
 
 	class CSameTypeReplacementAction : public CDDeclIndirectionReplacementAction {
 	public:
-		enum class apply_to_redeclarations_t : bool { no, yes };
 		CSameTypeReplacementAction(Rewriter &Rewrite, const CDDeclIndirection& ddecl_indirection1,
-				const CDDeclIndirection& ddecl_indirection2, apply_to_redeclarations_t apply_to_redeclarations = apply_to_redeclarations_t::yes)
-				: CDDeclIndirectionReplacementAction(Rewrite, ddecl_indirection1), m_ddecl_indirection2(ddecl_indirection2), m_apply_to_redeclarations(apply_to_redeclarations) {}
+				const CDDeclIndirection& ddecl_indirection2)
+				: CDDeclIndirectionReplacementAction(Rewrite, ddecl_indirection1), m_ddecl_indirection2(ddecl_indirection2) {}
 		CSameTypeReplacementAction(Rewriter &Rewrite, const clang::DeclaratorDecl& ddecl_cref1,
-				const clang::DeclaratorDecl& ddecl_cref2, apply_to_redeclarations_t apply_to_redeclarations = apply_to_redeclarations_t::yes)
-				: CDDeclIndirectionReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)), m_ddecl_indirection2(CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)), m_apply_to_redeclarations(apply_to_redeclarations) {}
-		/* Just for backward compatibility */
+				const clang::DeclaratorDecl& ddecl_cref2)
+				: CDDeclIndirectionReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)), m_ddecl_indirection2(CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)) {}
+		/* with redundant parameter just for backward compatibility */
 		CSameTypeReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection1,
-				const CDDeclIndirection& ddecl_indirection2, apply_to_redeclarations_t apply_to_redeclarations = apply_to_redeclarations_t::yes)
-				: CDDeclIndirectionReplacementAction(Rewrite, ddecl_indirection1), m_ddecl_indirection2(ddecl_indirection2), m_apply_to_redeclarations(apply_to_redeclarations) {}
+				const CDDeclIndirection& ddecl_indirection2)
+				: CDDeclIndirectionReplacementAction(Rewrite, ddecl_indirection1), m_ddecl_indirection2(ddecl_indirection2) {}
 		CSameTypeReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const clang::DeclaratorDecl& ddecl_cref1,
-				const clang::DeclaratorDecl& ddecl_cref2, apply_to_redeclarations_t apply_to_redeclarations = apply_to_redeclarations_t::yes)
-				: CDDeclIndirectionReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)), m_ddecl_indirection2(CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)), m_apply_to_redeclarations(apply_to_redeclarations) {}
+				const clang::DeclaratorDecl& ddecl_cref2)
+				: CDDeclIndirectionReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)), m_ddecl_indirection2(CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)) {}
 		virtual ~CSameTypeReplacementAction() {}
 
 		virtual void do_replacement(CTUState& state1) const;
 
 		CDDeclIndirection m_ddecl_indirection2;
-		apply_to_redeclarations_t m_apply_to_redeclarations = apply_to_redeclarations_t::yes;
 	};
 
 	class CAddressofArraySubscriptExprReplacementAction : public CDDeclIndirectionReplacementAction {
@@ -1601,7 +1599,7 @@ namespace convm1 {
 		CSameTypeArray2ReplacementAction(Rewriter &Rewrite, const CDDeclIndirection& ddecl_indirection,
 				const CDDeclIndirection& ddecl_indirection2) :
 					CArray2ReplacementAction(Rewrite, ddecl_indirection), m_ddecl_indirection2(ddecl_indirection2) {}
-		/* Just for backward compatibility */
+		/* with redundant parameter just for backward compatibility */
 		CSameTypeArray2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
 				const CDDeclIndirection& ddecl_indirection2) :
 					CArray2ReplacementAction(Rewrite, ddecl_indirection), m_ddecl_indirection2(ddecl_indirection2) {}
@@ -2241,7 +2239,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find(":1942:")) {
+			if (std::string::npos != debug_source_location_str.find(":9999:")) {
 				int q = 5;
 			}
 		}
@@ -2679,7 +2677,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":1942:")) {
+						if (std::string::npos != debug_source_location_str.find(":9999:")) {
 							int q = 5;
 						}
 					}
@@ -3707,7 +3705,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":1942:")) {
+		if (std::string::npos != debug_source_location_str.find(":9999:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -3884,7 +3882,7 @@ namespace convm1 {
 
 		/* homogenize the direct types (i.e. the types with any pointer/reference/array/etc indirections removed) */
 		CSameTypeReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)
-			, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection), CSameTypeReplacementAction::apply_to_redeclarations_t::no).do_replacement(state1);
+			, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)).do_replacement(state1);
 
 		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref2);
 		auto lhs_ddcs_map_iter = lhs_res1.first;
@@ -3916,7 +3914,7 @@ namespace convm1 {
 			size_t adjusted_num_indirection_levels = lhs_ddcs_ref.m_indirection_state_stack.size() - lhs_indirection_level_adjustment;
 			for (size_t i = 0; i < adjusted_num_indirection_levels; i += 1) {
 				CSameTypeReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref2, i + lhs_indirection_level_adjustment)
-					, CDDeclIndirection(ddecl_cref1, i + rhs_indirection_level_adjustment), CSameTypeReplacementAction::apply_to_redeclarations_t::no).do_replacement(state1);
+					, CDDeclIndirection(ddecl_cref1, i + rhs_indirection_level_adjustment)).do_replacement(state1);
 
 				CSameTypeArray2ReplacementAction(Rewrite, CDDeclIndirection(*(lhs_ddcs_ref.m_ddecl_cptr), i + lhs_indirection_level_adjustment)
 					, CDDeclIndirection(*(rhs_ddcs_ref.m_ddecl_cptr), i + rhs_indirection_level_adjustment)).do_replacement(state1);
@@ -4449,11 +4447,6 @@ namespace convm1 {
 			if ((CDDeclIndirection::no_indirection != m_ddecl_indirection2.m_indirection_level) && (CDDeclIndirection::no_indirection != m_ddecl_indirection.m_indirection_level)) {
 				CSameTypeArray2ReplacementAction(Rewrite, m_ddecl_indirection2, m_ddecl_indirection).do_replacement(state1);
 			}
-		}
-
-		if (apply_to_redeclarations_t::yes == m_apply_to_redeclarations) {
-			//homogenize_redeclaration_types(m_ddecl_indirection2.m_ddecl_cptr, state1, Rewrite);
-			//homogenize_redeclaration_types(m_ddecl_indirection.m_ddecl_cptr, state1, Rewrite);
 		}
 
 		if (lhs_update_declaration_flag) {
@@ -5668,7 +5661,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":1942:")) {
+				if (std::string::npos != debug_source_location_str.find(":9999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5883,7 +5876,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":1942:")) {
+				if (std::string::npos != debug_source_location_str.find(":9999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -6108,7 +6101,7 @@ namespace convm1 {
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 #ifndef NDEBUG
-					if (std::string::npos != decl_debug_source_location_str.find(":1942:")) {
+					if (std::string::npos != decl_debug_source_location_str.find(":9999:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -7702,6 +7695,9 @@ namespace convm1 {
 			, const clang::Expr* LHS, const clang::Expr* RHS, const clang::VarDecl* VD = nullptr
 			, const clang::DeclRefExpr* DRE = nullptr, const clang::CStyleCastExpr* CCE = nullptr) {
 
+			if (!RHS) {
+				return;
+			}
 			CArrayInferenceInfo lhs_res2;
 			if (LHS) {
 				lhs_res2 = infer_array_type_info_from_stmt(*LHS, "", state1);
@@ -7955,7 +7951,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":1942:")) {
+				if (std::string::npos != debug_source_location_str.find(":9999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7985,14 +7981,10 @@ namespace convm1 {
 		MCSSSArgToParameterPassingArray2 (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
-		virtual void run(const MatchFinder::MatchResult &MR)
+		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+			, const CallExpr* CE)
 		{
-			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssparameterpassing1");
-			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssparameterpassing2");
-			const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssparameterpassing3");
-			const clang::CStyleCastExpr* CCE = MR.Nodes.getNodeAs<clang::CStyleCastExpr>("mcsssparameterpassing4");
-
-			if ((CE != nullptr) && (DRE != nullptr))
+			if (CE != nullptr)
 			{
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
@@ -8001,16 +7993,16 @@ namespace convm1 {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":60:")) {
+				if (std::string::npos != debug_source_location_str.find(":6902:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
 
-				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
-
 				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
 				if (supress_check_flag) {
 					return;
 				}
@@ -8025,18 +8017,14 @@ namespace convm1 {
 					bool ends_with_free = ((lc_function_name.size() >= free_str.size())
 							&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
 
-					static const std::string alloc_str = "alloc";
-					static const std::string realloc_str = "realloc";
-					bool ends_with_alloc = ((lc_function_name.size() >= alloc_str.size())
-							&& (0 == lc_function_name.compare(lc_function_name.size() - alloc_str.size(), alloc_str.size(), alloc_str)));
-					bool ends_with_realloc = (ends_with_alloc && (lc_function_name.size() >= realloc_str.size())
-							&& (0 == lc_function_name.compare(lc_function_name.size() - realloc_str.size(), realloc_str.size(), realloc_str)));
+					auto res1 = analyze_malloc_resemblance(*CE, Rewrite);
+					bool seems_to_be_some_kind_of_malloc_or_realloc = res1.m_seems_to_be_some_kind_of_malloc_or_realloc;
 
 					bool begins_with__builtin_ = string_begins_with(function_name, "__builtin_");
 					bool is_memcpy = ("memcpy" == function_name);
 					bool is_memset = ("memset" == function_name);
 
-					if (ends_with_free || ends_with_alloc || ends_with_realloc || is_memcpy || is_memset || begins_with__builtin_) {
+					if (ends_with_free || seems_to_be_some_kind_of_malloc_or_realloc || is_memcpy || is_memset || begins_with__builtin_) {
 						return void();
 					}
 
@@ -8070,7 +8058,7 @@ namespace convm1 {
 							}
 
 							if ((nullptr != param_VD) && (nullptr != arg_EX) && arg_source_range.isValid()) {
-								MCSSSAssignment::s_handler1(MR, Rewrite, m_state1, nullptr/*LHS*/, arg_EX/*RHS*/, param_VD/*VD*/);
+								MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, arg_EX/*RHS*/, param_VD/*VD*/);
 							} else {
 								int q = 5;
 							}
@@ -8102,7 +8090,7 @@ namespace convm1 {
 						if (ConvertToSCPP) {
 							auto args = CE->arguments();
 							for (auto arg : args) {
-								auto rhs_res2 = infer_array_type_info_from_stmt(*arg, "", (*this).m_state1);
+								auto rhs_res2 = infer_array_type_info_from_stmt(*arg, "", state1);
 								bool rhs_is_an_indirect_type = is_an_indirect_type(arg->getType());
 
 								if (rhs_res2.ddecl_cptr && rhs_res2.ddecl_conversion_state_ptr) {
@@ -8118,13 +8106,13 @@ namespace convm1 {
 														CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i), *DD, *CE);
 
 										if ((*(rhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(rhs_res2.indirection_level + i)) {
-											(*cr_shptr).do_replacement(m_state1);
+											(*cr_shptr).do_replacement(state1);
 											if (!((*(rhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_a_dynamic_array(rhs_res2.indirection_level + i))) {
-												m_state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+												state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
 											}
 										} else {
-											m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
-											m_state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+											state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+											state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
 										}
 									}
 								} else {
@@ -8137,6 +8125,19 @@ namespace convm1 {
 						int q = 7;
 					}
 				}
+			}
+		}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssparameterpassing1");
+			//const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssparameterpassing2");
+			//const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssparameterpassing3");
+			//const clang::CStyleCastExpr* CCE = MR.Nodes.getNodeAs<clang::CStyleCastExpr>("mcsssparameterpassing4");
+
+			if (CE != nullptr)
+			{
+				s_handler1(MR, Rewrite, m_state1, CE);
 			}
 		}
 
@@ -9060,7 +9061,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":1942:")) {
+				if (std::string::npos != debug_source_location_str.find(":9999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -9626,7 +9627,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":1942:")) {
+				if (std::string::npos != debug_source_location_str.find(":9999:")) {
 					int q = 5;
 				}
 				if (std::string::npos != debug_source_text.find("png_malloc")) {
@@ -9721,6 +9722,10 @@ namespace convm1 {
 							MCSSSMalloc2::s_handler1(MR, Rewrite, state1, BO, CE);
 						}
 					}
+				}
+				auto CE = dyn_cast<const clang::CallExpr>(E);
+				if (CE) {
+					MCSSSArgToParameterPassingArray2::s_handler1(MR, Rewrite, state1, CE);
 				}
 			}
 		}
@@ -10811,7 +10816,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find(":1942:")) {
+					if (std::string::npos != debug_source_location_str.find(":9999:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -10897,7 +10902,7 @@ namespace convm1 {
 							IF_DEBUG(std::string debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str.find(":1942:")) {
+							if (std::string::npos != debug_source_location_str.find(":9999:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -10925,7 +10930,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *suffix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":1942:")) {
+									if (std::string::npos != debug_source_location_str.find(":9999:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
@@ -10960,7 +10965,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":1942:")) {
+									if (std::string::npos != debug_source_location_str.find(":9999:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
