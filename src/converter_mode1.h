@@ -2148,7 +2148,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, parens_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":7868:")) {
+						if (std::string::npos != debug_source_location_str.find(":7873:")) {
 							int q = 5;
 						}
 					}
@@ -2661,7 +2661,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":7868:")) {
+						if (std::string::npos != debug_source_location_str.find(":7873:")) {
 							int q = 5;
 						}
 					}
@@ -3689,7 +3689,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":7868:")) {
+		if (std::string::npos != debug_source_location_str.find(":7873:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5656,7 +5656,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":7868:")) {
+				if (std::string::npos != debug_source_location_str.find(":7873:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5871,7 +5871,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":7868:")) {
+				if (std::string::npos != debug_source_location_str.find(":7873:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -6096,7 +6096,7 @@ namespace convm1 {
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 #ifndef NDEBUG
-					if (std::string::npos != decl_debug_source_location_str.find(":7868:")) {
+					if (std::string::npos != decl_debug_source_location_str.find(":7873:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -6184,35 +6184,6 @@ namespace convm1 {
 
 	/**********************************************************************************************************************/
 
-	inline const DeclaratorDecl* get_DeclaratorDecl_if_any_from_Expr(const Expr* E) {
-		const DeclaratorDecl* retval = nullptr;
-		if (E) {
-			auto E_ii = IgnoreParenImpCasts(E);
-			auto DD = dyn_cast<const clang::DeclRefExpr>(E_ii);
-			if (DD) {
-				return llvm::cast<DeclaratorDecl>(DD->getDecl());
-			} else {
-				auto ME = dyn_cast<const clang::MemberExpr>(E_ii);
-				if (ME) {
-					return dyn_cast<const DeclaratorDecl>(ME->getMemberDecl());
-				} else {
-					for (auto child : E->children()) {
-						auto child_E = clang::dyn_cast<const clang::Expr>(child);
-						if (child_E) {
-							retval = get_DeclaratorDecl_if_any_from_Expr(child_E);
-							if (retval) {
-								break;
-							}
-						} else {
-							int q = 3;
-						}
-					}
-				}
-			}
-		}
-		return retval;
-	}
-
 	class MCSSSMalloc2 : public MatchFinder::MatchCallback
 	{
 	public:
@@ -6255,8 +6226,9 @@ namespace convm1 {
 					std::string bo_replacement_code;
 					auto lhs_QT = LHS->getType();
 
-					const clang::DeclaratorDecl* DD = DRE ? dyn_cast<const DeclaratorDecl>(DRE->getDecl()) 
-															: get_DeclaratorDecl_if_any_from_Expr(LHS);
+					auto res2 = infer_array_type_info_from_stmt(*LHS, "malloc target", state1);
+
+					const clang::DeclaratorDecl* DD = res2.ddecl_cptr;
 
 					if (nullptr != DD) {
 						auto decl_source_range = nice_source_range(DD->getSourceRange(), Rewrite);
@@ -6276,8 +6248,6 @@ namespace convm1 {
 								|| (0 == qualified_name.compare(0, mse_namespace_str2.size(), mse_namespace_str2))) {
 							return;
 						}
-
-						auto res2 = infer_array_type_info_from_stmt(*LHS, "malloc target", state1, DD);
 
 						if (res2.update_declaration_flag) {
 							update_declaration(*DD, Rewrite, state1);
@@ -7973,7 +7943,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":7868:")) {
+				if (std::string::npos != debug_source_location_str.find(":7873:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -9078,7 +9048,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":7868:")) {
+				if (std::string::npos != debug_source_location_str.find(":7873:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -9644,7 +9614,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":7868:")) {
+				if (std::string::npos != debug_source_location_str.find(":7873:")) {
 					int q = 5;
 				}
 				if (std::string::npos != debug_source_text.find("png_malloc")) {
@@ -10297,30 +10267,27 @@ namespace convm1 {
 
 	public:
 	MyASTConsumer(Rewriter &R, CompilerInstance &CI, CTUState &tu_state_param) : m_tu_state_ptr(&tu_state_param),
-		HandlerForSSSRecordDecl(R, tu_state()), HandlerForSSSVarDecl2(R, tu_state()), HandlerForSSSPointerArithmetic2(R, tu_state()), 
-		HandlerForSSSNullToPointer(R, tu_state()), HandlerForSSSMalloc2(R, tu_state()),
+		HandlerForSSSExprUtil(R, tu_state()), HandlerForSSSRecordDecl(R, tu_state()), HandlerForSSSVarDecl2(R, tu_state()), 
+		HandlerForSSSPointerArithmetic2(R, tu_state()), HandlerForSSSNullToPointer(R, tu_state()), HandlerForSSSMalloc2(R, tu_state()),
 		HandlerForSSSMallocInitializer2(R, tu_state()), HandlerForSSSNullInitializer(R, tu_state()), HandlerForSSSFree2(R, tu_state()),
 		HandlerForSSSSetToNull2(R, tu_state()), HandlerForSSSCompareWithNull2(R, tu_state()), HandlerForSSSMemset(R, tu_state()), HandlerForSSSMemcpy(R, tu_state()),
 		HandlerForSSSConditionalInitializer(R, tu_state()), HandlerForSSSAssignment(R, tu_state()), HandlerForSSSArgToParameterPassingArray2(R, tu_state()),
 		HandlerForSSSArgToReferenceParameterPassing(R, tu_state()), HandlerForSSSReturnValue(R, tu_state()), HandlerForSSSFRead(R, tu_state()), HandlerForSSSFWrite(R, tu_state()), 
-		HandlerForSSSDeclUtil(R, tu_state()), HandlerForSSSExprUtil(R, tu_state()), HandlerForSSSAddressOf(R, tu_state()), HandlerForMisc1(R, tu_state(), CI)
+		HandlerForSSSAddressOf(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForMisc1(R, tu_state(), CI)
 	{
-		//Matcher.addMatcher(varDecl(hasType(pointerType())).bind("mcsssnativepointer"), &HandlerForSSSNativePointer);
-
-		//Matcher.addMatcher(castExpr(allOf(hasCastKind(CK_ArrayToPointerDecay), unless(hasParent(arraySubscriptExpr())))).bind("mcsssarraytopointerdecay"), &HandlerForSSSArrayToPointerDecay);
-
 		Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerForMisc1);
 
-		Matcher.addMatcher(clang::ast_matchers::recordDecl().bind("mcsssrecorddecl"), &HandlerForSSSRecordDecl);
+		/* The ordering of the matchers has not yet been thoroughly considered, but generally you'd want
+		elements more likely to contain subelements (that could be potentially modified) to be matched
+		later. In this vein, we generally put the declaration matchers after the expression matchers. */
 
-		//Matcher.addMatcher(clang::ast_matchers::declaratorDecl().bind("mcsssvardecl"), &HandlerForSSSVarDecl2);
-		Matcher.addMatcher(varDecl(anyOf(
-				hasInitializer(anyOf(
-						expr(cStyleCastExpr(hasDescendant(declRefExpr().bind("mcsssvardecl5"))).bind("mcsssvardecl3")).bind("mcsssvardecl2"),
-						expr(hasDescendant(declRefExpr().bind("mcsssvardecl5"))).bind("mcsssvardecl2")
-						)),
-				clang::ast_matchers::anything()
-				)).bind("mcsssvardecl"), &HandlerForSSSVarDecl2);
+		Matcher.addMatcher(expr(anyOf(gnuNullExpr(), cxxNullPtrLiteralExpr(), 
+				integerLiteral(equals(0), hasParent(expr(allOf(
+					hasType(pointerType()), anyOf(clang::ast_matchers::implicitCastExpr(), clang::ast_matchers::cStyleCastExpr().bind("b"))
+					)))))).bind("a"),
+			&HandlerForSSSNullToPointer);
+
+		Matcher.addMatcher(expr().bind("mcsssexprutil1"), &HandlerForSSSExprUtil);
 
 		Matcher.addMatcher(expr(allOf(
 				hasParent(expr(anyOf(
@@ -10343,40 +10310,7 @@ namespace convm1 {
 				)
 				)).bind("mcssspointerarithmetic3"), &HandlerForSSSPointerArithmetic2);
 
-		Matcher.addMatcher(expr(anyOf(gnuNullExpr(), cxxNullPtrLiteralExpr(), 
-				integerLiteral(equals(0), hasParent(expr(allOf(
-					hasType(pointerType()), anyOf(clang::ast_matchers::implicitCastExpr(), clang::ast_matchers::cStyleCastExpr().bind("b"))
-					)))))).bind("a"),
-			&HandlerForSSSNullToPointer);
-
-		Matcher.addMatcher(binaryOperator(allOf(
-				hasOperatorName("="),
-				hasRHS(
-						anyOf(
-								cStyleCastExpr(has(ignoringParenCasts(callExpr().bind("mcsssmalloc2")))),
-								ignoringParenCasts(callExpr().bind("mcsssmalloc2"))
-						)
-					),
-				hasLHS(ignoringParenCasts(anyOf(
-						memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssmalloc3")))).bind("mcsssmalloc4"),
-						declRefExpr().bind("mcsssmalloc3"),
-						hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssmalloc3")))).bind("mcsssmalloc4")),
-						hasDescendant(declRefExpr().bind("mcsssmalloc3"))
-					))),
-				hasLHS(expr(hasType(pointerType())))
-					)).bind("mcsssmalloc1"), &HandlerForSSSMalloc2);
-
-		Matcher.addMatcher(declStmt(hasDescendant(
-				varDecl(hasInitializer(ignoringParenCasts(
-								callExpr().bind("mcsssmallocinitializer2")
-				))).bind("mcsssmallocinitializer3")
-					)).bind("mcsssmallocinitializer1"), &HandlerForSSSMallocInitializer2);
-
-		Matcher.addMatcher(declStmt(hasDescendant(
-				varDecl(hasInitializer(ignoringParenCasts(
-								expr().bind("mcsssnullinitializer2")
-				))).bind("mcsssnullinitializer3")
-					)).bind("mcsssnullinitializer1"), &HandlerForSSSNullInitializer);
+		//Matcher.addMatcher(castExpr(allOf(hasCastKind(CK_ArrayToPointerDecay), unless(hasParent(arraySubscriptExpr())))).bind("mcsssarraytopointerdecay"), &HandlerForSSSArrayToPointerDecay);
 
 		Matcher.addMatcher(
 				callExpr(allOf(
@@ -10390,24 +10324,6 @@ namespace convm1 {
 							argumentCountIs(1),
 							hasAnyArgument(hasType(pointerType()))
 				)).bind("mcsssfree1"), &HandlerForSSSFree2);
-
-		Matcher.addMatcher(binaryOperator(allOf(
-				hasOperatorName("="),
-				hasLHS(anyOf(
-							ignoringParenCasts(declRefExpr().bind("mcssssettonull3")),
-							ignoringParenCasts(expr(hasDescendant(declRefExpr().bind("mcssssettonull3"))))
-					)),
-					hasLHS(expr(hasType(pointerType())))
-					)).bind("mcssssettonull1"), &HandlerForSSSSetToNull2);
-
-		Matcher.addMatcher(binaryOperator(allOf(
-				anyOf(hasOperatorName("=="), hasOperatorName("!=")),
-				hasLHS(anyOf(
-							ignoringParenCasts(declRefExpr().bind("mcssscomparewithnull3")),
-							ignoringParenCasts(expr(hasDescendant(declRefExpr().bind("mcssscomparewithnull3"))))
-					)),
-					hasLHS(expr(hasType(pointerType())))
-					)).bind("mcssscomparewithnull1"), &HandlerForSSSCompareWithNull2);
 
 		Matcher.addMatcher(
 				callExpr(allOf(
@@ -10435,33 +10351,14 @@ namespace convm1 {
 						hasAnyArgument(hasType(pointerType()))
 				)).bind("mcsssmemcpy1"), &HandlerForSSSMemcpy);
 
-		Matcher.addMatcher(declStmt(hasDescendant(
-				varDecl(hasInitializer(ignoringParenCasts(
-						anyOf(
-								conditionalOperator(has(declRefExpr())).bind("mcsssconditionalinitializer2"),
-								conditionalOperator(hasDescendant(declRefExpr())).bind("mcsssconditionalinitializer2")
-						)
-				))).bind("mcsssconditionalinitializer3")
-					)).bind("mcsssconditionalinitializer1"), &HandlerForSSSConditionalInitializer);
-
 		Matcher.addMatcher(binaryOperator(allOf(
-				anyOf(hasOperatorName("="), hasOperatorName("=="), hasOperatorName("!="),
-						hasOperatorName("<"), hasOperatorName(">"), hasOperatorName("<="), hasOperatorName(">=")),
-				hasLHS(expr(anyOf(
-						hasDescendant(declRefExpr().bind("mcsssassignment2")),
-						declRefExpr().bind("mcsssassignment2")
-						)).bind("mcsssassignment5")),
-				hasRHS(expr(anyOf(
-						cStyleCastExpr(hasDescendant(declRefExpr().bind("mcsssassignment3"))).bind("mcsssassignment4"),
-						expr(hasDescendant(declRefExpr().bind("mcsssassignment3")))
-						)).bind("mcsssassignment6"))
-					)).bind("mcsssassignment1"), &HandlerForSSSAssignment);
-
-		Matcher.addMatcher(declStmt(hasDescendant(
-				varDecl(hasInitializer(ignoringParens(
-						expr(anything()).bind("mcsssassignment6")
-				))).bind("mcsssassignment7")
-					)), &HandlerForSSSAssignment);
+				hasOperatorName("="),
+				hasLHS(anyOf(
+							ignoringParenCasts(declRefExpr().bind("mcssssettonull3")),
+							ignoringParenCasts(expr(hasDescendant(declRefExpr().bind("mcssssettonull3"))))
+					)),
+					hasLHS(expr(hasType(pointerType())))
+					)).bind("mcssssettonull1"), &HandlerForSSSSetToNull2);
 
 		Matcher.addMatcher(
 				callExpr(allOf(
@@ -10501,11 +10398,6 @@ namespace convm1 {
 							anything()
 				)).bind("mcsssparameterpassing1"), &HandlerForSSSArgToReferenceParameterPassing);
 
-		Matcher.addMatcher(returnStmt(allOf(
-				hasAncestor(functionDecl().bind("mcsssreturnvalue1")),
-					hasDescendant(declRefExpr().bind("mcsssreturnvalue3"))
-					)).bind("mcsssreturnvalue2"), &HandlerForSSSReturnValue);
-
 		Matcher.addMatcher(
 				callExpr(allOf(
 						hasAnyArgument(
@@ -10532,10 +10424,6 @@ namespace convm1 {
 							hasAnyArgument(hasType(pointerType()))
 				)).bind("mcsssfwrite1"), &HandlerForSSSFWrite);
 
-		Matcher.addMatcher(decl().bind("mcsssdeclutil1"), &HandlerForSSSDeclUtil);
-
-		Matcher.addMatcher(expr().bind("mcsssexprutil1"), &HandlerForSSSExprUtil);
-
 		Matcher.addMatcher(expr(allOf(
 				hasParent(expr(
 						unaryOperator(hasOperatorName("&")).bind("mcsssaddressof4"))),
@@ -10546,6 +10434,91 @@ namespace convm1 {
 							hasDescendant(declRefExpr().bind("mcsssaddressof"))
 					)
 					)).bind("mcsssaddressof3"), &HandlerForSSSAddressOf);
+
+		Matcher.addMatcher(returnStmt(allOf(
+				hasAncestor(functionDecl().bind("mcsssreturnvalue1")),
+					hasDescendant(declRefExpr().bind("mcsssreturnvalue3"))
+					)).bind("mcsssreturnvalue2"), &HandlerForSSSReturnValue);
+
+		Matcher.addMatcher(binaryOperator(allOf(
+				hasOperatorName("="),
+				hasRHS(
+						anyOf(
+								cStyleCastExpr(has(ignoringParenCasts(callExpr().bind("mcsssmalloc2")))),
+								ignoringParenCasts(callExpr().bind("mcsssmalloc2"))
+						)
+					),
+				hasLHS(ignoringParenCasts(anyOf(
+						memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssmalloc3")))).bind("mcsssmalloc4"),
+						declRefExpr().bind("mcsssmalloc3"),
+						hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssmalloc3")))).bind("mcsssmalloc4")),
+						hasDescendant(declRefExpr().bind("mcsssmalloc3"))
+					))),
+				hasLHS(expr(hasType(pointerType())))
+					)).bind("mcsssmalloc1"), &HandlerForSSSMalloc2);
+
+		Matcher.addMatcher(binaryOperator(allOf(
+				anyOf(hasOperatorName("=="), hasOperatorName("!=")),
+				hasLHS(anyOf(
+							ignoringParenCasts(declRefExpr().bind("mcssscomparewithnull3")),
+							ignoringParenCasts(expr(hasDescendant(declRefExpr().bind("mcssscomparewithnull3"))))
+					)),
+					hasLHS(expr(hasType(pointerType())))
+					)).bind("mcssscomparewithnull1"), &HandlerForSSSCompareWithNull2);
+
+		Matcher.addMatcher(binaryOperator(allOf(
+				anyOf(hasOperatorName("="), hasOperatorName("=="), hasOperatorName("!="),
+						hasOperatorName("<"), hasOperatorName(">"), hasOperatorName("<="), hasOperatorName(">=")),
+				hasLHS(expr(anyOf(
+						hasDescendant(declRefExpr().bind("mcsssassignment2")),
+						declRefExpr().bind("mcsssassignment2")
+						)).bind("mcsssassignment5")),
+				hasRHS(expr(anyOf(
+						cStyleCastExpr(hasDescendant(declRefExpr().bind("mcsssassignment3"))).bind("mcsssassignment4"),
+						expr(hasDescendant(declRefExpr().bind("mcsssassignment3")))
+						)).bind("mcsssassignment6"))
+					)).bind("mcsssassignment1"), &HandlerForSSSAssignment);
+
+		Matcher.addMatcher(declStmt(hasDescendant(
+				varDecl(hasInitializer(ignoringParens(
+						expr(anything()).bind("mcsssassignment6")
+				))).bind("mcsssassignment7")
+					)), &HandlerForSSSAssignment);
+
+		Matcher.addMatcher(clang::ast_matchers::recordDecl().bind("mcsssrecorddecl"), &HandlerForSSSRecordDecl);
+
+		//Matcher.addMatcher(varDecl(hasType(pointerType())).bind("mcsssnativepointer"), &HandlerForSSSNativePointer);
+		//Matcher.addMatcher(clang::ast_matchers::declaratorDecl().bind("mcsssvardecl"), &HandlerForSSSVarDecl2);
+		Matcher.addMatcher(varDecl(anyOf(
+				hasInitializer(anyOf(
+						expr(cStyleCastExpr(hasDescendant(declRefExpr().bind("mcsssvardecl5"))).bind("mcsssvardecl3")).bind("mcsssvardecl2"),
+						expr(hasDescendant(declRefExpr().bind("mcsssvardecl5"))).bind("mcsssvardecl2")
+						)),
+				clang::ast_matchers::anything()
+				)).bind("mcsssvardecl"), &HandlerForSSSVarDecl2);
+
+		Matcher.addMatcher(declStmt(hasDescendant(
+				varDecl(hasInitializer(ignoringParenCasts(
+								expr().bind("mcsssnullinitializer2")
+				))).bind("mcsssnullinitializer3")
+					)).bind("mcsssnullinitializer1"), &HandlerForSSSNullInitializer);
+
+		Matcher.addMatcher(declStmt(hasDescendant(
+				varDecl(hasInitializer(ignoringParenCasts(
+								callExpr().bind("mcsssmallocinitializer2")
+				))).bind("mcsssmallocinitializer3")
+					)).bind("mcsssmallocinitializer1"), &HandlerForSSSMallocInitializer2);
+
+		Matcher.addMatcher(declStmt(hasDescendant(
+				varDecl(hasInitializer(ignoringParenCasts(
+						anyOf(
+								conditionalOperator(has(declRefExpr())).bind("mcsssconditionalinitializer2"),
+								conditionalOperator(hasDescendant(declRefExpr())).bind("mcsssconditionalinitializer2")
+						)
+				))).bind("mcsssconditionalinitializer3")
+					)).bind("mcsssconditionalinitializer1"), &HandlerForSSSConditionalInitializer);
+
+		Matcher.addMatcher(decl().bind("mcsssdeclutil1"), &HandlerForSSSDeclUtil);
 
 	}
 
@@ -10559,6 +10532,7 @@ namespace convm1 {
 	CTUState *m_tu_state_ptr = nullptr;
 	CTUState& tu_state() { return *m_tu_state_ptr;}
 
+	MCSSSExprUtil HandlerForSSSExprUtil;
 	MCSSSRecordDecl HandlerForSSSRecordDecl;
 	MCSSSVarDecl2 HandlerForSSSVarDecl2;
 	MCSSSPointerArithmetic2 HandlerForSSSPointerArithmetic2;
@@ -10578,9 +10552,8 @@ namespace convm1 {
 	MCSSSReturnValue HandlerForSSSReturnValue;
 	MCSSSFRead HandlerForSSSFRead;
 	MCSSSFWrite HandlerForSSSFWrite;
-	MCSSSDeclUtil HandlerForSSSDeclUtil;
-	MCSSSExprUtil HandlerForSSSExprUtil;
 	MCSSSAddressOf HandlerForSSSAddressOf;
+	MCSSSDeclUtil HandlerForSSSDeclUtil;
 	Misc1 HandlerForMisc1;
 
 	MatchFinder Matcher;
@@ -10826,7 +10799,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find(":7868:")) {
+					if (std::string::npos != debug_source_location_str.find(":7873:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -10912,7 +10885,7 @@ namespace convm1 {
 							IF_DEBUG(std::string debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str.find(":7868:")) {
+							if (std::string::npos != debug_source_location_str.find(":7873:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -10940,7 +10913,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *suffix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":7868:")) {
+									if (std::string::npos != debug_source_location_str.find(":7873:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
@@ -10975,7 +10948,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":7868:")) {
+									if (std::string::npos != debug_source_location_str.find(":7873:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
