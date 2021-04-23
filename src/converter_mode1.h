@@ -1430,18 +1430,22 @@ namespace convm1 {
 	other replacement actions. */
 	class CReplacementAction {
 	public:
-		CReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR) : m_Rewrite(Rewrite), m_MR(MR) {}
+		CReplacementAction(Rewriter &Rewrite) : m_Rewrite(Rewrite) {}
+		/* Just for backward compatibility */
+		CReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR) : m_Rewrite(Rewrite) {}
 		virtual ~CReplacementAction() {}
 		virtual void do_replacement(CTUState& state1) const = 0;
 
 		Rewriter& m_Rewrite;
-		const MatchFinder::MatchResult m_MR;
 	};
 
 	class CExprTextReplacementAction : public CReplacementAction {
 	public:
+		CExprTextReplacementAction(Rewriter &Rewrite, const Expr* EX,
+			const std::string& replacement_code) : CReplacementAction(Rewrite), m_EX(EX), m_replacement_code(replacement_code) {}
+		/* Just for backward compatibility */
 		CExprTextReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const Expr* EX,
-			const std::string& replacement_code) : CReplacementAction(Rewrite, MR), m_EX(EX), m_replacement_code(replacement_code) {}
+			const std::string& replacement_code) : CReplacementAction(Rewrite), m_EX(EX), m_replacement_code(replacement_code) {}
 		virtual ~CExprTextReplacementAction() {}
 
 		virtual void do_replacement(CTUState& state1) const;
@@ -1466,8 +1470,11 @@ namespace convm1 {
 
 	class CDDeclIndirectionReplacementAction : public CReplacementAction {
 	public:
+		CDDeclIndirectionReplacementAction(Rewriter &Rewrite, const CDDeclIndirection& ddecl_indirection)
+			: CReplacementAction(Rewrite), m_ddecl_indirection(ddecl_indirection) {}
+		/* Just for backward compatibility */
 		CDDeclIndirectionReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR,
-				const CDDeclIndirection& ddecl_indirection) : CReplacementAction(Rewrite, MR), m_ddecl_indirection(ddecl_indirection) {}
+				const CDDeclIndirection& ddecl_indirection) : CReplacementAction(Rewrite), m_ddecl_indirection(ddecl_indirection) {}
 		virtual ~CDDeclIndirectionReplacementAction() {}
 
 		virtual void do_replacement(CTUState& state1) const = 0;
@@ -1495,12 +1502,19 @@ namespace convm1 {
 	class CSameTypeReplacementAction : public CDDeclIndirectionReplacementAction {
 	public:
 		enum class apply_to_redeclarations_t : bool { no, yes };
+		CSameTypeReplacementAction(Rewriter &Rewrite, const CDDeclIndirection& ddecl_indirection1,
+				const CDDeclIndirection& ddecl_indirection2, apply_to_redeclarations_t apply_to_redeclarations = apply_to_redeclarations_t::yes)
+				: CDDeclIndirectionReplacementAction(Rewrite, ddecl_indirection1), m_ddecl_indirection2(ddecl_indirection2), m_apply_to_redeclarations(apply_to_redeclarations) {}
+		CSameTypeReplacementAction(Rewriter &Rewrite, const clang::DeclaratorDecl& ddecl_cref1,
+				const clang::DeclaratorDecl& ddecl_cref2, apply_to_redeclarations_t apply_to_redeclarations = apply_to_redeclarations_t::yes)
+				: CDDeclIndirectionReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)), m_ddecl_indirection2(CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)), m_apply_to_redeclarations(apply_to_redeclarations) {}
+		/* Just for backward compatibility */
 		CSameTypeReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection1,
 				const CDDeclIndirection& ddecl_indirection2, apply_to_redeclarations_t apply_to_redeclarations = apply_to_redeclarations_t::yes)
-				: CDDeclIndirectionReplacementAction(Rewrite, MR, ddecl_indirection1), m_ddecl_indirection2(ddecl_indirection2), m_apply_to_redeclarations(apply_to_redeclarations) {}
+				: CDDeclIndirectionReplacementAction(Rewrite, ddecl_indirection1), m_ddecl_indirection2(ddecl_indirection2), m_apply_to_redeclarations(apply_to_redeclarations) {}
 		CSameTypeReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const clang::DeclaratorDecl& ddecl_cref1,
 				const clang::DeclaratorDecl& ddecl_cref2, apply_to_redeclarations_t apply_to_redeclarations = apply_to_redeclarations_t::yes)
-				: CDDeclIndirectionReplacementAction(Rewrite, MR, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)), m_ddecl_indirection2(CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)), m_apply_to_redeclarations(apply_to_redeclarations) {}
+				: CDDeclIndirectionReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)), m_ddecl_indirection2(CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)), m_apply_to_redeclarations(apply_to_redeclarations) {}
 		virtual ~CSameTypeReplacementAction() {}
 
 		virtual void do_replacement(CTUState& state1) const;
@@ -1584,9 +1598,13 @@ namespace convm1 {
 
 	class CSameTypeArray2ReplacementAction : public CArray2ReplacementAction {
 	public:
+		CSameTypeArray2ReplacementAction(Rewriter &Rewrite, const CDDeclIndirection& ddecl_indirection,
+				const CDDeclIndirection& ddecl_indirection2) :
+					CArray2ReplacementAction(Rewrite, ddecl_indirection), m_ddecl_indirection2(ddecl_indirection2) {}
+		/* Just for backward compatibility */
 		CSameTypeArray2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
 				const CDDeclIndirection& ddecl_indirection2) :
-					CArray2ReplacementAction(Rewrite, MR, ddecl_indirection), m_ddecl_indirection2(ddecl_indirection2) {}
+					CArray2ReplacementAction(Rewrite, ddecl_indirection), m_ddecl_indirection2(ddecl_indirection2) {}
 		virtual ~CSameTypeArray2ReplacementAction() {}
 
 		virtual void do_replacement(CTUState& state1) const;
@@ -2148,7 +2166,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, parens_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":7873:")) {
+						if (std::string::npos != debug_source_location_str.find(":4837:")) {
 							int q = 5;
 						}
 					}
@@ -2223,7 +2241,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find(":7853:")) {
+			if (std::string::npos != debug_source_location_str.find(":1942:")) {
 				int q = 5;
 			}
 		}
@@ -2661,7 +2679,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":7873:")) {
+						if (std::string::npos != debug_source_location_str.find(":1942:")) {
 							int q = 5;
 						}
 					}
@@ -3689,7 +3707,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":7873:")) {
+		if (std::string::npos != debug_source_location_str.find(":1942:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -3843,7 +3861,183 @@ namespace convm1 {
 		}
 	}
 
-	static void update_declaration(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1, std::string options_str = "") {
+	enum class apply_to_redeclarations_t : bool { no, yes };
+
+	/* Ensure that the given declarations are the same type (give or take a reference). */
+	void homogenize_types(CTUState& state1, Rewriter &Rewrite, const clang::DeclaratorDecl& ddecl_cref1,
+		const clang::DeclaratorDecl& ddecl_cref2) {
+
+#ifndef NDEBUG
+		auto SR = nice_source_range(ddecl_cref1.getSourceRange(), Rewrite);
+		//RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+
+		//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+		if (std::string::npos != debug_source_location_str.find(":612")) {
+			int q = 5;
+		}
+#endif /*!NDEBUG*/
+
+		/* homogenize the direct types (i.e. the types with any pointer/reference/array/etc indirections removed) */
+		CSameTypeReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)
+			, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection), CSameTypeReplacementAction::apply_to_redeclarations_t::no).do_replacement(state1);
+
+		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref2);
+		auto lhs_ddcs_map_iter = lhs_res1.first;
+		auto& lhs_ddcs_ref = (*lhs_ddcs_map_iter).second;
+		bool lhs_update_declaration_flag = lhs_res1.second;
+
+		auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref1);
+		auto rhs_ddcs_map_iter = rhs_res1.first;
+		auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
+		bool rhs_update_declaration_flag = rhs_res1.second;
+
+		size_t lhs_indirection_level_adjustment = 0;
+		if (1 <= lhs_ddcs_ref.m_indirection_state_stack.size()) {
+			if ("native reference" == lhs_ddcs_ref.m_indirection_state_stack.front().current_species()) {
+				lhs_indirection_level_adjustment = 1;
+			}
+		}
+		size_t rhs_indirection_level_adjustment = 0;
+		if (1 <= rhs_ddcs_ref.m_indirection_state_stack.size()) {
+			if ("native reference" == rhs_ddcs_ref.m_indirection_state_stack.front().current_species()) {
+				rhs_indirection_level_adjustment = 1;
+			}
+		}
+
+		if ((lhs_ddcs_ref.m_indirection_state_stack.size() + rhs_indirection_level_adjustment) != (rhs_ddcs_ref.m_indirection_state_stack.size() + lhs_indirection_level_adjustment)) {
+			return;
+		} else {
+			/* homogenize the types of all the indirections */
+			size_t adjusted_num_indirection_levels = lhs_ddcs_ref.m_indirection_state_stack.size() - lhs_indirection_level_adjustment;
+			for (size_t i = 0; i < adjusted_num_indirection_levels; i += 1) {
+				CSameTypeReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref2, i + lhs_indirection_level_adjustment)
+					, CDDeclIndirection(ddecl_cref1, i + rhs_indirection_level_adjustment), CSameTypeReplacementAction::apply_to_redeclarations_t::no).do_replacement(state1);
+
+				CSameTypeArray2ReplacementAction(Rewrite, CDDeclIndirection(*(lhs_ddcs_ref.m_ddecl_cptr), i + lhs_indirection_level_adjustment)
+					, CDDeclIndirection(*(rhs_ddcs_ref.m_ddecl_cptr), i + rhs_indirection_level_adjustment)).do_replacement(state1);
+			}
+		}
+	}
+
+	static void update_declaration(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1, apply_to_redeclarations_t apply_to_redeclarations = apply_to_redeclarations_t::yes, std::string options_str = "");
+
+	/* Ensure that all the (re)declarations of the same variable are the same type. */
+	void homogenize_redeclaration_types(const clang::DeclaratorDecl* ddecl_cptr, CTUState& state1, Rewriter &Rewrite, int ttl = -1) {
+		if (!ddecl_cptr) { return; }
+
+#ifndef NDEBUG
+		auto SR = nice_source_range(ddecl_cptr->getSourceRange(), Rewrite);
+		//RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+
+		//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+		if (std::string::npos != debug_source_location_str.find(":612")) {
+			int q = 5;
+		}
+#endif /*!NDEBUG*/
+
+		auto PVD = dyn_cast<const clang::ParmVarDecl>(ddecl_cptr);
+		if (PVD) {
+			auto DC = PVD->getDeclContext();
+			const clang::FunctionDecl* function_decl1 = DC ? dyn_cast<const clang::FunctionDecl>(DC) : nullptr;
+			if (function_decl1) {
+				std::string function_name = function_decl1->getNameAsString();
+				auto lc_function_name = tolowerstr(function_name);
+
+				std::vector<const clang::ParmVarDecl*> param_decls_of_first_function_decl;
+				for (auto param_PVD : function_decl1->parameters()) {
+					param_decls_of_first_function_decl.push_back(param_PVD);
+				}
+
+				auto function_decls_range = function_decl1->redecls();
+				for (const auto& function_decl : function_decls_range) {
+					auto fdecl_source_range = nice_source_range(function_decl->getSourceRange(), Rewrite);
+					auto fdecl_source_location_str = fdecl_source_range.getBegin().printToString(Rewrite.getSourceMgr());
+
+					auto param_index = PVD->getFunctionScopeIndex();
+					auto PVD2 = function_decl->getParamDecl(param_index);
+					if (PVD2) {
+						if (PVD2 != PVD) {
+							homogenize_types(state1, Rewrite, *PVD2, *PVD);
+							update_declaration(*PVD2, Rewrite, state1, apply_to_redeclarations_t::no);
+
+							IF_DEBUG(std::string PVD2_qtype_str = PVD2->getType().getAsString();)
+							if (PVD2->getType()->isReferenceType()) {
+								if (!(PVD2->getType()->getPointeeType().isConstQualified())) {
+									/* This parameter is of non-const reference type, so it's
+									initialization value (if any) must be of the same type. */
+									auto init_EX2 = PVD2->getInit();
+									if (init_EX2) {
+										auto DRE2 = dyn_cast<const clang::DeclRefExpr>(init_EX2->IgnoreParenImpCasts());
+										if (DRE2) {
+											auto init_VD2 = dyn_cast<const clang::VarDecl>(DRE2->getDecl());
+											if (init_VD2) {
+												homogenize_types(state1, Rewrite, *init_VD2, *PVD2);
+												update_declaration(*init_VD2, Rewrite, state1, apply_to_redeclarations_t::no);
+
+												/* A non-negative ttl parameter specifies a maximum permitted number of
+												recursive calls (to ensure no infinite recursion). */
+												if (0 != ttl) {
+													auto new_ttl = (0 < ttl) ? (ttl - 1) : ttl;
+													homogenize_redeclaration_types(init_VD2, state1, Rewrite, new_ttl);
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		auto VD = dyn_cast<const clang::VarDecl>(ddecl_cptr);
+		if (VD) {
+			for (auto redecl : VD->redecls()) {
+				/* this part hasn't been tested yet */
+				if (redecl != VD) {
+					homogenize_types(state1, Rewrite, *redecl, *VD);
+					update_declaration(*redecl, Rewrite, state1, apply_to_redeclarations_t::no);
+				}
+			}
+
+			IF_DEBUG(std::string VD_qtype_str = VD->getType().getAsString();)
+			if (VD->getType()->isReferenceType()) {
+				if (!(VD->getType()->getPointeeType().isConstQualified())) {
+					/* This variable is of non-const reference type, so it's
+					initialization value (if any) must be of the same type. */
+					auto init_EX2 = VD->getInit();
+					if (init_EX2) {
+						auto DRE2 = dyn_cast<const clang::DeclRefExpr>(init_EX2->IgnoreParenImpCasts());
+						if (DRE2) {
+							auto init_VD2 = dyn_cast<const clang::VarDecl>(DRE2->getDecl());
+							if (init_VD2) {
+								homogenize_types(state1, Rewrite, *init_VD2, *VD);
+								update_declaration(*init_VD2, Rewrite, state1, apply_to_redeclarations_t::no);
+
+								if (0 != ttl) {
+									auto new_ttl = (0 < ttl) ? (ttl - 1) : ttl;
+									homogenize_redeclaration_types(init_VD2, state1, Rewrite, new_ttl);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	static void update_declaration(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1, apply_to_redeclarations_t apply_to_redeclarations/* = apply_to_redeclarations_t::yes*/, std::string options_str/* = ""*/) {
 		const DeclaratorDecl* DD = &ddecl;
 		auto SR = rewritable_source_range(nice_source_range(DD->getSourceRange(), Rewrite));
 
@@ -3869,6 +4063,10 @@ namespace convm1 {
 			/* This modification needs to be queued so that it will be executed after any other
 			modifications that might affect the relevant part of the source text. */
 			state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
+		}
+
+		if (apply_to_redeclarations_t::yes == apply_to_redeclarations) {
+			homogenize_redeclaration_types(&ddecl, state1, Rewrite);
 		}
 	}
 
@@ -4147,7 +4345,6 @@ namespace convm1 {
 
 	void CExprTextReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 
 		const Expr* EX = m_EX;
 		if (EX) {
@@ -4176,7 +4373,6 @@ namespace convm1 {
 	that it will not attempt the modification if the expression already has any modifications pending. */
 	void CExprTextYieldingReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 
 		const Expr* EX = m_EX;
 		if (EX) {
@@ -4204,177 +4400,8 @@ namespace convm1 {
 		}
 	}
 
-	/* Ensure that the given declarations are the same type (give or take a reference). */
-	void homogenize_types(CTUState& state1, Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const clang::DeclaratorDecl& ddecl_cref1,
-		const clang::DeclaratorDecl& ddecl_cref2) {
-
-#ifndef NDEBUG
-		auto SR = nice_source_range(ddecl_cref1.getSourceRange(), Rewrite);
-		//RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
-
-		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
-
-		//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
-
-		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
-
-		if (std::string::npos != debug_source_location_str.find(":612")) {
-			int q = 5;
-		}
-#endif /*!NDEBUG*/
-
-		/* homogenize the direct types (i.e. the types with any pointer/reference/array/etc indirections removed) */
-		CSameTypeReplacementAction(Rewrite, MR, CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)
-			, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection), CSameTypeReplacementAction::apply_to_redeclarations_t::no).do_replacement(state1);
-
-		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref2);
-		auto lhs_ddcs_map_iter = lhs_res1.first;
-		auto& lhs_ddcs_ref = (*lhs_ddcs_map_iter).second;
-		bool lhs_update_declaration_flag = lhs_res1.second;
-
-		auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref1);
-		auto rhs_ddcs_map_iter = rhs_res1.first;
-		auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
-		bool rhs_update_declaration_flag = rhs_res1.second;
-
-		size_t lhs_indirection_level_adjustment = 0;
-		if (1 <= lhs_ddcs_ref.m_indirection_state_stack.size()) {
-			if ("native reference" == lhs_ddcs_ref.m_indirection_state_stack.front().current_species()) {
-				lhs_indirection_level_adjustment = 1;
-			}
-		}
-		size_t rhs_indirection_level_adjustment = 0;
-		if (1 <= rhs_ddcs_ref.m_indirection_state_stack.size()) {
-			if ("native reference" == rhs_ddcs_ref.m_indirection_state_stack.front().current_species()) {
-				rhs_indirection_level_adjustment = 1;
-			}
-		}
-
-		if ((lhs_ddcs_ref.m_indirection_state_stack.size() + rhs_indirection_level_adjustment) != (rhs_ddcs_ref.m_indirection_state_stack.size() + lhs_indirection_level_adjustment)) {
-			return;
-		} else {
-			/* homogenize the types of all the indirections */
-			size_t adjusted_num_indirection_levels = lhs_ddcs_ref.m_indirection_state_stack.size() - lhs_indirection_level_adjustment;
-			for (size_t i = 0; i < adjusted_num_indirection_levels; i += 1) {
-				CSameTypeReplacementAction(Rewrite, MR, CDDeclIndirection(ddecl_cref2, i + lhs_indirection_level_adjustment)
-					, CDDeclIndirection(ddecl_cref1, i + rhs_indirection_level_adjustment), CSameTypeReplacementAction::apply_to_redeclarations_t::no).do_replacement(state1);
-
-				CSameTypeArray2ReplacementAction(Rewrite, MR, CDDeclIndirection(*(lhs_ddcs_ref.m_ddecl_cptr), i + lhs_indirection_level_adjustment)
-					, CDDeclIndirection(*(rhs_ddcs_ref.m_ddecl_cptr), i + rhs_indirection_level_adjustment)).do_replacement(state1);
-			}
-		}
-	}
-
-	/* Ensure that all the (re)declarations of the same variable are the same type. */
-	void homogenize_redeclaration_types(const clang::DeclaratorDecl* ddecl_cptr, CTUState& state1, Rewriter &Rewrite, const MatchFinder::MatchResult &MR, int ttl = -1) {
-		if (!ddecl_cptr) { return; }
-
-#ifndef NDEBUG
-		auto SR = nice_source_range(ddecl_cptr->getSourceRange(), Rewrite);
-		//RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
-
-		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
-
-		//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
-
-		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
-
-		if (std::string::npos != debug_source_location_str.find(":612")) {
-			int q = 5;
-		}
-#endif /*!NDEBUG*/
-
-		auto PVD = dyn_cast<const clang::ParmVarDecl>(ddecl_cptr);
-		if (PVD) {
-			auto DC = PVD->getDeclContext();
-			const clang::FunctionDecl* function_decl1 = DC ? dyn_cast<const clang::FunctionDecl>(DC) : nullptr;
-			if (function_decl1) {
-				std::string function_name = function_decl1->getNameAsString();
-				auto lc_function_name = tolowerstr(function_name);
-
-				std::vector<const clang::ParmVarDecl*> param_decls_of_first_function_decl;
-				for (auto param_PVD : function_decl1->parameters()) {
-					param_decls_of_first_function_decl.push_back(param_PVD);
-				}
-
-				auto function_decls_range = function_decl1->redecls();
-				for (const auto& function_decl : function_decls_range) {
-					auto fdecl_source_range = nice_source_range(function_decl->getSourceRange(), Rewrite);
-					auto fdecl_source_location_str = fdecl_source_range.getBegin().printToString(*MR.SourceManager);
-
-					auto param_index = PVD->getFunctionScopeIndex();
-					auto PVD2 = function_decl->getParamDecl(param_index);
-					if (PVD2) {
-						if (PVD2 != PVD) {
-							homogenize_types(state1, Rewrite, MR, *PVD2, *PVD);
-
-							IF_DEBUG(std::string PVD2_qtype_str = PVD2->getType().getAsString();)
-							if (PVD2->getType()->isReferenceType()) {
-								if (!(PVD2->getType()->getPointeeType().isConstQualified())) {
-									/* This parameter is of non-const reference type, so it's
-									initialization value (if any) must be of the same type. */
-									auto init_EX2 = PVD2->getInit();
-									if (init_EX2) {
-										auto DRE2 = dyn_cast<const clang::DeclRefExpr>(init_EX2->IgnoreParenImpCasts());
-										if (DRE2) {
-											auto init_VD2 = dyn_cast<const clang::VarDecl>(DRE2->getDecl());
-											if (init_VD2) {
-												homogenize_types(state1, Rewrite, MR, *init_VD2, *PVD2);
-
-												/* A non-negative ttl parameter specifies a maximum permitted number of
-												recursive calls (to ensure no infinite recursion). */
-												if (0 != ttl) {
-													auto new_ttl = (0 < ttl) ? (ttl - 1) : ttl;
-													homogenize_redeclaration_types(init_VD2, state1, Rewrite, MR, new_ttl);
-												}
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-
-		auto VD = dyn_cast<const clang::VarDecl>(ddecl_cptr);
-		if (VD) {
-			for (auto redecl : VD->redecls()) {
-				/* this part hasn't been tested yet */
-				if (redecl != VD) {
-					homogenize_types(state1, Rewrite, MR, *redecl, *VD);
-				}
-			}
-
-			IF_DEBUG(std::string VD_qtype_str = VD->getType().getAsString();)
-			if (VD->getType()->isReferenceType()) {
-				if (!(VD->getType()->getPointeeType().isConstQualified())) {
-					/* This variable is of non-const reference type, so it's
-					initialization value (if any) must be of the same type. */
-					auto init_EX2 = VD->getInit();
-					if (init_EX2) {
-						auto DRE2 = dyn_cast<const clang::DeclRefExpr>(init_EX2->IgnoreParenImpCasts());
-						if (DRE2) {
-							auto init_VD2 = dyn_cast<const clang::VarDecl>(DRE2->getDecl());
-							if (init_VD2) {
-								homogenize_types(state1, Rewrite, MR, *init_VD2, *VD);
-
-								if (0 != ttl) {
-									auto new_ttl = (0 < ttl) ? (ttl - 1) : ttl;
-									homogenize_redeclaration_types(init_VD2, state1, Rewrite, MR, new_ttl);
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
 	void CSameTypeReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 
 		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(m_ddecl_indirection2.m_ddecl_cptr));
 		auto lhs_ddcs_map_iter = lhs_res1.first;
@@ -4390,7 +4417,7 @@ namespace convm1 {
 		auto SR = nice_source_range(m_ddecl_indirection.m_ddecl_cptr->getSourceRange(), Rewrite);
 		//RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 		//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -4420,13 +4447,13 @@ namespace convm1 {
 			}
 
 			if ((CDDeclIndirection::no_indirection != m_ddecl_indirection2.m_indirection_level) && (CDDeclIndirection::no_indirection != m_ddecl_indirection.m_indirection_level)) {
-				CSameTypeArray2ReplacementAction(Rewrite, MR, m_ddecl_indirection2, m_ddecl_indirection).do_replacement(state1);
+				CSameTypeArray2ReplacementAction(Rewrite, m_ddecl_indirection2, m_ddecl_indirection).do_replacement(state1);
 			}
 		}
 
 		if (apply_to_redeclarations_t::yes == m_apply_to_redeclarations) {
-			homogenize_redeclaration_types(m_ddecl_indirection2.m_ddecl_cptr, state1, Rewrite, MR);
-			homogenize_redeclaration_types(m_ddecl_indirection.m_ddecl_cptr, state1, Rewrite, MR);
+			//homogenize_redeclaration_types(m_ddecl_indirection2.m_ddecl_cptr, state1, Rewrite);
+			//homogenize_redeclaration_types(m_ddecl_indirection.m_ddecl_cptr, state1, Rewrite);
 		}
 
 		if (lhs_update_declaration_flag) {
@@ -4439,7 +4466,6 @@ namespace convm1 {
 
 	void CMallocArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 		const BinaryOperator* BO = m_BO;
 		const DeclaratorDecl* DD = m_DD;
 
@@ -4490,7 +4516,6 @@ namespace convm1 {
 
 	void CInitializerArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 		const DeclStmt* DS = m_DS;
 		const DeclaratorDecl* DD = m_DD;
 
@@ -4527,7 +4552,6 @@ namespace convm1 {
 
 	void CFreeDynamicArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 		const CallExpr* CE = m_CE;
 		const DeclaratorDecl* DD = m_DD;
 
@@ -4538,7 +4562,7 @@ namespace convm1 {
 			if (!decl_source_range.isValid()) {
 				return;
 			}
-			DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, MR);
+			DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, Rewrite);
 			DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 			if (ConvertToSCPP && decl_source_range.isValid() && (CESR.isValid())) {
@@ -4557,7 +4581,6 @@ namespace convm1 {
 
 	void CAssignmentTargetConstrainsSourceDynamicArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 
 		auto res1 = state1.m_ddecl_conversion_state_map.insert(*(m_ddecl_indirection2.m_ddecl_cptr));
 		auto ddcs_map_iter = res1.first;
@@ -4582,7 +4605,6 @@ namespace convm1 {
 
 	void CMemcpyArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 		const CallExpr* CE = m_CE;
 		const DeclaratorDecl* DD = m_DD;
 
@@ -4605,7 +4627,6 @@ namespace convm1 {
 
 	void CAssignmentTargetConstrainsSourceArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 
 		auto res1 = state1.m_ddecl_conversion_state_map.insert(*(m_ddecl_indirection2.m_ddecl_cptr));
 		auto ddcs_map_iter = res1.first;
@@ -4636,7 +4657,6 @@ namespace convm1 {
 
 	void CAssignmentSourceConstrainsTargetArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 
 		if (m_ddecl_indirection2.m_ddecl_cptr) {
 			std::string variable_name = (m_ddecl_indirection2.m_ddecl_cptr)->getNameAsString();
@@ -4677,7 +4697,6 @@ namespace convm1 {
 
 	void CSameTypeArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 
 		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(m_ddecl_indirection2.m_ddecl_cptr));
 		auto lhs_ddcs_map_iter = lhs_res1.first;
@@ -4827,7 +4846,6 @@ namespace convm1 {
 
 	void CAddressofArraySubscriptExprReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 
 		const clang::UnaryOperator* UO = m_addrofexpr_cptr;
 		const ArraySubscriptExpr* ASE = m_arraysubscriptexpr_cptr;
@@ -4876,7 +4894,6 @@ namespace convm1 {
 
 	void CAddressofSubscriptOperatorCallExprReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 
 		const clang::UnaryOperator* UO = m_addrofexpr_cptr;
 		const clang::CXXOperatorCallExpr* ASE = m_arraysubscriptexpr_cptr;
@@ -4956,14 +4973,12 @@ namespace convm1 {
 
 	void CExprTextDDIReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 		const Expr* EX = m_EX;
-		CExprTextReplacementAction(Rewrite, MR, EX, (*this).m_replacement_code).do_replacement(state1);
+		CExprTextReplacementAction(Rewrite, EX, (*this).m_replacement_code).do_replacement(state1);
 	}
 
 	void CAssignmentTargetConstrainsAddressofArraySubscriptExprArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 
 		const clang::UnaryOperator* UO = m_addrofexpr_cptr;
 		const ArraySubscriptExpr* ASE = m_arraysubscriptexpr_cptr;
@@ -5012,7 +5027,6 @@ namespace convm1 {
 
 	void CAssignmentTargetConstrainsAddressofSubscriptOperatorCallExprArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 
 		const clang::UnaryOperator* UO = m_addrofexpr_cptr;
 		const clang::CXXOperatorCallExpr* ASE = m_arraysubscriptexpr_cptr;
@@ -5092,7 +5106,6 @@ namespace convm1 {
 
 	void CUpdateIndirectFunctionTypeParamsArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 
 		const clang::CallExpr* CE = m_CE;
 		if (CE) {
@@ -5276,7 +5289,6 @@ namespace convm1 {
 
 	void CTargetConstrainsCStyleCastExprArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
-		const MatchFinder::MatchResult &MR = m_MR;
 
 		assert((*this).m_ddecl_indirection.m_ddecl_cptr);
 		assert((*this).m_c_style_cast_expr_cptr);
@@ -5290,7 +5302,7 @@ namespace convm1 {
 
 				auto res = generate_c_style_cast_replacement_code(Rewrite, m_c_style_cast_expr_cptr, replacement_qtype_str);
 
-				CExprTextReplacementAction(Rewrite, MR, m_c_style_cast_expr_cptr, res.m_whole_cast_expression_replacement_text).do_replacement(state1);
+				CExprTextReplacementAction(Rewrite, m_c_style_cast_expr_cptr, res.m_whole_cast_expression_replacement_text).do_replacement(state1);
 			}
 		}
 	}
@@ -5463,7 +5475,7 @@ namespace convm1 {
 				auto SR = nice_source_range(RD->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -5651,12 +5663,12 @@ namespace convm1 {
 				auto SR = nice_source_range(DD->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":7873:")) {
+				if (std::string::npos != debug_source_location_str.find(":1942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5864,14 +5876,14 @@ namespace convm1 {
 				auto SR = nice_source_range(DRE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":7873:")) {
+				if (std::string::npos != debug_source_location_str.find(":1942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5901,7 +5913,7 @@ namespace convm1 {
 					if (!decl_source_range.isValid()) {
 						return;
 					}
-					DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, MR);
+					DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, Rewrite);
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 					auto QT = DD->getType();
@@ -5965,7 +5977,7 @@ namespace convm1 {
 				auto SR = nice_source_range(E->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -6022,7 +6034,7 @@ namespace convm1 {
 				auto SR = nice_source_range(DRE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -6040,11 +6052,11 @@ namespace convm1 {
 					return;
 				}
 
-				DEBUG_SOURCE_LOCATION_STR(expr_debug_source_location_str, E->getSourceRange(), MR);
+				DEBUG_SOURCE_LOCATION_STR(expr_debug_source_location_str, E->getSourceRange(), Rewrite);
 				DEBUG_SOURCE_TEXT_STR(expr_debug_source_text, E->getSourceRange(), Rewrite);
 				const clang::Expr* subE = nullptr;
 				if (UO) {
-					DEBUG_SOURCE_LOCATION_STR(uo_debug_source_location_str, UO->getSourceRange(), MR);
+					DEBUG_SOURCE_LOCATION_STR(uo_debug_source_location_str, UO->getSourceRange(), Rewrite);
 					DEBUG_SOURCE_TEXT_STR(uo_debug_source_text, UO->getSourceRange(), Rewrite);
 
 					subE = UO->getSubExpr();
@@ -6063,7 +6075,7 @@ namespace convm1 {
 
 					auto D_UO = UO->getReferencedDeclOfCallee();
 					if (D_UO) {
-						DEBUG_SOURCE_LOCATION_STR(decl_uo_debug_source_location_str, D_UO->getSourceRange(), MR);
+						DEBUG_SOURCE_LOCATION_STR(decl_uo_debug_source_location_str, D_UO->getSourceRange(), Rewrite);
 						DEBUG_SOURCE_TEXT_STR(decl_uo_debug_source_text, D_UO->getSourceRange(), Rewrite);
 						IF_DEBUG(auto b1 = D_UO->isImplicit();)
 						/* We assume this means that the ('&') operator has been explicitly overloaded.
@@ -6092,11 +6104,11 @@ namespace convm1 {
 					if (!decl_source_range.isValid()) {
 						return;
 					}
-					DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, MR);
+					DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, Rewrite);
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 #ifndef NDEBUG
-					if (std::string::npos != decl_debug_source_location_str.find(":7873:")) {
+					if (std::string::npos != decl_debug_source_location_str.find(":1942:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -6172,7 +6184,7 @@ namespace convm1 {
 
 					update_declaration(*ddcs_ref.m_ddecl_cptr, Rewrite, m_state1);
 
-					homogenize_redeclaration_types(ddcs_ref.m_ddecl_cptr, m_state1, Rewrite, MR);
+					//homogenize_redeclaration_types(ddcs_ref.m_ddecl_cptr, m_state1, Rewrite);
 				}
 			}
 		}
@@ -6202,7 +6214,7 @@ namespace convm1 {
 				auto SR = nice_source_range(BO->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -6235,7 +6247,7 @@ namespace convm1 {
 						if (!decl_source_range.isValid()) {
 							return;
 						}
-						DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, MR);
+						DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, Rewrite);
 						DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 						auto QT = DD->getType();
@@ -6314,7 +6326,7 @@ namespace convm1 {
 							auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
 							std::string decl_source_text;
 							if (decl_source_range.isValid()) {
-								DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, decl_source_range, MR);
+								DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, decl_source_range, Rewrite);
 								DEBUG_SOURCE_TEXT_STR(debug_source_text, decl_source_range, Rewrite);
 							} else {
 								return;
@@ -6355,7 +6367,7 @@ namespace convm1 {
 				auto SR = nice_source_range(BO->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -6393,7 +6405,7 @@ namespace convm1 {
 				auto SR = nice_source_range(DS->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -6423,7 +6435,7 @@ namespace convm1 {
 						if (!decl_source_range.isValid()) {
 							return;
 						}
-						DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, MR);
+						DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, Rewrite);
 						DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 						QualType QT = DD->getType();
@@ -6568,7 +6580,7 @@ namespace convm1 {
 				auto SR = nice_source_range(DS->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -6618,7 +6630,7 @@ namespace convm1 {
 				auto SR = nice_source_range(DS->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -6641,7 +6653,7 @@ namespace convm1 {
 										if (!decl_source_range.isValid()) {
 											return;
 										}
-										DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, MR);
+										DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, Rewrite);
 										DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 										QualType QT = DD->getType();
@@ -6749,7 +6761,7 @@ namespace convm1 {
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -6875,7 +6887,7 @@ namespace convm1 {
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -6957,7 +6969,7 @@ namespace convm1 {
 				auto SR = nice_source_range(BO->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -7063,7 +7075,7 @@ namespace convm1 {
 				auto SR = nice_source_range(BO->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -7169,7 +7181,7 @@ namespace convm1 {
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -7223,7 +7235,7 @@ namespace convm1 {
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -7278,7 +7290,7 @@ namespace convm1 {
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -7336,7 +7348,7 @@ namespace convm1 {
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -7401,7 +7413,7 @@ namespace convm1 {
 				auto SR = nice_source_range(DS->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -7417,7 +7429,7 @@ namespace convm1 {
 				if (!decl_source_range.isValid()) {
 					return;
 				}
-				DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, MR);
+				DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, Rewrite);
 				DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 				QualType QT = DD->getType();
@@ -7936,14 +7948,14 @@ namespace convm1 {
 							nice_source_range(LHS->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":7873:")) {
+				if (std::string::npos != debug_source_location_str.find(":1942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7985,7 +7997,7 @@ namespace convm1 {
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -8152,7 +8164,7 @@ namespace convm1 {
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -8309,7 +8321,7 @@ namespace convm1 {
 				auto SR = nice_source_range(FND->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -8544,7 +8556,7 @@ namespace convm1 {
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -8718,7 +8730,7 @@ namespace convm1 {
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -8775,7 +8787,7 @@ namespace convm1 {
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -8949,7 +8961,7 @@ namespace convm1 {
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -9043,12 +9055,12 @@ namespace convm1 {
 				auto SR = nice_source_range(D->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":7873:")) {
+				if (std::string::npos != debug_source_location_str.find(":1942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -9557,7 +9569,7 @@ namespace convm1 {
 				auto SR = nice_source_range(D->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -9607,14 +9619,14 @@ namespace convm1 {
 				auto SR = nice_source_range(E->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":7873:")) {
+				if (std::string::npos != debug_source_location_str.find(":1942:")) {
 					int q = 5;
 				}
 				if (std::string::npos != debug_source_text.find("png_malloc")) {
@@ -9722,7 +9734,7 @@ namespace convm1 {
 				auto SR = nice_source_range(E->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -9772,7 +9784,7 @@ namespace convm1 {
 				auto SR = nice_source_range(RD->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -10799,7 +10811,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find(":7873:")) {
+					if (std::string::npos != debug_source_location_str.find(":1942:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -10885,7 +10897,7 @@ namespace convm1 {
 							IF_DEBUG(std::string debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str.find(":7873:")) {
+							if (std::string::npos != debug_source_location_str.find(":1942:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -10913,7 +10925,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *suffix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":7873:")) {
+									if (std::string::npos != debug_source_location_str.find(":1942:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
@@ -10948,7 +10960,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":7873:")) {
+									if (std::string::npos != debug_source_location_str.find(":1942:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/

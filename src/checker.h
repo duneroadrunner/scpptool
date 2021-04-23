@@ -134,7 +134,7 @@ namespace checker {
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -177,7 +177,7 @@ namespace checker {
 							for (auto child_iter = ST->child_begin(); child_iter != ST->child_end(); child_iter++) {
 								if (nullptr != (*child_iter)) {
 									auto l_STISR = instantiation_source_range((*child_iter)->getSourceRange(), Rewrite);
-									DEBUG_SOURCE_LOCATION_STR(debug_source_location_str2, l_STISR, MR);
+									DEBUG_SOURCE_LOCATION_STR(debug_source_location_str2, l_STISR, Rewrite);
 									DEBUG_SOURCE_TEXT_STR(debug_source_text2, l_STISR, Rewrite);
 									SourceLocation l_STISL = l_STISR.getBegin();
 									SourceLocation l_STISLE = l_STISR.getEnd();
@@ -220,7 +220,7 @@ namespace checker {
 				auto SR = nice_source_range(CXXMD->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -295,7 +295,7 @@ namespace checker {
 				auto SR = nice_source_range(FD->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -400,7 +400,7 @@ namespace checker {
 				auto SR = nice_source_range(EX->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -656,7 +656,7 @@ namespace checker {
 				auto SR = nice_source_range(D->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -1138,7 +1138,7 @@ namespace checker {
 				auto SR = nice_source_range(DRE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -1220,7 +1220,7 @@ namespace checker {
 				auto SR = nice_source_range(ST->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -1292,7 +1292,7 @@ namespace checker {
 				auto SR = nice_source_range(RD->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -1571,7 +1571,7 @@ namespace checker {
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -2494,7 +2494,7 @@ namespace checker {
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -2558,7 +2558,7 @@ namespace checker {
 				auto SR = nice_source_range(VD->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -2645,7 +2645,7 @@ namespace checker {
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -2749,7 +2749,7 @@ namespace checker {
 				auto SR = nice_source_range(EX->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -2816,7 +2816,7 @@ namespace checker {
 				auto SR = nice_source_range(EX->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -2885,7 +2885,7 @@ namespace checker {
 				auto SR = nice_source_range(VD->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -2969,7 +2969,7 @@ namespace checker {
 				auto SR = nice_source_range(EX->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -3066,7 +3066,7 @@ namespace checker {
 				auto SR = nice_source_range(raw_SR, Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -3225,7 +3225,7 @@ namespace checker {
 				auto SR = nice_source_range(CXXCI->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
@@ -3370,7 +3370,7 @@ namespace checker {
 
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, MR);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
