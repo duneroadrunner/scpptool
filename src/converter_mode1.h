@@ -2239,7 +2239,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find(":9999:")) {
+			if (std::string::npos != debug_source_location_str.find(":8170:")) {
 				int q = 5;
 			}
 		}
@@ -2677,7 +2677,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":9999:")) {
+						if (std::string::npos != debug_source_location_str.find(":8170:")) {
 							int q = 5;
 						}
 					}
@@ -3705,7 +3705,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":9999:")) {
+		if (std::string::npos != debug_source_location_str.find(":8170:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5661,7 +5661,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":9999:")) {
+				if (std::string::npos != debug_source_location_str.find(":8170:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5876,7 +5876,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":9999:")) {
+				if (std::string::npos != debug_source_location_str.find(":8170:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -6032,7 +6032,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":5197:")) {
+				if (std::string::npos != debug_source_location_str.find(":8070:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -6101,7 +6101,7 @@ namespace convm1 {
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 #ifndef NDEBUG
-					if (std::string::npos != decl_debug_source_location_str.find(":9999:")) {
+					if (std::string::npos != decl_debug_source_location_str.find(":8170:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -7711,10 +7711,7 @@ namespace convm1 {
 
 					lhs_res2.ddecl_cptr = lhs_DD;
 					lhs_res2.ddecl_conversion_state_ptr = &ddcs_ref;
-					lhs_res2.indirection_level = ddcs_ref.m_indirection_state_stack.size();
-					if (1 <= lhs_res2.indirection_level) {
-						lhs_res2.indirection_level -= 1;
-					}
+					lhs_res2.indirection_level = 0;
 					lhs_res2.update_declaration_flag = update_declaration_flag;
 				} else {
 					assert(false);
@@ -7844,9 +7841,9 @@ namespace convm1 {
 							cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(lhs_res2.ddecl_cptr), adjusted_lhs_indirection_level), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level));
 						}
 
-						if ((*(lhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(i + lhs_res2.indirection_level)) {
+						if ((*(lhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(adjusted_lhs_indirection_level)) {
 							(*cr_shptr).do_replacement(state1);
-							if (!(*(lhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_a_dynamic_array(i + lhs_res2.indirection_level)) {
+							if (!(*(lhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_a_dynamic_array(adjusted_lhs_indirection_level)) {
 								state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
 							}
 						} else {
@@ -7951,7 +7948,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":9999:")) {
+				if (std::string::npos != debug_source_location_str.find(":8170:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7996,7 +7993,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":6902:")) {
+				if (std::string::npos != debug_source_location_str.find(":8070:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8153,14 +8150,10 @@ namespace convm1 {
 		MCSSSArgToReferenceParameterPassing (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
-		virtual void run(const MatchFinder::MatchResult &MR)
+		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+			, const CallExpr* CE)
 		{
-			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssparameterpassing1");
-			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssparameterpassing2");
-			const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssparameterpassing3");
-			const clang::CStyleCastExpr* CCE = MR.Nodes.getNodeAs<clang::CStyleCastExpr>("mcsssparameterpassing4");
-
-			if ((CE != nullptr) && (DRE != nullptr))
+			if (CE != nullptr)
 			{
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
@@ -8170,7 +8163,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":113:")) {
+				if (std::string::npos != debug_source_location_str.find(":8070:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8178,7 +8171,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
 				if (supress_check_flag) {
 					return;
 				}
@@ -8193,18 +8186,14 @@ namespace convm1 {
 					bool ends_with_free = ((lc_function_name.size() >= free_str.size())
 							&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
 
-					static const std::string alloc_str = "alloc";
-					static const std::string realloc_str = "realloc";
-					bool ends_with_alloc = ((lc_function_name.size() >= alloc_str.size())
-							&& (0 == lc_function_name.compare(lc_function_name.size() - alloc_str.size(), alloc_str.size(), alloc_str)));
-					bool ends_with_realloc = (ends_with_alloc && (lc_function_name.size() >= realloc_str.size())
-							&& (0 == lc_function_name.compare(lc_function_name.size() - realloc_str.size(), realloc_str.size(), realloc_str)));
+					auto res1 = analyze_malloc_resemblance(*CE, Rewrite);
+					bool seems_to_be_some_kind_of_malloc_or_realloc = res1.m_seems_to_be_some_kind_of_malloc_or_realloc;
 
 					bool begins_with__builtin_ = string_begins_with(function_name, "__builtin_");
 					bool is_memcpy = ("memcpy" == function_name);
 					bool is_memset = ("memset" == function_name);
 
-					if (ends_with_free || ends_with_alloc || ends_with_realloc || is_memcpy || is_memset || begins_with__builtin_) {
+					if (ends_with_free || seems_to_be_some_kind_of_malloc_or_realloc || is_memcpy || is_memset || begins_with__builtin_) {
 						return void();
 					}
 
@@ -8272,15 +8261,15 @@ namespace convm1 {
 														does apply the constraint both ways. */
 														std::shared_ptr<CDDeclIndirectionReplacementAction> cr_shptr = std::make_shared<CSameTypeReplacementAction>(Rewrite, MR, *param_VD, *arg_VD2);
 
-														auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*param_VD);
+														auto res1 = state1.m_ddecl_conversion_state_map.insert(*param_VD);
 														auto ddcs_map_iter = res1.first;
 														auto& ddcs_ref = (*ddcs_map_iter).second;
 														bool update_declaration_flag = res1.second;
 
 														if (ddcs_ref.has_been_determined_to_be_a_pointer_target()) {
-															(*cr_shptr).do_replacement(m_state1);
+															(*cr_shptr).do_replacement(state1);
 														} else {
-															m_state1.m_pointer_target_contingent_replacement_map.insert(cr_shptr);
+															state1.m_pointer_target_contingent_replacement_map.insert(cr_shptr);
 														}
 													}
 												}
@@ -8297,6 +8286,19 @@ namespace convm1 {
 				} else {
 					int q = 5;
 				}
+			}
+		}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssparameterpassing1");
+			//const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssparameterpassing2");
+			//const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssparameterpassing3");
+			//const clang::CStyleCastExpr* CCE = MR.Nodes.getNodeAs<clang::CStyleCastExpr>("mcsssparameterpassing4");
+
+			if (CE != nullptr)
+			{
+				s_handler1(MR, Rewrite, m_state1, CE);
 			}
 		}
 
@@ -9061,7 +9063,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":9999:")) {
+				if (std::string::npos != debug_source_location_str.find(":8170:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -9627,7 +9629,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":9999:")) {
+				if (std::string::npos != debug_source_location_str.find(":8170:")) {
 					int q = 5;
 				}
 				if (std::string::npos != debug_source_text.find("png_malloc")) {
@@ -9639,6 +9641,21 @@ namespace convm1 {
 				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
 				if (supress_check_flag) {
 					return;
+				}
+
+				/* For some reason some of our expression matchers seem to be unreliable.
+				So we (redundantly) implement (some of) them in this general expression matcher
+				which seems to be more reliable. */
+
+				auto *CSCE = dyn_cast<const clang::CStyleCastExpr>(E);
+				if (CSCE) {
+					handle_c_style_cast_without_context(MR, Rewrite, state1, CSCE);
+					return;
+				}
+				auto CE = dyn_cast<const clang::CallExpr>(E);
+				if (CE) {
+					MCSSSArgToParameterPassingArray2::s_handler1(MR, Rewrite, state1, CE);
+					MCSSSArgToReferenceParameterPassing::s_handler1(MR, Rewrite, state1, CE);
 				}
 
 				if (E->getType()->isPointerType()) {
@@ -9704,11 +9721,7 @@ namespace convm1 {
 						}
 					}
 				}
-				auto *CSCE = dyn_cast<const clang::CStyleCastExpr>(E);
-				if (CSCE) {
-					handle_c_style_cast_without_context(MR, Rewrite, state1, CSCE);
-					return;
-				}
+
 				auto BO = dyn_cast<const clang::BinaryOperator>(E);
 				if (BO) {
 					if (clang::BinaryOperator::Opcode::BO_Assign == BO->getOpcode()) {
@@ -9722,10 +9735,6 @@ namespace convm1 {
 							MCSSSMalloc2::s_handler1(MR, Rewrite, state1, BO, CE);
 						}
 					}
-				}
-				auto CE = dyn_cast<const clang::CallExpr>(E);
-				if (CE) {
-					MCSSSArgToParameterPassingArray2::s_handler1(MR, Rewrite, state1, CE);
 				}
 			}
 		}
@@ -10382,18 +10391,18 @@ namespace convm1 {
 						hasAnyArgument(anyOf(
 								cStyleCastExpr(anyOf(
 										memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3"),
-											declRefExpr().bind("mcsssparameterpassing2"),
-											hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
-											hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
+										declRefExpr().bind("mcsssparameterpassing2"),
+										hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
+										hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
 								)).bind("mcsssparameterpassing4"),
 								expr(anyOf(
 										memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3"),
-											declRefExpr().bind("mcsssparameterpassing2"),
-											hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
-											hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
+										declRefExpr().bind("mcsssparameterpassing2"),
+										hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
+										hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
 								))
 							)),
-							hasAnyArgument(hasType(pointerType()))
+						hasAnyArgument(hasType(pointerType()))
 				)).bind("mcsssparameterpassing1"), &HandlerForSSSArgToParameterPassingArray2);
 
 		Matcher.addMatcher(
@@ -10401,18 +10410,18 @@ namespace convm1 {
 						hasAnyArgument(anyOf(
 								cStyleCastExpr(anyOf(
 										memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3"),
-											declRefExpr().bind("mcsssparameterpassing2"),
-											hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
-											hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
+										declRefExpr().bind("mcsssparameterpassing2"),
+										hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
+										hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
 								)).bind("mcsssparameterpassing4"),
 								expr(anyOf(
 										memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3"),
-											declRefExpr().bind("mcsssparameterpassing2"),
-											hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
-											hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
+										declRefExpr().bind("mcsssparameterpassing2"),
+										hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
+										hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
 								))
 							)),
-							anything()
+						anything()
 				)).bind("mcsssparameterpassing1"), &HandlerForSSSArgToReferenceParameterPassing);
 
 		Matcher.addMatcher(
@@ -10816,7 +10825,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find(":9999:")) {
+					if (std::string::npos != debug_source_location_str.find(":8170:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -10902,7 +10911,7 @@ namespace convm1 {
 							IF_DEBUG(std::string debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str.find(":9999:")) {
+							if (std::string::npos != debug_source_location_str.find(":8170:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -10930,7 +10939,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *suffix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":9999:")) {
+									if (std::string::npos != debug_source_location_str.find(":8170:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
@@ -10965,7 +10974,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":9999:")) {
+									if (std::string::npos != debug_source_location_str.find(":8170:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
