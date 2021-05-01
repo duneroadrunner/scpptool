@@ -1224,6 +1224,17 @@ namespace convm1 {
 		clang::QualType m_qtype;
 	};
 
+	class CUnsafeMakeRawPointerToExprTextModifier : public CWrapExprTextModifier {
+	public:
+		CUnsafeMakeRawPointerToExprTextModifier() :
+			CWrapExprTextModifier(("Dual" == ConvertMode) ? "MSE_LH_UNSAFE_MAKE_RAW_POINTER_TO(*(" : "std::addressof(*("
+				, "))") {}
+		virtual ~CUnsafeMakeRawPointerToExprTextModifier() {}
+		virtual std::string species_str() const {
+			return "unsafe make raw pointer to";
+		}
+	};
+
 	class CStraightReplacementExprTextModifier : public CExprTextModifier {
 	public:
 		CStraightReplacementExprTextModifier(const std::string& replacement_text) :
@@ -2239,7 +2250,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find(":8170:")) {
+			if (std::string::npos != debug_source_location_str.find(":5188:")) {
 				int q = 5;
 			}
 		}
@@ -2262,6 +2273,8 @@ namespace convm1 {
 		bool og_direct_type_was_char_type = (("char" == direct_type_original_qtype_str) || ("const char" == direct_type_original_qtype_str));
 		bool og_direct_type_was_FILE_type = (("FILE" == direct_type_original_qtype_str) || ("const FILE" == direct_type_original_qtype_str)
 											|| ("struct _IO_FILE" == direct_type_original_qtype_str) || ("const struct _IO_FILE" == direct_type_original_qtype_str));
+		bool og_direct_type_was_target_of_other_untranslatable_type = false && (("jmp_buf" == direct_type_original_qtype_str) || ("const struct __jmp_buf_tag" == direct_type_original_qtype_str)
+											|| ("struct __jmp_buf_tag" == direct_type_original_qtype_str) || ("const jmp_buf" == direct_type_original_qtype_str));
 		bool og_direct_type_was_void_type = (("void" == direct_type_original_qtype_str) || ("const void" == direct_type_original_qtype_str));
 		bool direct_type_is_function_type = false;
 		if (direct_type_state_ref.current_qtype_if_any().has_value()) {
@@ -2287,6 +2300,7 @@ namespace convm1 {
 
 				bool is_char_star = false;
 				bool is_FILE_star = false;
+				bool is_other_untranslatable_indirect_type = false;
 				bool is_void_star = false;
 				bool is_void_star_star = false;
 				bool is_function_pointer = false;
@@ -2300,6 +2314,10 @@ namespace convm1 {
 					is_FILE_star = true;
 					/* For the moment, we leave "FILE *" types alone. This may change at some point. */
 					l_changed_from_original = ("native pointer" != indirection_state_ref.original_species());
+				} else if (is_innermost_indirection && (og_direct_type_was_target_of_other_untranslatable_type)) {
+					is_other_untranslatable_indirect_type = true;
+					/* This indirect type has been deemed untraslatable. */
+					l_changed_from_original = false;
 				} else if (is_innermost_indirection && (og_direct_type_was_void_type)) {
 					is_void_star = true;
 					l_changed_from_original = true;
@@ -2350,6 +2368,10 @@ namespace convm1 {
 						/* We'll just leave it as a FILE* for now. */
 						suffix_str = "* ";
 						retval.m_action_species = "FILE*";
+					} else if (is_other_untranslatable_indirect_type) {
+						/* We'll just leave it as a native pointer. */
+						suffix_str = "* ";
+						retval.m_action_species = "other_untranslatable_indirect_type";
 					} else if(is_argv) {
 						suffix_str = "* ";
 						retval.m_action_species = "char** argv";
@@ -2391,6 +2413,10 @@ namespace convm1 {
 						/* We'll just leave it as a FILE* for now. */
 						suffix_str = "* ";
 						retval.m_action_species = "FILE*";
+					} else if (is_other_untranslatable_indirect_type) {
+						/* We'll just leave it as a native pointer. */
+						suffix_str = "* ";
+						retval.m_action_species = "other_untranslatable_indirect_type";
 					} else {
 						if (is_innermost_indirection) {
 							retval.m_direct_type_must_be_non_const = true;
@@ -2423,8 +2449,23 @@ namespace convm1 {
 						if (1 == indirection_state_stack.size()) {
 							post_name_suffix_str = "[" + size_text + "]";
 						} else {
-							suffix_str = "[" + size_text + "]";
+							assert(1 < indirection_state_stack.size());
+							//suffix_str = "[" + size_text + "]";
+							/* native array decays to pointer */
+							suffix_str = "* ";
 						}
+						retval.m_action_species = "char[]";
+					} else if (is_other_untranslatable_indirect_type) {
+						/* We'll just leave it as a native array. */
+						if (1 == indirection_state_stack.size()) {
+							post_name_suffix_str = "[" + size_text + "]";
+						} else {
+							assert(1 < indirection_state_stack.size());
+							//suffix_str = "[" + size_text + "]";
+							/* native array decays to pointer */
+							suffix_str = "* ";
+						}
+						retval.m_action_species = "other_untranslatable_indirect_type";
 					} else {
 						l_changed_from_original = true;
 						if (is_a_function_parameter) {
@@ -2485,6 +2526,10 @@ namespace convm1 {
 						/* We'll just leave it as a FILE* for now. */
 						suffix_str = "* ";
 						retval.m_action_species = "FILE*";
+					} else if (is_other_untranslatable_indirect_type) {
+						/* We'll just leave it as a native pointer. */
+						suffix_str = "* ";
+						retval.m_action_species = "other_untranslatable_indirect_type";
 					} else if (is_void_star) {
 						/* In the case of "void*" we're going to effectively "remove" one level of indirection
 						by making it a "transparent"/"pass-through"/"no-op" indirection, and replacing the
@@ -2569,6 +2614,10 @@ namespace convm1 {
 						/* We'll just leave it as a FILE* for now. */
 						suffix_str = "* ";
 						retval.m_action_species = "FILE*";
+					} else if (is_other_untranslatable_indirect_type) {
+						/* We'll just leave it as a native pointer. */
+						suffix_str = "* ";
+						retval.m_action_species = "other_untranslatable_indirect_type";
 					} else if (is_void_star) {
 						/* In the case of "void*" we're going to effectively "remove" one level of indirection
 						by making it a "transparent"/"pass-through"/"no-op" indirection, and replacing the
@@ -2677,7 +2726,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find(":8170:")) {
+						if (std::string::npos != debug_source_location_str.find(":5188:")) {
 							int q = 5;
 						}
 					}
@@ -2999,6 +3048,8 @@ namespace convm1 {
 
 											if (is_char_star) {
 											} else if (is_FILE_star) {
+											} else if (is_other_untranslatable_indirect_type) {
+												int q = 5;
 											} else {
 												if (is_a_function_parameter) {
 												} else {
@@ -3622,6 +3673,21 @@ namespace convm1 {
 					replacement_code += "MSE_LH_FIXED_ARRAY_DECLARATION(" + direct_qtype_str;
 					replacement_code += ", " + res4.m_native_array_size_text;
 					replacement_code += ", " + variable_name + ")";
+
+					size_t num_init_elements_rough_estimate = std::count(initializer_append_str.begin(), initializer_append_str.end(), ',');
+					if (64/* arbitrary */ < num_init_elements_rough_estimate) {
+						static const std::string aggregate_initialization_prefix = " = {";
+						if (string_begins_with(initializer_append_str, aggregate_initialization_prefix)) {
+							/* The SaferCPlusPlus arrays emulate aggregate initialization (at compile-time). Some
+							compilers may have difficulty handling large initalizer lists. So we insert an
+							intermediate std::array<>. */
+							std::string aggregate_initialization_prefix_replacement = " = std::array<";
+							aggregate_initialization_prefix_replacement += direct_qtype_str;
+							aggregate_initialization_prefix_replacement += ", " + res4.m_native_array_size_text;
+							aggregate_initialization_prefix_replacement += " > {";
+							initializer_append_str.replace(0, aggregate_initialization_prefix.length(), aggregate_initialization_prefix_replacement);
+						}
+					}
 				} else {
 					replacement_code += prefix_str + direct_qtype_str + suffix_str;
 					replacement_code += " ";
@@ -3705,7 +3771,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find(":8170:")) {
+		if (std::string::npos != debug_source_location_str.find(":5188:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5661,7 +5727,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":8170:")) {
+				if (std::string::npos != debug_source_location_str.find(":5188:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5876,7 +5942,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":8170:")) {
+				if (std::string::npos != debug_source_location_str.find(":5188:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5967,7 +6033,7 @@ namespace convm1 {
 						E = E2;
 					}
 				}
-				auto SR = nice_source_range(E->getSourceRange(), Rewrite);
+				auto SR = write_once_source_range(nice_source_range(E->getSourceRange(), Rewrite));
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
@@ -6101,7 +6167,7 @@ namespace convm1 {
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 #ifndef NDEBUG
-					if (std::string::npos != decl_debug_source_location_str.find(":8170:")) {
+					if (std::string::npos != decl_debug_source_location_str.find(":5188:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -7948,7 +8014,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":8170:")) {
+				if (std::string::npos != debug_source_location_str.find(":5188:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8025,6 +8091,41 @@ namespace convm1 {
 						return void();
 					}
 
+					bool is_setjmp = ("_setjmp" == function_name);
+					if (is_setjmp && (1 == num_args)) {
+						auto arg_EX = CE->getArg(0);
+
+						assert(arg_EX);
+						auto arg_source_range = write_once_source_range(nice_source_range(arg_EX->getSourceRange(), Rewrite));
+						std::string arg_source_text;
+						if (arg_source_range.isValid()) {
+							IF_DEBUG(arg_source_text = Rewrite.getRewrittenText(arg_source_range);)
+						}
+
+						auto arg_iter = state1.m_expr_conversion_state_map.find(arg_EX);
+						if (state1.m_expr_conversion_state_map.end() == arg_iter) {
+							std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX, Rewrite);
+							arg_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+						}
+						auto& arg_shptr_ref = (*arg_iter).second;
+
+						if (ConvertToSCPP) {
+							std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CUnsafeMakeRawPointerToExprTextModifier>();
+							if (1 <= (*arg_shptr_ref).m_expr_text_modifier_stack.size()) {
+								if ("unsafe make raw pointer to" == (*arg_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+									/* already applied */
+									return;
+								}
+							}
+							(*arg_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
+							(*arg_shptr_ref).update_current_text();
+
+							state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, arg_source_range, (*arg_shptr_ref).m_current_text_str);
+							//(*this).Rewrite.ReplaceText(arg_source_range, (*arg_shptr_ref).m_current_text_str);
+							return;
+						}
+					}
+
 					std::vector<const clang::ParmVarDecl*> param_decls_of_first_function_decl;
 					for (auto param_VD : function_decl1->parameters()) {
 						param_decls_of_first_function_decl.push_back(param_VD);
@@ -8048,7 +8149,7 @@ namespace convm1 {
 							auto arg_EX = CE->getArg(arg_index);
 
 							assert(arg_EX->getType().getTypePtrOrNull());
-							auto arg_source_range = nice_source_range(arg_EX->getSourceRange(), Rewrite);
+							auto arg_source_range = write_once_source_range(nice_source_range(arg_EX->getSourceRange(), Rewrite));
 							std::string arg_source_text;
 							if (arg_source_range.isValid()) {
 								IF_DEBUG(arg_source_text = Rewrite.getRewrittenText(arg_source_range);)
@@ -8076,7 +8177,7 @@ namespace convm1 {
 							return;
 						}
 
-						auto EXSR = nice_source_range(EX->getSourceRange(), Rewrite);
+						auto EXSR = write_once_source_range(nice_source_range(EX->getSourceRange(), Rewrite));
 						std::string expr_source_text;
 						if (EXSR.isValid()) {
 							IF_DEBUG(expr_source_text = Rewrite.getRewrittenText(EXSR);)
@@ -8234,7 +8335,7 @@ namespace convm1 {
 							auto arg_EX = CE->getArg(arg_index);
 
 							assert(arg_EX->getType().getTypePtrOrNull());
-							auto arg_source_range = nice_source_range(arg_EX->getSourceRange(), Rewrite);
+							auto arg_source_range = write_once_source_range(nice_source_range(arg_EX->getSourceRange(), Rewrite));
 							std::string arg_source_text;
 							if (arg_source_range.isValid()) {
 								IF_DEBUG(arg_source_text = Rewrite.getRewrittenText(arg_source_range);)
@@ -9063,7 +9164,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":8170:")) {
+				if (std::string::npos != debug_source_location_str.find(":5188:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -9613,13 +9714,13 @@ namespace convm1 {
 		MCSSSExprUtil (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
-		static void modifier(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1)
+		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1)
 		{
 			const clang::Expr* E = MR.Nodes.getNodeAs<clang::Expr>("mcsssexprutil1");
 
 			if ((E != nullptr))
 			{
-				auto SR = nice_source_range(E->getSourceRange(), Rewrite);
+				auto SR = write_once_source_range(nice_source_range(E->getSourceRange(), Rewrite));
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
@@ -9629,7 +9730,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":8170:")) {
+				if (std::string::npos != debug_source_location_str.find(":5188:")) {
 					int q = 5;
 				}
 				if (std::string::npos != debug_source_text.find("png_malloc")) {
@@ -9745,7 +9846,7 @@ namespace convm1 {
 
 			if ((E != nullptr))
 			{
-				auto SR = nice_source_range(E->getSourceRange(), Rewrite);
+				auto SR = write_once_source_range(nice_source_range(E->getSourceRange(), Rewrite));
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
@@ -9767,11 +9868,7 @@ namespace convm1 {
 				}
 
 				if (ConvertToSCPP && SR.isValid()) {
-
-					auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
-					/* This modification needs to be queued so that it will be executed after any other
-					modifications that might affect the relevant part of the source text. */
-					(*this).m_state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
+					s_handler1(MR, (*this).Rewrite, (*this).m_state1);
 				} else {
 					int q = 7;
 				}
@@ -9893,7 +9990,7 @@ namespace convm1 {
 									if (!ICIEX) {
 										unverified_pointer_fields.push_back(field);
 									} else if (is_nullptr_literal(ICIEX, *(MR.Context))) {
-										auto ICISR = nice_source_range(ICIEX->getSourceRange(), Rewrite);
+										auto ICISR = write_once_source_range(nice_source_range(ICIEX->getSourceRange(), Rewrite));
 										if (!ICISR.isValid()) {
 											ICISR = SR;
 										}
@@ -10783,6 +10880,17 @@ namespace convm1 {
 				{
 					auto& action = *retained_it;
 					assert(action.second.size() >= 1);
+
+					auto SR = action.first;
+
+					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
+					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+#ifndef NDEBUG
+					if (std::string::npos != debug_source_location_str.find(":5188:")) {
+						int q = 5;
+					}
+#endif /*!NDEBUG*/
+
 					if (action.first.is_rewritable()) {
 						/* Execute and discard all source code text modification functions associated with this source range. */
 						auto sub_it = action.second.begin();
@@ -10825,7 +10933,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find(":8170:")) {
+					if (std::string::npos != debug_source_location_str.find(":5188:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -10911,7 +11019,7 @@ namespace convm1 {
 							IF_DEBUG(std::string debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str.find(":8170:")) {
+							if (std::string::npos != debug_source_location_str.find(":5188:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -10939,7 +11047,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *suffix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":8170:")) {
+									if (std::string::npos != debug_source_location_str.find(":5188:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
@@ -10974,7 +11082,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find(":8170:")) {
+									if (std::string::npos != debug_source_location_str.find(":5188:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
