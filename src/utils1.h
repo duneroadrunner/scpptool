@@ -59,6 +59,7 @@ std::pair<std::string, bool> exec(const char* cmd);
 
 clang::SourceRange nice_source_range(const clang::SourceRange& sr, clang::Rewriter &Rewrite);
 clang::SourceRange instantiation_source_range(const clang::SourceRange& sr, clang::Rewriter &Rewrite);
+bool is_macro_instantiation(const clang::SourceRange& sr, clang::Rewriter &Rewrite);
 
 /* not necessarily a proper subset */
 bool first_is_a_subset_of_second(const clang::SourceRange& first, const clang::SourceRange& second);
@@ -158,6 +159,18 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 			}
 		}
 		return false;
+	}
+	auto insert(const base_class::value_type& x) {
+		if (false) {
+			auto SL = x.getBegin();
+			auto SLE = x.getEnd();
+			auto begin_as_int = *((unsigned *)(&SL));
+			auto end_as_int = *((unsigned *)(&SLE));
+			if ((7037 >= begin_as_int) && (7037 <= end_as_int)) {
+				int q = 5;
+			}
+		}
+		return base_class::insert(x);
 	}
 };
 
