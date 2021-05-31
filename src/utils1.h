@@ -58,6 +58,9 @@ inline const std::string& mse_namespace_str() {
 std::pair<std::string, bool> exec(const char* cmd);
 
 clang::SourceRange nice_source_range(const clang::SourceRange& sr, clang::Rewriter &Rewrite);
+inline clang::SourceLocation nice_source_location(const clang::SourceLocation& sl, clang::Rewriter &Rewrite) {
+	return nice_source_range({ sl, sl }, Rewrite).getBegin();
+}
 clang::SourceRange instantiation_source_range(const clang::SourceRange& sr, clang::Rewriter &Rewrite);
 bool is_macro_instantiation(const clang::SourceRange& sr, clang::Rewriter &Rewrite);
 
@@ -198,7 +201,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 #define DEBUG_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1) std::string source_text1; DEBUG_SET_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1);
 
 #define RETURN_IF_FILTERED_OUT_BY_LOCATION1 \
-				if (filtered_out_by_location(MR, SR.getBegin())) { \
+				if ((!SR.isValid()) || filtered_out_by_location(MR, SR.getBegin())) { \
 					return void(); \
 				}
 
