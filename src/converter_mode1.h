@@ -1026,6 +1026,7 @@ namespace convm1 {
 			nice_SR = { nice_SL, nice_SLE };
 			DEBUG_SOURCE_TEXT_STR(debug_nice_SR_text, nice_SR, Rewrite);
 
+#if 0
 #ifndef NDEBUG
 			bool SL_isMacroBodyExpansion_flag = SM.isMacroBodyExpansion(SL);
 			assert(!(SL.isMacroID() && (SL_isMacroArgExpansion_flag == SL_isMacroBodyExpansion_flag)));
@@ -1094,7 +1095,7 @@ namespace convm1 {
 			IF_DEBUG(std::string debug_source_location5_str = SPSL.printToString(SM);)
 			//IF_DEBUG(std::string text51 = Rewrite.getRewrittenText({SPSL, SPSLE});)
 
-			if (std::string::npos != debug_source_location5_str.find("pngpriv.h:1732:")) {
+			if (std::string::npos != debug_source_location5_str.find("png.c:4214:")) {
 				int q = 5;
 			}
 			if (std::string::npos != debug_source_location5_str.find("png.h:925:")) {
@@ -1151,7 +1152,7 @@ namespace convm1 {
 			IF_DEBUG(std::string debug_SPSLE_str = SPSLE.printToString(SM);)
 			IF_DEBUG(std::string debug_SPSLE_token_str = Rewrite.getRewrittenText({SPSLE, SPSLE});)
 
-			if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+			if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 				int q = 5;
 			}
 			if (std::string::npos != debug_source_location_str.find("png.h:925:")) {
@@ -1161,39 +1162,9 @@ namespace convm1 {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/
+#endif /*0*/
 
 			return nice_SR;
-
-			if (SL_isMacroArgExpansion_flag && (!SLE_is_within_SL_immediate_macro)) {
-				/* The end location doesn't seem to be contained within the macro corresponding to the
-				start location. So we're going to return the range of the "TopMacroCaller" which hopefully
-				encompasses the language element of interest. We expect that the client code will observe
-				that the returned range identifies as (part of) a macro (and will overwrite the entire
-				thing rather attempt surgical modifications). */
-				DEBUG_SOURCE_TEXT_STR(TopMacroCaller_CSR_text, SL_TopMacroCaller_CSR, Rewrite);
-				nice_SR = SL_TopMacroCaller_CSR.getAsRange();
-			}
-
-			if (SPSR_was_valid && ((SM.getFileID(SPSL) == SM.getFileID(SPSLE)) || (!same_file))) {
-				auto FLSPSL = SM.getFileLoc(SPSL);
-				if (!filtered_out_by_location(SM, FLSPSL)) {
-					std::string text5 = Rewrite.getRewrittenText(SPSR);
-					if (!text5.empty()) {
-						nice_SR = SPSR;
-					} else {
-						/* There doesn't seem to be any retrievable text at the "Spelling" range. We're going
-						to assume that that's because the given range doesn't correspond to a (single) macro
-						argument. So we're going to return the range of the "TopMacroCaller" which hopefully
-						encompasses the language element of interest. We expect that the client code will
-						observe that the returned range identifies as (part of) a macro (and will overwrite
-						the entire thing rather attempt surgical modifications). */
-						DEBUG_SOURCE_TEXT_STR(TopMacroCaller_CSR_text, SL_TopMacroCaller_CSR, Rewrite);
-						nice_SR = SL_TopMacroCaller_CSR.getAsRange();
-					}
-				}
-			} else {
-				int q = 5;
-			}
 		}
 
 		auto same_file6 = (SM.getFileID(FLSL) == SM.getFileID(FLSLE));
@@ -2596,7 +2567,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, parens_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+						if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 							int q = 5;
 						}
 					}
@@ -2675,7 +2646,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+			if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 				int q = 5;
 			}
 		}
@@ -3218,7 +3189,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+						if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 							int q = 5;
 						}
 					}
@@ -4406,7 +4377,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+		if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -4440,7 +4411,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(l_debug_source_text, return_type_source_range, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != l_debug_source_location_str.find("pngpriv.h:1732:")) {
+				if (std::string::npos != l_debug_source_location_str.find("png.c:4214:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -4580,7 +4551,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+		if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -4643,7 +4614,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+		if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5132,7 +5103,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+		if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -6374,7 +6345,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -6587,7 +6558,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -6742,13 +6713,13 @@ namespace convm1 {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
-
-				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto ISR = instantiation_source_range(DRE->getSourceRange(), Rewrite);
 				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
@@ -6812,7 +6783,7 @@ namespace convm1 {
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 #ifndef NDEBUG
-					if (std::string::npos != decl_debug_source_location_str.find("pngpriv.h:1732:")) {
+					if (std::string::npos != decl_debug_source_location_str.find("png.c:4214:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -8396,6 +8367,47 @@ namespace convm1 {
 		}
 	}
 
+	inline static void handle_cxx_cast_without_context(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+		, const clang::CXXNamedCastExpr* CXXNCE) {
+
+		if (CXXNCE) {
+			auto csce_QT = definition_qtype(CXXNCE->getType());
+			IF_DEBUG(std::string csce_QT_str = csce_QT.getAsString();)
+			auto precasted_expr_ptr = CXXNCE->getSubExprAsWritten();
+			assert(precasted_expr_ptr);
+			auto precasted_expr_QT = precasted_expr_ptr->getType();
+			IF_DEBUG(std::string precasted_expr_QT_str = precasted_expr_QT.getAsString();)
+			auto precasted_expr_SR = cm1_adj_nice_source_range(precasted_expr_ptr->getSourceRange(), state1, Rewrite);
+			auto CXXNCESR = write_once_source_range(cm1_adj_nice_source_range(CXXNCE->getSourceRange(), state1, Rewrite));
+			auto angle_brackets_SR = write_once_source_range(cm1_adj_nice_source_range(CXXNCE->getAngleBrackets(), state1, Rewrite));
+			auto cast_operation_SR = clang::SourceRange(CXXNCESR.getBegin(), angle_brackets_SR.getEnd());
+
+			if ((csce_QT->isPointerType() || csce_QT->isArrayType())
+				&& (precasted_expr_QT->isPointerType() || precasted_expr_QT->isArrayType())
+				&& cast_operation_SR.isValid()) {
+
+				auto csce_pointee_QT = llvm::isa<clang::ArrayType>(csce_QT) ? llvm::cast<clang::ArrayType>(csce_QT)->getElementType() : csce_QT->getPointeeType();
+				IF_DEBUG(std::string csce_pointee_QT_str = csce_pointee_QT.getAsString();)
+				auto non_const_csce_pointee_QT = csce_pointee_QT; non_const_csce_pointee_QT.removeLocalConst();
+				auto precasted_expr_pointee_QT = llvm::isa<clang::ArrayType>(precasted_expr_QT) ? llvm::cast<clang::ArrayType>(precasted_expr_QT)->getElementType() : precasted_expr_QT->getPointeeType();
+				IF_DEBUG(std::string precasted_expr_pointee_QT_str = precasted_expr_pointee_QT.getAsString();)
+				if (ConvertToSCPP) {
+					if (CXXNCE->getSourceRange().getBegin().isMacroID()) {
+						IF_DEBUG(std::string og_whole_expression_str = Rewrite.getRewrittenText(CXXNCESR);)
+						std::string og_precasted_expr_str = Rewrite.getRewrittenText(precasted_expr_SR);
+						std::string new_whole_expression_str = std::string(CXXNCE->getCastName()) + "<" + generate_qtype_replacement_code(csce_QT, Rewrite) + ">("
+							+ og_precasted_expr_str + ")";
+						CExprTextYieldingReplacementAction(Rewrite, MR, CXXNCE, new_whole_expression_str).do_replacement(state1);
+					} else {
+						IF_DEBUG(std::string og_angle_brackets_str = Rewrite.getRewrittenText(angle_brackets_SR);)
+						std::string new_angle_brackets_str = "<" + generate_qtype_replacement_code(csce_QT, Rewrite) + ">";
+						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, angle_brackets_SR, new_angle_brackets_str);
+					}
+				}
+			}
+		}
+	}
+
 	class MCSSSAssignment : public MatchFinder::MatchCallback
 	{
 	public:
@@ -8435,7 +8447,10 @@ namespace convm1 {
 			auto rhs_res2 = infer_array_type_info_from_stmt(*RHS, "", state1);
 			bool lhs_is_an_indirect_type = LHS ? is_an_indirect_type(LHS->getType()) : is_an_indirect_type(VD->getType());
 			bool rhs_is_an_indirect_type = is_an_indirect_type(RHS->getType());
-			assert(lhs_is_an_indirect_type == rhs_is_an_indirect_type);
+			if (lhs_is_an_indirect_type != rhs_is_an_indirect_type) {
+				/* This might happen if one side is a reference type and the other side isn't. */
+				int q = 5;
+			}
 
 			if (lhs_res2.ddecl_cptr && lhs_res2.update_declaration_flag) {
 				update_declaration(*(lhs_res2.ddecl_cptr), Rewrite, state1);
@@ -8659,7 +8674,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8704,7 +8719,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8821,7 +8836,7 @@ namespace convm1 {
 					auto function_decls_range = function_decl1->redecls();
 					for (const auto& function_decl : function_decls_range) {
 						if (function_decl == function_decl1) {
-							continue;
+							//continue;
 						}
 						auto fdecl_source_range = cm1_adj_nice_source_range(function_decl->getSourceRange(), state1, Rewrite);
 						auto fdecl_source_location_str = fdecl_source_range.getBegin().printToString(*MR.SourceManager);
@@ -8952,13 +8967,13 @@ namespace convm1 {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
-
-				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
 				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
@@ -8980,7 +8995,7 @@ namespace convm1 {
 					auto function_decls_range = function_decl1->redecls();
 					for (const auto& function_decl : function_decls_range) {
 						if (function_decl == function_decl1) {
-							continue;
+							//continue;
 						}
 						auto fdecl_source_range = cm1_adj_nice_source_range(function_decl->getSourceRange(), state1, Rewrite);
 						auto fdecl_source_location_str = fdecl_source_range.getBegin().printToString(*MR.SourceManager);
@@ -9831,7 +9846,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10343,7 +10358,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10398,7 +10413,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 					int q = 5;
 				}
 				if (std::string::npos != debug_source_text.find("png_malloc")) {
@@ -10419,6 +10434,11 @@ namespace convm1 {
 				auto *CSCE = dyn_cast<const clang::CStyleCastExpr>(E);
 				if (CSCE) {
 					handle_c_style_cast_without_context(MR, Rewrite, state1, CSCE);
+					return;
+				}
+				auto *CXXNCE = dyn_cast<const clang::CXXNamedCastExpr>(E);
+				if (CXXNCE) {
+					handle_cxx_cast_without_context(MR, Rewrite, state1, CXXNCE);
 					return;
 				}
 				auto CE = dyn_cast<const clang::CallExpr>(E);
@@ -10524,7 +10544,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10570,7 +10590,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -11637,7 +11657,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+					if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -11684,7 +11704,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+					if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -11709,7 +11729,7 @@ namespace convm1 {
 						IF_DEBUG(std::string l_debug_source_location_str = direct_qtype_SR.getBegin().printToString(SM);)
 						DEBUG_SOURCE_TEXT_STR(l_debug_source_text, direct_qtype_SR, Rewrite);
 #ifndef NDEBUG
-						if (std::string::npos != l_debug_source_location_str.find("pngpriv.h:1732:")) {
+						if (std::string::npos != l_debug_source_location_str.find("png.c:4214:")) {
 							int q = 5;
 						}
 #endif /*!NDEBUG*/
@@ -11787,7 +11807,7 @@ namespace convm1 {
 							IF_DEBUG(std::string l_debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(l_debug_source_text, definition_SR, Rewrite);
 #ifndef NDEBUG
-							if (std::string::npos != l_debug_source_location_str.find("pngpriv.h:1732:")) {
+							if (std::string::npos != l_debug_source_location_str.find("png.c:4214:")) {
 								thread_local int tl_count = 0;
 								tl_count += 1;
 								if (!string_begins_with(l_debug_source_text, "void")) {
@@ -11827,7 +11847,7 @@ namespace convm1 {
 									IF_DEBUG(std::string l_debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(l_debug_source_text, *suffix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != l_debug_source_location_str.find("pngpriv.h:1732:")) {
+									if (std::string::npos != l_debug_source_location_str.find("png.c:4214:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
@@ -11864,7 +11884,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find("pngpriv.h:1732:")) {
+									if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
