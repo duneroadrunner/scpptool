@@ -48,6 +48,46 @@
 #include "llvm/IR/Function.h"
 /**********************************************************************************************************************/
 
+#define PP_CONCAT(a, b) a##b
+#define DECLARE_CACHED_CONST_STRING(name, init_value) \
+							thread_local std::string PP_CONCAT(s_, name); \
+							if (PP_CONCAT(s_, name).empty()) { \
+								PP_CONCAT(s_, name) = init_value; \
+							} \
+							const std::string& name = PP_CONCAT(s_, name);
+#ifndef NDEBUG
+#define DEBUG_SET_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, Rewrite1) \
+				if (SourceRange1.isValid()) { source_location_str1 = SourceRange1.getBegin().printToString(Rewrite1.getSourceMgr()); }
+#define DEBUG_SET_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1) \
+				if ((SourceRange1).isValid() && (((SourceRange1).getBegin() < (SourceRange1).getEnd()) || ((SourceRange1).getBegin() == (SourceRange1).getEnd()))) { source_text1 = Rewrite1.getRewrittenText(SourceRange1); }
+#define IF_DEBUG(x) x
+#else /*!NDEBUG*/
+#define DEBUG_SET_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, Rewrite1) ;
+#define DEBUG_SET_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1) ;
+#define IF_DEBUG(x)
+#endif /*!NDEBUG*/
+
+#define DEBUG_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, Rewrite1) std::string source_location_str1; DEBUG_SET_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, Rewrite1);
+#define DEBUG_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1) std::string source_text1; DEBUG_SET_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1);
+
+#define RETURN_IF_FILTERED_OUT_BY_LOCATION1 \
+				if ((!SR.isValid()) || filtered_out_by_location(MR, SR.getBegin())) { \
+					return void(); \
+				}
+
+#define RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1 \
+				if (!SR.isValid()) { \
+					return; \
+				}
+
+#define RETURN_IF_IS_IN_SUPPRESS_CHECK_REGION1(x) \
+                auto ISR = instantiation_source_range(x->getSourceRange(), Rewrite); \
+                auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR); \
+                if (suppress_check_flag) { \
+                    return; \
+                }
+
+
 inline const std::string& mse_namespace_str() {
 	/* In the future, this could be specified (at run-time, as a command line parameter). */
 	static const std::string l_mse_namespace_str = "mse";
@@ -148,6 +188,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 	typedef std::set<COrderedSourceRange> base_class;
 	using base_class::base_class;
 	bool contains(const clang::SourceRange& SR) const {
+		IF_DEBUG(auto or_set_size = (*this).size());
 		for (auto it = (*this).cbegin(); (*this).cend() != it; it++) {
 			if (first_is_a_subset_of_second(SR, *it)) {
 				return true;
@@ -176,46 +217,6 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		return base_class::insert(x);
 	}
 };
-
-
-#define PP_CONCAT(a, b) a##b
-#define DECLARE_CACHED_CONST_STRING(name, init_value) \
-							thread_local std::string PP_CONCAT(s_, name); \
-							if (PP_CONCAT(s_, name).empty()) { \
-								PP_CONCAT(s_, name) = init_value; \
-							} \
-							const std::string& name = PP_CONCAT(s_, name);
-#ifndef NDEBUG
-#define DEBUG_SET_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, Rewrite1) \
-				if (SourceRange1.isValid()) { source_location_str1 = SourceRange1.getBegin().printToString(Rewrite1.getSourceMgr()); }
-#define DEBUG_SET_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1) \
-				if ((SourceRange1).isValid() && (((SourceRange1).getBegin() < (SourceRange1).getEnd()) || ((SourceRange1).getBegin() == (SourceRange1).getEnd()))) { source_text1 = Rewrite1.getRewrittenText(SourceRange1); }
-#define IF_DEBUG(x) x
-#else /*!NDEBUG*/
-#define DEBUG_SET_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, Rewrite1) ;
-#define DEBUG_SET_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1) ;
-#define IF_DEBUG(x)
-#endif /*!NDEBUG*/
-
-#define DEBUG_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, Rewrite1) std::string source_location_str1; DEBUG_SET_SOURCE_LOCATION_STR(source_location_str1, SourceRange1, Rewrite1);
-#define DEBUG_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1) std::string source_text1; DEBUG_SET_SOURCE_TEXT_STR(source_text1, SourceRange1, Rewrite1);
-
-#define RETURN_IF_FILTERED_OUT_BY_LOCATION1 \
-				if ((!SR.isValid()) || filtered_out_by_location(MR, SR.getBegin())) { \
-					return void(); \
-				}
-
-#define RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1 \
-				if (!SR.isValid()) { \
-					return; \
-				}
-
-#define RETURN_IF_IS_IN_SUPPRESS_CHECK_REGION1(x) \
-                auto ISR = instantiation_source_range(x->getSourceRange(), Rewrite); \
-                auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR); \
-                if (supress_check_flag) { \
-                    return; \
-                }
 
 
 	template<typename TPtr>
@@ -286,7 +287,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		if ( parents.empty() ) {
 			return retval;
 		}
-		const auto num_parents = parents.size();
+		IF_DEBUG(const auto num_parents = parents.size();)
 		const ContainingElementT* ST = parents[0].template get<ContainingElementT>();
 		if (ST) {
 			retval = clang::dyn_cast<const ContainingElementT>(ST);
@@ -746,6 +747,23 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		return retval;
 	}
 
+	/* If qtype refers to a typedef, then we'll return a qtype that refers to the definition
+	in the typedef. */
+	inline auto definition_qtype(clang::QualType qtype) {
+		while (llvm::isa<const clang::TypedefType>(qtype)) {
+			auto TDT = llvm::cast<const clang::TypedefType>(qtype);
+			if (TDT) {
+				auto TDND = TDT->getDecl();
+				if (TDND) {
+					qtype = TDND->getUnderlyingType();
+					IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+					int q = 5;
+				} else { assert(false); }
+			} else { assert(false); }
+		}
+		return qtype;
+	}
+
 	inline bool is_char_or_const_char(const clang::QualType& qtype) {
 		bool retval = false;
 		static const std::string char_str = "char";
@@ -784,12 +802,212 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		return retval;
 	}
 
+	class CRegionAndElementSet : public COrderedRegionSet {
+	public:
+		typedef COrderedRegionSet base_class;
+		using base_class::base_class;
+
+		bool contains(const clang::SourceRange& SR) const {
+			return base_class::contains(SR);
+		}
+		template <typename NodeT>
+		bool contains(NodeT* NodePtr, clang::ASTContext& context) const {
+			if (!NodePtr) {
+				return false;
+			}
+			NodeT const * NodeConstPtr = NodePtr;
+			auto maybe_dyn_typed_node = std::optional(clang::ast_type_traits::DynTypedNode::create(*NodeConstPtr));
+			while (maybe_dyn_typed_node.has_value()) {
+				const auto& dyn_typed_node_cref = maybe_dyn_typed_node.value();
+				{
+					auto it = m_dyn_type_nodes.find(dyn_typed_node_cref);
+					if (m_dyn_type_nodes.end() != it) {
+						return true;
+					}
+				}
+
+				const auto& parents = context.getParents(dyn_typed_node_cref);
+				if (parents.empty()) {
+					return false;
+				} else {
+					IF_DEBUG(const auto num_parents = parents.size();)
+					maybe_dyn_typed_node = parents[0];
+				}
+			}
+			return false;
+		}
+		auto insert(const base_class::value_type& x) {
+			return base_class::insert(x);
+		}
+		template <typename NodeT>
+		auto insert(NodeT* NodePtr) {
+			if (!NodePtr) {
+				return std::pair{ m_dyn_type_nodes.end(), false };
+			}
+			NodeT const * NodeConstPtr = NodePtr;
+			auto dyn_typed_node = clang::ast_type_traits::DynTypedNode::create(*NodeConstPtr);
+			auto retval = m_dyn_type_nodes.insert(dyn_typed_node);
+
+			auto element_id = static_cast<const void*>(NodePtr);
+			m_element_ids.insert(element_id);
+
+			return retval;
+		}
+
+		std::set<clang::ast_type_traits::DynTypedNode> m_dyn_type_nodes;
+		std::set<const void*> m_element_ids;
+	};
+	class CSuppressCheckRegionSet : public CRegionAndElementSet {
+	public:
+		typedef CRegionAndElementSet base_class;
+		using base_class::base_class;
+
+		bool contains(const clang::SourceRange& SR) const {
+			return base_class::contains(SR);
+		}
+		/* This function determines whether the given ast node is "contained" in the set of nodes to which
+		a "suppress check" directive applies. That is, whether it, or any of its ancestors, are immediately
+		preceded by a "suppress check" directive. */
+		template <typename NodeT>
+		bool contains(NodeT* NodePtr, clang::Rewriter &Rewrite, clang::ASTContext& context) const {
+			if (!NodePtr) {
+				return false;
+			}
+			IF_DEBUG(auto or_set_size = (*this).size());
+			IF_DEBUG(auto dtn_set_size = (*this).m_dyn_type_nodes.size());
+			NodeT const * NodeConstPtr = NodePtr;
+			auto maybe_dyn_typed_node = std::optional(clang::ast_type_traits::DynTypedNode::create(*NodeConstPtr));
+			while (maybe_dyn_typed_node.has_value()) {
+				const auto& dyn_typed_node_cref = maybe_dyn_typed_node.value();
+				if (false) {
+					/* We're not using the m_dyn_type_nodes at the moment because they don't seem to
+					remain consistent across ast passes. */
+					auto it = m_dyn_type_nodes.find(dyn_typed_node_cref);
+					if (m_dyn_type_nodes.end() != it) {
+						return true;
+					}
+				}
+
+				const clang::Stmt* node_ST = dyn_typed_node_cref.template get<clang::Stmt>();
+				const clang::Decl* node_D = dyn_typed_node_cref.template get<clang::Decl>();
+				if (node_ST || node_D) {
+					auto node_rawSR = node_ST ? node_ST->getSourceRange() : node_D->getSourceRange();
+					auto ISR = instantiation_source_range(node_rawSR, Rewrite);
+
+					/* The "contains(const clang::SourceRange&) method checks whether the given range is
+					"contained" by the set of ranges (or "regions") under a "suppress check" directive.
+
+					If it were the case that the source range of an element were always a (not necessarily
+					proper) superset the ranges of its child elements, then checking the (ranges of)
+					ancestor elements (as we do in this function) would be redundant. While this is
+					usually the case, it may not always be the case when macros are involved. */
+					if ((*this).contains(ISR)) {
+						return true;
+					}
+				}
+
+				const auto& parents = context.getParents(dyn_typed_node_cref);
+				if (parents.empty()) {
+					return false;
+				} else {
+					IF_DEBUG(const auto num_parents = parents.size();)
+
+					if (false) {
+						/* This code checks whether the node in question is (immediately) preceded by an element
+						that indicates that checks (and code conversion) should be suppressed for the element in
+						question (and any of its descendants).
+						Currently we don't use this code, as we already checked the node against a set of stored
+						source ranges of "check suppressed" elements. That check is much more efficient, but may
+						or may not be completely reliable. */
+						const clang::CompoundStmt* parent_CST = parents[0].template get<clang::CompoundStmt>();
+						if (node_ST) {
+							if (parent_CST && (parent_CST->child_begin() != parent_CST->child_end())) {
+								decltype(*parent_CST->child_begin()) previous_child = nullptr;
+								for (auto child_iter = parent_CST->child_begin(); child_iter != parent_CST->child_end(); child_iter++) {
+									if (nullptr != (*child_iter)) {
+										if (node_ST == (*child_iter)) {
+											break;
+										}
+										previous_child = (*child_iter);
+									} else { assert(false); }
+								}
+								if (previous_child) {
+									if (llvm::isa<clang::CallExpr>(previous_child)) {
+										auto CE = llvm::cast<clang::CallExpr>(previous_child);
+										if (CE) {
+											auto function_decl = CE->getDirectCallee();
+											auto num_args = CE->getNumArgs();
+											//assert(0 == num_args);
+											if (function_decl) {
+												IF_DEBUG(std::string function_name = function_decl->getNameAsString();)
+												std::string qualified_function_name = function_decl->getQualifiedNameAsString();
+												DECLARE_CACHED_CONST_STRING(suppress_check_directive_str, mse_namespace_str() + "::rsv::suppress_check_directive");
+												if (suppress_check_directive_str == qualified_function_name) {
+													return true;
+												}
+											}
+										} else { assert(false); }
+									}
+								}
+							}
+						} else if (node_D) {
+							auto decl_context = node_D->getDeclContext();
+							if (decl_context && (decl_context->decls_begin() != decl_context->decls_end())) {
+								const clang::Decl* previous_child = nullptr;
+								for (auto child_iter = decl_context->decls_begin(); child_iter != decl_context->decls_end(); child_iter++) {
+									if (nullptr != (*child_iter)) {
+										if (node_D == (*child_iter)) {
+											break;
+										}
+										previous_child = (*child_iter);
+									} else {
+										assert(false);
+									}
+								}
+								if (previous_child && llvm::isa<clang::DeclaratorDecl>(previous_child)) {
+									auto previous_child_DD = llvm::cast<clang::DeclaratorDecl>(previous_child);
+									auto previous_child_DD_qtype = previous_child_DD->getType();
+									IF_DEBUG(auto previous_child_DD_qtype_str = previous_child_DD_qtype.getAsString();)
+									IF_DEBUG(std::string previous_child_DD_qtype_type_class_name = previous_child_DD_qtype->getTypeClassName();)
+									auto previous_child_DD_definition_qtype = definition_qtype(previous_child_DD->getType());
+									IF_DEBUG(auto previous_child_DD_definition_qtype_str = previous_child_DD_definition_qtype.getAsString();)
+									IF_DEBUG(std::string previous_child_DD_definition_qtype_type_class_name = previous_child_DD_definition_qtype->getTypeClassName();)
+
+									std::string method_name;
+									if (llvm::isa<clang::FunctionDecl>(previous_child_DD)) {
+										auto FND = llvm::cast<clang::FunctionDecl>(previous_child_DD);
+										if (FND) {
+											method_name = FND->getNameAsString();
+										} else { assert(false); }
+									} else if (llvm::isa<clang::CXXMethodDecl>(previous_child_DD)) {
+										auto FND = llvm::cast<clang::CXXMethodDecl>(previous_child_DD);
+										if (FND) {
+											method_name = FND->getNameAsString();
+										} else { assert(false); }
+									}
+									static const std::string suppress_checks_prefix = "mse_suppress_check_directive";
+									if (suppress_checks_prefix == method_name.substr(0, suppress_checks_prefix.length())) {
+										return true;
+									}
+									int q = 5;
+								}
+							}
+						}
+					}
+
+					maybe_dyn_typed_node = parents[0];
+				}
+			}
+			return false;
+		}
+	};
+
 
 	class CCommonTUState1 {
 	public:
 		/* This container holds the locations of regions of code for which checking is
 		(indicated to be) suppressed. */
-		COrderedRegionSet m_suppress_check_region_set;
+		CSuppressCheckRegionSet m_suppress_check_region_set;
 
 		/* Preprocessor symbols of interested. */
 		bool m_MSE_SCOPEPOINTER_DISABLED_defined = false;

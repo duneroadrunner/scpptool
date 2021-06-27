@@ -124,23 +124,6 @@ namespace convm1 {
 		return qtype;
 	}
 
-	/* If qtype refers to a typedef, then we'll return a qtype that refers to the definition
-	in the typedef. */
-	inline auto definition_qtype(clang::QualType qtype) {
-		while (llvm::isa<const clang::TypedefType>(qtype)) {
-			auto TDT = llvm::cast<const clang::TypedefType>(qtype);
-			if (TDT) {
-				auto TDND = TDT->getDecl();
-				if (TDND) {
-					qtype = TDND->getUnderlyingType();
-					IF_DEBUG(std::string qtype_str = qtype.getAsString();)
-					int q = 5;
-				} else { assert(false); }
-			} else { assert(false); }
-		}
-		return qtype;
-	}
-
 	/* If typeLoc refers to a typedef, then we'll return a TypeLoc that refers to the definition
 	in the typedef. */
 	inline auto definition_TypeLoc(clang::TypeLoc typeLoc) {
@@ -1095,7 +1078,7 @@ namespace convm1 {
 			IF_DEBUG(std::string debug_source_location5_str = SPSL.printToString(SM);)
 			//IF_DEBUG(std::string text51 = Rewrite.getRewrittenText({SPSL, SPSLE});)
 
-			if (std::string::npos != debug_source_location5_str.find("png.c:4214:")) {
+			if (std::string::npos != debug_source_location5_str.find("png.h:99999:")) {
 				int q = 5;
 			}
 			if (std::string::npos != debug_source_location5_str.find("png.h:925:")) {
@@ -1152,7 +1135,7 @@ namespace convm1 {
 			IF_DEBUG(std::string debug_SPSLE_str = SPSLE.printToString(SM);)
 			IF_DEBUG(std::string debug_SPSLE_token_str = Rewrite.getRewrittenText({SPSLE, SPSLE});)
 
-			if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+			if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 				int q = 5;
 			}
 			if (std::string::npos != debug_source_location_str.find("png.h:925:")) {
@@ -2567,7 +2550,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, parens_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+						if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 							int q = 5;
 						}
 					}
@@ -2646,7 +2629,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+			if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 				int q = 5;
 			}
 		}
@@ -3189,7 +3172,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+						if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 							int q = 5;
 						}
 					}
@@ -4377,14 +4360,14 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+		if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
 
-		auto ISR = instantiation_source_range(DD->getSourceRange(), Rewrite);
-		auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
-		if (supress_check_flag) {
+		auto suppress_check_flag = false /*state1.m_suppress_check_region_set.contains(DD, *(MR.Context))*/;
+		//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+		if (suppress_check_flag) {
 			return;
 		}
 
@@ -4411,7 +4394,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(l_debug_source_text, return_type_source_range, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != l_debug_source_location_str.find("png.c:4214:")) {
+				if (std::string::npos != l_debug_source_location_str.find("png.h:99999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -4551,7 +4534,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+		if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -4599,6 +4582,7 @@ namespace convm1 {
 	}
 
 	static void update_declaration(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1, apply_to_redeclarations_t apply_to_redeclarations = apply_to_redeclarations_t::yes, std::string options_str = "");
+	static void update_declaration_if_not_suppressed(const DeclaratorDecl& ddecl, Rewriter &Rewrite, clang::ASTContext& context, CTUState& state1, apply_to_redeclarations_t apply_to_redeclarations = apply_to_redeclarations_t::yes, std::string options_str = "");
 
 	/* Ensure that all the (re)declarations of the same variable are the same type. */
 	void homogenize_redeclaration_types(const clang::DeclaratorDecl* ddecl_cptr, CTUState& state1, Rewriter &Rewrite, int ttl = -1) {
@@ -4614,7 +4598,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+		if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -4721,6 +4705,22 @@ namespace convm1 {
 		const DeclaratorDecl* DD = &ddecl;
 		auto SR = rewritable_source_range(cm1_adj_nice_source_range(DD->getSourceRange(), state1, Rewrite));
 
+		auto& SM = Rewrite.getSourceMgr();
+
+		IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
+
+		if (filtered_out_by_location(SM, SR.getBegin())) {
+			return void();
+		}
+
+		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+#ifndef NDEBUG
+		if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+			int q = 5;
+		}
+#endif /*!NDEBUG*/
+
 		QualType QT = DD->getType();
 		const clang::Type* TP = QT.getTypePtr();
 		IF_DEBUG(auto qtype_str = QT.getAsString();)
@@ -4747,6 +4747,11 @@ namespace convm1 {
 
 		if (apply_to_redeclarations_t::yes == apply_to_redeclarations) {
 			homogenize_redeclaration_types(&ddecl, state1, Rewrite);
+		}
+	}
+	static void update_declaration_if_not_suppressed(const DeclaratorDecl& ddecl, Rewriter &Rewrite, clang::ASTContext& context, CTUState& state1, apply_to_redeclarations_t apply_to_redeclarations/* = apply_to_redeclarations_t::yes*/, std::string options_str/* = ""*/) {
+		if (!state1.m_suppress_check_region_set.contains(&ddecl, Rewrite, context)) {
+			update_declaration(ddecl, Rewrite, state1, apply_to_redeclarations, options_str);
 		}
 	}
 
@@ -5103,7 +5108,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+		if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -6128,7 +6133,6 @@ namespace convm1 {
 		}
 	}
 
-
 	/**********************************************************************************************************************/
 
 	class MCSSSRecordDecl : public MatchFinder::MatchCallback
@@ -6156,9 +6160,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(RD->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(RD, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -6345,14 +6349,14 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
 
-				auto ISR = instantiation_source_range(DD->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(DD, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -6386,7 +6390,7 @@ namespace convm1 {
 						}
 
 						if (rhs_res2.ddecl_cptr && rhs_res2.update_declaration_flag) {
-							update_declaration(*(rhs_res2.ddecl_cptr), Rewrite, m_state1);
+							update_declaration_if_not_suppressed(*(rhs_res2.ddecl_cptr), Rewrite, *(MR.Context), m_state1);
 						}
 
 						if ((nullptr != CCE) && (rhs_res2.ddecl_conversion_state_ptr)) {
@@ -6435,7 +6439,7 @@ namespace convm1 {
 												(*rhs_res2.ddecl_conversion_state_ptr).m_current_initialization_expr_str.replace(void_pos, void_str.length(), direct_rhs_qtype_str);
 											}
 
-											update_declaration(*(rhs_res2.ddecl_cptr), Rewrite, m_state1);
+											update_declaration_if_not_suppressed(*(rhs_res2.ddecl_cptr), Rewrite, *(MR.Context), m_state1);
 										}
 									} else {
 										if (ConvertToSCPP) {
@@ -6522,7 +6526,7 @@ namespace convm1 {
 						}
 					}
 
-					update_declaration(*DD, Rewrite, m_state1);
+					update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), m_state1);
 				}
 			}
 		}
@@ -6558,14 +6562,14 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
 
-				auto ISR = instantiation_source_range(DRE->getSourceRange(), Rewrite);
-				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(DRE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -6605,7 +6609,7 @@ namespace convm1 {
 					auto res2 = infer_array_type_info_from_stmt(*E, "pointer arithmetic", state1, DD);
 
 					if (res2.update_declaration_flag) {
-						update_declaration(*DD, Rewrite, state1);
+						update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), state1);
 					}
 				}
 			}
@@ -6664,9 +6668,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(E->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(E, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -6716,14 +6720,14 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
 
-				auto ISR = instantiation_source_range(DRE->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(DRE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -6783,7 +6787,7 @@ namespace convm1 {
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 #ifndef NDEBUG
-					if (std::string::npos != decl_debug_source_location_str.find("png.c:4214:")) {
+					if (std::string::npos != decl_debug_source_location_str.find("png.h:99999:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -6857,7 +6861,7 @@ namespace convm1 {
 
 					m_state1.m_pointer_target_contingent_replacement_map.do_and_dispose_matching_replacements(m_state1, CDDeclIndirection(*ddcs_ref.m_ddecl_cptr, target_indirection_index));
 
-					update_declaration(*ddcs_ref.m_ddecl_cptr, Rewrite, m_state1);
+					update_declaration_if_not_suppressed(*ddcs_ref.m_ddecl_cptr, Rewrite, *(MR.Context), m_state1);
 
 					//homogenize_redeclaration_types(ddcs_ref.m_ddecl_cptr, m_state1, Rewrite);
 				}
@@ -6895,9 +6899,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(BO->getSourceRange(), Rewrite);
-				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(BO, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -6937,7 +6941,7 @@ namespace convm1 {
 						}
 
 						if (res2.update_declaration_flag) {
-							update_declaration(*DD, Rewrite, state1);
+							update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), state1);
 						}
 
 						const clang::Type* lhs_TP = lhs_QT.getTypePtr();
@@ -7048,9 +7052,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(BO->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(BO, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -7092,9 +7096,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(DS->getSourceRange(), Rewrite);
-				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(DS, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -7261,9 +7265,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(DS->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(DS, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -7311,9 +7315,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(DS->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(DS, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -7448,9 +7452,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -7477,7 +7481,7 @@ namespace convm1 {
 								bool arg_is_an_indirect_type = is_an_indirect_type(ARG->getType());
 
 								if (arg_res2.update_declaration_flag) {
-									update_declaration(*(arg_res2.ddecl_cptr), Rewrite, state1);
+									update_declaration_if_not_suppressed(*(arg_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 								}
 
 								auto arg_QT = ARG->getType();
@@ -7568,9 +7572,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -7596,7 +7600,7 @@ namespace convm1 {
 								bool arg_is_an_indirect_type = is_an_indirect_type(ARG->getType());
 
 								if (arg_res2.update_declaration_flag) {
-									update_declaration(*(arg_res2.ddecl_cptr), Rewrite, m_state1);
+									update_declaration_if_not_suppressed(*(arg_res2.ddecl_cptr), Rewrite, *(MR.Context), m_state1);
 								}
 
 								auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
@@ -7656,9 +7660,9 @@ namespace convm1 {
 				}
 #endif /*!NDEBUG*/
 
-				auto ISR = instantiation_source_range(BO->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(BO, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -7674,7 +7678,7 @@ namespace convm1 {
 						bool lhs_is_an_indirect_type = is_an_indirect_type(LHS->getType());
 
 						if (lhs_res2.update_declaration_flag) {
-							update_declaration(*(lhs_res2.ddecl_cptr), Rewrite, m_state1);
+							update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), m_state1);
 						}
 
 						auto lhs_QT = LHS->getType();
@@ -7756,9 +7760,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(BO->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(BO, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -7774,7 +7778,7 @@ namespace convm1 {
 						bool lhs_is_an_indirect_type = is_an_indirect_type(LHS->getType());
 
 						if (lhs_res2.update_declaration_flag) {
-							update_declaration(*(lhs_res2.ddecl_cptr), Rewrite, m_state1);
+							update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), m_state1);
 						}
 
 						auto lhs_QT = LHS->getType();
@@ -7862,9 +7866,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -7916,9 +7920,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -7971,9 +7975,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -8029,9 +8033,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -8094,9 +8098,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(DS->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(DS, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -8145,10 +8149,10 @@ namespace convm1 {
 				bool rhs_qualifies = false;
 
 				if (lhs_res2.ddecl_cptr && lhs_res2.update_declaration_flag) {
-					update_declaration(*(lhs_res2.ddecl_cptr), Rewrite, m_state1);
+					update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), m_state1);
 				}
 				if (rhs_res2.ddecl_cptr && rhs_res2.update_declaration_flag) {
-					update_declaration(*(rhs_res2.ddecl_cptr), Rewrite, m_state1);
+					update_declaration_if_not_suppressed(*(rhs_res2.ddecl_cptr), Rewrite, *(MR.Context), m_state1);
 				}
 
 				{
@@ -8453,10 +8457,10 @@ namespace convm1 {
 			}
 
 			if (lhs_res2.ddecl_cptr && lhs_res2.update_declaration_flag) {
-				update_declaration(*(lhs_res2.ddecl_cptr), Rewrite, state1);
+				update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 			}
 			if (rhs_res2.ddecl_cptr && rhs_res2.update_declaration_flag) {
-				update_declaration(*(rhs_res2.ddecl_cptr), Rewrite, state1);
+				update_declaration_if_not_suppressed(*(rhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 			}
 
 			auto rhsii_EX = RHS->IgnoreParenImpCasts();
@@ -8620,7 +8624,7 @@ namespace convm1 {
 							auto lhs_pointee_qtype = lhs_pointee_maybe_qtype.value();
 							if (lhs_pointee_qtype->isFunctionType()) {
 								lhs_direct_type_state_ref.m_function_decl_ptr = rhs_FND;
-								update_declaration(*(lhs_res2.ddecl_cptr), Rewrite, state1);
+								update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 							} else {
 								int q = 5;
 							}
@@ -8631,7 +8635,7 @@ namespace convm1 {
 						auto& lhs_pointee_indirection_state_ref = lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.at(lhs_res2.indirection_level + 1);
 						if (lhs_pointee_indirection_state_ref.m_current_is_function_type) {
 							lhs_pointee_indirection_state_ref.m_function_decl_ptr = rhs_FND;
-							update_declaration(*(lhs_res2.ddecl_cptr), Rewrite, state1);
+							update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 						} else {
 							int q = 5;
 						}
@@ -8674,16 +8678,16 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
 
-				auto ISR = BO ? instantiation_source_range(BO->getSourceRange(), Rewrite) :
-							VD ? instantiation_source_range(VD->getSourceRange(), Rewrite) :
-							instantiation_source_range(LHS->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = BO ? m_state1.m_suppress_check_region_set.contains(BO, Rewrite, *(MR.Context)) :
+							VD ? m_state1.m_suppress_check_region_set.contains(VD, Rewrite, *(MR.Context)) :
+							m_state1.m_suppress_check_region_set.contains(LHS, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
  
@@ -8719,14 +8723,14 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
 
-				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -8756,7 +8760,7 @@ namespace convm1 {
 					}
 
 					if (ends_with_free || seems_to_be_some_kind_of_malloc_or_realloc
-						|| is_memcpy || is_memcmp || is_memset/* || begins_with__builtin_*/) {
+						|| is_memcpy || is_memcmp || is_memset || begins_with__builtin_) {
 						return;
 					} else if (FD_is_non_modifiable) {
 						for (size_t arg_index = 0; (CE->getNumArgs() > arg_index) && (function_decl1->getNumParams() > arg_index); arg_index += 1) {
@@ -8970,14 +8974,14 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
 
-				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -9108,9 +9112,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(FND->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(FND, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -9169,7 +9173,7 @@ namespace convm1 {
 
 					auto rhs_res2 = infer_array_type_info_from_stmt(*(retval_EX), "", (*this).m_state1);
 					if (rhs_res2.ddecl_cptr && rhs_res2.update_declaration_flag) {
-						update_declaration(*(rhs_res2.ddecl_cptr), Rewrite, m_state1);
+						update_declaration_if_not_suppressed(*(rhs_res2.ddecl_cptr), Rewrite, *(MR.Context), m_state1);
 					}
 
 					auto function_decls_range = function_decl1->redecls();
@@ -9185,7 +9189,7 @@ namespace convm1 {
 						assert(lhs_is_an_indirect_type == rhs_is_an_indirect_type);
 
 						if (ddcs_ref.m_ddecl_cptr && update_declaration_flag) {
-							update_declaration(*(ddcs_ref.m_ddecl_cptr), Rewrite, m_state1);
+							update_declaration_if_not_suppressed(*(ddcs_ref.m_ddecl_cptr), Rewrite, *(MR.Context), m_state1);
 						}
 
 						if (rhs_res3.without_leading_addressof_operator_expr_cptr) {
@@ -9346,9 +9350,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -9435,7 +9439,7 @@ namespace convm1 {
 									res2 = infer_array_type_info_from_stmt(*(*(CE->arg_begin())), "memset/cpy target", state1, DD);
 
 									if (res2.update_declaration_flag) {
-										update_declaration(*DD, Rewrite, state1);
+										update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), state1);
 									}
 								}
 
@@ -9520,9 +9524,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -9577,9 +9581,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -9666,7 +9670,7 @@ namespace convm1 {
 									res2 = infer_array_type_info_from_stmt(*(*(CE->arg_begin())), "memset/cpy target", state1, DD);
 
 									if (res2.update_declaration_flag) {
-										update_declaration(*DD, Rewrite, state1);
+										update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), state1);
 									}
 								}
 
@@ -9757,9 +9761,9 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -9846,14 +9850,14 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
 
-				auto DISR = instantiation_source_range(D->getSourceRange(), Rewrite);
-				auto supress_check_flag = state1.m_suppress_check_region_set.contains(DISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(D, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -10020,7 +10024,7 @@ namespace convm1 {
 												ddcs_ref.m_initializer_SR_or_insert_before_point = ddcs_ref.m_ddecl_cptr->getSourceRange().getEnd().getLocWithOffset(+1);
 											}
 
-											update_declaration(*l_DD, Rewrite, state1);
+											update_declaration_if_not_suppressed(*l_DD, Rewrite, *(MR.Context), state1);
 										}
 									} else {
 										/* todo: emit error that (uninitialized) 'extern' variables
@@ -10094,7 +10098,7 @@ namespace convm1 {
 												ddcs_ref.m_initializer_SR_or_insert_before_point = ddcs_ref.m_ddecl_cptr->getSourceRange().getEnd().getLocWithOffset(+1);
 											}
 
-											update_declaration(*l_DD, Rewrite, state1);
+											update_declaration_if_not_suppressed(*l_DD, Rewrite, *(MR.Context), state1);
 										}
 									}
 								}
@@ -10305,13 +10309,13 @@ namespace convm1 {
 								std::string tmp_str = ddcs_ref.current_direct_qtype_str();
 								replace_whole_instances_of_given_string(tmp_str, unsupported_element_encounterred.m_element_type_name, unsupported_element_encounterred.m_replacement_element_type_name);
 								ddcs_ref.set_current_direct_non_function_qtype_str(tmp_str);
-								update_declaration(*DD, Rewrite, state1);
+								update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), state1);
 							}
 						}
 					}
 
 					if (update_declaration_flag) {
-						update_declaration(*DD, Rewrite, state1);
+						update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), state1);
 					}
 				} else {
 					auto NAD = dyn_cast<const NamespaceAliasDecl>(D);
@@ -10357,17 +10361,17 @@ namespace convm1 {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
 
-				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
-
-				auto DISR = instantiation_source_range(D->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(DISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(D, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -10413,7 +10417,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 					int q = 5;
 				}
 				if (std::string::npos != debug_source_text.find("png_malloc")) {
@@ -10421,9 +10425,9 @@ namespace convm1 {
 				}
 #endif /*!NDEBUG*/
 
-				auto ISR = instantiation_source_range(E->getSourceRange(), Rewrite);
-				auto supress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(E, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -10544,14 +10548,14 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
 
-				auto ISR = instantiation_source_range(E->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(E, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -10590,14 +10594,14 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
 
-				auto RDISR = instantiation_source_range(RD->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(RDISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(RD, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -10699,7 +10703,7 @@ namespace convm1 {
 										auto ddcs_map_iter = res1.first;
 										auto& ddcs_ref = (*ddcs_map_iter).second;
 
-										update_declaration(*l_DD, Rewrite, m_state1);
+										update_declaration_if_not_suppressed(*l_DD, Rewrite, *(MR.Context), m_state1);
 									}
 
 								}
@@ -11073,11 +11077,25 @@ namespace convm1 {
 	CMultiTUState Misc1::s_multi_tu_state;
 	int Misc1::s_current_tu_num = 0;
 
+
 	/**********************************************************************************************************************/
-	class MyASTConsumer : public ASTConsumer {
+
+	/* The number of parameters ASTFrontendAction::BeginSourceFileAction() has depends
+	* on the version of the llvm library being used. Using ASTFrontendActionCompatibilityWrapper1
+	* in place of ASTFrontendAction insulates you from this difference based on the
+	* library version being used. */
+	class ASTFrontendActionCompatibilityWrapper1 : public ASTFrontendAction {
+	public:
+		virtual bool BeginSourceFileAction(CompilerInstance &ci) = 0;
+		virtual bool BeginSourceFileAction(CompilerInstance &ci, StringRef) {
+			return BeginSourceFileAction(ci);
+		}
+	};
+
+	class MyASTConsumerPass1 : public ASTConsumer {
 
 	public:
-	MyASTConsumer(Rewriter &R, CompilerInstance &CI, CTUState &tu_state_param) : m_tu_state_ptr(&tu_state_param),
+	MyASTConsumerPass1(Rewriter &R, CompilerInstance &CI, CTUState &tu_state_param) : m_tu_state_ptr(&tu_state_param),
 		HandlerForSSSExprUtil(R, tu_state()), HandlerForSSSRecordDecl(R, tu_state()), HandlerForSSSVarDecl2(R, tu_state()), 
 		HandlerForSSSPointerArithmetic2(R, tu_state()), HandlerForSSSNullToPointer(R, tu_state()), HandlerForSSSMalloc2(R, tu_state()),
 		HandlerForSSSMallocInitializer2(R, tu_state()), HandlerForSSSNullInitializer(R, tu_state()), HandlerForSSSFree2(R, tu_state()),
@@ -11388,11 +11406,11 @@ namespace convm1 {
 		bool m_beginning_of_file_loc_is_valid = false;
 	};
 
-	class MyPPCallbacks : public PPCallbacks
+	class MyPPCallbacksPass1 : public PPCallbacks
 	{
 	public:
-		MyPPCallbacks(Rewriter& Rewriter_ref, CompilerInstance &CI_ref, CTUState &tu_state_param) : m_tu_state_ptr(&tu_state_param), m_Rewriter_ref(Rewriter_ref), CI(CI_ref) {}
-		~MyPPCallbacks() {
+		MyPPCallbacksPass1(Rewriter& Rewriter_ref, CompilerInstance &CI_ref, CTUState &tu_state_param) : m_tu_state_ptr(&tu_state_param), m_Rewriter_ref(Rewriter_ref), CI(CI_ref) {}
+		~MyPPCallbacksPass1() {
 			int q = 5;
 		}
 
@@ -11577,18 +11595,6 @@ namespace convm1 {
 	CompilerInstance &CI;
 	};
 
-	/* The number of parameters ASTFrontendAction::BeginSourceFileAction() has depends
-	* on the version of the llvm library being used. Using ASTFrontendActionCompatibilityWrapper1
-	* in place of ASTFrontendAction insulates you from this difference based on the
-	* library version being used. */
-	class ASTFrontendActionCompatibilityWrapper1 : public ASTFrontendAction {
-	public:
-		virtual bool BeginSourceFileAction(CompilerInstance &ci) = 0;
-		virtual bool BeginSourceFileAction(CompilerInstance &ci, StringRef) {
-			return BeginSourceFileAction(ci);
-		}
-	};
-
 	struct CFileConversionRecord {
 	public:
 		std::string m_path;
@@ -11599,19 +11605,21 @@ namespace convm1 {
 
 	thread_local std::vector<CTUState> g_prepared_initial_tu_states;
 
-	class MyFrontendAction : public ASTFrontendActionCompatibilityWrapper1
+	class MyFrontendActionPass1 : public ASTFrontendActionCompatibilityWrapper1
 	{
 	public:
-		MyFrontendAction() {
-			if (1 > g_prepared_initial_tu_states.size()) {
-				//assert(false);
-			} else {
-				/* Initialize the "state" with information computed in the "checker" pass. */
-				(*this).m_tu_state = g_prepared_initial_tu_states.back();
-				g_prepared_initial_tu_states.pop_back();
+		MyFrontendActionPass1() {
+			if (true) {
+				if (1 > g_prepared_initial_tu_states.size()) {
+					//assert(false);
+				} else {
+					/* Initialize the "state" with information computed in the "checker" pass. */
+					(*this).m_tu_state = g_prepared_initial_tu_states.back();
+					g_prepared_initial_tu_states.pop_back();
+				}
 			}
 		}
-		~MyFrontendAction() {
+		~MyFrontendActionPass1() {
 			if (ConvertToSCPP) {
 				auto res = overwriteChangedFiles();
 				int q = 5;
@@ -11620,7 +11628,7 @@ namespace convm1 {
 
 		bool BeginSourceFileAction(CompilerInstance &ci) override {
 			s_source_file_action_num += 1;
-			std::unique_ptr<MyPPCallbacks> my_pp_callbacks_ptr(new MyPPCallbacks(TheRewriter, ci, (*this).m_tu_state));
+			std::unique_ptr<MyPPCallbacksPass1> my_pp_callbacks_ptr(new MyPPCallbacksPass1(TheRewriter, ci, (*this).m_tu_state));
 			auto my_pp_callbacks_rawptr = my_pp_callbacks_ptr.get();
 			m_callbacks_stack.push_back(my_pp_callbacks_rawptr);
 
@@ -11657,7 +11665,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+					if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -11704,7 +11712,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+					if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -11729,7 +11737,7 @@ namespace convm1 {
 						IF_DEBUG(std::string l_debug_source_location_str = direct_qtype_SR.getBegin().printToString(SM);)
 						DEBUG_SOURCE_TEXT_STR(l_debug_source_text, direct_qtype_SR, Rewrite);
 #ifndef NDEBUG
-						if (std::string::npos != l_debug_source_location_str.find("png.c:4214:")) {
+						if (std::string::npos != l_debug_source_location_str.find("png.h:99999:")) {
 							int q = 5;
 						}
 #endif /*!NDEBUG*/
@@ -11807,7 +11815,7 @@ namespace convm1 {
 							IF_DEBUG(std::string l_debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(l_debug_source_text, definition_SR, Rewrite);
 #ifndef NDEBUG
-							if (std::string::npos != l_debug_source_location_str.find("png.c:4214:")) {
+							if (std::string::npos != l_debug_source_location_str.find("png.h:99999:")) {
 								thread_local int tl_count = 0;
 								tl_count += 1;
 								if (!string_begins_with(l_debug_source_text, "void")) {
@@ -11847,7 +11855,7 @@ namespace convm1 {
 									IF_DEBUG(std::string l_debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(l_debug_source_text, *suffix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != l_debug_source_location_str.find("png.c:4214:")) {
+									if (std::string::npos != l_debug_source_location_str.find("png.h:99999:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
@@ -11884,7 +11892,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find("png.c:4214:")) {
+									if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
@@ -11944,7 +11952,7 @@ namespace convm1 {
 			{
 				clang::CompilerInstance &ci = getCompilerInstance();
 				clang::Preprocessor &pp = ci.getPreprocessor();
-				//MyPPCallbacks *my_pp_callbacks_ptr = static_cast<MyPPCallbacks *>(pp.getPPCallbacks());
+				//MyPPCallbacksPass1 *my_pp_callbacks_ptr = static_cast<MyPPCallbacksPass1 *>(pp.getPPCallbacks());
 				auto pp_callbacks_ptr = pp.getPPCallbacks();
 
 				assert(pp_callbacks_ptr);
@@ -11968,7 +11976,7 @@ namespace convm1 {
 					}
 				}
 				if (pp_callbacks_ptr) {
-					MyPPCallbacks *my_pp_callbacks_ptr = static_cast<MyPPCallbacks *>(pp_callbacks_ptr);
+					MyPPCallbacksPass1 *my_pp_callbacks_ptr = static_cast<MyPPCallbacksPass1 *>(pp_callbacks_ptr);
 
 					for (auto& item_ref : my_pp_callbacks_ptr->m_first_include_info_map) {
 						auto& fii_ref = *(item_ref.second);
@@ -12007,7 +12015,7 @@ namespace convm1 {
 
 		std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI, StringRef file) override {
 			TheRewriter.setSourceMgr(CI.getSourceManager(), CI.getLangOpts());
-			return std::make_unique<MyASTConsumer>(TheRewriter, CI, (*this).m_tu_state);
+			return std::make_unique<MyASTConsumerPass1>(TheRewriter, CI, (*this).m_tu_state);
 		}
 
 		bool overwriteChangedFiles() {
@@ -12118,8 +12126,9 @@ namespace convm1 {
 		std::vector<PPCallbacks*> m_callbacks_stack;
 		static int s_source_file_action_num;
 	};
-	int MyFrontendAction::s_source_file_action_num = 0;
-	std::map<std::string, CFileConversionRecord> MyFrontendAction::s_file_conversion_record_map;
+	int MyFrontendActionPass1::s_source_file_action_num = 0;
+	std::map<std::string, CFileConversionRecord> MyFrontendActionPass1::s_file_conversion_record_map;
+
 
 	int number_of_instances_of_mse(const std::string& str1) {
 		int mse_count = 0;
@@ -12284,7 +12293,7 @@ namespace convm1 {
 			assert(Status == 0 && "Unexpected status returned");
 		}
 
-		auto retval = Tool.run(newFrontendActionFactory<MyFrontendAction>().get());
+		auto retval = Tool.run(newFrontendActionFactory<MyFrontendActionPass1>().get());
 
 		std::cout << "\nThe specified and dependent source files will be replaced/modified. Make sure you have appropriate backup copies before proceeding. \n";
 		std::cout << "Continue [y/n]? \n";
@@ -12300,7 +12309,7 @@ namespace convm1 {
 		if (((int('y') != ich) && (int('Y') != ich)) || (DoNotReplaceOriginalSource)) {
 			std::cout << "\n\nThe original source files were not replaced/modified. \n";
 		} else {
-			for (auto& item_ref : MyFrontendAction::s_file_conversion_record_map) {
+			for (auto& item_ref : MyFrontendActionPass1::s_file_conversion_record_map) {
 				CFileConversionRecord& file_conversion_record_ref = item_ref.second;
 				const std::string& original_filename_cref = item_ref.first;
 				std::string original_pathname = file_conversion_record_ref.m_path + "/" + original_filename_cref;

@@ -69,10 +69,23 @@ std::pair<std::string, bool> exec(const char* cmd) {
 
 clang::SourceRange instantiation_source_range(const clang::SourceRange& sr, clang::Rewriter &Rewrite)
 {
+	auto& SM = Rewrite.getSourceMgr();
 	SourceLocation SL = sr.getBegin();
 	SourceLocation SLE = sr.getEnd();
-	SL = Rewrite.getSourceMgr().getFileLoc(SL);
-	SLE = Rewrite.getSourceMgr().getFileLoc(SLE);
+
+	if (false && (SL.isMacroID() && SLE.isMacroID()) && (!filtered_out_by_location(SM, SL))) {
+		if ((SM.isMacroArgExpansion(SL) || SM.isMacroBodyExpansion(SL))
+			&& (SM.isMacroArgExpansion(SLE) || SM.isMacroBodyExpansion(SLE))) {
+
+			auto SL2 = SM.getExpansionLoc(SL);
+			auto SLE2 = SM.getExpansionLoc(SLE);
+			return { SL2, SLE2 };
+		}
+	}
+
+	SL = SM.getFileLoc(SL);
+	SLE = SM.getFileLoc(SLE);
+
 	if ((SL == SLE) && (sr.getBegin() != sr.getEnd())) {
 		int q = 5;
 	}

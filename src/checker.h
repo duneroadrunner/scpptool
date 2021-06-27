@@ -115,14 +115,14 @@ namespace checker {
 
 	class CTUState : public CCommonTUState1 {
 	public:
-		/* Set of detecteed errors and warnings. */
+		/* Set of detected errors and warnings. */
 		CErrorRecords m_error_records;
 	};
 
-	class MCSSSSupressCheckDirectiveCall : public MatchFinder::MatchCallback
+	class MCSSSSuppressCheckDirectiveCall : public MatchFinder::MatchCallback
 	{
 	public:
-		MCSSSSupressCheckDirectiveCall (Rewriter &Rewrite, CTUState& state1) :
+		MCSSSSuppressCheckDirectiveCall (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
 		virtual void run(const MatchFinder::MatchResult &MR)
@@ -171,27 +171,39 @@ namespace checker {
 						if (!parent_obtained) {
 							int q = 3;
 						} else {
-							auto CEISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-							auto CEISL = CEISR.getBegin();
-							auto CEISLE = CEISR.getEnd();
+							const clang::Stmt* next_child = nullptr;
 							for (auto child_iter = ST->child_begin(); child_iter != ST->child_end(); child_iter++) {
 								if (nullptr != (*child_iter)) {
-									auto l_STISR = instantiation_source_range((*child_iter)->getSourceRange(), Rewrite);
-									DEBUG_SOURCE_LOCATION_STR(debug_source_location_str2, l_STISR, Rewrite);
-									DEBUG_SOURCE_TEXT_STR(debug_source_text2, l_STISR, Rewrite);
-									SourceLocation l_STISL = l_STISR.getBegin();
-									SourceLocation l_STISLE = l_STISR.getEnd();
-									if (CEISL == l_STISL) {
-										int q = 5;
-									}
-									if ((CEISLE < l_STISL)
-										|| ((CEISLE == l_STISL) && (CEISLE < l_STISLE))) {
-										m_state1.m_suppress_check_region_set.emplace(l_STISR);
+									if (CE == (*child_iter)) {
+										++child_iter;
+										if (child_iter != ST->child_end()) {
+											next_child = (*child_iter);
+										}
 										break;
 									}
 								} else {
 									assert(false);
 								}
+							}
+							if (next_child && llvm::isa<clang::Stmt>(next_child)) {
+								auto next_child_ST = llvm::cast<clang::Stmt>(next_child);
+								IF_DEBUG(auto next_child_ST_class_name = next_child_ST->getStmtClassName();)
+
+								auto l_ISR = instantiation_source_range(next_child_ST->getSourceRange(), Rewrite);
+								DEBUG_SOURCE_LOCATION_STR(debug_source_location_str2, l_ISR, Rewrite);
+								DEBUG_SOURCE_TEXT_STR(debug_source_text2, l_ISR, Rewrite);
+								SourceLocation l_ISL = l_ISR.getBegin();
+								SourceLocation l_ISLE = l_ISR.getEnd();
+
+	#ifndef NDEBUG
+								if (std::string::npos != debug_source_location_str2.find("png.c:99999:")) {
+									int q = 5;
+								}
+	#endif /*!NDEBUG*/
+								m_state1.m_suppress_check_region_set.emplace(l_ISR);
+								m_state1.m_suppress_check_region_set.insert(next_child_ST);
+
+								int q = 5;
 							}
 						}
 					}
@@ -205,10 +217,10 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
-	class MCSSSSupressCheckDirectiveDeclField : public MatchFinder::MatchCallback
+	class MCSSSSuppressCheckDirectiveDeclField : public MatchFinder::MatchCallback
 	{
 	public:
-		MCSSSSupressCheckDirectiveDeclField (Rewriter &Rewrite, CTUState& state1) :
+		MCSSSSuppressCheckDirectiveDeclField (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
 		virtual void run(const MatchFinder::MatchResult &MR)
@@ -230,44 +242,45 @@ namespace checker {
 				static const std::string suppress_checks_prefix = "mse_suppress_check_directive";
 				if (suppress_checks_prefix == method_name.substr(0, suppress_checks_prefix.length())) {
 					auto decl_context = CXXMD->getDeclContext();
-					if (!decl_context) {
-						assert(false);
-					} else {
-						auto CXXMDISR = instantiation_source_range(CXXMD->getSourceRange(), Rewrite);
-						auto CXXMDISL = CXXMDISR.getBegin();
-						auto CXXMDISLE = CXXMDISR.getEnd();
-
-						for (auto decl_iter = decl_context->decls_begin(); decl_iter != decl_context->decls_end(); decl_iter++) {
-							if (nullptr != (*decl_iter)) {
-								auto l_DISR = instantiation_source_range((*decl_iter)->getSourceRange(), Rewrite);
-								SourceLocation l_DISL = l_DISR.getBegin();
-								SourceLocation l_DISLE = l_DISR.getEnd();
-
-								if (filtered_out_by_location(MR, l_DISL)) {
-									continue;
-								}
-
-								std::string l_source_text;
-								if (l_DISL.isValid() && l_DISLE.isValid()) {
-									l_source_text = Rewrite.getRewrittenText(SourceRange(l_DISL, l_DISLE));
-								} else {
-									continue;
-								}
-								if ("" != l_source_text) {
-									int q = 5;
-								}
-
-								if (CXXMDISL == l_DISL) {
-									int q = 5;
-								}
-								if ((CXXMDISLE < l_DISL)
-									|| ((CXXMDISLE == l_DISL) && (CXXMDISLE < l_DISLE))) {
-									m_state1.m_suppress_check_region_set.emplace(l_DISR);
+					if (decl_context && (decl_context->decls_begin() != decl_context->decls_end())) {
+						const clang::Decl* next_child = nullptr;
+						for (auto child_iter = decl_context->decls_begin(); child_iter != decl_context->decls_end(); child_iter++) {
+							if (nullptr != (*child_iter)) {
+								if (CXXMD == (*child_iter)) {
+									++child_iter;
+									if (child_iter != decl_context->decls_end()) {
+										next_child = (*child_iter);
+									}
 									break;
 								}
 							} else {
 								assert(false);
 							}
+						}
+						if (next_child && llvm::isa<clang::DeclaratorDecl>(next_child)) {
+							auto next_child_DD = llvm::cast<clang::DeclaratorDecl>(next_child);
+							auto next_child_DD_qtype = next_child_DD->getType();
+							IF_DEBUG(auto next_child_DD_qtype_str = next_child_DD_qtype.getAsString();)
+							IF_DEBUG(std::string next_child_DD_qtype_type_class_name = next_child_DD_qtype->getTypeClassName();)
+							auto next_child_DD_definition_qtype = definition_qtype(next_child_DD->getType());
+							IF_DEBUG(auto next_child_DD_definition_qtype_str = next_child_DD_definition_qtype.getAsString();)
+							IF_DEBUG(std::string next_child_DD_definition_qtype_type_class_name = next_child_DD_definition_qtype->getTypeClassName();)
+
+							auto l_ISR = instantiation_source_range(next_child_DD->getSourceRange(), Rewrite);
+							DEBUG_SOURCE_LOCATION_STR(debug_source_location_str2, l_ISR, Rewrite);
+							DEBUG_SOURCE_TEXT_STR(debug_source_text2, l_ISR, Rewrite);
+							SourceLocation l_ISL = l_ISR.getBegin();
+							SourceLocation l_ISLE = l_ISR.getEnd();
+
+#ifndef NDEBUG
+							if (std::string::npos != debug_source_location_str2.find("png.c:99999:")) {
+								int q = 5;
+							}
+#endif /*!NDEBUG*/
+							m_state1.m_suppress_check_region_set.emplace(l_ISR);
+							m_state1.m_suppress_check_region_set.insert(next_child_DD);
+
+							int q = 5;
 						}
 					}
 				}
@@ -280,19 +293,19 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
-	class MCSSSSupressCheckDirectiveDeclGlobal : public MatchFinder::MatchCallback
+	class MCSSSSuppressCheckDirectiveDeclGlobal : public MatchFinder::MatchCallback
 	{
 	public:
-		MCSSSSupressCheckDirectiveDeclGlobal (Rewriter &Rewrite, CTUState& state1) :
+		MCSSSSuppressCheckDirectiveDeclGlobal (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
-			const clang::FunctionDecl* FD = MR.Nodes.getNodeAs<clang::FunctionDecl>("mcssssuppresscheckglobaldecl");
+			const clang::FunctionDecl* FND = MR.Nodes.getNodeAs<clang::FunctionDecl>("mcssssuppresscheckglobaldecl");
 
-			if ((FD != nullptr))
+			if ((FND != nullptr))
 			{
-				auto SR = nice_source_range(FD->getSourceRange(), Rewrite);
+				auto SR = nice_source_range(FND->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
@@ -301,47 +314,107 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto method_name = FD->getNameAsString();
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find("png.c:99999:")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
+				auto method_name = FND->getNameAsString();
 				static const std::string suppress_checks_prefix = "mse_suppress_check_directive";
 				if (suppress_checks_prefix == method_name.substr(0, suppress_checks_prefix.length())) {
-					auto decl_context = FD->getDeclContext();
-					if (!decl_context) {
-						assert(false);
-					} else {
-						auto FDISR = instantiation_source_range(FD->getSourceRange(), Rewrite);
-						auto FDISL = FDISR.getBegin();
-						auto FDISLE = FDISR.getEnd();
-
-						for (auto decl_iter = decl_context->decls_begin(); decl_iter != decl_context->decls_end(); decl_iter++) {
-							if (nullptr != (*decl_iter)) {
-								auto l_DISR = instantiation_source_range((*decl_iter)->getSourceRange(), Rewrite);
-								SourceLocation l_DISL = l_DISR.getBegin();
-								SourceLocation l_DISLE = l_DISR.getEnd();
-
-								if (filtered_out_by_location(MR, l_DISL)) {
-									continue;
-								}
-
-								std::string l_source_text;
-								if (l_DISL.isValid() && l_DISLE.isValid()) {
-									l_source_text = Rewrite.getRewrittenText(SourceRange(l_DISL, l_DISLE));
+					if (true) {
+						auto decl_context = FND->getDeclContext();
+						if (decl_context && (decl_context->decls_begin() != decl_context->decls_end())) {
+							const clang::Decl* next_child = nullptr;
+							for (auto child_iter = decl_context->decls_begin(); child_iter != decl_context->decls_end(); child_iter++) {
+								if (nullptr != (*child_iter)) {
+									if (FND == (*child_iter)) {
+										++child_iter;
+										if (child_iter != decl_context->decls_end()) {
+											next_child = (*child_iter);
+										}
+										break;
+									}
 								} else {
-									continue;
+									assert(false);
 								}
-								if ("" != l_source_text) {
-									int q = 5;
-								}
+							}
+							if (next_child && llvm::isa<clang::DeclaratorDecl>(next_child)) {
+								auto next_child_DD = llvm::cast<clang::DeclaratorDecl>(next_child);
+								auto next_child_DD_qtype = next_child_DD->getType();
+								IF_DEBUG(auto next_child_DD_qtype_str = next_child_DD_qtype.getAsString();)
+								IF_DEBUG(std::string next_child_DD_qtype_type_class_name = next_child_DD_qtype->getTypeClassName();)
+								auto next_child_DD_definition_qtype = definition_qtype(next_child_DD->getType());
+								IF_DEBUG(auto next_child_DD_definition_qtype_str = next_child_DD_definition_qtype.getAsString();)
+								IF_DEBUG(std::string next_child_DD_definition_qtype_type_class_name = next_child_DD_definition_qtype->getTypeClassName();)
 
-								if (FDISL == l_DISL) {
+								auto l_ISR = instantiation_source_range(next_child_DD->getSourceRange(), Rewrite);
+								DEBUG_SOURCE_LOCATION_STR(debug_source_location_str2, l_ISR, Rewrite);
+								DEBUG_SOURCE_TEXT_STR(debug_source_text2, l_ISR, Rewrite);
+								SourceLocation l_ISL = l_ISR.getBegin();
+								SourceLocation l_ISLE = l_ISR.getEnd();
+
+#ifndef NDEBUG
+								if (std::string::npos != debug_source_location_str2.find("png.c:99999:")) {
 									int q = 5;
 								}
-								if ((FDISLE < l_DISL)
-									|| ((FDISLE == l_DISL) && (FDISLE < l_DISLE))) {
-									m_state1.m_suppress_check_region_set.emplace(l_DISR);
-									break;
+#endif /*!NDEBUG*/
+								m_state1.m_suppress_check_region_set.emplace(l_ISR);
+								m_state1.m_suppress_check_region_set.insert(next_child_DD);
+
+								int q = 5;
+							}
+						}
+					} else {
+						auto decl_context = FND->getDeclContext();
+						if (!decl_context) {
+							assert(false);
+						} else {
+							auto FNDISR = instantiation_source_range(FND->getSourceRange(), Rewrite);
+							auto FNDISL = FNDISR.getBegin();
+							auto FNDISLE = FNDISR.getEnd();
+
+							for (auto decl_iter = decl_context->decls_begin(); decl_iter != decl_context->decls_end(); decl_iter++) {
+								if (nullptr != (*decl_iter)) {
+									auto l_ISR = instantiation_source_range((*decl_iter)->getSourceRange(), Rewrite);
+									DEBUG_SOURCE_LOCATION_STR(debug_source_location_str2, l_ISR, Rewrite);
+									DEBUG_SOURCE_TEXT_STR(debug_source_text2, l_ISR, Rewrite);
+									SourceLocation l_ISL = l_ISR.getBegin();
+									SourceLocation l_ISLE = l_ISR.getEnd();
+
+									if (filtered_out_by_location(MR, l_ISL)) {
+										continue;
+									}
+
+									std::string l_source_text;
+									if (l_ISL.isValid() && l_ISLE.isValid()) {
+										l_source_text = Rewrite.getRewrittenText(SourceRange(l_ISL, l_ISLE));
+									} else {
+										continue;
+									}
+									if ("" != l_source_text) {
+										int q = 5;
+									}
+
+									if (FNDISL == l_ISL) {
+										int q = 5;
+									}
+									if ((FNDISLE < l_ISL)
+										|| ((FNDISLE == l_ISL) && (FNDISLE < l_ISLE))) {
+
+	#ifndef NDEBUG
+										if (std::string::npos != debug_source_location_str2.find("png.c:99999:")) {
+											int q = 5;
+										}
+	#endif /*!NDEBUG*/
+										m_state1.m_suppress_check_region_set.emplace(l_ISR);
+										m_state1.m_suppress_check_region_set.insert(*decl_iter);
+										break;
+									}
+								} else {
+									assert(false);
 								}
-							} else {
-								assert(false);
 							}
 						}
 					}
@@ -410,9 +483,9 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto EXISR = instantiation_source_range(EX->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(EX, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -666,9 +739,9 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto DISR = instantiation_source_range(D->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(DISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(D, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(DISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -1144,9 +1217,9 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto DREISR = instantiation_source_range(DRE->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(DREISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(DRE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(DREISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -1226,9 +1299,9 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto STISR = instantiation_source_range(ST->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(STISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ST, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(STISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -1302,9 +1375,9 @@ namespace checker {
 					int q = 5;
 				}
 
-				auto RDISR = instantiation_source_range(RD->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(RDISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(RD, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(RDISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -1577,9 +1650,9 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto CEISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CEISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CEISR);
+				if (suppress_check_flag) {
 					return;
 				}
 				auto function_decl = CE->getDirectCallee();
@@ -2500,9 +2573,9 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto CEISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CEISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CEISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -2568,9 +2641,9 @@ namespace checker {
 					int q = 5;
 				}
 
-				auto VDISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(VDISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(VD, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(VDISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -2655,9 +2728,9 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto CEISR = instantiation_source_range(CE->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CEISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CEISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -2755,9 +2828,9 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto EXISR = instantiation_source_range(EX->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(EX, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -2822,9 +2895,9 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto EXISR = instantiation_source_range(EX->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(EX, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -2891,9 +2964,9 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto VDISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(VDISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(VD, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(VDISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -2975,9 +3048,9 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto EXISR = instantiation_source_range(EX->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(EX, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -3076,9 +3149,10 @@ namespace checker {
 					int q = 5;
 				}
 
-				auto CXXMCEISR = instantiation_source_range(raw_SR, Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CXXMCEISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = CXXMCE ? m_state1.m_suppress_check_region_set.contains(CXXMCE, Rewrite, *(MR.Context))
+					: m_state1.m_suppress_check_region_set.contains(CXXOCE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CXXMCEISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -3231,9 +3305,9 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto CXXCIISR = instantiation_source_range(CXXCI->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(CXXCIISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CXXCI, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CXXCIISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -3380,10 +3454,10 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto ISR = (BO != nullptr) ? instantiation_source_range(BO->getSourceRange(), Rewrite)
-					: instantiation_source_range(CXXOCE->getSourceRange(), Rewrite);
-				auto supress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (supress_check_flag) {
+				auto suppress_check_flag = (BO != nullptr) ? m_state1.m_suppress_check_region_set.contains(BO, Rewrite, *(MR.Context))
+					: m_state1.m_suppress_check_region_set.contains(CXXOCE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
 					return;
 				}
 
@@ -3701,8 +3775,8 @@ namespace checker {
 
 	public:
 		MyASTConsumer(Rewriter &R, CompilerInstance &CI, CTUState &tu_state_param) : m_tu_state_ptr(&tu_state_param), HandlerMisc1(R, tu_state(), CI),
-			HandlerForSSSSupressCheckDirectiveCall(R, tu_state()), HandlerForSSSSupressCheckDirectiveDeclField(R, tu_state()),
-			HandlerForSSSSupressCheckDirectiveDeclGlobal(R, tu_state()), 
+			HandlerForSSSSuppressCheckDirectiveCall(R, tu_state()), HandlerForSSSSuppressCheckDirectiveDeclField(R, tu_state()),
+			HandlerForSSSSuppressCheckDirectiveDeclGlobal(R, tu_state()), 
 			HandlerForSSSExprUtil(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForSSSDeclRefExprUtil(R, tu_state()),
 			HandlerForSSSReturnStmt(R, tu_state()), HandlerForSSSRecordDecl2(R, tu_state()), HandlerForSSSAsAnFParam(R, tu_state()),
 			HandlerForSSSMakeXScopePointerTo(R, tu_state()), HandlerForSSSNativeReferenceVar(R, tu_state()),
@@ -3711,9 +3785,9 @@ namespace checker {
 			HandlerForSSSConstructionInitializer(R, tu_state()), HandlerForSSSPointerAssignment(R, tu_state())
 		{
 			Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerMisc1);
-			Matcher.addMatcher(callExpr(argumentCountIs(0)).bind("mcssssuppresscheckcall"), &HandlerForSSSSupressCheckDirectiveCall);
-			Matcher.addMatcher(cxxMethodDecl(decl().bind("mcssssuppresscheckmemberdecl")), &HandlerForSSSSupressCheckDirectiveDeclField);
-			Matcher.addMatcher(functionDecl(decl().bind("mcssssuppresscheckglobaldecl")), &HandlerForSSSSupressCheckDirectiveDeclGlobal);
+			Matcher.addMatcher(callExpr(argumentCountIs(0)).bind("mcssssuppresscheckcall"), &HandlerForSSSSuppressCheckDirectiveCall);
+			Matcher.addMatcher(cxxMethodDecl(decl().bind("mcssssuppresscheckmemberdecl")), &HandlerForSSSSuppressCheckDirectiveDeclField);
+			Matcher.addMatcher(functionDecl(decl().bind("mcssssuppresscheckglobaldecl")), &HandlerForSSSSuppressCheckDirectiveDeclGlobal);
 
 			Matcher.addMatcher(expr().bind("mcsssexprutil1"), &HandlerForSSSExprUtil);
 			Matcher.addMatcher(callExpr().bind("mcsssexprutil1"), &HandlerForSSSExprUtil);
@@ -3791,9 +3865,9 @@ namespace checker {
 		CTUState& tu_state() { return *m_tu_state_ptr;}
 
 		Misc1 HandlerMisc1;
-		MCSSSSupressCheckDirectiveCall HandlerForSSSSupressCheckDirectiveCall;
-		MCSSSSupressCheckDirectiveDeclField HandlerForSSSSupressCheckDirectiveDeclField;
-		MCSSSSupressCheckDirectiveDeclGlobal HandlerForSSSSupressCheckDirectiveDeclGlobal;
+		MCSSSSuppressCheckDirectiveCall HandlerForSSSSuppressCheckDirectiveCall;
+		MCSSSSuppressCheckDirectiveDeclField HandlerForSSSSuppressCheckDirectiveDeclField;
+		MCSSSSuppressCheckDirectiveDeclGlobal HandlerForSSSSuppressCheckDirectiveDeclGlobal;
 		MCSSSExprUtil HandlerForSSSExprUtil;
 		MCSSSDeclUtil HandlerForSSSDeclUtil;
 		MCSSSDeclRefExprUtil HandlerForSSSDeclRefExprUtil;
