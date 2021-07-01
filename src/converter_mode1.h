@@ -8463,6 +8463,74 @@ namespace convm1 {
 				update_declaration_if_not_suppressed(*(rhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 			}
 
+			if (lhs_res2.ddecl_cptr) {
+				auto LHSDD_SR = cm1_adj_nice_source_range(lhs_res2.ddecl_cptr->getSourceRange(), state1, Rewrite);
+				bool LHS_decl_is_non_modifiable = filtered_out_by_location(MR, LHSDD_SR.getBegin());
+				if (LHS_decl_is_non_modifiable) {
+					auto LHS_qtype = LHS->getType();
+					auto RHS_qtype = RHS->getType();
+					IF_DEBUG(std::string LHS_qtype_str = LHS_qtype.getAsString();)
+					IF_DEBUG(std::string RHS_qtype_str = RHS_qtype.getAsString();)
+
+					assert(RHS->getType().getTypePtrOrNull());
+					auto rhs_source_range = write_once_source_range(cm1_adj_nice_source_range(RHS->getSourceRange(), state1, Rewrite));
+					std::string rhs_source_text;
+					if (rhs_source_range.isValid()) {
+						IF_DEBUG(rhs_source_text = Rewrite.getRewrittenText(rhs_source_range);)
+					}
+
+					auto RHS_ii = IgnoreParenImpNoopCasts(RHS, *(MR.Context));
+
+					auto DRE = dyn_cast<const clang::DeclRefExpr>(RHS_ii);
+					auto ME = dyn_cast<const clang::MemberExpr>(RHS_ii);
+					if (!DRE) {
+						if (ME) {
+							DRE = Tget_descendant_of_type<const clang::DeclRefExpr>(ME, *MR.Context);
+						} else {
+							ME = Tget_descendant_of_type<const clang::MemberExpr>(RHS_ii, *MR.Context);
+							if (ME) {
+								DRE = Tget_descendant_of_type<const clang::DeclRefExpr>(ME, *MR.Context);
+							} else {
+								DRE = Tget_descendant_of_type<const clang::DeclRefExpr>(RHS_ii, *MR.Context);
+							}
+						}
+					}
+
+					if ((nullptr != DRE) && rhs_source_range.isValid()
+						&& LHS_qtype->isPointerType() && (!LHS_qtype->isFunctionPointerType())) {
+
+						assert(nullptr != RHS);
+						auto rhs_iter = state1.m_expr_conversion_state_map.find(RHS);
+						if (state1.m_expr_conversion_state_map.end() == rhs_iter) {
+							std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*RHS, Rewrite);
+							rhs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+						}
+						auto& rhs_shptr_ref = (*rhs_iter).second;
+
+						if (ConvertToSCPP) {
+							std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
+							if (1 <= (*rhs_shptr_ref).m_expr_text_modifier_stack.size()) {
+								if ("unsafe make raw pointer from" == (*rhs_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+									/* already applied */
+									return;
+								}
+							}
+							(*rhs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
+							(*rhs_shptr_ref).update_current_text();
+
+							state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, rhs_source_range, (*rhs_shptr_ref).m_current_text_str);
+							//(*this).Rewrite.ReplaceText(rhs_source_range, (*rhs_shptr_ref).m_current_text_str);
+							return;
+						}
+					} else {
+						int q = 5;
+					}
+					int q = 5;
+		
+					return;
+				}
+			}
+
 			auto rhsii_EX = RHS->IgnoreParenImpCasts();
 			auto rhsii_stmt_class = rhsii_EX->getStmtClass();
 			if (rhs_is_an_indirect_type && (rhsii_EX->getStmtClass() == clang::Stmt::StmtClass::CStyleCastExprClass)) {
@@ -8740,7 +8808,8 @@ namespace convm1 {
 					std::string function_name = function_decl1->getNameAsString();
 					auto lc_function_name = tolowerstr(function_name);
 
-					bool FD_is_non_modifiable = filtered_out_by_location(MR, function_decl1->getSourceRange().getBegin());
+					auto function_decl1_SR = cm1_adj_nice_source_range(function_decl1->getSourceRange(), state1, Rewrite);
+					bool FD_is_non_modifiable = filtered_out_by_location(MR, function_decl1_SR.getBegin());
 
 					static const std::string free_str = "free";
 					bool ends_with_free = ((lc_function_name.size() >= free_str.size())
@@ -8797,7 +8866,7 @@ namespace convm1 {
 							}
 
 							if ((nullptr != param_VD) && (nullptr != DRE) && arg_source_range.isValid()
-								&& param_VD->getType()->isPointerType()) {
+								&& param_VD->getType()->isPointerType() && (!param_VD->getType()->isFunctionPointerType())) {
 
 								assert(nullptr != arg_EX);
 								auto arg_iter = state1.m_expr_conversion_state_map.find(arg_EX);
