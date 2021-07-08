@@ -5874,9 +5874,31 @@ namespace convm1 {
 	inline CCStyleCastReplacementCodeItem generate_c_style_cast_replacement_code(Rewriter &Rewrite, const clang::CStyleCastExpr* CSCE, std::optional<std::string> maybe_replacement_qtype_str = {}) {
 		CCStyleCastReplacementCodeItem retval;
 		if (CSCE) {
-			auto whole_cast_expression_SR = write_once_source_range({ CSCE->getBeginLoc(), CSCE->getEndLoc() });
-			auto cast_operation_SR = write_once_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() });
-			auto cast_target_expression_SR = write_once_source_range({ CSCE->getRParenLoc().getLocWithOffset(+1), CSCE->getEndLoc() });
+			auto spelling_source_range = [&Rewrite](const clang::SourceRange& sr) {
+				if (true || sr.getBegin().isMacroID()) {
+					if (Rewrite.getSourceMgr().isMacroBodyExpansion(sr.getBegin())) {
+						auto spelling_SR = clang::SourceRange{ Rewrite.getSourceMgr().getSpellingLoc(sr.getBegin()), Rewrite.getSourceMgr().getSpellingLoc(sr.getEnd()) };
+						if (spelling_SR.isValid()) {
+							auto spelling_text = Rewrite.getRewrittenText(spelling_SR);
+							if (!spelling_text.empty()) {
+								return spelling_SR;
+							}
+						}
+					}
+				}
+				auto source_text = Rewrite.getRewrittenText(sr);
+				if (source_text.empty()) {
+					auto file_SR = clang::SourceRange{ Rewrite.getSourceMgr().getFileLoc(sr.getBegin()), Rewrite.getSourceMgr().getFileLoc(sr.getEnd()) };
+					if (file_SR.isValid()) {
+						return file_SR;
+					}
+				}
+				return sr;
+			};
+
+			auto whole_cast_expression_SR = write_once_source_range(spelling_source_range(CSCE->getSourceRange()));
+			auto cast_operation_SR = write_once_source_range(spelling_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }));
+			auto cast_target_expression_SR = write_once_source_range(spelling_source_range(CSCE->getSubExprAsWritten()->getSourceRange()));
 
 			if (whole_cast_expression_SR.isValid()) {
 				IF_DEBUG(auto cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);)
@@ -8087,7 +8109,8 @@ namespace convm1 {
 			}
 			const DeclaratorDecl* DD = MR.Nodes.getNodeAs<clang::DeclaratorDecl>("mcsssconditionalinitializer3");
 
-			if ((DS != nullptr) && (LHS != nullptr) && (RHS != nullptr) && (DD != nullptr))
+			if ((DS != nullptr) && (LHS != nullptr) && (RHS != nullptr) && (DD != nullptr)
+				&& LHS->getType()->isPointerType() && RHS->getType()->isPointerType())
 			{
 				auto SR = cm1_adj_nice_source_range(DS->getSourceRange(), m_state1, Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
@@ -8371,20 +8394,20 @@ namespace convm1 {
 		}
 	}
 
-	inline static void handle_cxx_cast_without_context(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
-		, const clang::CXXNamedCastExpr* CXXNCE) {
+	inline static void handle_cxx_static_cast_without_context(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+		, const clang::CXXStaticCastExpr* CXXSCE) {
 
-		if (CXXNCE) {
-			auto csce_QT = definition_qtype(CXXNCE->getType());
+		if (CXXSCE) {
+			auto csce_QT = definition_qtype(CXXSCE->getType());
 			IF_DEBUG(std::string csce_QT_str = csce_QT.getAsString();)
-			auto precasted_expr_ptr = CXXNCE->getSubExprAsWritten();
+			auto precasted_expr_ptr = CXXSCE->getSubExprAsWritten();
 			assert(precasted_expr_ptr);
 			auto precasted_expr_QT = precasted_expr_ptr->getType();
 			IF_DEBUG(std::string precasted_expr_QT_str = precasted_expr_QT.getAsString();)
 			auto precasted_expr_SR = cm1_adj_nice_source_range(precasted_expr_ptr->getSourceRange(), state1, Rewrite);
-			auto CXXNCESR = write_once_source_range(cm1_adj_nice_source_range(CXXNCE->getSourceRange(), state1, Rewrite));
-			auto angle_brackets_SR = write_once_source_range(cm1_adj_nice_source_range(CXXNCE->getAngleBrackets(), state1, Rewrite));
-			auto cast_operation_SR = clang::SourceRange(CXXNCESR.getBegin(), angle_brackets_SR.getEnd());
+			auto CXXSCESR = write_once_source_range(cm1_adj_nice_source_range(CXXSCE->getSourceRange(), state1, Rewrite));
+			auto angle_brackets_SR = write_once_source_range(cm1_adj_nice_source_range(CXXSCE->getAngleBrackets(), state1, Rewrite));
+			auto cast_operation_SR = clang::SourceRange(CXXSCESR.getBegin(), angle_brackets_SR.getEnd());
 
 			if ((csce_QT->isPointerType() || csce_QT->isArrayType())
 				&& (precasted_expr_QT->isPointerType() || precasted_expr_QT->isArrayType())
@@ -8396,12 +8419,12 @@ namespace convm1 {
 				auto precasted_expr_pointee_QT = llvm::isa<clang::ArrayType>(precasted_expr_QT) ? llvm::cast<clang::ArrayType>(precasted_expr_QT)->getElementType() : precasted_expr_QT->getPointeeType();
 				IF_DEBUG(std::string precasted_expr_pointee_QT_str = precasted_expr_pointee_QT.getAsString();)
 				if (ConvertToSCPP) {
-					if (CXXNCE->getSourceRange().getBegin().isMacroID()) {
-						IF_DEBUG(std::string og_whole_expression_str = Rewrite.getRewrittenText(CXXNCESR);)
+					if (CXXSCE->getSourceRange().getBegin().isMacroID()) {
+						IF_DEBUG(std::string og_whole_expression_str = Rewrite.getRewrittenText(CXXSCESR);)
 						std::string og_precasted_expr_str = Rewrite.getRewrittenText(precasted_expr_SR);
-						std::string new_whole_expression_str = std::string(CXXNCE->getCastName()) + "<" + generate_qtype_replacement_code(csce_QT, Rewrite) + ">("
+						std::string new_whole_expression_str = std::string(CXXSCE->getCastName()) + "<" + generate_qtype_replacement_code(csce_QT, Rewrite) + ">("
 							+ og_precasted_expr_str + ")";
-						CExprTextYieldingReplacementAction(Rewrite, MR, CXXNCE, new_whole_expression_str).do_replacement(state1);
+						CExprTextYieldingReplacementAction(Rewrite, MR, CXXSCE, new_whole_expression_str).do_replacement(state1);
 					} else {
 						IF_DEBUG(std::string og_angle_brackets_str = Rewrite.getRewrittenText(angle_brackets_SR);)
 						std::string new_angle_brackets_str = "<" + generate_qtype_replacement_code(csce_QT, Rewrite) + ">";
@@ -8533,13 +8556,15 @@ namespace convm1 {
 
 			auto rhsii_EX = RHS->IgnoreParenImpCasts();
 			auto rhsii_stmt_class = rhsii_EX->getStmtClass();
+			//clang::Stmt::StmtClass::CXXStaticCastExprClass;
 			if (rhs_is_an_indirect_type && (rhsii_EX->getStmtClass() == clang::Stmt::StmtClass::CStyleCastExprClass)) {
 				auto CSCE = dyn_cast<const clang::CStyleCastExpr>(rhsii_EX);
-				assert(CSCE);
-				auto cast_qtype = definition_qtype(CSCE->getTypeAsWritten());
+				const clang::CXXStaticCastExpr* CXXSCE = dyn_cast<const clang::CXXStaticCastExpr>(rhsii_EX);
+				assert(CSCE || CXXSCE);
+				auto cast_qtype = definition_qtype(CSCE ? CSCE->getTypeAsWritten() : CXXSCE->getTypeAsWritten());
 				bool finished_cast_handling_flag = false;
 
-				{
+				if (CSCE) {
 					auto csce_QT = definition_qtype(CSCE->getType());
 					auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
 					assert(precasted_expr_ptr);
@@ -8548,14 +8573,10 @@ namespace convm1 {
 					auto cast_operation_SR = write_once_source_range(clang::SourceRange(CSCE->getLParenLoc(), CSCE->getRParenLoc()));
 
 					if ((csce_QT->isPointerType()) && precasted_expr_ptr->getType()->isPointerType() && cast_operation_SR.isValid()) {
-						if (ConvertToSCPP) {
-							std::string og_cast_operation_str = Rewrite.getRewrittenText(cast_operation_SR);
-							std::string expression_replacement_code;
-							std::string csce_QT_str = csce_QT.getAsString();
-							if ("void *" == csce_QT_str) {
-								/* This case is handled by the MCSSSExprUtil handler. */
-								finished_cast_handling_flag = true;
-							}
+						std::string csce_QT_str = csce_QT.getAsString();
+						if ("void *" == csce_QT_str) {
+							/* This case is handled by the MCSSSExprUtil handler. */
+							finished_cast_handling_flag = true;
 						}
 					}
 				}
@@ -8593,7 +8614,8 @@ namespace convm1 {
 										}
 									}
 								} else {
-									handle_c_style_cast_without_context(MR, Rewrite, state1, CSCE);
+									CSCE ? handle_c_style_cast_without_context(MR, Rewrite, state1, CSCE)
+										: handle_cxx_static_cast_without_context(MR, Rewrite, state1, CXXSCE);
 								}
 							}
 						}
@@ -8942,7 +8964,7 @@ namespace convm1 {
 					}
 				} else {
 					auto D = CE->getCalleeDecl();
-					auto DD = dyn_cast<const DeclaratorDecl>(D);
+					auto DD = D ? dyn_cast<const DeclaratorDecl>(D) : nullptr;
 					auto EX = CE->getCallee();
 
 					if (DD && EX) {
@@ -10509,9 +10531,9 @@ namespace convm1 {
 					handle_c_style_cast_without_context(MR, Rewrite, state1, CSCE);
 					return;
 				}
-				auto *CXXNCE = dyn_cast<const clang::CXXNamedCastExpr>(E);
-				if (CXXNCE) {
-					handle_cxx_cast_without_context(MR, Rewrite, state1, CXXNCE);
+				auto *CXXSCE = dyn_cast<const clang::CXXStaticCastExpr>(E);
+				if (CXXSCE) {
+					handle_cxx_static_cast_without_context(MR, Rewrite, state1, CXXSCE);
 					return;
 				}
 				auto CE = dyn_cast<const clang::CallExpr>(E);
@@ -12268,6 +12290,8 @@ namespace convm1 {
 
 	auto resolve_merge_conflicts_with_best_guess_text(const std::string& source_file_text) {
 		std::string retval = source_file_text;
+		bool first_conflict_flag = true;
+		bool first_option_was_chosen_in_the_previous_conflict = false;
 		auto conflict_start_index = retval.find("<<<<<<< ", 0);
 		while (std::string::npos != conflict_start_index) {
 			auto conflict_start_eol_index = retval.find("\n", conflict_start_index + 1);
@@ -12291,9 +12315,30 @@ namespace convm1 {
 			auto first_option = retval.substr(conflict_start_eol_index + 1, conflict_divider_index - (conflict_start_eol_index + 1));
 			auto second_option = retval.substr(conflict_divider_eol_index + 1, conflict_end_index - (conflict_divider_eol_index + 1));
 
-			retval.replace(conflict_start_index, conflict_end_eol_index - conflict_start_index, chosen_merge_option_ref(first_option, second_option));
+#ifndef NDEBUG
+				if (std::string::npos != first_option.find("png_set_PLTE")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
 
-			conflict_start_index += first_option.size();
+			if ((first_option.empty() || second_option.empty()) && (!first_conflict_flag)) {
+				/* We've observed with the default (ubuntu 20) system merge, that when one of the merge
+				options is empty, it tends to be because the option that should be there was included
+				as part of the option for the previous merge conflict. */
+				if (first_option_was_chosen_in_the_previous_conflict) {
+					retval.replace(conflict_start_index, conflict_end_eol_index - conflict_start_index, first_option);
+				} else {
+					retval.replace(conflict_start_index, conflict_end_eol_index - conflict_start_index, second_option);
+				}
+			} else {
+				auto& chosen_option_ref = chosen_merge_option_ref(first_option, second_option);
+				retval.replace(conflict_start_index, conflict_end_eol_index - conflict_start_index, chosen_option_ref);
+				conflict_start_index += chosen_option_ref.size();
+				first_option_was_chosen_in_the_previous_conflict = ((&chosen_option_ref) == (&first_option));
+			}
+
+			first_conflict_flag = false;
+
 			conflict_start_index = retval.find("<<<<<<< ", conflict_start_index);
 		}
 
