@@ -8874,20 +8874,29 @@ namespace convm1 {
 					bool seems_to_be_some_kind_of_malloc_or_realloc = res1.m_seems_to_be_some_kind_of_malloc_or_realloc;
 
 					bool begins_with__builtin_ = string_begins_with(function_name, "__builtin_");
-					bool is_memcpy = ("memcpy" == function_name) && FD_is_non_modifiable;
-					bool is_memcmp = ("memcmp" == function_name) && FD_is_non_modifiable;
-					bool is_memset = ("memset" == function_name) && FD_is_non_modifiable;
+					bool is_memcpy = false;
+					bool is_memcmp = false;
+					bool is_memset = false;
+					if (FD_is_non_modifiable && string_begins_with(function_name, "mem")) {
+						is_memcpy = ("memcpy" == function_name);
+						is_memcmp = ("memcmp" == function_name);
+						is_memset = ("memset" == function_name);
+					}
 
-					bool is_setjmp = ("_setjmp" == function_name);
-					if (is_setjmp) {
+#ifndef NDEBUG
+					if ("_setjmp" == function_name) {
 						int q = 5;
 					}
+#endif /*!NDEBUG*/
 
 					if (ends_with_free || seems_to_be_some_kind_of_malloc_or_realloc
 						|| is_memcpy || is_memcmp || is_memset || begins_with__builtin_) {
 						return;
 					} else if (FD_is_non_modifiable) {
-						for (size_t arg_index = 0; (CE->getNumArgs() > arg_index) && (function_decl1->getNumParams() > arg_index); arg_index += 1) {
+						const auto num_args = CE->getNumArgs();
+						const auto num_params = function_decl1->getNumParams();
+						size_t arg_index = 0;
+						for (; (num_args > arg_index) && (num_params > arg_index); arg_index += 1) {
 							auto param_VD = function_decl1->getParamDecl(arg_index);
 							auto arg_EX = CE->getArg(arg_index);
 
@@ -8944,12 +8953,79 @@ namespace convm1 {
 
 									state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, arg_source_range, (*arg_shptr_ref).m_current_text_str);
 									//(*this).Rewrite.ReplaceText(arg_source_range, (*arg_shptr_ref).m_current_text_str);
-									return;
+									//return;
 								}
 							} else {
 								int q = 5;
 							}
 							int q = 5;
+						}
+
+						if (FD_is_non_modifiable && string_ends_with(function_name, "printf")) {
+							/* Seems to be a *printf() function. The variadic parameters still need to be
+							processed. Basically, ensuring that any (safe) pointer arguments are (unsafely)
+							converted to raw pointers before being passed to the function. Presumably,
+							pointers passed to printf() would generally be "(const) char *"s. */
+							for (; (num_args > arg_index); arg_index += 1) {
+								auto arg_EX = CE->getArg(arg_index);
+
+								auto arg_EX_qtype = arg_EX->getType();
+								IF_DEBUG(std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();)
+
+								assert(arg_EX->getType().getTypePtrOrNull());
+								auto arg_source_range = write_once_source_range(cm1_adj_nice_source_range(arg_EX->getSourceRange(), state1, Rewrite));
+								std::string arg_source_text;
+								if (arg_source_range.isValid()) {
+									IF_DEBUG(arg_source_text = Rewrite.getRewrittenText(arg_source_range);)
+								}
+
+								auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+
+								auto DRE = dyn_cast<const clang::DeclRefExpr>(arg_EX_ii);
+								auto ME = dyn_cast<const clang::MemberExpr>(arg_EX_ii);
+								if (!DRE) {
+									if (ME) {
+										DRE = Tget_descendant_of_type<const clang::DeclRefExpr>(ME, *MR.Context);
+									} else {
+										ME = Tget_descendant_of_type<const clang::MemberExpr>(arg_EX_ii, *MR.Context);
+										if (ME) {
+											DRE = Tget_descendant_of_type<const clang::DeclRefExpr>(ME, *MR.Context);
+										} else {
+											DRE = Tget_descendant_of_type<const clang::DeclRefExpr>(arg_EX_ii, *MR.Context);
+										}
+									}
+								}
+
+								if ((nullptr != DRE) && arg_source_range.isValid() && arg_EX->getType()->isPointerType()
+									&& !(arg_EX->getType()->isFunctionPointerType()) ) {
+									assert(nullptr != arg_EX);
+									auto arg_iter = state1.m_expr_conversion_state_map.find(arg_EX);
+									if (state1.m_expr_conversion_state_map.end() == arg_iter) {
+										std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX, Rewrite);
+										arg_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+									}
+									auto& arg_shptr_ref = (*arg_iter).second;
+
+									if (ConvertToSCPP) {
+										std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
+										if (1 <= (*arg_shptr_ref).m_expr_text_modifier_stack.size()) {
+											if ("unsafe make raw pointer from" == (*arg_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+												/* already applied */
+												return;
+											}
+										}
+										(*arg_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
+										(*arg_shptr_ref).update_current_text();
+
+										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, arg_source_range, (*arg_shptr_ref).m_current_text_str);
+										//(*this).Rewrite.ReplaceText(arg_source_range, (*arg_shptr_ref).m_current_text_str);
+										//return;
+									}
+								} else {
+									int q = 5;
+								}
+								int q = 5;
+							}
 						}
 
 						return;
