@@ -4347,7 +4347,7 @@ namespace convm1 {
 
 		QualType QT = DD->getType();
 		const clang::Type* TP = QT.getTypePtr();
-		auto qtype_str = QT.getAsString();
+		IF_DEBUG(auto qtype_str = QT.getAsString();)
 
 		auto& SM = Rewrite.getSourceMgr();
 
@@ -4460,11 +4460,43 @@ namespace convm1 {
 				int q = 5;
 			}
 
+			bool named_record_type_defined_in_declaration = false;
+			std::string named_record_type_definition_text;
+
+			/* Some declarations combine a (named) struct definition with one or more variable definitions.
+			For example, somethng like "struct abc_t { int m_a; } acb1;". In these cases we'll separate the
+			the definition and declaration to something like "struct abc_t { int m_a; }; abc_t acb1;". */
+			auto CXXRD = DD->getType()->getAsCXXRecordDecl();
+			if (CXXRD) {
+				auto CXXRD_SR = cm1_adj_nice_source_range(CXXRD->getSourceRange(), state1, Rewrite);
+				named_record_type_defined_in_declaration |= first_is_a_subset_of_second(CXXRD_SR, SR);
+				named_record_type_definition_text = Rewrite.getRewrittenText(CXXRD_SR);
+			} else {
+				auto RD = DD->getType()->getAsRecordDecl();
+				if (RD) {
+					auto RD_SR = cm1_adj_nice_source_range(RD->getSourceRange(), state1, Rewrite);
+					named_record_type_defined_in_declaration |= first_is_a_subset_of_second(RD_SR, SR);
+					named_record_type_definition_text = Rewrite.getRewrittenText(RD_SR);
+				}
+			}
+			if (named_record_type_defined_in_declaration) {
+				static const std::string anonymous_struct_prefix = "struct (anonymous struct";
+				auto qtype_str = DD->getType().getAsString();
+				if (string_begins_with(qtype_str, anonymous_struct_prefix)) {
+					named_record_type_defined_in_declaration = false;
+				}
+			}
+
 			/* There may be multiple declarations in the same declaration statement. Replacing
 			* one of them requires replacing all of them together. */
 			auto ddecls = IndividualDeclaratorDecls(DD, Rewrite);
 			if ((1 <= ddecls.size())/* && (ddecls.back() == DD)*/) {
-				if ((2 <= ddecls.size()) || UsesPointerTypedef(DD->getType()) || is_macro_instantiation(DD->getSourceRange(), Rewrite) || IsUnwieldyDecl(*DD)) {
+				if ((2 <= ddecls.size()) || UsesPointerTypedef(DD->getType()) || is_macro_instantiation(DD->getSourceRange(), Rewrite)
+				|| IsUnwieldyDecl(*DD) || named_record_type_defined_in_declaration) {
+					if (named_record_type_defined_in_declaration) {
+						replacement_code += named_record_type_definition_text + "; ";
+					}
+					std::string l_replacement_code;
 					/* Instead of modifying the existing declaration(s), here we're completely
 					replacing (overwriting) them. */
 					static const std::string semicolon_space_str = "; ";
@@ -4474,12 +4506,13 @@ namespace convm1 {
 						changed_from_original |= res.m_changed_from_original;
 
 						action_species_list.push_back(res.m_action_species);
-						replacement_code += res.m_replacement_code;
-						replacement_code += semicolon_space_str;
+						l_replacement_code += res.m_replacement_code;
+						l_replacement_code += semicolon_space_str;
 					}
-					if (replacement_code.size() >= 3) {
-						replacement_code = replacement_code.substr(0, replacement_code.size() - semicolon_space_str.length());
+					if (l_replacement_code.size() >= 3) {
+						l_replacement_code = l_replacement_code.substr(0, l_replacement_code.size() - semicolon_space_str.length());
 					}
+					replacement_code += l_replacement_code;
 
 					/* (Only) the source range of the last individual declaration in the declaration statement
 					* should encompass the whole statement. */
