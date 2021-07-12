@@ -1078,7 +1078,7 @@ namespace convm1 {
 			IF_DEBUG(std::string debug_source_location5_str = SPSL.printToString(SM);)
 			//IF_DEBUG(std::string text51 = Rewrite.getRewrittenText({SPSL, SPSLE});)
 
-			if (std::string::npos != debug_source_location5_str.find("png.h:99999:")) {
+			if (std::string::npos != debug_source_location5_str.find("pngtest.c:1320:")) {
 				int q = 5;
 			}
 			if (std::string::npos != debug_source_location5_str.find("png.h:925:")) {
@@ -1135,7 +1135,7 @@ namespace convm1 {
 			IF_DEBUG(std::string debug_SPSLE_str = SPSLE.printToString(SM);)
 			IF_DEBUG(std::string debug_SPSLE_token_str = Rewrite.getRewrittenText({SPSLE, SPSLE});)
 
-			if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+			if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 				int q = 5;
 			}
 			if (std::string::npos != debug_source_location_str.find("png.h:925:")) {
@@ -2550,7 +2550,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, parens_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+						if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 							int q = 5;
 						}
 					}
@@ -2629,7 +2629,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+			if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 				int q = 5;
 			}
 		}
@@ -3172,7 +3172,7 @@ namespace convm1 {
 
 						DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+						if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 							int q = 5;
 						}
 					}
@@ -4360,7 +4360,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+		if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -4394,7 +4394,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(l_debug_source_text, return_type_source_range, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != l_debug_source_location_str.find("png.h:99999:")) {
+				if (std::string::npos != l_debug_source_location_str.find("pngtest.c:1320:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -4567,7 +4567,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+		if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -4631,7 +4631,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+		if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -4749,7 +4749,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+		if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5141,7 +5141,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+		if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -6404,7 +6404,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -6564,7 +6564,7 @@ namespace convm1 {
 									} else {
 										/* Levels of indirection beyond the first one must be of the same type,
 										* not just of "compatible" types. */
-										cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0 + i), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i));
+										cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i), CDDeclIndirection(*DD, 0 + i));
 									}
 
 									if ((*(rhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(rhs_res2.indirection_level + i)) {
@@ -6617,7 +6617,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -6775,7 +6775,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -6842,7 +6842,7 @@ namespace convm1 {
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 #ifndef NDEBUG
-					if (std::string::npos != decl_debug_source_location_str.find("png.h:99999:")) {
+					if (std::string::npos != decl_debug_source_location_str.find("pngtest.c:1320:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -8712,7 +8712,7 @@ namespace convm1 {
 						} else {
 							/* Levels of indirection beyond the first one must be of the same type,
 							* not just of "compatible" types. */
-							cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(lhs_res2.ddecl_cptr), adjusted_lhs_indirection_level), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level));
+							cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level), CDDeclIndirection(*(lhs_res2.ddecl_cptr), adjusted_lhs_indirection_level));
 						}
 
 						if ((*(rhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(rhs_indirection_level)) {
@@ -8801,7 +8801,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8846,7 +8846,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -9174,7 +9174,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10050,7 +10050,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10564,7 +10564,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10617,7 +10617,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 					int q = 5;
 				}
 				if (std::string::npos != debug_source_text.find("png_malloc")) {
@@ -10748,7 +10748,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10794,7 +10794,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -11865,7 +11865,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+					if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -11912,7 +11912,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+					if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -11937,7 +11937,7 @@ namespace convm1 {
 						IF_DEBUG(std::string l_debug_source_location_str = direct_qtype_SR.getBegin().printToString(SM);)
 						DEBUG_SOURCE_TEXT_STR(l_debug_source_text, direct_qtype_SR, Rewrite);
 #ifndef NDEBUG
-						if (std::string::npos != l_debug_source_location_str.find("png.h:99999:")) {
+						if (std::string::npos != l_debug_source_location_str.find("pngtest.c:1320:")) {
 							int q = 5;
 						}
 #endif /*!NDEBUG*/
@@ -12015,7 +12015,7 @@ namespace convm1 {
 							IF_DEBUG(std::string l_debug_source_location_str = definition_SR.getBegin().printToString(SM);)
 							DEBUG_SOURCE_TEXT_STR(l_debug_source_text, definition_SR, Rewrite);
 #ifndef NDEBUG
-							if (std::string::npos != l_debug_source_location_str.find("png.h:99999:")) {
+							if (std::string::npos != l_debug_source_location_str.find("pngtest.c:1320:")) {
 								thread_local int tl_count = 0;
 								tl_count += 1;
 								if (!string_begins_with(l_debug_source_text, "void")) {
@@ -12055,7 +12055,7 @@ namespace convm1 {
 									IF_DEBUG(std::string l_debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(l_debug_source_text, *suffix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != l_debug_source_location_str.find("png.h:99999:")) {
+									if (std::string::npos != l_debug_source_location_str.find("pngtest.c:1320:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
@@ -12092,7 +12092,7 @@ namespace convm1 {
 									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
 									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
 #ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find("png.h:99999:")) {
+									if (std::string::npos != debug_source_location_str.find("pngtest.c:1320:")) {
 										int q = 5;
 									}
 #endif /*!NDEBUG*/
