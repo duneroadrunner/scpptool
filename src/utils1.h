@@ -149,7 +149,7 @@ class COrderedSourceRange : public clang::SourceRange {
 	COrderedSourceRange(const base_class& src, rewritability_t rewritability = Rewritable) : base_class(src), m_rewritability(rewritability) {}
 
 	COrderedSourceRange& operator=(const COrderedSourceRange&) = default;
-	COrderedSourceRange& operator=(const base_class& src) { m_rewritability = Rewritable; return (*this); }
+	COrderedSourceRange& operator=(const base_class& src) { m_rewritability = Rewritable; base_class::operator=(src); return (*this); }
 
 	bool is_rewritable() const { return (Rewritable == m_rewritability); }
 	rewritability_t m_rewritability = Rewritable;
