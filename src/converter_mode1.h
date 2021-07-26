@@ -2217,8 +2217,70 @@ namespace convm1 {
 		std::pair<base_class::iterator, bool> add_straight_text_overwrite_action(Rewriter &Rewrite, const COrderedSourceRange& OSR, const std::string& new_text) {
 			auto lambda = [this, &Rewrite, OSR, new_text]() {
 					if (OSR.isValid()) {
+						DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, OSR, Rewrite);
+
+#ifndef NDEBUG
+						if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+							int q = 5;
+						}
+#endif /*!NDEBUG*/
+
 						Rewrite.ReplaceText(OSR, new_text);
 						this->m_already_modified_regions.insert(OSR);
+					}
+				};
+			return add_replacement_action(OSR, lambda);
+		}
+		std::pair<base_class::iterator, bool> add_insert_after_token_at_given_location_action(Rewriter &Rewrite, const COrderedSourceRange& OSR, clang::SourceLocation insertion_point, const std::string& new_text) {
+			auto lambda = [this, &Rewrite, OSR, insertion_point, new_text]() {
+					if (insertion_point.isValid()) {
+						DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, OSR, Rewrite);
+						const auto debug_SR1 = clang::SourceRange({ insertion_point, insertion_point });
+						DEBUG_SOURCE_TEXT_STR(debug_source_text1, debug_SR1, Rewrite);
+						const auto debug_SR2 = clang::SourceRange({ insertion_point.getLocWithOffset(+1), insertion_point.getLocWithOffset(+1) });
+						DEBUG_SOURCE_TEXT_STR(debug_source_text2, debug_SR2, Rewrite);
+
+#ifndef NDEBUG
+						if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+							int q = 5;
+						}
+#endif /*!NDEBUG*/
+
+						Rewrite.InsertTextAfterToken(insertion_point, new_text);
+						if (true) {
+							auto modified_range = COrderedSourceRange{ insertion_point.getLocWithOffset(+1), OSR.getEnd() };
+							this->m_already_modified_regions.insert(modified_range);
+							//this->m_already_modified_regions.insert(OSR);
+						}
+					} else {
+						int q = 3;
+					}
+				};
+			return add_replacement_action(OSR, lambda);
+		}
+		std::pair<base_class::iterator, bool> add_insert_before_given_location_action(Rewriter &Rewrite, const COrderedSourceRange& OSR, clang::SourceLocation insertion_point, const std::string& new_text) {
+			auto lambda = [this, &Rewrite, OSR, insertion_point, new_text]() {
+					if (insertion_point.isValid()) {
+						DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, OSR, Rewrite);
+						const auto debug_SR1 = clang::SourceRange({ insertion_point.getLocWithOffset(-1), insertion_point.getLocWithOffset(-1) });
+						DEBUG_SOURCE_TEXT_STR(debug_source_text1, debug_SR1, Rewrite);
+						const auto debug_SR2 = clang::SourceRange({ insertion_point, insertion_point });
+						DEBUG_SOURCE_TEXT_STR(debug_source_text2, debug_SR2, Rewrite);
+
+#ifndef NDEBUG
+						if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+							int q = 5;
+						}
+#endif /*!NDEBUG*/
+
+						Rewrite.InsertTextBefore(insertion_point, new_text);
+						if (true) {
+							auto modified_range = COrderedSourceRange{ insertion_point, OSR.getEnd() };
+							this->m_already_modified_regions.insert(modified_range);
+							//this->m_already_modified_regions.insert(OSR);
+						}
+					} else {
+						int q = 3;
 					}
 				};
 			return add_replacement_action(OSR, lambda);
@@ -3665,7 +3727,7 @@ namespace convm1 {
 					}
 
 					if (definition_SR.isValid()) {
-						if ((!suppress_modifications) && state1_ptr) {
+						if (ConvertToSCPP && (!suppress_modifications) && state1_ptr) {
 							auto& state1 = *state1_ptr;
 							//suffix_str = indirection_state_ref.m_params_current_str + suffix_str;
 							if ("" != suffix_str) {
@@ -3678,17 +3740,51 @@ namespace convm1 {
 
 								indirection_state_ref.m_suffix_str = suffix_str;
 								if (maybe_lexical_suffix_SR.has_value()) {
-									//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, maybe_lexical_suffix_SR.value(), suffix_str);
+									state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, write_once_source_range(maybe_lexical_suffix_SR.value()), suffix_str);
 									indirection_state_ref.m_suffix_SR_or_insert_before_point = maybe_lexical_suffix_SR.value();
 								} else {
+									const auto insert_after_point = definition_SR.getEnd();
+									const auto insert_before_point = definition_SR.getEnd().getLocWithOffset(+1);
+									/* We need to indicate the source range to be overwritten. But in this case we're inserting text
+									and not overwriting any text. So intuitively, the range should maybe be an empty range located
+									adjacent to the insertion point. But we want the range to be unique to each indirection level so
+									that marking the range as "write once" won't prevent subsequent insertion operations of other
+									indirection levels that may occur at the same location. So, as a hack to make the range unique
+									to the indirection level, we're going to extended the range by an amount equal to the
+									indirection level. In theory this hack could cause problems. We may be able to get away with it
+									in paractice. */
+									const auto hacked_range_start = definition_SR.getEnd().getLocWithOffset(+1 - j);
+									const auto hacked_SR = write_once_source_range({ hacked_range_start, definition_SR.getEnd() });
+
+									DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, hacked_SR, Rewrite);
+									const auto debug_SR1 = clang::SourceRange({ insert_before_point.getLocWithOffset(-1), insert_before_point.getLocWithOffset(-1) });
+									DEBUG_SOURCE_TEXT_STR(debug_source_text1, debug_SR1, Rewrite);
+									const auto debug_SR2 = clang::SourceRange({ insert_before_point, insert_before_point });
+									DEBUG_SOURCE_TEXT_STR(debug_source_text2, debug_SR2, Rewrite);
+									DEBUG_SOURCE_TEXT_STR(debug_source_text3, definition_SR, Rewrite);
+
+									state1.m_pending_code_modification_actions.add_insert_after_token_at_given_location_action(Rewrite, hacked_SR, insert_after_point, suffix_str);
 									indirection_state_ref.m_suffix_SR_or_insert_before_point = definition_SR.getEnd().getLocWithOffset(+1);
 								}
 
 								indirection_state_ref.m_prefix_str = prefix_str;
 								if (maybe_prefix_SR.has_value()) {
-									//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, maybe_prefix_SR.value(), prefix_str);
+									state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, write_once_source_range(maybe_prefix_SR.value()), prefix_str);
 									indirection_state_ref.m_prefix_SR_or_insert_before_point = maybe_prefix_SR.value();
 								} else {
+									const auto insert_before_point = definition_SR.getBegin();
+									/* We need to indicate the source range to be overwritten. But in this case we're inserting text
+									and not overwriting any text. So intuitively, the range should maybe be an empty range located
+									adjacent to the insertion point. But we want the range to be unique to each indirection level so
+									that marking the range as "write once" won't prevent subsequent insertion operations of other
+									indirection levels that may occur at the same location. So, as a hack to make the range unique
+									to the indirection level, we're going to extended the range by an amount equal to the
+									indirection level. In theory this hack could cause problems. We may be able to get away with it
+									in paractice. */
+									const auto hacked_range_end = definition_SR.getBegin().getLocWithOffset(-1 + j);
+									const auto hacked_SR = write_once_source_range({ definition_SR.getBegin(), hacked_range_end });
+
+									state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, write_once_source_range({ definition_SR.getBegin(), hacked_range_end }), insert_before_point, prefix_str);
 									indirection_state_ref.m_prefix_SR_or_insert_before_point = definition_SR.getBegin();
 								}
 
@@ -3861,6 +3957,38 @@ namespace convm1 {
 		return satisfies_checks;
 	}
 
+	inline auto default_init_value_str(const clang::QualType& qtype) {
+		std::string retval;
+
+		const std::string qtype_str = qtype.getAsString();
+		if (qtype.getTypePtr()->isScalarType()) {
+			std::string initializer_info_str;
+			if (qtype.getTypePtr()->isEnumeralType()) {
+				if ("Dual" == ConvertMode) {
+					initializer_info_str += "MSE_LH_CAST(";
+					initializer_info_str += qtype_str;
+					initializer_info_str += ", 0)/*auto-generated init val*/";
+				} else {
+					initializer_info_str += qtype_str;
+					initializer_info_str += "(0)/*auto-generated init val*/";
+				}
+			} else if (qtype.getTypePtr()->isPointerType()) {
+				if ("Dual" == ConvertMode) {
+					initializer_info_str += "MSE_LH_NULL_POINTER/*auto-generated init val*/";
+				} else {
+					initializer_info_str += "nullptr/*auto-generated init val*/";
+				}
+			} else {
+				initializer_info_str += "0/*auto-generated init val*/";
+			}
+			retval = initializer_info_str;
+		} else {
+			retval = qtype_str + "()";
+		}
+
+		return retval;
+	}
+
 	static CDeclarationReplacementCodeItem declaration_modifier_helper1(const DeclaratorDecl* DD,
 			Rewriter &Rewrite, CTUState* state1_ptr, CDDeclConversionStateMap& ddecl_conversion_state_map, ESuppressModifications suppress_modifications = ESuppressModifications::No, std::string options_str = "") {
 		CDeclarationReplacementCodeItem retval;
@@ -3878,6 +4006,8 @@ namespace convm1 {
 		auto res1 = ddecl_conversion_state_map.insert(*DD);
 		auto ddcs_map_iter = res1.first;
 		auto& ddcs_ref = (*ddcs_map_iter).second;
+
+		auto qtype = DD->getType();
 
 		const clang::FunctionDecl* FND = nullptr;
 		bool type_is_function_type = false;
@@ -3952,9 +4082,102 @@ namespace convm1 {
 					} else {
 						int q = 3;
 					}
+				} else {
+					if (qtype.getTypePtr()->isScalarType()) {
+						auto PVD = dyn_cast<const ParmVarDecl>(VD);
+						if (!PVD) {
+							if (!VD->isExternallyDeclarable()) {
+								{
+									/* Here we're adding a missing initialization value to the variable declaration. */
+									auto l_DD = VD;
+
+									std::string initializer_info_str = default_init_value_str(qtype);
+									ddcs_ref.m_current_initialization_expr_str = initializer_info_str;
+
+									if (ConvertToSCPP && (ESuppressModifications::No == suppress_modifications) && state1_ptr) {
+										/* Specify that the new initialization string should be
+										inserted at the end of the declaration. */
+										//ddcs_ref.m_maybe_embedded_initializer_insert_before_point = ddcs_ref.m_ddecl_cptr->getSourceRange().getEnd().getLocWithOffset(+1);
+										ddcs_ref.m_initializer_SR_or_insert_before_point = decl_source_range.getEnd().getLocWithOffset(+1);
+									}
+								}
+							} else {
+								/* todo: emit error that (uninitialized) 'extern' variables
+								aren't supported?  */;
+							}
+						}
+					}
 				}
+
 				ddcs_ref.m_original_initialization_has_been_noted = true;
 			}
+
+			if (ConvertToSCPP && (ESuppressModifications::No == suppress_modifications) && state1_ptr) {
+				auto& SR = decl_source_range;
+				auto qtype = VD->getType();
+				//const auto storage_duration = VD->getStorageDuration();
+				const auto var_qualified_name = VD->getQualifiedNameAsString();
+
+				if ((clang::StorageDuration::SD_Static == storage_duration) || (clang::StorageDuration::SD_Thread == storage_duration)) {
+					bool satisfies_checks = satisfies_restrictions_for_static_storage_duration(qtype);
+					if (!satisfies_checks) {
+						if (clang::StorageDuration::SD_Static == storage_duration) {
+							if (!ddcs_ref.m_has_been_replaced_as_a_whole) {
+								/* Here we're (unjustifiably) assuming that the program is single threaded 
+								and changing variables with static duration to thread_local duration. */
+								std::string l_source_text1 = Rewrite.getRewrittenText(SR);
+								std::size_t replace_pos = 0;
+								std::size_t replace_length = 0;
+								if (VD->isFileVarDecl()) {
+									{
+										static const std::string extern_and_space_str = "extern ";
+										auto pos1 = l_source_text1.find(extern_and_space_str);
+										if (std::string::npos != pos1) {
+											replace_pos = pos1 + extern_and_space_str.length();
+										}
+									}
+									{
+										static const std::string inline_and_space_str = "inline ";
+										auto pos1 = l_source_text1.find(inline_and_space_str);
+										if ((std::string::npos) != pos1 && (pos1 > replace_pos)) {
+											replace_pos = pos1 + inline_and_space_str.length();
+										}
+									}
+								} else {
+									{
+										static const std::string static_and_space_str = "static ";
+										auto pos1 = l_source_text1.find(static_and_space_str);
+										if (std::string::npos != pos1) {
+											replace_pos = pos1;
+											replace_length = static_and_space_str.length();
+										}
+									}
+									if (0 == replace_length) {
+										static const std::string inline_and_space_str = "inline ";
+										auto pos1 = l_source_text1.find(inline_and_space_str);
+										if ((std::string::npos) != pos1 && (pos1 > replace_pos)) {
+											replace_pos = pos1 + inline_and_space_str.length();
+										}
+									}
+								}
+
+								static const std::string thread_local_specifier_str = "thread_local ";
+								if (1 <= replace_length) {
+									(*state1_ptr).m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, write_once_source_range({ SR.getBegin().getLocWithOffset(replace_pos), SR.getBegin().getLocWithOffset(replace_pos + replace_length - 1) }), thread_local_specifier_str);
+									ddcs_ref.m_thread_local_specifier_SR_or_insert_before_point = clang::SourceRange(SR.getBegin().getLocWithOffset(replace_pos), SR.getBegin().getLocWithOffset(replace_pos + replace_length - 1));
+								} else {
+									const auto& insert_before_point = SR.getBegin().getLocWithOffset(replace_pos);
+									(*state1_ptr).m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, write_once_source_range({ insert_before_point, insert_before_point.getLocWithOffset(-1) }), insert_before_point, thread_local_specifier_str);
+									ddcs_ref.m_thread_local_specifier_SR_or_insert_before_point = SR.getBegin().getLocWithOffset(replace_pos);
+								}
+
+								int q = 5;
+							}
+						}
+					}
+				}
+			}
+
 		} else if (FD) {
 			{
 				is_member = true;
@@ -3984,7 +4207,64 @@ namespace convm1 {
 						} else {
 							int q = 3;
 						}
+					} else {
+						if (qtype.getTypePtr()->isScalarType()) {
+							const auto* init_EX = FD->getInClassInitializer();
+							if (!init_EX) {
+								const auto parent_RD = FD->getParent();
+
+								bool is_lambda_capture_field = false;
+								assert(parent_RD);
+								if (llvm::isa<CXXRecordDecl>(parent_RD)) {
+									const auto CXXRD = llvm::cast<CXXRecordDecl>(parent_RD);
+									assert(CXXRD);
+									is_lambda_capture_field = CXXRD->isLambda();
+								}
+
+								bool is_implicit = false;
+								if (FD->getSourceRange() == parent_RD->getSourceRange()) {
+									/* If the FieldDecl has the same source location as its parent CXXRecordDecl,
+									then we're going to assume that the FieldDecl is some implicit declaration
+									(that doesn't concern us) (such as an implicit lambda capture). We're doing
+									this check for now because we don't know the proper way to determine if this
+									declaration is implicit or not. */
+									is_implicit = true;
+								}
+
+								if ((!is_lambda_capture_field) && (!is_implicit)) {
+									if (qtype.getTypePtr()->isPointerType()) {
+									} else {
+										{
+											/* Here we're adding a missing initialization value to the field declaration. */
+											auto l_DD = FD;
+
+											std::string initializer_info_str;
+											if (qtype.getTypePtr()->isEnumeralType()) {
+												initializer_info_str += qtype.getAsString();
+												initializer_info_str += "(0)/*auto-generated init val*/";
+											} else if (qtype.getTypePtr()->isPointerType()) {
+												if ("Dual" == ConvertMode) {
+													initializer_info_str += "MSE_LH_NULL_POINTER/*auto-generated init val*/";
+												} else {
+													initializer_info_str += "nullptr/*auto-generated init val*/";
+												}
+											} else {
+												initializer_info_str += "0/*auto-generated init val*/";
+											}
+											ddcs_ref.m_current_initialization_expr_str = initializer_info_str;
+
+											if (!(ddcs_ref.m_has_been_replaced_as_a_whole)) {
+												/* Specify that the new initialization string should be
+												inserted at the end of the declaration. */
+												ddcs_ref.m_initializer_SR_or_insert_before_point = ddcs_ref.m_ddecl_cptr->getSourceRange().getEnd().getLocWithOffset(+1);
+											}
+										}
+									}
+								}
+							}
+						}
 					}
+
 					ddcs_ref.m_original_initialization_has_been_noted = true;
 				}
 			}
@@ -4276,6 +4556,59 @@ namespace convm1 {
 				(component of the indirect type) can only be reliably replaced/modified once (at
 				most), and so is handled at the end of processing (in the EndSourceFileAction()
 				function). */
+			}
+
+			if (ConvertToSCPP && (ESuppressModifications::No == suppress_modifications) && state1_ptr) {
+				if (ddcs_ref.direct_qtype_has_been_changed()
+					/*|| ("" != ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_current_params_str)*/) {
+
+					bool no_indirection = (1 > ddcs_ref.m_indirection_state_stack.size());
+					/* If the direct type is a function type, then generally we want just the function return type
+					without the parameter list, as the parameter list will already be incorporated into the parent
+					indirection (suffix). But if there is no indirection, then we can't discard the parameter list. */
+					auto direct_qtype_str = no_indirection
+						? adjusted_qtype_str(ddcs_ref.current_direct_qtype_str())
+						: adjusted_qtype_str(ddcs_ref.current_direct_return_qtype_str());
+
+					auto& direct_type_state = ddcs_ref.m_indirection_state_stack.m_direct_type_state;
+					if (direct_type_state.m_maybe_source_range_including_any_const_qualifier.has_value()) {
+						auto& cq_direct_type_SR = direct_type_state.m_maybe_source_range_including_any_const_qualifier.value();
+						//TheRewriter.ReplaceText(cq_direct_type_SR, direct_qtype_str);
+						//m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(cq_direct_type_SR);
+						(*state1_ptr).m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, write_once_source_range(cq_direct_type_SR), direct_qtype_str);
+					}
+				}
+
+				{
+					auto initializer_SR_ptr = std::get_if<clang::SourceRange>(&(ddcs_ref.m_initializer_SR_or_insert_before_point));
+					auto insert_before_point_ptr = std::get_if<clang::SourceLocation>(&(ddcs_ref.m_initializer_SR_or_insert_before_point));
+					if (initializer_SR_ptr) {
+						if (true || !(*state1_ptr).m_pending_code_modification_actions.m_already_modified_regions.properly_contains(*initializer_SR_ptr)) {
+							if (ddcs_ref.initializer_has_been_changed()) {
+								std::string initializer_str = ddcs_ref.m_current_initialization_expr_str;
+								//TheRewriter.ReplaceText(*initializer_SR_ptr, initializer_str);
+								//m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(*initializer_SR_ptr);
+								(*state1_ptr).m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, write_once_source_range(*initializer_SR_ptr), initializer_str);
+							}
+						} else {
+							int q = 5;
+						}
+					} else if (insert_before_point_ptr) {
+						const auto insert_after_point = (*insert_before_point_ptr).getLocWithOffset(-1);
+						if (true || !(*state1_ptr).m_pending_code_modification_actions.m_already_modified_regions.contains({ insert_after_point, *insert_before_point_ptr })) {
+							std::string initializer_str;
+							if ("Dual" == ConvertMode) {
+								initializer_str = " MSE_LH_IF_ENABLED( = " + ddcs_ref.m_current_initialization_expr_str + " )";
+							} else {
+								initializer_str = " = " + ddcs_ref.m_current_initialization_expr_str;
+							}
+							//TheRewriter.InsertTextAfterToken(insert_after_point, initializer_str);
+							(*state1_ptr).m_pending_code_modification_actions.add_insert_after_token_at_given_location_action(Rewrite, write_once_source_range({ (*insert_before_point_ptr), insert_after_point }), insert_after_point, initializer_str);
+						} else {
+							int q = 5;
+						}
+					}
+				}
 			}
 		}
 
@@ -4762,11 +5095,22 @@ namespace convm1 {
 		if ((TP->isFunctionType()) || (false)) {
 			const clang::FunctionDecl* FND = dyn_cast<const clang::FunctionDecl>(DD);
 			if (FND) {
-				auto return_type_source_range = cm1_adj_nice_source_range(FND->getReturnTypeSourceRange(), state1, Rewrite);
+				auto return_type_source_range = write_once_source_range(cm1_adj_nice_source_range(FND->getReturnTypeSourceRange(), state1, Rewrite));
 				if (!(return_type_source_range.isValid())) {
 					return;
 				}
-				SR = return_type_source_range;
+				/* This function enqueues a "declaration_modifier()" action. declaration_modifier() does
+				not directly modify the source text, but rather, in turn, enqueues other actions that do
+				the direct modifications.
+				In this case the declaration in question is a function declaration and we expect that
+				only the function return type will be modified (rather than the whole (function)
+				declaration). But we're still going to associate the declaration_modifier() action with
+				the ("rewritable") range of the whole declaration, because the source range of the
+				return type is a "write once" source range and it is not appropriate to associate "write
+				once" source ranges with actions that don't do the direct modifications as doing so could
+				result in the action pre-empting/blocking the action(s) that do the actual direct
+				modifications. */
+				//SR = return_type_source_range;
 			}
 		}
 		if (SR.isValid()) {
@@ -9027,33 +9371,88 @@ namespace convm1 {
 									}
 								}
 
-								if ((nullptr != DRE) && arg_source_range.isValid() && arg_EX->getType()->isPointerType()
-									&& !(arg_EX->getType()->isFunctionPointerType()) ) {
-									assert(nullptr != arg_EX);
-									auto arg_iter = state1.m_expr_conversion_state_map.find(arg_EX);
-									if (state1.m_expr_conversion_state_map.end() == arg_iter) {
-										std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX, Rewrite);
-										arg_iter = state1.m_expr_conversion_state_map.insert(shptr1);
-									}
-									auto& arg_shptr_ref = (*arg_iter).second;
-
-									if (ConvertToSCPP) {
-										std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
-										if (1 <= (*arg_shptr_ref).m_expr_text_modifier_stack.size()) {
-											if ("unsafe make raw pointer from" == (*arg_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
-												/* already applied */
-												return;
-											}
+								if ((nullptr != DRE) && arg_source_range.isValid() && !(arg_EX->getType()->isFunctionPointerType())) {
+									if (arg_EX->getType()->isPointerType()) {
+										assert(nullptr != arg_EX);
+										auto arg_iter = state1.m_expr_conversion_state_map.find(arg_EX);
+										if (state1.m_expr_conversion_state_map.end() == arg_iter) {
+											std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX, Rewrite);
+											arg_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 										}
-										(*arg_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
-										(*arg_shptr_ref).update_current_text();
+										auto& arg_shptr_ref = (*arg_iter).second;
 
-										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, arg_source_range, (*arg_shptr_ref).m_current_text_str);
-										//(*this).Rewrite.ReplaceText(arg_source_range, (*arg_shptr_ref).m_current_text_str);
-										//return;
+										if (ConvertToSCPP) {
+											std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
+											if (1 <= (*arg_shptr_ref).m_expr_text_modifier_stack.size()) {
+												if ("unsafe make raw pointer from" == (*arg_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+													/* already applied */
+													return;
+												}
+											}
+											(*arg_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
+											(*arg_shptr_ref).update_current_text();
+
+											state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, arg_source_range, (*arg_shptr_ref).m_current_text_str);
+											//(*this).Rewrite.ReplaceText(arg_source_range, (*arg_shptr_ref).m_current_text_str);
+											//return;
+										}
+									} else {
+										auto DD = clang::dyn_cast<clang::DeclaratorDecl>(DRE->getDecl());
+										if (DD) {
+											/* It seems that (at least some implementations of) the *printf() functions don't
+											like C++  objects with non-trivial copy constructors as (variadic) arguments, even
+											if said objects are implicitly convertible to scalar integer types. Since we convert
+											objects that are pointer targets (aka "addressable" ojects) to C++ objects with
+											non-trivial copy constructors, we need to cast them back to their original scalar
+											type before passing them to a *printf() function. */
+											auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
+											auto ddcs_map_iter = res1.first;
+											auto& ddcs_ref = (*ddcs_map_iter).second;
+											bool update_declaration_flag = res1.second;
+
+											auto arg_iter = state1.m_expr_conversion_state_map.find(arg_EX);
+											if (state1.m_expr_conversion_state_map.end() == arg_iter) {
+												std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX, Rewrite);
+												arg_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+											}
+											auto& arg_shptr_ref = (*arg_iter).second;
+
+											auto arg_source_text = Rewrite.getRewrittenText(arg_source_range);
+
+											std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();
+											std::string prefix;
+											std::string suffix = ")";
+											if ("Dual" == ConvertMode) {
+												prefix = "MSE_LH_CAST(" + arg_EX_qtype_str + ", ";
+											} else {
+												prefix = arg_EX_qtype_str + "(";
+											}
+
+											auto shptr1 = std::make_shared<CWrapExprTextModifier>(prefix, suffix);
+											if (1 <= (*arg_shptr_ref).m_expr_text_modifier_stack.size()) {
+												if ("wrap" == (*arg_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+													/* already applied */
+													return;
+												}
+											}
+											(*arg_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
+											(*arg_shptr_ref).update_current_text();
+
+											if (ConvertToSCPP) {
+												std::shared_ptr<CDDeclIndirectionReplacementAction> cr_shptr = std::make_shared<CExprTextDDIReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, CDDeclIndirection::no_indirection), arg_EX, (*arg_shptr_ref).m_current_text_str);
+
+												if (ddcs_ref.has_been_determined_to_be_a_pointer_target()) {
+													(*cr_shptr).do_replacement(state1);
+												} else {
+													state1.m_pointer_target_contingent_replacement_map.insert(cr_shptr);
+												}
+											}
+
+											int q = 5;
+										} else {
+											int q = 3;
+										}
 									}
-								} else {
-									int q = 5;
 								}
 								int q = 5;
 							}
@@ -10026,39 +10425,6 @@ namespace convm1 {
 		CTUState& m_state1;
 	};
 
-
-	inline auto default_init_value_str(const clang::QualType& qtype) {
-		std::string retval;
-
-		const std::string qtype_str = qtype.getAsString();
-		if (qtype.getTypePtr()->isScalarType()) {
-			std::string initializer_info_str;
-			if (qtype.getTypePtr()->isEnumeralType()) {
-				if ("Dual" == ConvertMode) {
-					initializer_info_str += "MSE_LH_CAST(";
-					initializer_info_str += qtype_str;
-					initializer_info_str += ", 0)/*auto-generated init val*/";
-				} else {
-					initializer_info_str += qtype_str;
-					initializer_info_str += "(0)/*auto-generated init val*/";
-				}
-			} else if (qtype.getTypePtr()->isPointerType()) {
-				if ("Dual" == ConvertMode) {
-					initializer_info_str += "MSE_LH_NULL_POINTER/*auto-generated init val*/";
-				} else {
-					initializer_info_str += "nullptr/*auto-generated init val*/";
-				}
-			} else {
-				initializer_info_str += "0/*auto-generated init val*/";
-			}
-			retval = initializer_info_str;
-		} else {
-			retval = qtype_str + "()";
-		}
-
-		return retval;
-	}
-
 	class MCSSSDeclUtil : public MatchFinder::MatchCallback
 	{
 	public:
@@ -10284,17 +10650,27 @@ namespace convm1 {
 						} else if (qtype.getTypePtr()->isScalarType()) {
 							const auto* init_EX = FD->getInClassInitializer();
 							if (!init_EX) {
-								const auto grandparent_DC = FD->getParent()->getParentFunctionOrMethod();
-								bool is_lambda_capture_field = false;
+								const auto parent_RD = FD->getParent();
 
-								const auto& parents = MR.Context->getParents(*(FD->getParent()));
-								if ( !(parents.empty()) ) {
-									const auto LE = parents[0].get<LambdaExpr>();
-									if (LE) {
-										is_lambda_capture_field = true;
-									}
+								bool is_lambda_capture_field = false;
+								assert(parent_RD);
+								if (llvm::isa<CXXRecordDecl>(parent_RD)) {
+									const auto CXXRD = llvm::cast<CXXRecordDecl>(parent_RD);
+									assert(CXXRD);
+									is_lambda_capture_field = CXXRD->isLambda();
 								}
-								if (!is_lambda_capture_field) {
+
+								bool is_implicit = false;
+								if (FD->getSourceRange() == parent_RD->getSourceRange()) {
+									/* If the FieldDecl has the same source location as its parent CXXRecordDecl,
+									then we're going to assume that the FieldDecl is some implicit declaration
+									(that doesn't concern us) (such as an implicit lambda capture). We're doing
+									this check for now because we don't know the proper way to determine if this
+									declaration is implicit or not. */
+									is_implicit = true;
+								}
+
+								if ((!is_lambda_capture_field) && (!is_implicit)) {
 									if (qtype.getTypePtr()->isPointerType()) {
 									} else {
 										const std::string error_desc = std::string("(Non-pointer) scalar fields (such those of type '")
@@ -11926,256 +12302,6 @@ namespace convm1 {
 				auto res1 = m_tu_state.m_pending_code_modification_actions.erase(retained_it);
 
 				rit = m_tu_state.m_pending_code_modification_actions.rbegin();
-			}
-
-			if (ConvertToSCPP) {
-				/* There are some elements in the source text that cannot be reliably modified/replaced
-				/updated more than once. So we hold their updated (and updatable) text so that it can be
-				applied (only) once at the end of processing. So here (at the end of processing) we're
-				iterating through all the "declaration state" objects and applying these updates. */
-
-				for (const auto& ddecl_conversion_state : m_tu_state.m_ddecl_conversion_state_map) {
-					auto& ddcs_ref = ddecl_conversion_state.second;
-					auto maybe_direct_typeLoc = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_maybe_typeLoc;
-
-					auto SR = cm1_adj_nice_source_range(ddcs_ref.m_ddecl_cptr->getSourceRange(), m_tu_state, Rewrite);
-
-					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
-					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
-#ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
-						int q = 5;
-					}
-#endif /*!NDEBUG*/
-
-					auto maybe_direct_qtype_SR = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_maybe_source_range_including_any_const_qualifier;
-					if (false && !maybe_direct_qtype_SR) {
-						if (0 == ddcs_ref.m_indirection_state_stack.size()) {
-							assert(ddcs_ref.m_ddecl_cptr);
-							auto directTypeLoc = ddcs_ref.m_ddecl_cptr->getTypeSourceInfo()->getTypeLoc();
-							auto directTypeSR = cm1_adj_nice_source_range(directTypeLoc.getSourceRange(), m_tu_state, Rewrite);
-							IF_DEBUG(auto old_text1 = Rewrite.getRewrittenText(directTypeSR);)
-							auto cq_direct_type_SR = extended_to_include_west_const_if_any(Rewrite, directTypeSR);
-							IF_DEBUG(auto old_text2 = Rewrite.getRewrittenText(cq_direct_type_SR);)
-							cq_direct_type_SR = extended_to_include_east_const_if_any(Rewrite, cq_direct_type_SR);
-							IF_DEBUG(auto old_text3 = Rewrite.getRewrittenText(cq_direct_type_SR);)
-							maybe_direct_qtype_SR = cq_direct_type_SR;
-						}
-					}
-					if (maybe_direct_qtype_SR.has_value()) {
-						auto direct_qtype_SR = maybe_direct_qtype_SR.value();
-
-						IF_DEBUG(std::string l_debug_source_location_str = direct_qtype_SR.getBegin().printToString(SM);)
-						DEBUG_SOURCE_TEXT_STR(l_debug_source_text, direct_qtype_SR, Rewrite);
-#ifndef NDEBUG
-						if (std::string::npos != l_debug_source_location_str.find("pngtest.c:99999:")) {
-							int q = 5;
-						}
-#endif /*!NDEBUG*/
-
-						if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.contains(direct_qtype_SR)) {
-							if ((direct_qtype_SR.getEnd() < SR.getBegin()) || (SR.getEnd() < direct_qtype_SR.getBegin())) {
-								/* If the direct type is not located within the declaration then we'll leave it
-								alone (for now at least). It might a definition used in multiple places (like a
-								typedef). In such cases our strategy is generally to remove the dependency on
-								the comunal definition (by re-expressing the definition explicitly where it's
-								used), as it could otherwise result in multiple possibly conflicting
-								modifications being applied to the comunal definition. */
-								int q = 5;
-							} else if (m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.properly_contains(direct_qtype_SR)) {
-								/* If a superset of the region that would be modified here has already been
-								modified then this region can no longer be (reliably) modified. */
-								int q = 5;
-							} else if (ddcs_ref.direct_qtype_has_been_changed()
-								/*|| ("" != ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_current_params_str)*/) {
-
-								bool no_indirection = (1 > ddcs_ref.m_indirection_state_stack.size());
-								/* If the direct type is a function type, then generally we want just the function return type
-								without the parameter list, as the parameter list will already be incorporated into the parent
-								indirection (suffix). But if there is no indirection, then we can't discard the parameter list. */
-								auto direct_qtype_str = no_indirection
-									? adjusted_qtype_str(ddcs_ref.current_direct_qtype_str())
-									: adjusted_qtype_str(ddcs_ref.current_direct_return_qtype_str());
-
-								TheRewriter.ReplaceText(direct_qtype_SR, direct_qtype_str);
-								m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(direct_qtype_SR);
-							}
-						}
-					}
-					{
-						auto initializer_SR_ptr = std::get_if<clang::SourceRange>(&(ddcs_ref.m_initializer_SR_or_insert_before_point));
-						auto insert_before_point_ptr = std::get_if<clang::SourceLocation>(&(ddcs_ref.m_initializer_SR_or_insert_before_point));
-						if (initializer_SR_ptr) {
-							/* If a superset of the region that would be modified here has already been
-							modified then this region can no longer be (reliably) modified. */
-							if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.properly_contains(*initializer_SR_ptr)) {
-								if (ddcs_ref.initializer_has_been_changed()) {
-									std::string initializer_str = ddecl_conversion_state.second.m_current_initialization_expr_str;
-									TheRewriter.ReplaceText(*initializer_SR_ptr, initializer_str);
-									m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(*initializer_SR_ptr);
-								}
-							} else {
-								int q = 5;
-							}
-						} else if (insert_before_point_ptr) {
-							const auto& insert_after_point = (*insert_before_point_ptr).getLocWithOffset(-1);
-							/* If a region that contains (both sides of) the insertion point has already been modified
-							then this insertion point is no longer (reliably) valid. */
-							if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.contains({ insert_after_point, *insert_before_point_ptr })) {
-								std::string initializer_str;
-								if ("Dual" == ConvertMode) {
-									initializer_str = " MSE_LH_IF_ENABLED( = " + ddecl_conversion_state.second.m_current_initialization_expr_str + " )";
-								} else {
-									initializer_str = " = " + ddecl_conversion_state.second.m_current_initialization_expr_str;
-								}
-								TheRewriter.InsertTextAfterToken(insert_after_point, initializer_str);
-							} else {
-								int q = 5;
-							}
-						}
-					}
-					const auto& indirection_state_stack = ddecl_conversion_state.second.m_indirection_state_stack;
-					for (int j = 0; j < int(indirection_state_stack.size()); j+=1) {
-						int i = indirection_state_stack.size() - 1 - j;
-
-						if (indirection_state_stack.at(i).m_maybe_typeLoc.has_value()) {
-							const auto definition_typeLoc = definition_TypeLoc(indirection_state_stack.at(i).m_maybe_typeLoc.value());
-
-							auto definition_SR = cm1_adj_nice_source_range(definition_typeLoc.getSourceRange(), m_tu_state, Rewrite);
-
-							IF_DEBUG(std::string l_debug_source_location_str = definition_SR.getBegin().printToString(SM);)
-							DEBUG_SOURCE_TEXT_STR(l_debug_source_text, definition_SR, Rewrite);
-#ifndef NDEBUG
-							if (std::string::npos != l_debug_source_location_str.find("pngtest.c:99999:")) {
-								thread_local int tl_count = 0;
-								tl_count += 1;
-								if (!string_begins_with(l_debug_source_text, "void")) {
-									int q = 5;
-								}
-								int q = 5;
-							}
-#endif /*!NDEBUG*/
-
-							if (false) {
-								auto& already_modified_typeLocs = m_tu_state.m_pending_code_modification_actions.m_already_modified_typeLocs;
-								const auto it = already_modified_typeLocs.find(definition_typeLoc.getOpaqueData());
-								if (it != already_modified_typeLocs.end()) {
-									/* This type definition at this location has already been modified. Since we don't (currently),
-									in general, support overwriting previously applied modifications, we're going to veto this
-									modification. */
-									continue;
-								} else {
-									already_modified_typeLocs.insert(definition_typeLoc.getOpaqueData());
-								}
-							} else {
-								if (m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.contains(definition_typeLoc.getSourceRange())) {
-									continue;
-								}
-							}
-						}
-
-						bool changed_flag = false;
-						bool suffix_mod_vetoed = false;
-						{
-							auto suffix_SR_ptr = std::get_if<clang::SourceRange>(&(indirection_state_stack.at(i).m_suffix_SR_or_insert_before_point));
-							auto insert_before_point_ptr = std::get_if<clang::SourceLocation>(&(indirection_state_stack.at(i).m_suffix_SR_or_insert_before_point));
-							if (suffix_SR_ptr) {
-								/* If a superset of the region that would be modified here has already been
-								modified then this region can no longer be (reliably) modified. */
-								if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.properly_contains(*suffix_SR_ptr)) {
-									IF_DEBUG(std::string l_debug_source_location_str = (*suffix_SR_ptr).getBegin().printToString(SM);)
-									DEBUG_SOURCE_TEXT_STR(l_debug_source_text, *suffix_SR_ptr, Rewrite);
-#ifndef NDEBUG
-									if (std::string::npos != l_debug_source_location_str.find("pngtest.c:99999:")) {
-										int q = 5;
-									}
-#endif /*!NDEBUG*/
-
-									TheRewriter.ReplaceText(*suffix_SR_ptr, indirection_state_stack.at(i).m_suffix_str);
-
-									m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(*suffix_SR_ptr);
-									changed_flag = true;
-								} else {
-									suffix_mod_vetoed = true;
-								}
-							} else if (insert_before_point_ptr) {
-								const auto& insert_after_point = (*insert_before_point_ptr).getLocWithOffset(-1);
-								/* If a region that contains (both sides of) the insertion point has already been modified
-								then this insertion point is no longer (reliably) valid. */
-								if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.contains({ insert_after_point, *insert_before_point_ptr })) {
-									TheRewriter.InsertTextAfterToken((*insert_before_point_ptr).getLocWithOffset(-1)
-										, indirection_state_stack.at(i).m_suffix_str);
-									changed_flag = true;
-								} else {
-									suffix_mod_vetoed = true;
-								}
-							}
-						}
-
-						/* If the modification of the suffix was vetoed then don't attempt to the prefix modification. */
-						if (!suffix_mod_vetoed) {
-							auto prefix_SR_ptr = std::get_if<clang::SourceRange>(&(indirection_state_stack.at(i).m_prefix_SR_or_insert_before_point));
-							auto insert_before_point_ptr = std::get_if<clang::SourceLocation>(&(indirection_state_stack.at(i).m_prefix_SR_or_insert_before_point));
-							if (prefix_SR_ptr) {
-								/* If a superset of the region that would be modified here has already been
-								modified then this region can no longer be (reliably) modified. */
-								if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.properly_contains(*prefix_SR_ptr)) {
-									IF_DEBUG(std::string debug_source_location_str = (*prefix_SR_ptr).getBegin().printToString(SM);)
-									DEBUG_SOURCE_TEXT_STR(debug_source_text, *prefix_SR_ptr, Rewrite);
-#ifndef NDEBUG
-									if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
-										int q = 5;
-									}
-#endif /*!NDEBUG*/
-
-									TheRewriter.ReplaceText(*prefix_SR_ptr, indirection_state_stack.at(i).m_prefix_str);
-									m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(*prefix_SR_ptr);
-									changed_flag = true;
-								}
-							} else if (insert_before_point_ptr) {
-								const auto& insert_after_point = (*insert_before_point_ptr).getLocWithOffset(-1);
-								/* If a region that contains (both sides of) the insertion point has already been modified
-								then this insertion point is no longer (reliably) valid. */
-								if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.contains({ insert_after_point, *insert_before_point_ptr })) {
-									TheRewriter.InsertTextBefore(*insert_before_point_ptr, indirection_state_stack.at(i).m_prefix_str);
-									changed_flag = true;
-								}
-							}
-						}
-						if (changed_flag && indirection_state_stack.at(i).m_maybe_typeLoc.has_value()) {
-							const auto definition_typeLoc = definition_TypeLoc(indirection_state_stack.at(i).m_maybe_typeLoc.value());
-							m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(definition_typeLoc.getSourceRange());
-						}
-					}
-					{
-						auto thread_local_specifier_SR_ptr = std::get_if<clang::SourceRange>(&(ddcs_ref.m_thread_local_specifier_SR_or_insert_before_point));
-						auto insert_before_point_ptr = std::get_if<clang::SourceLocation>(&(ddcs_ref.m_thread_local_specifier_SR_or_insert_before_point));
-						if (thread_local_specifier_SR_ptr) {
-							/* If a superset of the region that would be modified here has already been
-							modified then this region can no longer be (reliably) modified. */
-							if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.properly_contains(*thread_local_specifier_SR_ptr)) {
-								if (true) {
-									static const std::string thread_local_specifier_str = "thread_local ";
-									TheRewriter.ReplaceText(*thread_local_specifier_SR_ptr, thread_local_specifier_str);
-									m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(*thread_local_specifier_SR_ptr);
-								}
-							} else {
-								int q = 5;
-							}
-						} else if (insert_before_point_ptr) {
-							const auto& insert_after_point = (*insert_before_point_ptr).getLocWithOffset(-1);
-							/* If a region that contains (both sides of) the insertion point has already been modified
-							then this insertion point is no longer (reliably) valid. */
-							if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.contains({ insert_after_point, *insert_before_point_ptr })) {
-								static const std::string thread_local_specifier_str = "thread_local ";
-								//TheRewriter.InsertTextAfterToken(insert_after_point, thread_local_specifier_str);
-								TheRewriter.InsertTextBefore(*insert_before_point_ptr, thread_local_specifier_str);
-							} else {
-								int q = 5;
-							}
-						}
-					}
-				}
 			}
 
 			TheRewriter.getEditBuffer(TheRewriter.getSourceMgr().getMainFileID()).write(llvm::outs());
