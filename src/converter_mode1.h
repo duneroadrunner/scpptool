@@ -12554,8 +12554,132 @@ namespace convm1 {
 		return first_option;
 	}
 
+	auto num_newlines(std::string_view sv) {
+		int retval = 0;
+		auto last_eol_index = sv.find("\n");
+		while (std::string_view::npos != last_eol_index) {
+			retval += 1;
+			last_eol_index = sv.find("\n", last_eol_index + 1);
+		}
+		return retval;
+	}
+
+	auto start_index_of_specified_line(std::string_view sv, size_t n) {
+		decltype(sv.find("\n")) retval = 0;
+		for (size_t i = 0; i < n; i+=1) {
+			retval = sv.find("\n", retval + 1);
+			if (std::string_view::npos == retval) {
+				break;
+			}
+			retval += 1;
+		}
+		if (false && (sv.size() <= retval)) {
+			return std::string_view::npos;
+		}
+		return retval;
+	}
+
+	auto improve_merge_output(const std::string& source_file_text) {
+		std::string retval = source_file_text;
+
+#ifndef NDEBUG
+		if (std::string::npos != retval.find("png_set_read_status_fn")) {
+			int q = 5;
+		}
+#endif /*!NDEBUG*/
+
+		bool first_conflict_flag = true;
+		bool first_option_was_chosen_in_the_previous_conflict = false;
+		auto conflict_start_index = retval.find("<<<<<<< ", 0);
+		while (std::string::npos != conflict_start_index) {
+			auto conflict_start_eol_index = retval.find("\n", conflict_start_index + 1);
+			if (std::string::npos == conflict_start_eol_index) {
+				break;
+			}
+			auto conflict_divider_index = retval.find("=======\n", conflict_start_eol_index + 1);
+			if (std::string::npos == conflict_divider_index) {
+				break;
+			}
+			auto conflict_divider_eol_index = retval.find("\n", conflict_divider_index + 1);
+			auto conflict_end_index = retval.find(">>>>>>> ", conflict_divider_eol_index + 1);
+			if (std::string::npos == conflict_end_index) {
+				break;
+			}
+			auto conflict_end_eol_index = retval.find("\n", conflict_end_index + 1);
+			if (std::string::npos == conflict_end_eol_index) {
+				break;
+			}
+
+			auto first_option = retval.substr(conflict_start_eol_index + 1, conflict_divider_index - (conflict_start_eol_index + 1));
+			auto second_option = retval.substr(conflict_divider_eol_index + 1, conflict_end_index - (conflict_divider_eol_index + 1));
+
+#ifndef NDEBUG
+			if (std::string::npos != second_option.find("png_set_read_status_fn")) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
+
+			auto next_conflict_start_index = retval.find("<<<<<<< ", conflict_end_eol_index);
+			if (std::string::npos == next_conflict_start_index) {
+				break;
+			}
+			if ((conflict_end_eol_index + 2 == next_conflict_start_index) || (conflict_end_eol_index + 1 == next_conflict_start_index)) {
+				/* The next merge conflict seems to immediately follow the current one. (I.e. they could have
+				been almalgamated into a single merge conflict) */
+
+				auto next_conflict_start_eol_index = retval.find("\n", next_conflict_start_index + 1);
+				if (std::string::npos == next_conflict_start_eol_index) {
+					break;
+				}
+				auto next_conflict_divider_index = retval.find("=======\n", next_conflict_start_eol_index + 1);
+				if (std::string::npos == next_conflict_divider_index) {
+					break;
+				}
+				auto next_conflict_divider_eol_index = retval.find("\n", next_conflict_divider_index + 1);
+				auto next_conflict_end_index = retval.find(">>>>>>> ", next_conflict_divider_eol_index + 1);
+				if (std::string::npos == next_conflict_end_index) {
+					break;
+				}
+				auto next_conflict_end_eol_index = retval.find("\n", next_conflict_end_index + 1);
+				if (std::string::npos == next_conflict_end_eol_index) {
+					break;
+				}
+
+				auto next_conflict_first_option = retval.substr(next_conflict_start_eol_index + 1, next_conflict_divider_index - (next_conflict_start_eol_index + 1));
+				auto next_conflict_second_option = retval.substr(next_conflict_divider_eol_index + 1, next_conflict_end_index - (next_conflict_divider_eol_index + 1));
+
+				{
+					const auto start_of_second_option_sv = std::string_view(second_option.data() + 0, first_option.length());
+					if (start_of_second_option_sv == first_option) {
+						/* We've observed with the default (ubuntu 20) system merge, that it sometimes it
+						identifies two adjacent merge conflicts (that could've been classified as a
+						single merge conflict), but doesn't divide the merge in the same place for the 
+						two merge options. This can cause problems (i.e. duplicate code) if, for example,
+						the second merge option is selected for the first conflict, and the first merge
+						option is selected for the (adjacent) second conflict. */
+
+						auto text_to_be_moved = second_option.substr(first_option.length());
+						retval.insert(next_conflict_divider_eol_index + 1, text_to_be_moved);
+						retval.replace(conflict_divider_eol_index + 1 + first_option.length(), text_to_be_moved.length(), "");
+					}
+				}
+			}
+
+			conflict_start_index = retval.find("<<<<<<< ", next_conflict_start_index);
+		}
+
+		return retval;
+	}
+
 	auto resolve_merge_conflicts_with_best_guess_text(const std::string& source_file_text) {
 		std::string retval = source_file_text;
+
+#ifndef NDEBUG
+		if (false && std::string::npos != retval.find("png_set_read_status_fn")) {
+			int q = 5;
+		}
+#endif /*!NDEBUG*/
+
 		bool first_conflict_flag = true;
 		bool first_option_was_chosen_in_the_previous_conflict = false;
 		auto conflict_start_index = retval.find("<<<<<<< ", 0);
@@ -12629,6 +12753,8 @@ namespace convm1 {
         }
 
 		fs.close();
+
+		content = improve_merge_output(content);
 
 		auto resolved_content = resolve_merge_conflicts_with_best_guess_text(content);
 
