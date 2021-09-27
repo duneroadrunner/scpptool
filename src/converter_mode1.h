@@ -237,9 +237,8 @@ namespace convm1 {
 				applied to C++ (i.e. non-C) struct types. */
 				qtype_str = qtype_str.substr(struct_space_str.size());
 			} else if (string_begins_with(qtype_str, const_struct_space_str)) {
-				qtype_str = qtype_str.substr(const_struct_space_str.size());
+				qtype_str = "const " + qtype_str.substr(const_struct_space_str.size());
 			}
-
 		}
 		return qtype_str;
 	}
@@ -765,6 +764,11 @@ namespace convm1 {
 			auto ME = llvm::cast<const clang::MemberExpr>(ST);
 			if (ME) {
 				retval = ME;
+			} else { assert(false); }
+		} else if(clang::Stmt::StmtClass::CXXConstCastExprClass == stmt_class) {
+			auto CXXCCE = llvm::cast<const clang::CXXConstCastExpr>(ST);
+			if (CXXCCE) {
+				next_ST = CXXCCE->getSubExpr();
 			} else { assert(false); }
 		} else {
 			if (0 == depth) {
@@ -6171,6 +6175,21 @@ namespace convm1 {
 			auto& ddcs_ref = (*ddcs_map_iter).second;
 			//ddcs_ref.current_direct_qtype_ref();
 
+			auto SR = cm1_adj_nice_source_range(CE->getSourceRange(), state1, Rewrite);
+			RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+
+			//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+#ifndef NDEBUG
+			if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
+
 			assert(ddcs_ref.direct_type_state_ref().current_qtype_if_any().has_value());
 			if (llvm::isa<const clang::FunctionType>(ddcs_ref.direct_type_state_ref().current_qtype_if_any().value())) {
 				auto FNQT = llvm::cast<const clang::FunctionType>(ddcs_ref.direct_type_state_ref().current_qtype_if_any().value());
@@ -6230,6 +6249,12 @@ namespace convm1 {
 					}
 				}
 				new_params_code += ")";
+
+#ifndef NDEBUG
+				if (false && ("(png_structrp, MSE_LH_ARRAY_ITERATOR_TYPE(const char) )" == new_params_code)) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
 
 				ddcs_ref.set_current_direct_function_qtype_str(new_return_type_code, new_params_code);
 
@@ -7060,7 +7085,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(":5354:")) {
+				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8832,6 +8857,56 @@ namespace convm1 {
 						std::string og_precasted_expr_str = Rewrite.getRewrittenText(precasted_expr_SR);
 						std::string new_whole_expression_str = std::string(CXXSCE->getCastName()) + "<" + generate_qtype_replacement_code(csce_QT, Rewrite) + ">("
 							+ og_precasted_expr_str + ")";
+						CExprTextYieldingReplacementAction(Rewrite, MR, CXXSCE, new_whole_expression_str).do_replacement(state1);
+					} else {
+						IF_DEBUG(std::string og_angle_brackets_str = Rewrite.getRewrittenText(angle_brackets_SR);)
+						std::string new_angle_brackets_str = "<" + generate_qtype_replacement_code(csce_QT, Rewrite) + ">";
+						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, angle_brackets_SR, new_angle_brackets_str);
+					}
+				}
+			}
+		}
+	}
+
+	inline static void handle_cxx_const_cast_without_context(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+		, const clang::CXXConstCastExpr* CXXSCE) {
+
+		if (CXXSCE) {
+			auto csce_QT = definition_qtype(CXXSCE->getType());
+			IF_DEBUG(std::string csce_QT_str = csce_QT.getAsString();)
+			auto precasted_expr_ptr = CXXSCE->getSubExprAsWritten();
+			assert(precasted_expr_ptr);
+			auto precasted_expr_QT = precasted_expr_ptr->getType();
+			IF_DEBUG(std::string precasted_expr_QT_str = precasted_expr_QT.getAsString();)
+			auto precasted_expr_SR = cm1_adj_nice_source_range(precasted_expr_ptr->getSourceRange(), state1, Rewrite);
+			auto CXXSCESR = write_once_source_range(cm1_adj_nice_source_range(CXXSCE->getSourceRange(), state1, Rewrite));
+			auto angle_brackets_SR = write_once_source_range(cm1_adj_nice_source_range(CXXSCE->getAngleBrackets(), state1, Rewrite));
+			auto cast_operation_SR = clang::SourceRange(CXXSCESR.getBegin(), angle_brackets_SR.getEnd());
+
+			if ((csce_QT->isPointerType() || csce_QT->isArrayType())
+				&& (precasted_expr_QT->isPointerType() || precasted_expr_QT->isArrayType())
+				&& cast_operation_SR.isValid()) {
+
+				auto csce_pointee_QT = llvm::isa<clang::ArrayType>(csce_QT) ? llvm::cast<clang::ArrayType>(csce_QT)->getElementType() : csce_QT->getPointeeType();
+				IF_DEBUG(std::string csce_pointee_QT_str = csce_pointee_QT.getAsString();)
+				auto non_const_csce_pointee_QT = csce_pointee_QT; non_const_csce_pointee_QT.removeLocalConst();
+				auto precasted_expr_pointee_QT = llvm::isa<clang::ArrayType>(precasted_expr_QT) ? llvm::cast<clang::ArrayType>(precasted_expr_QT)->getElementType() : precasted_expr_QT->getPointeeType();
+				IF_DEBUG(std::string precasted_expr_pointee_QT_str = precasted_expr_pointee_QT.getAsString();)
+				if (ConvertToSCPP) {
+					if (true || CXXSCE->getSourceRange().getBegin().isMacroID()) {
+						IF_DEBUG(std::string og_whole_expression_str = Rewrite.getRewrittenText(CXXSCESR);)
+						std::string og_precasted_expr_str = Rewrite.getRewrittenText(precasted_expr_SR);
+						std::string new_whole_expression_str = std::string(CXXSCE->getCastName()) + "<" + generate_qtype_replacement_code(csce_QT, Rewrite) + ">("
+							+ og_precasted_expr_str + ")";
+
+						if ("Dual" == ConvertMode) {
+							new_whole_expression_str = "MSE_LH_UNSAFE_CAST(" + generate_qtype_replacement_code(csce_QT, Rewrite) + ", "
+							+ og_precasted_expr_str + ")";
+						} else {
+							new_whole_expression_str = "mse::us::lh::unsafe_cast<" + generate_qtype_replacement_code(csce_QT, Rewrite) + ">("
+							+ og_precasted_expr_str + ")";
+						}
+
 						CExprTextYieldingReplacementAction(Rewrite, MR, CXXSCE, new_whole_expression_str).do_replacement(state1);
 					} else {
 						IF_DEBUG(std::string og_angle_brackets_str = Rewrite.getRewrittenText(angle_brackets_SR);)
@@ -11052,6 +11127,11 @@ namespace convm1 {
 					handle_cxx_static_cast_without_context(MR, Rewrite, state1, CXXSCE);
 					return;
 				}
+				auto *CXXCCE = dyn_cast<const clang::CXXConstCastExpr>(E);
+				if (CXXCCE) {
+					handle_cxx_const_cast_without_context(MR, Rewrite, state1, CXXCCE);
+					return;
+				}
 				auto CE = dyn_cast<const clang::CallExpr>(E);
 				if (CE) {
 					MCSSSArgToParameterPassingArray2::s_handler1(MR, Rewrite, state1, CE);
@@ -12583,7 +12663,7 @@ namespace convm1 {
 		std::string retval = source_file_text;
 
 #ifndef NDEBUG
-		if (std::string::npos != retval.find("png_set_read_status_fn")) {
+		if (false && std::string::npos != retval.find("png_set_read_status_fn")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -12614,7 +12694,7 @@ namespace convm1 {
 			auto second_option = retval.substr(conflict_divider_eol_index + 1, conflict_end_index - (conflict_divider_eol_index + 1));
 
 #ifndef NDEBUG
-			if (std::string::npos != second_option.find("png_set_read_status_fn")) {
+			if (false && std::string::npos != second_option.find("png_set_read_status_fn")) {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/

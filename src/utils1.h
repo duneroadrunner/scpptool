@@ -750,17 +750,23 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 	/* If qtype refers to a typedef, then we'll return a qtype that refers to the definition
 	in the typedef. */
 	inline auto definition_qtype(clang::QualType qtype) {
+		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+		auto is_const = qtype.isConstQualified();
 		while (llvm::isa<const clang::TypedefType>(qtype)) {
 			auto TDT = llvm::cast<const clang::TypedefType>(qtype);
 			if (TDT) {
 				auto TDND = TDT->getDecl();
 				if (TDND) {
 					qtype = TDND->getUnderlyingType();
-					IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+					IF_DEBUG(std::string qtype_str2 = qtype.getAsString();)
 					int q = 5;
 				} else { assert(false); }
 			} else { assert(false); }
 		}
+		if (is_const) {
+			qtype.addConst();
+		}
+		IF_DEBUG(std::string qtype_str3 = qtype.getAsString();)
 		return qtype;
 	}
 
