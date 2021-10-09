@@ -2621,7 +2621,7 @@ namespace convm1 {
 	inline std::string generate_qtype_replacement_code(clang::QualType qtype, Rewriter &Rewrite, EIsFunctionParam is_a_function_parameter/* = EIsFunctionParam::No*/, std::optional<clang::StorageDuration> maybe_storage_duration/* = {}*/);
 	inline std::string params_string_from_qtypes(const std::vector<clang::QualType>& qtypes, Rewriter &Rewrite);
 
-	inline std::string current_params_string(Rewriter &Rewrite, std::string& pointee_params_current_str_ref, clang::FunctionProtoTypeLoc functionProtoTypeLoc, clang::FunctionDecl const * FND = nullptr, std::vector<clang::QualType> const * param_qtypes_ptr = nullptr, bool suppress_modifications = false, CTUState *state1_ptr = nullptr) {
+	inline std::string current_params_string(Rewriter &Rewrite, std::string& pointee_params_current_str_ref, clang::FunctionProtoTypeLoc functionProtoTypeLoc, clang::FunctionDecl const * FND = nullptr, std::vector<clang::QualType> const * param_qtypes_ptr = nullptr, bool suppress_modifications = false, CTUState *state1_ptr = nullptr, bool is_declaration = false) {
 		std::string l_pointee_params_current_str = pointee_params_current_str_ref;
 
 		if ("" == pointee_params_current_str_ref) {
@@ -2687,7 +2687,7 @@ namespace convm1 {
 			we use the lack of a valid functionProtoTypeLoc value as an (imprecise?) indication that
 			this is not a function definition. */
 
-			if (("" == l_pointee_params_current_str) || (!functionProtoTypeLoc))
+			if (("" == l_pointee_params_current_str) || (!functionProtoTypeLoc) || (!is_declaration))
 			{
 				if (param_qtypes_ptr) {
 					l_pointee_params_current_str = params_string_from_qtypes(*param_qtypes_ptr, Rewrite);
@@ -3709,9 +3709,15 @@ namespace convm1 {
 									}
 								}
 
+								bool is_declaration = false;
+								if (indirection_state_stack.m_maybe_DD.has_value()) {
+									auto DD = indirection_state_stack.m_maybe_DD.value();
+									is_declaration = (nullptr != dyn_cast<const clang::FunctionDecl>(DD));
+								}
+
 								params_str = current_params_string(Rewrite, indirection_state_ref.m_function_type_state.m_params_current_str
 									, functionProtoTypeLoc, indirection_state_ref.m_function_type_state.m_function_decl_ptr, &(indirection_state_ref.m_function_type_state.m_param_qtypes_current)
-									, suppress_modifications, state1_ptr);
+									, suppress_modifications, state1_ptr, is_declaration);
 							}
 
 							post_name_suffix_str = params_str + post_name_suffix_str;
@@ -12258,7 +12264,7 @@ namespace convm1 {
 		}
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find("png.c:249:")) {
+		if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
