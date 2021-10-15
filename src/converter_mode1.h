@@ -6055,7 +6055,7 @@ namespace convm1 {
 
 					std::string UO_replacement_text;
 					if ("Dual" == ConvertMode) {
-						UO_replacement_text = "(mse::make_nullable_any_random_access_iterator(std::begin(" + (*array_cs_shptr_ref).m_current_text_str + ")) + (" + (*index_cs_shptr_ref).m_current_text_str + "))";
+						UO_replacement_text = "MSE_LH_ADDRESS_OF_ARRAY_ELEMENT(" + (*array_cs_shptr_ref).m_current_text_str + ", " + (*index_cs_shptr_ref).m_current_text_str + ")";
 					} else if ("FasterAndStricter" == ConvertMode) {
 						if (true) {
 							return;
@@ -6066,7 +6066,7 @@ namespace convm1 {
 							}
 						}
 					} else {
-						UO_replacement_text = "(mse::make_nullable_any_random_access_iterator(std::begin(" + (*array_cs_shptr_ref).m_current_text_str + ")) + (" + (*index_cs_shptr_ref).m_current_text_str + "))";
+						UO_replacement_text = "mse::lh::address_of_array_element_replacement(" + (*array_cs_shptr_ref).m_current_text_str + ", " + (*index_cs_shptr_ref).m_current_text_str + ")";
 					}
 
 					if (ConvertToSCPP) {
@@ -6188,7 +6188,7 @@ namespace convm1 {
 
 					std::string UO_replacement_text;
 					if ("Dual" == ConvertMode) {
-						UO_replacement_text = "(mse::make_nullable_any_random_access_iterator(std::begin(" + (*array_cs_shptr_ref).m_current_text_str + ")) + (" + (*index_cs_shptr_ref).m_current_text_str + "))";
+						UO_replacement_text = "MSE_LH_ADDRESS_OF_ARRAY_ELEMENT(" + (*array_cs_shptr_ref).m_current_text_str + ", " + (*index_cs_shptr_ref).m_current_text_str + ")";
 					} else if ("FasterAndStricter" == ConvertMode) {
 						if (true) {
 							return;
@@ -6199,7 +6199,7 @@ namespace convm1 {
 							}
 						}
 					} else {
-						UO_replacement_text = "(mse::make_nullable_any_random_access_iterator(std::begin(" + (*array_cs_shptr_ref).m_current_text_str + ")) + (" + (*index_cs_shptr_ref).m_current_text_str + "))";
+						UO_replacement_text = "mse::lh::address_of_array_element_replacement(" + (*array_cs_shptr_ref).m_current_text_str + ", " + (*index_cs_shptr_ref).m_current_text_str + ")";
 					}
 
 					if (ConvertToSCPP) {
@@ -8003,9 +8003,9 @@ namespace convm1 {
 										if ("Dual" == ConvertMode) {
 											ce_replacement_code = "MSE_LH_FREE(" + arg_source_text + ")";
 										} else if ("FasterAndStricter" == ConvertMode) {
-											ce_replacement_code = "mse::lh::impl::CAllocF<typename std::remove_reference<decltype(" + arg_source_text + ")>::type>::free(" + arg_source_text + ")";
+											ce_replacement_code = "mse::lh::free(" + arg_source_text + ")";
 										} else {
-											ce_replacement_code = "mse::lh::impl::CAllocF<typename std::remove_reference<decltype(" + arg_source_text + ")>::type>::free(" + arg_source_text + ")";
+											ce_replacement_code = "mse::lh::free(" + arg_source_text + ")";
 										}
 
 										auto cr_shptr = std::make_shared<CFreeDynamicArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(arg_res2.ddecl_cptr), arg_res2.indirection_level), CE, ce_replacement_code);
