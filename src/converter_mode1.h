@@ -5854,20 +5854,49 @@ namespace convm1 {
 
 	void CAssignmentTargetConstrainsSourceArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
+		bool target_points_to_mallocked_obj = false;
 
-		auto res1 = state1.m_ddecl_conversion_state_map.insert(*(m_ddecl_indirection2.m_ddecl_cptr));
-		auto ddcs_map_iter = res1.first;
-		auto& ddcs_ref = (*ddcs_map_iter).second;
-		bool update_declaration_flag = res1.second;
+		auto trgt_res1 = state1.m_ddecl_conversion_state_map.insert(*(m_ddecl_indirection.m_ddecl_cptr));
+		auto trgt_ddcs_map_iter = trgt_res1.first;
+		auto& trgt_ddcs_ref = (*trgt_ddcs_map_iter).second;
 
-		if (ddcs_ref.m_indirection_state_stack.size() >= m_ddecl_indirection2.m_indirection_level) {
-			if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(m_ddecl_indirection2.m_indirection_level).current_species()) {
-				ddcs_ref.set_indirection_current(m_ddecl_indirection2.m_indirection_level, "inferred array");
-				update_declaration_flag |= true;
+		if (trgt_ddcs_ref.m_indirection_state_stack.size() >= m_ddecl_indirection.m_indirection_level) {
+			const auto& trgrt_species = trgt_ddcs_ref.m_indirection_state_stack.at(m_ddecl_indirection.m_indirection_level).current_species();
+			if (("malloc target" == trgrt_species) || ("dynamic array" == trgrt_species)) {
+				target_points_to_mallocked_obj = true;
+			}
+		} else {
+			int q = 7;
+		}
+
+		auto src_res1 = state1.m_ddecl_conversion_state_map.insert(*(m_ddecl_indirection2.m_ddecl_cptr));
+		auto src_ddcs_map_iter = src_res1.first;
+		auto& src_ddcs_ref = (*src_ddcs_map_iter).second;
+		bool src_update_declaration_flag = src_res1.second;
+
+		if (src_ddcs_ref.m_indirection_state_stack.size() >= m_ddecl_indirection2.m_indirection_level) {
+			const auto& src_species = src_ddcs_ref.m_indirection_state_stack.at(m_ddecl_indirection2.m_indirection_level).current_species();
+
+			if (target_points_to_mallocked_obj) {
+				/* If the assignment target is identified as pointing to a mallocked/reallocked object then
+				the source must also be identified as such. */
+				if ("native pointer" == src_species) {
+					src_ddcs_ref.set_indirection_current(m_ddecl_indirection2.m_indirection_level, "malloc target");
+					src_update_declaration_flag |= true;
+				} else if ("inferred array" == src_species) {
+					src_ddcs_ref.set_indirection_current(m_ddecl_indirection2.m_indirection_level, "dynamic array");
+					src_update_declaration_flag |= true;
+					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
+				}
+			}
+
+			if ("native pointer" == src_species) {
+				src_ddcs_ref.set_indirection_current(m_ddecl_indirection2.m_indirection_level, "inferred array");
+				src_update_declaration_flag |= true;
 				state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
-			} else if ("malloc target" == ddcs_ref.m_indirection_state_stack.at(m_ddecl_indirection2.m_indirection_level).current_species()) {
-				ddcs_ref.set_indirection_current(m_ddecl_indirection2.m_indirection_level, "dynamic array");
-				update_declaration_flag |= true;
+			} else if ("malloc target" == src_species) {
+				src_ddcs_ref.set_indirection_current(m_ddecl_indirection2.m_indirection_level, "dynamic array");
+				src_update_declaration_flag |= true;
 				state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
 				state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
 			} else {
@@ -5877,7 +5906,7 @@ namespace convm1 {
 			int q = 7;
 		}
 
-		if (update_declaration_flag) {
+		if (src_update_declaration_flag) {
 			update_declaration(*(m_ddecl_indirection2.m_ddecl_cptr), Rewrite, state1);
 		}
 	}
