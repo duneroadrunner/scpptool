@@ -1298,6 +1298,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 			, {"std::vector", "mse::mstd::vector", "mse::stnii_vector", "a corresponding substitute from the SaferCPlusPlus library"}
 			, {"std::basic_string", "mse::mstd::basic_string", "mse::stnii_basic_string", "a corresponding substitute from the SaferCPlusPlus library"}
 			, {"std::__cxx11::basic_string", "mse::mstd::basic_string", "mse::stnii_basic_string", "a corresponding substitute from the SaferCPlusPlus library"}
+			, {"std::string", "mse::mstd::string", "mse::stnii_string", "a corresponding substitute from the SaferCPlusPlus library"}
 			, {"std::shared_ptr", "mse::TRefCountingPointer", "mse::TRefCountingPointer", "a reference counting pointer or an 'access requester' from the SaferCPlusPlus library"}
 			, {"std::unique_ptr", "mse::TRefCountingPointer", "mse::TXScopeOwnerPointer", "mse::TXScopeOwnerPointer<> or a reference counting pointer from the SaferCPlusPlus library"}
 			, {"std::function", "mse::mstd::function", "mse::xscope_function", "mse::mstd::function or mse::xscope_function"}
