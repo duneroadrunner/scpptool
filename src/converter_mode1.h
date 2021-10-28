@@ -148,10 +148,11 @@ namespace convm1 {
 		CFunctionTypeState(CFunctionTypeState&&) = default;
 		CFunctionTypeState(const std::vector<clang::QualType>& param_qtypes = std::vector<clang::QualType>(),
 				const std::optional<clang::FunctionProtoTypeLoc>& maybe_functionProtoTypeLoc = {})
-				: m_param_qtypes_original(param_qtypes), m_param_qtypes_current(param_qtypes),
+				: m_param_qtypes_original(param_qtypes), m_param_qtypes_current(param_qtypes), m_current_qtypes_are_current(true),
 				m_maybe_functionProtoTypeLoc(maybe_functionProtoTypeLoc) {}
 		CFunctionTypeState& operator=(const CFunctionTypeState&) = default;
 		CFunctionTypeState& operator=(CFunctionTypeState&&) = default;
+		bool current_qtypes_are_current() const { return m_current_qtypes_are_current; }
 		bool has_been_changed() const {
 			bool retval = false;
 			if (("" != m_params_current_str) || (m_function_decl_ptr) || (m_param_qtypes_original != m_param_qtypes_current)) {
@@ -159,8 +160,13 @@ namespace convm1 {
 			}
 			return retval;
 		}
+		void set_params_current_str(const std::string& params_current_str) {
+			m_params_current_str = params_current_str;
+			m_current_qtypes_are_current = false;
+		}
 		std::vector<clang::QualType> m_param_qtypes_original;
 		std::vector<clang::QualType> m_param_qtypes_current;
+		bool m_current_qtypes_are_current = false;
 		std::string m_params_current_str;
 		const clang::FunctionDecl* m_function_decl_ptr = nullptr;
 		std::optional<clang::FunctionProtoTypeLoc> m_maybe_functionProtoTypeLoc;
@@ -282,7 +288,7 @@ namespace convm1 {
 		}
 		void set_current_function_qtype_str(const std::string& return_qtype_str, const std::string& params_str) {
 			m_current_qtype_or_return_qtype_str = adjusted_qtype_str(return_qtype_str);
-			m_function_type_state.m_params_current_str = params_str;
+			m_function_type_state.set_params_current_str(params_str);
 			m_current_qtype_is_current = false;
 		}
 		std::string original_qtype_str() const {
@@ -1986,6 +1992,17 @@ namespace convm1 {
 		const clang::CallExpr* m_CE = nullptr;
 	};
 
+	class CUpdateDeclIndirectionArray2ReplacementAction : public CArray2ReplacementAction {
+	public:
+		CUpdateDeclIndirectionArray2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection, const CDDeclIndirection& ddecl_indirection2) :
+					CArray2ReplacementAction(Rewrite, MR, ddecl_indirection), m_ddecl_indirection2(ddecl_indirection2) {}
+		virtual ~CUpdateDeclIndirectionArray2ReplacementAction() {}
+
+		virtual void do_replacement(CTUState& state1) const;
+
+		CDDeclIndirection m_ddecl_indirection2;
+	};
+
 	class CTargetConstrainsCStyleCastExprArray2ReplacementAction : public CArray2ReplacementAction {
 	public:
 		CTargetConstrainsCStyleCastExprArray2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
@@ -2638,80 +2655,68 @@ namespace convm1 {
 	inline std::string generate_qtype_replacement_code(clang::QualType qtype, Rewriter &Rewrite, EIsFunctionParam is_a_function_parameter/* = EIsFunctionParam::No*/, std::optional<clang::StorageDuration> maybe_storage_duration/* = {}*/);
 	inline std::string params_string_from_qtypes(const std::vector<clang::QualType>& qtypes, Rewriter &Rewrite);
 
-	inline std::string current_params_string(Rewriter &Rewrite, std::string& pointee_params_current_str_ref, clang::FunctionProtoTypeLoc functionProtoTypeLoc, clang::FunctionDecl const * FND = nullptr, std::vector<clang::QualType> const * param_qtypes_ptr = nullptr, bool suppress_modifications = false, CTUState *state1_ptr = nullptr, bool is_declaration = false) {
-		std::string l_pointee_params_current_str = pointee_params_current_str_ref;
-
-		if ("" == pointee_params_current_str_ref) {
-			if (functionProtoTypeLoc) {
-				auto parens_SR = write_once_source_range(cm1_nice_source_range(functionProtoTypeLoc.getParensRange(), Rewrite));
-				if (parens_SR.isValid()) {
-
-#ifndef NDEBUG
-					if (parens_SR.isValid()) {
-						auto& SM = Rewrite.getSourceMgr();
-						IF_DEBUG(std::string debug_source_location_str = parens_SR.getBegin().printToString(SM);)
-
-						DEBUG_SOURCE_TEXT_STR(debug_source_text, parens_SR, Rewrite);
-
-						if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
-							int q = 5;
-						}
-					}
-#endif /*!NDEBUG*/
-
-					/* We're taking note of the (current) parameters source text. */
-					std::string parens_text = Rewrite.getRewrittenText(parens_SR);
-					l_pointee_params_current_str = parens_text;
-
-					if (ConvertToSCPP && (!suppress_modifications) && state1_ptr) {
-						/* We've stored the function parameters as a string. Now we're going
-						to "blank out"/erase the original source text of the parameters. */
-						std::string blank_text = parens_text;
-						for (auto& ch : blank_text) {
-							ch = ' ';
-						}
-						state1_ptr->m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, parens_SR, blank_text);
-						//Rewrite.ReplaceText(parens_SR, blank_text);
-
-						/* setting pointee_params_current_str_ref to a non-empty string implies that the
-						original source text of the parameters has (already) been "blanked out"/erased. */
-						pointee_params_current_str_ref = l_pointee_params_current_str;
-					}
-				}
-			}
-		}
-
+	inline std::string current_params_string(Rewriter &Rewrite, CFunctionTypeState& function_type_state_ref, clang::FunctionProtoTypeLoc functionProtoTypeLoc, bool suppress_modifications = false, CTUState *state1_ptr = nullptr, bool is_declaration = false) {
+		std::string retval;
+		auto FND = function_type_state_ref.m_function_decl_ptr;
 		if (FND && state1_ptr) {
-			l_pointee_params_current_str = "(";
+			retval = "(";
 			bool is_first_param = true;
 			for (const auto& param_VD : FND->parameters()) {
 				if (!is_first_param) {
-					l_pointee_params_current_str += ", ";
+					retval += ", ";
 				} else {
 					is_first_param = false;
 				}
 				auto res4 = generate_declaration_replacement_code(param_VD, Rewrite, state1_ptr, state1_ptr->m_ddecl_conversion_state_map);
-				l_pointee_params_current_str += res4.m_replacement_type_str;
+				retval += res4.m_replacement_type_str;
 			}
-			l_pointee_params_current_str += ")";
-		} else {
-			/* In cases where a compatible function declaration has not (yet) been identified (or
-			when the CTUState is not provided), for the (relocated) function parameters code we can
-			use either the recently existing source code (that we just recorded then "blanked out"
-			/erased), if available, or we can (try to) generate the source code from the parameter
-			types we have stored. The latter seems to be more reliably up-to-date, but omits the
-			parameter variable names (which are needed in the case of function definitions). Here
-			we use the lack of a valid functionProtoTypeLoc value as an (imprecise?) indication that
-			this is not a function definition. */
+			retval += ")";
+		} else if ((!is_declaration) && function_type_state_ref.current_qtypes_are_current()) {
+			retval = params_string_from_qtypes(function_type_state_ref.m_param_qtypes_current, Rewrite);
+		} else if (!function_type_state_ref.m_params_current_str.empty()) {
+			retval = function_type_state_ref.m_params_current_str;
+		} else if (functionProtoTypeLoc) {
+			auto parens_SR = write_once_source_range(cm1_nice_source_range(functionProtoTypeLoc.getParensRange(), Rewrite));
+			if (parens_SR.isValid()) {
 
-			if (("" == l_pointee_params_current_str) || (!functionProtoTypeLoc) || (!is_declaration))
-			{
-				if (param_qtypes_ptr) {
-					l_pointee_params_current_str = params_string_from_qtypes(*param_qtypes_ptr, Rewrite);
+#ifndef NDEBUG
+				if (parens_SR.isValid()) {
+					auto& SM = Rewrite.getSourceMgr();
+					IF_DEBUG(std::string debug_source_location_str = parens_SR.getBegin().printToString(SM);)
+
+					DEBUG_SOURCE_TEXT_STR(debug_source_text, parens_SR, Rewrite);
+
+					if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+						int q = 5;
+					}
 				}
+#endif /*!NDEBUG*/
+
+				/* We're taking note of the (current) parameters source text. */
+				std::string parens_text = Rewrite.getRewrittenText(parens_SR);
+				retval = parens_text;
+
+				if (ConvertToSCPP && (!suppress_modifications) && state1_ptr) {
+					/* We've stored the function parameters as a string. Now we're going
+					to "blank out"/erase the original source text of the parameters. */
+					std::string blank_text = parens_text;
+					for (auto& ch : blank_text) {
+						ch = ' ';
+					}
+					state1_ptr->m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, parens_SR, blank_text);
+					//Rewrite.ReplaceText(parens_SR, blank_text);
+
+					/* setting pointee_params_current_str_ref to a non-empty string implies that the
+					original source text of the parameters has (already) been "blanked out"/erased. */
+					function_type_state_ref.set_params_current_str(parens_text);
+				}
+			} else {
+				int q = 3;
 			}
+		} else {
+			int q = 7;
 		}
-		return l_pointee_params_current_str;
+		return retval;
 	}
 
 	/* If given a non-null state1_ptr argument, this function will modify the source text to reflect
@@ -3038,9 +3043,8 @@ namespace convm1 {
 								functionProtoTypeLoc = definition_TypeLoc(indirection_state_ref.m_maybe_typeLoc.value()).getAsAdjusted<clang::FunctionProtoTypeLoc>();
 							}
 
-							params_str = current_params_string(Rewrite, indirection_state_ref.m_function_type_state.m_params_current_str
-								, functionProtoTypeLoc, indirection_state_ref.m_function_type_state.m_function_decl_ptr, &(indirection_state_ref.m_function_type_state.m_param_qtypes_current)
-								, suppress_modifications, state1_ptr);
+							params_str = current_params_string(Rewrite, indirection_state_ref.m_function_type_state
+								, functionProtoTypeLoc, suppress_modifications, state1_ptr);
 						}
 
 						std::string new_qtype_str;
@@ -3058,9 +3062,9 @@ namespace convm1 {
 					} else if (is_function_pointer) {
 						l_changed_from_original = true;
 
-						auto& pointee_params_current_str_ref = ((i + 1) < indirection_state_stack.size())
-							? indirection_state_stack.at(i+1).m_function_type_state.m_params_current_str
-							: indirection_state_stack.m_direct_type_state.m_function_type_state.m_params_current_str;
+						auto& function_type_state_ref = ((i + 1) < indirection_state_stack.size())
+							? indirection_state_stack.at(i+1).m_function_type_state
+							: indirection_state_stack.m_direct_type_state.m_function_type_state;
 
 						clang::FunctionProtoTypeLoc functionProtoTypeLoc;
 
@@ -3076,48 +3080,15 @@ namespace convm1 {
 							}
 						}
 
-						auto FND = ((i + 1) < indirection_state_stack.size())
-							? indirection_state_stack.at(i+1).m_function_type_state.m_function_decl_ptr
-							: indirection_state_stack.m_direct_type_state.m_function_type_state.m_function_decl_ptr;
+						std::string l_pointee_params_current_str = current_params_string(Rewrite, function_type_state_ref, functionProtoTypeLoc, suppress_modifications, state1_ptr);
 
-						std::vector<clang::QualType> param_qtypes;
-						if ((i + 1) < indirection_state_stack.size()) {
-							param_qtypes = indirection_state_stack.at(i+1).m_function_type_state.m_param_qtypes_current;
-						} else {
-							/* In this case the function pointer pointee (i.e. the function) is the
-							direct type. We don't (currently) store the function parameter types in
-							the "direct type state", so we'll attempt to deduce parameter types here. */
-							auto qtype = indirection_state_stack.m_direct_type_state.current_qtype_if_any().value();
-							IF_DEBUG(std::string qtype_str = qtype.getAsString();)
-							if (llvm::isa<const clang::FunctionType>(qtype)) {
-								auto type_class = qtype->getTypeClass();
-								if (clang::Type::FunctionProto == type_class) {
-									if (llvm::isa<const clang::FunctionProtoType>(qtype)) {
-										auto FNQT = llvm::cast<const clang::FunctionProtoType>(qtype);
-										if (FNQT) {
-											FNQT->getAsRecordDecl();
-											auto num_params = FNQT->getNumParams();
-											auto param_types = FNQT->param_types();
-											for (auto& param_type : param_types) {
-												param_qtypes.push_back(param_type);
-											}
-										} else {
-											assert(false);
-										}
-									}
-								}
-							}
-						}
-						auto l_pointee_params_current_str = current_params_string(Rewrite, pointee_params_current_str_ref, functionProtoTypeLoc, FND, &param_qtypes, suppress_modifications, state1_ptr);
-
-						pointee_params_current_str_ref = l_pointee_params_current_str;
 						if (true && ("Dual" == ConvertMode)) {
 							prefix_str = "MSE_LH_FUNCTION_POINTER_TYPE_PREFIX ";
-							suffix_str = " MSE_LH_FUNCTION_POINTER_TYPE_SUFFIX(" + pointee_params_current_str_ref + ") ";
-							post_name_suffix_str = " MSE_LH_FUNCTION_POINTER_TYPE_POST_NAME_SUFFIX(" + pointee_params_current_str_ref + ")";
+							suffix_str = " MSE_LH_FUNCTION_POINTER_TYPE_SUFFIX(" + l_pointee_params_current_str + ") ";
+							post_name_suffix_str = " MSE_LH_FUNCTION_POINTER_TYPE_POST_NAME_SUFFIX(" + l_pointee_params_current_str + ")";
 						} else {
 							prefix_str = "mse::lh::TNativeFunctionPointerReplacement<";
-							suffix_str = pointee_params_current_str_ref + "> ";
+							suffix_str = l_pointee_params_current_str + "> ";
 						}
 						retval.m_action_species = "function pointer to mse::lh::TNativeFunctionPointerReplacement";
 					} else {
@@ -3187,9 +3158,8 @@ namespace convm1 {
 								functionProtoTypeLoc = definition_TypeLoc(indirection_state_ref.m_maybe_typeLoc.value()).getAsAdjusted<clang::FunctionProtoTypeLoc>();
 							}
 
-							params_str = current_params_string(Rewrite, indirection_state_ref.m_function_type_state.m_params_current_str
-								, functionProtoTypeLoc, indirection_state_ref.m_function_type_state.m_function_decl_ptr, &(indirection_state_ref.m_function_type_state.m_param_qtypes_current)
-								, suppress_modifications, state1_ptr);
+							params_str = current_params_string(Rewrite, indirection_state_ref.m_function_type_state
+								, functionProtoTypeLoc, suppress_modifications, state1_ptr);
 						}
 
 						std::string new_qtype_str;
@@ -3732,9 +3702,8 @@ namespace convm1 {
 									is_declaration = (nullptr != dyn_cast<const clang::FunctionDecl>(DD));
 								}
 
-								params_str = current_params_string(Rewrite, indirection_state_ref.m_function_type_state.m_params_current_str
-									, functionProtoTypeLoc, indirection_state_ref.m_function_type_state.m_function_decl_ptr, &(indirection_state_ref.m_function_type_state.m_param_qtypes_current)
-									, suppress_modifications, state1_ptr, is_declaration);
+								params_str = current_params_string(Rewrite, indirection_state_ref.m_function_type_state
+									, functionProtoTypeLoc, suppress_modifications, state1_ptr, is_declaration);
 							}
 
 							post_name_suffix_str = params_str + post_name_suffix_str;
@@ -4684,6 +4653,44 @@ namespace convm1 {
 		return declaration_modifier_helper1(DD, Rewrite, state1_ptr, ddecl_conversion_state_map, ESuppressModifications::Yes, options_str);
 	}
 
+	/* Function parameters of function pointer declarations seem to have their own associated
+	clang::ParmVarDecls. This means that modification operations associated with the
+	clang::ParmVarDecl will be applied to the source code specifying any pointer parameter. But
+	those modifications may need to overwritten with modifications of the parameters associated
+	with (analysis of operations involving) the function pointer. */
+	inline bool ContainsFunctionPointerOfConcernQType(clang::QualType qtype) {
+		qtype = ignore_parens_qtype(qtype);
+		IF_DEBUG(std::string qtype_str = qtype.getAsString());
+		IF_DEBUG(std::string typeClassName = qtype->getTypeClassName();)
+		if (qtype->isPointerType()) {
+			auto pointee_qtype = qtype->getPointeeType();
+			if (pointee_qtype->isFunctionProtoType()) {
+				if (llvm::isa<const clang::FunctionProtoType>(pointee_qtype.getTypePtr())) {
+					auto FT = llvm::cast<const clang::FunctionProtoType>(pointee_qtype.getTypePtr());
+					for (auto param_type : FT->getParamTypes()) {
+						if ((param_type->isPointerType())) {
+							return true;
+						}
+					}
+				} else {
+					int q = 3;
+					return true;
+				}
+			} else {
+				return ContainsFunctionPointerOfConcernQType(qtype->getPointeeType());
+			}
+		}
+		return false;
+	}
+	/* Function parameters of function pointer declarations seem to have their own associated
+	clang::ParmVarDecls. This means that modification operations associated with the
+	clang::ParmVarDecl will be applied to the source code specifying any pointer parameter. But
+	those modifications may need to overwritten with modifications of the parameters associated
+	with (analysis of operations involving) the function pointer. */
+	inline bool ContainsFunctionPointerOfConcernDecl(const DeclaratorDecl& ddecl) {
+		return ContainsFunctionPointerOfConcernQType(ddecl.getType());
+	}
+
 	/* With most declarations, the object/variable name follows the type. But declarations of native
 	arrays and functions (can) have the object name "surrounded" by the type. In these cases, modifying
 	the type (declaration text) in place is more complicated. If a declaration involves more than one
@@ -4973,7 +4980,7 @@ namespace convm1 {
 				}
 
 				if ((2 <= ddecls.size()) || UsesPointerTypedef(DD->getType()) || is_macro_instantiation(DD->getSourceRange(), Rewrite)
-				|| IsUnwieldyDecl(*DD) || named_record_type_defined_in_declaration) {
+				|| IsUnwieldyDecl(*DD) || named_record_type_defined_in_declaration || ContainsFunctionPointerOfConcernDecl(*DD)) {
 					if (named_record_type_defined_in_declaration) {
 						replacement_code += named_record_type_definition_text + "; ";
 					}
@@ -6475,6 +6482,35 @@ namespace convm1 {
 		}
 	}
 
+	void CUpdateDeclIndirectionArray2ReplacementAction::do_replacement(CTUState& state1) const {
+		Rewriter &Rewrite = m_Rewrite;
+		auto DD = (*this).m_ddecl_indirection2.m_ddecl_cptr;
+
+		if (DD) {
+			auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
+			auto ddcs_map_iter = res1.first;
+			auto& ddcs_ref = (*ddcs_map_iter).second;
+			//ddcs_ref.current_direct_qtype_ref();
+
+			auto SR = cm1_adj_nice_source_range(DD->getSourceRange(), state1, Rewrite);
+			RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+
+			//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+#ifndef NDEBUG
+			if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
+
+			update_declaration(*DD, (*this).m_Rewrite, state1);
+		}
+	}
+
 	class CCStyleCastReplacementCodeItem {
 	public:
 		std::string m_whole_cast_expression_replacement_text;
@@ -7171,6 +7207,29 @@ namespace convm1 {
 							}
 						}
 					}
+
+#ifndef NDEBUG
+					auto PVD = llvm::dyn_cast<const clang::ParmVarDecl>(DD);
+					if (PVD) {
+						auto DC = PVD->getDeclContext();
+						auto decl_kind = DC->getDeclKind();
+						auto decl_kind_name = DC->getDeclKindName();
+						if (clang::Decl::TranslationUnit == decl_kind) {
+							/* A parameter variable declaration whose declaration context is not a
+							clang::Decl::Function. Seems to correspond to the function parameters of
+							function pointer declarations. Though it's not immediately apparent why
+							a function parameter of a function pointer declaration would have its own
+							declaration in the AST, and a dump of the AST (via clang-check  -ast-dump)
+							does not seem to indicate the presence of these such declarations, and
+							indeed there seems not to be any corresponding declaration of the function
+							to which this parameter declaration would belong. So the source code
+							modifications associated with this declaration may be redundant with /
+							overwritten by source code modifications associated with the corresponding
+							function pointer (declaration). */
+							int q = 5;
+						}
+					}
+#endif /*!NDEBUG*/
 
 					update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), m_state1);
 				}
@@ -9241,6 +9300,19 @@ namespace convm1 {
 							if (lhs_pointee_qtype->isFunctionType()) {
 								lhs_direct_type_state_ref.m_function_type_state.m_function_decl_ptr = rhs_FND;
 								update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+
+								for (auto param_PVD : rhs_FND->parameters()) {
+									auto PVD_res1 = state1.m_ddecl_conversion_state_map.insert(*param_PVD);
+									auto PVD_ddcs_map_iter = PVD_res1.first;
+									auto& PVD_ddcs_ref = (*PVD_ddcs_map_iter).second;
+									for (size_t j = 0; j < PVD_ddcs_ref.m_indirection_state_stack.size(); j += 1) {
+										auto cr_shptr = std::make_shared<CUpdateDeclIndirectionArray2ReplacementAction>(Rewrite, MR,
+											CDDeclIndirection(*param_PVD, j),
+											CDDeclIndirection(*(lhs_res2.ddecl_conversion_state_ptr->m_ddecl_cptr), CDDeclIndirection::no_indirection));
+										state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+										state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+									}
+								}
 							} else {
 								int q = 5;
 							}
@@ -9252,6 +9324,19 @@ namespace convm1 {
 						if (lhs_pointee_indirection_state_ref.m_current_is_function_type) {
 							lhs_pointee_indirection_state_ref.m_function_type_state.m_function_decl_ptr = rhs_FND;
 							update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+
+							for (auto param_PVD : rhs_FND->parameters()) {
+								auto PVD_res1 = state1.m_ddecl_conversion_state_map.insert(*param_PVD);
+								auto PVD_ddcs_map_iter = PVD_res1.first;
+								auto& PVD_ddcs_ref = (*PVD_ddcs_map_iter).second;
+								for (size_t j = 0; j < PVD_ddcs_ref.m_indirection_state_stack.size(); j += 1) {
+									auto cr_shptr = std::make_shared<CUpdateDeclIndirectionArray2ReplacementAction>(Rewrite, MR,
+										CDDeclIndirection(*param_PVD, j),
+										CDDeclIndirection(*(lhs_res2.ddecl_conversion_state_ptr->m_ddecl_cptr), lhs_res2.indirection_level + 1));
+									state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+									state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+								}
+							}
 						} else {
 							int q = 5;
 						}
@@ -9619,13 +9704,6 @@ namespace convm1 {
 						}
 						auto fdecl_source_range = cm1_adj_nice_source_range(function_decl->getSourceRange(), state1, Rewrite);
 						auto fdecl_source_location_str = fdecl_source_range.getBegin().printToString(*MR.SourceManager);
-#ifndef NDEBUG
-						if (std::string::npos != fdecl_source_location_str.find("lodepng.cpp")) {
-							int q = 5;
-						} else if (std::string::npos != fdecl_source_location_str.find("lodepng_util.cpp")) {
-							int q = 5;
-						}
-#endif /*!NDEBUG*/
 
 						for (size_t arg_index = 0; (CE->getNumArgs() > arg_index) && (function_decl->getNumParams() > arg_index); arg_index += 1) {
 							auto param_VD = function_decl->getParamDecl(arg_index);
