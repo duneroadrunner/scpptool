@@ -7548,12 +7548,18 @@ namespace convm1 {
 
 					size_t target_indirection_index = CDDeclIndirection::no_indirection;
 					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-						target_indirection_index = 0;
-						while ((ddcs_ref.m_indirection_state_stack.size() > (target_indirection_index + 1))
-							&& ("native reference" == ddcs_ref.m_indirection_state_stack.at(target_indirection_index).current_species())) {
-							/* Since taking the address of a native reference actually takes the address of the
-							reference's target, we adjust the indirection_index accordingly. */
-							target_indirection_index += 1;
+						if ((2 <= ddcs_ref.m_indirection_state_stack.size())
+							|| ("native reference" != ddcs_ref.m_indirection_state_stack.at(0).current_species())) {
+
+							target_indirection_index = 0;
+							while ((ddcs_ref.m_indirection_state_stack.size() > (target_indirection_index + 1))
+								&& ("native reference" == ddcs_ref.m_indirection_state_stack.at(target_indirection_index).current_species())) {
+								/* Since taking the address of a native reference actually takes the address of the
+								reference's target, we adjust the indirection_index accordingly. */
+								target_indirection_index += 1;
+							}
+						} else {
+							int q = 5;
 						}
 					}
 					if ((CDDeclIndirection::no_indirection != target_indirection_index) && (target_indirection_index < ddcs_ref.m_indirection_state_stack.size())) {
