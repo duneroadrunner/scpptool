@@ -258,15 +258,6 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		return retval;
 	}
 
-	/* This function just returns the given clang::Expr if it is not an "Implicit" or "Paren(thesis)"
-	expression. Otherwise it returns the first ancestor that satisfies that criteria. */
-	inline auto NonParenImpCastThisOrParent(const clang::Expr* ptr, clang::ASTContext& Ctx) -> const clang::Expr* {
-		if (!ptr) { return ptr; }
-		while (ptr && (ptr->IgnoreImplicit()->IgnoreParenImpCasts() != ptr)) {
-			ptr = Tget_immediately_containing_element_of_type<clang::Expr>(ptr, Ctx);
-		}
-		return ptr;
-	}
 	/* This function just returns the given clang::Expr if it is not an "Implicit", "Paren(thesis)"
 	or "NoopCast" expression. Otherwise it returns the first ancestor that satisfies that criteria. */
 	inline auto NonParenNoopCastThisOrParent(const clang::Expr* ptr, clang::ASTContext& Ctx) -> const clang::Expr* {
@@ -275,6 +266,20 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 			ptr = Tget_immediately_containing_element_of_type<clang::Expr>(ptr, Ctx);
 		}
 		return ptr;
+	}
+
+	/* This function just returns the immediate parent node, ignoring "Implicit", "Paren(thesis)"
+	or "NoopCast" expressions, if that parent is a clang::Stmt. Otherwise it returns nullptr. */
+	inline auto NonParenNoopCastParentStmt(const clang::Expr* ptr, clang::ASTContext& Ctx) -> const clang::Stmt* {
+		clang::Stmt const* retval = nullptr;
+		if (!ptr) { return retval; }
+		auto parent_E = Tget_immediately_containing_element_of_type<clang::Expr>(ptr, Ctx);
+		while (parent_E && (IgnoreParenImpCasts(parent_E)->IgnoreParenNoopCasts(Ctx) != parent_E)) {
+			ptr = parent_E;
+			parent_E = Tget_immediately_containing_element_of_type<clang::Expr>(parent_E, Ctx);
+		}
+		retval = Tget_immediately_containing_element_of_type<clang::Stmt>(ptr, Ctx);
+		return retval;
 	}
 
 	template <typename ContainingElementT, typename NodeT>
