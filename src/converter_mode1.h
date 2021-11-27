@@ -8129,7 +8129,7 @@ namespace convm1 {
 								lhs_element_type_str = type_str;
 							}
 							adjusted_num_bytes_str = "(" + alloc_function_info1.m_num_bytes_arg_source_text + ")";
-							if ("void" != lhs_element_type_str) {
+							if ((element_type.getAsString() != lhs_element_type_str) && ("void" != lhs_element_type_str)) {
 								adjusted_num_bytes_str += " / sizeof(" + element_type.getAsString() + ") * sizeof(" + lhs_element_type_str + ")";
 							}
 						} else if (lhs_TP->isPointerType()) {
@@ -8139,7 +8139,7 @@ namespace convm1 {
 								lhs_element_type_str = type_str;
 							}
 							adjusted_num_bytes_str = "(" + alloc_function_info1.m_num_bytes_arg_source_text + ")";
-							if ("void" != lhs_element_type_str) {
+							if ((target_type.getAsString() != lhs_element_type_str) && ("void" != lhs_element_type_str)) {
 								adjusted_num_bytes_str += " / sizeof(" + target_type.getAsString() + ") * sizeof(" + lhs_element_type_str + ")";
 							}
 						}
@@ -10657,7 +10657,7 @@ namespace convm1 {
 								element_type_str = type_str;
 							}
 							adjusted_num_bytes_str = "(" + alloc_function_info1.m_num_bytes_arg_source_text + ")";
-							if ("void" != element_type_str) {
+							if ((element_type.getAsString() != element_type_str) && ("void" != element_type_str)) {
 								adjusted_num_bytes_str += " / sizeof(" + element_type.getAsString() + ") * sizeof(" + element_type_str + ")";
 							}
 						} else if (TP->isPointerType()) {
@@ -10667,7 +10667,7 @@ namespace convm1 {
 								element_type_str = type_str;
 							}
 							adjusted_num_bytes_str = "(" + alloc_function_info1.m_num_bytes_arg_source_text + ")";
-							if ("void" != element_type_str) {
+							if ((target_type.getAsString() != element_type_str) && ("void" != element_type_str)) {
 								adjusted_num_bytes_str += " / sizeof(" + target_type.getAsString() + ") * sizeof(" + element_type_str + ")";
 							}
 						}
