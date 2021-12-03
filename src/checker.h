@@ -196,7 +196,7 @@ namespace checker {
 								SourceLocation l_ISLE = l_ISR.getEnd();
 
 	#ifndef NDEBUG
-								if (std::string::npos != debug_source_location_str2.find("png.c:99999:")) {
+								if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:392:")) {
 									int q = 5;
 								}
 	#endif /*!NDEBUG*/
@@ -273,7 +273,7 @@ namespace checker {
 							SourceLocation l_ISLE = l_ISR.getEnd();
 
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str2.find("png.c:99999:")) {
+							if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:392:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -315,7 +315,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("png.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -356,7 +356,7 @@ namespace checker {
 								SourceLocation l_ISLE = l_ISR.getEnd();
 
 #ifndef NDEBUG
-								if (std::string::npos != debug_source_location_str2.find("png.c:99999:")) {
+								if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:392:")) {
 									int q = 5;
 								}
 #endif /*!NDEBUG*/
@@ -404,7 +404,7 @@ namespace checker {
 										|| ((FNDISLE == l_ISL) && (FNDISLE < l_ISLE))) {
 
 	#ifndef NDEBUG
-										if (std::string::npos != debug_source_location_str2.find("png.c:99999:")) {
+										if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:392:")) {
 											int q = 5;
 										}
 	#endif /*!NDEBUG*/
@@ -477,9 +477,11 @@ namespace checker {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (std::string::npos != debug_source_location_str.find(":295:")) {
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
 					int q = 5;
 				}
+#endif /*!NDEBUG*/
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -733,9 +735,11 @@ namespace checker {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (std::string::npos != debug_source_location_str.find(":357:")) {
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
 					int q = 5;
 				}
+#endif /*!NDEBUG*/
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -1371,9 +1375,11 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				if (std::string::npos != debug_source_location_str.find(":327:")) {
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
 					int q = 5;
 				}
+#endif /*!NDEBUG*/
 
 				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(RD, Rewrite, *(MR.Context));
 				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(RDISR);
@@ -1982,7 +1988,8 @@ namespace checker {
 							if (UOSE->getType()->isPointerType()) {
 								/* The declrefexpression is a direct dereference of a native pointer. */
 								satisfies_checks = true;
-								retval = dyn_cast<const clang::Expr>(UOSE);
+								//retval = dyn_cast<const clang::Expr>(UOSE);
+								retval = lower_bound_lifetime_owner_if_available(UOSE, Ctx, tu_state_cref);
 							}
 						}
 					}
@@ -2637,9 +2644,11 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				if (std::string::npos != debug_source_location_str.find(":366:")) {
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
 					int q = 5;
 				}
+#endif /*!NDEBUG*/
 
 				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(VD, Rewrite, *(MR.Context));
 				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(VDISR);
@@ -2722,9 +2731,11 @@ namespace checker {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (std::string::npos != debug_source_location_str.find(":423:")) {
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
 					int q = 5;
 				}
+#endif /*!NDEBUG*/
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -3145,9 +3156,11 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				if (std::string::npos != debug_source_location_str.find(":423:")) {
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
 					int q = 5;
 				}
+#endif /*!NDEBUG*/
 
 				auto suppress_check_flag = CXXMCE ? m_state1.m_suppress_check_region_set.contains(CXXMCE, Rewrite, *(MR.Context))
 					: m_state1.m_suppress_check_region_set.contains(CXXOCE, Rewrite, *(MR.Context));
@@ -3448,9 +3461,11 @@ namespace checker {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
-				if (std::string::npos != debug_source_location_str.find(":397:")) {
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
 					int q = 5;
 				}
+#endif /*!NDEBUG*/
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
