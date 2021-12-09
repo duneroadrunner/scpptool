@@ -1,5 +1,5 @@
 
-Apr 2021
+Dec 2021
 
 ### Overview
 
@@ -187,6 +187,34 @@ Note that the `mse::rsv::make_xscope_pointer_to()` function, which allows you to
 #### Elements not (yet) addressed
 
 The set of potentially unsafe elements in C++, and in the standard library itself, is pretty large. This tool does not yet address them all. In particular it does not complain about the use of essential elements for which the SaferCPlusPlus library does not (yet) provide a safe alternative, such as conatiners like maps, sets, etc.,. 
+
+#### Encoding an object's lifetime information in its type
+
+The information needed to compare (at compile-time) the lifetimes of two (simultaneously existing) local variables can be separated into two categories: i) The relative lifetimes (or equivalently, the declaration locations) of the variables within the function in which they are declared, if indeed they are both declared in the same function. And ii) the relative lifetimes of the function calls in which they are instantiated, if they are instead instantiated in different function call instances.
+
+The SaferCPlusPlus library already has a mechanism for addressing the latter category. When a pointer/reference object of concern is received as a function parameter (and its lifetime information is relevant), rather than being accessed directly, it is used to [create an](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#as_a_returnable_fparam) [equivalent object](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#as_an_fparam) of a compatible, but slightly different, type. The new type is the same as the original parameter type, but wrapped in a "transparent template wrapper" that indicates that it has been received as function parameter. An object that is passed down through multiple nested function calls will end up being wrapped with the multiple corresponding transparent template wrappers. (Note that the functions need to be function templates so that they can accept a range of different parameter types expressing a range of different object lifetimes.)
+
+Also correspondingly, any of those pointer/reference objects used as a return value will have the added template wrapper removed during the return operation. These type modifications are verified/enforced by this scpptool. Currently they need to invoked manually by the programmer, but presumably in the future this tool will be able to add them automatically.
+
+On the other hand, the mechanism for encoding the first category of lifetime information (that is, lifetimes of objects declared within the same function,) is not yet completed. Within the function in which the objects are declared, the encoding of lifetime information (in their types) is arguably not necessary as the static analyzer can just directly infer the lifetimes from the declaration location of the objects. But (relative) lifetime information may need to be explicitly indicated in cases when object references are passed to a function.
+
+One option is to just somehow indicate the relative lifetimes (or their intended constraints) of the passed objects in the function interface. For example, the function parameter types could indicate the (intended) relative lifetimes of the parameters like so:
+
+```cpp
+void foo1(param_t<int*, 1> long_lived_pointer, param_t<int*, 3> short_lived_pointer, param_t<int*, 2> medium_lived_pointer);
+```
+
+Or perhaps less intrusively, the relative lifetimes could even be indicated by separate parameter declarations:
+
+```cpp
+void foo1(int* long_lived_pointer, int* short_lived_pointer, int* medium_lived_pointer, relative_param_lifetime_order<1, 3, 2>= {});
+```
+
+But another option is to encode the (post-preprocessing) declaration location of every local variable of concern into the variable's declared type. It seems that this could be done fairly automatically using macros and `std::source_location`. This option has its thorns (restrictions on copy construction, type deduction, ...) but there are arguably some benefits. Arguably. First, since the lifetime information is available right from the declaration, a lot of the lifetime safety enforcement can be done in the type system rather than relying on the static analysis tool. Also, lifetime information can be automatically passed with the arguments to a function (template) without the programmer having to make any explicit lieftime annotations in the function (template) interface.
+
+At this point, this latter option is perhaps most likely to be implemented. But the options aren't mutually incompatible, and the implementation of one does not necessarily exclude the future availability of the other(s).
+
+But until any of the options are fully implemented, you can instead use [run-time checked](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#tnoradproxypointer) pointers (which would be expected to often have their run-time checks discarded by the compiler optimizer).
 
 ### Autotranslation
 
