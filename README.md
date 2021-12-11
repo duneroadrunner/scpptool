@@ -197,7 +197,7 @@ The relative lifetimes of objects declared within the same function definition a
 So the question is how the programmer can express the intended lifetime constraints. A fairly unintrusive option might be to add "unused" parameters to the function interface, perhaps like:
 
 ```cpp
-int* foo1(int* long_lived_pointer, int* short_lived_pointer, int* medium_lived_pointer, relative_param_lifetime_order<1, 3, 2>= {}, return_value_lifetime<2> = {});
+int* foo1(int*& long_lived_pointer, int*& short_lived_pointer, int*& medium_lived_pointer, relative_param_lifetime_order<1, 3, 2>= {}, return_value_lifetime<2> = {});
 ```
 where the last two "unused" parameters express the relative lifetimes of the pointer/reference parameters and, in this case, which parameter has the same lifetime as the pointer/reference return value.
 
