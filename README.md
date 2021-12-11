@@ -201,7 +201,7 @@ int* foo1(int* long_lived_pointer, int* short_lived_pointer, int* medium_lived_p
 ```
 where the last two "unused" parameters express the relative lifetimes of the pointer/reference parameters and, in this case, which parameter has the same lifetime as the pointer/reference return value.
 
-Until such a "lifetime expression" mechanism is supported by the tool, [run-time checked](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#tnoradproxypointer) pointers can safely provide equivalent functionality. For what's it's worth, function calls involving such lifetime issues don't seem to be very common in performance-critical inner loops. (Indeed, performance-critical inner loops tend to exclude non-trivial function calls of any kind.) So the benefit of moving the lifetime checking from run-time to compile-time is more one of correctness and reliability than performance.
+Until such a "lifetime expression" mechanism is supported by the tool, [run-time checked](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#tnoradproxypointer) pointers can safely provide equivalent functionality. For what's it's worth, function calls involving such lifetime issues don't seem to be very common in performance-critical inner loops. So the benefit of moving the lifetime checking from run-time to compile-time is more one of correctness and reliability than performance.
 
 ### Autotranslation
 
