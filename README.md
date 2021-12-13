@@ -194,12 +194,12 @@ The set of potentially unsafe elements in C++, and in the standard library itsel
 
 The relative lifetimes of objects declared within the same function definition are directly deduced (at compile-time) by this tool from the location of their declarations. This deduction can't so readily be done with references to objects that are passed through function call boundaries (either as parameters or return values). So it can be helpful to allow the programmer to express constraints on the lifetimes of reference objects passed in and out of a function in the function interface and have the analyzer tool verify/enforce that those constraints are observed on the sending and receiving side of the function call.
 
-So the question is how the programmer can express the intended lifetime constraints. A fairly unintrusive option might be to add "unused" parameters to the function interface, perhaps like:
+So the question is how the programmer can express the intended lifetime constraints. A fairly unintrusive option might be to add annotation parameters to the function interface, perhaps like:
 
 ```cpp
-int* foo1(int*& long_lived_pointer, int*& short_lived_pointer, int*& medium_lived_pointer, relative_param_lifetime_order<1, 3, 2>= {}, return_value_lifetime<2> = {});
+int* foo1(int*& long_lived_pointer, int*& short_lived_pointer, int*& other_long_lived_pointer, parameter_lifetimes<pl<1, 1>, pl<2, 2>, pl<3, 1> > = {}, return_value_lifetime<1, 3> = {});
 ```
-where the last two "unused" parameters express the relative lifetimes of the pointer/reference parameters and, in this case, which parameter has the same lifetime as the pointer/reference return value.
+where the last two "unused" parameters express the relative lifetimes of the pointer/reference parameters and the lifetime of the return value (as the lesser of the lifetimes of the indicated parameters).
 
 Until such a "lifetime expression" mechanism is supported by the tool, [run-time checked](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#tnoradproxypointer) pointers can safely provide equivalent functionality. For what's it's worth, function calls involving such lifetime issues don't seem to be very common in performance-critical inner loops. So the benefit of moving the lifetime checking from run-time to compile-time is more one of correctness and reliability than performance.
 
