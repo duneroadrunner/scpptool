@@ -477,13 +477,13 @@ namespace checker {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
 #ifndef NDEBUG
 				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
-
-				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(EX, Rewrite, *(MR.Context));
 				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
@@ -716,6 +716,77 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
+	void process_lifetime_annotations(const clang::FunctionDecl& func_decl, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
+		for (auto param : func_decl.parameters()) {
+			auto qtype = param->getType();
+			IF_DEBUG(const std::string qtype_str = qtype.getAsString();)
+			auto CXXRD = qtype->getAsCXXRecordDecl();
+			if (CXXRD) {
+				auto name = CXXRD->getQualifiedNameAsString();
+				const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
+				if (tmplt_CXXRD) {
+					name = tmplt_CXXRD->getQualifiedNameAsString();
+				}
+				DECLARE_CACHED_CONST_STRING(mse_rsv_parameter_lifetimes_str, mse_namespace_str() + "::rsv::parameter_lifetimes");
+				DECLARE_CACHED_CONST_STRING(mse_rsv_return_value_lifetime_str, mse_namespace_str() + "::rsv::return_value_lifetime");
+				if (mse_rsv_parameter_lifetimes_str == name) {
+					auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
+						: param->getSourceRange();
+
+					auto process_parameter_lifetime = [&MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+						auto qtype = typeLoc.getType();
+						std::string element_name;
+						const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+						if (l_CXXRD) {
+							element_name = l_CXXRD->getQualifiedNameAsString();
+						} else {
+							element_name = qtype.getAsString();
+						}
+
+						if (false) {
+							if (MR_ptr) {
+								std::string error_desc = std::string("error_desc");
+								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+								if (res.second) {
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
+								}
+							}
+						}
+						int q = 5;
+					};
+					auto tsi_ptr = param->getTypeSourceInfo();
+					if (tsi_ptr) {
+						process_parameter_lifetime(tsi_ptr->getTypeLoc(), SR, state1);
+						apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), process_parameter_lifetime, state1);
+					}
+
+				 } else if (mse_rsv_return_value_lifetime_str == name) {
+
+					/*** left off here ***/
+
+					 int q = 5;
+				 }
+			}
+		}
+	}
+	void process_lifetime_annotations(const clang::ParmVarDecl& parm_var_decl, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
+		auto PVD = &parm_var_decl;
+		auto DC = PVD->getDeclContext();
+		const clang::FunctionDecl* function_decl1 = DC ? dyn_cast<const clang::FunctionDecl>(DC) : nullptr;
+		if (function_decl1) {
+			IF_DEBUG(std::string function_name = function_decl1->getNameAsString();)
+
+			process_lifetime_annotations(*function_decl1, state1, MR_ptr, Rewrite_ptr);
+		}
+	}
+	void process_lifetime_annotations(const clang::VarDecl& var_decl, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
+		auto VD = &var_decl;
+		auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
+		if (PVD) {
+			process_lifetime_annotations(*PVD, state1, MR_ptr, Rewrite_ptr);
+		}
+	}
+
 	class MCSSSDeclUtil : public MatchFinder::MatchCallback
 	{
 	public:
@@ -907,6 +978,8 @@ namespace checker {
 								std::cout << (*(res.first)).as_a_string1() << " \n\n";
 							}
 						}
+
+						process_lifetime_annotations(*VD, m_state1, &MR, &Rewrite);
 					} else {
 						auto FD = dyn_cast<const clang::FieldDecl>(D);
 						if (FD) {
@@ -1303,6 +1376,12 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
 				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ST, Rewrite, *(MR.Context));
 				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(STISR);
 				if (suppress_check_flag) {
@@ -1333,6 +1412,20 @@ namespace checker {
 								DECLARE_CACHED_CONST_STRING(return_value_str, mse_namespace_str() + "::return_value");
 								if (return_value_str == qualified_function_name) {
 									xscope_return_value_wrapper_present = true;
+								}
+							}
+						}
+						if (!xscope_return_value_wrapper_present) {
+							auto E = dyn_cast<const clang::Expr>(stii);
+							if (E) {
+								auto E_ii = IgnoreParenImpNoopCasts(E, *(MR.Context));
+								auto DRE = dyn_cast<const clang::DeclRefExpr>(E_ii);
+								if (DRE) {
+									auto D = DRE->getDecl();
+									auto VD = dyn_cast<const clang::VarDecl>(D);
+									process_lifetime_annotations(*VD, m_state1, &MR, &Rewrite);
+
+									int q = 5;
 								}
 							}
 						}
@@ -2264,7 +2357,7 @@ namespace checker {
 	lifetime) of the reference object to be retargeted. If the indicated reference object is itself a declared
 	object (as opposed to, for example, a member of another object, or an element in a container), then it
 	itself would be the object of interest. */
-	CMaybeStaticLifetimeOwnerWithHints upper_bound_lifetime_owner_if_available(const clang::Expr* EX1, ASTContext& Ctx, const CTUState& tu_state_cref) {
+	CMaybeStaticLifetimeOwnerWithHints upper_bound_lifetime_owner_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref) {
 		CMaybeStaticLifetimeOwnerWithHints retval;
 		if (!EX1) {
 			return retval;
@@ -2291,13 +2384,17 @@ namespace checker {
 					|| (clang::StorageDuration::SD_Thread == storage_duration)
 					) {
 					if (VD->getType()->isReferenceType()) {
-						/* We're assuming that imposed restrictions imply that objects referenceed
-						by native references qualify as scope objects (at least for the duration
-						of the reference). */
-						int q = 5;
+						satisfies_checks = false;
+						retval = {};
+						if (VD->hasInit()) {
+							retval = upper_bound_lifetime_owner_if_available(VD->getInit(), Ctx, tu_state_ref);
+							return retval;
+						}
+						process_lifetime_annotations(*VD, tu_state_ref);
+					} else {
+						satisfies_checks = true;
+						retval = VD;
 					}
-					satisfies_checks = true;
-					retval = VD;
 				} else if ((clang::StorageDuration::SD_Static == storage_duration)) {
 					const auto VDSR = VD->getSourceRange();
 					if (filtered_out_by_location(Ctx.getSourceManager(), VDSR.getBegin())) {
@@ -2347,7 +2444,7 @@ namespace checker {
 				auto VD = dyn_cast<const clang::VarDecl>(VLD); /* for static members */
 				if (FD && !(ME->isBoundMemberFunction(Ctx))) {
 					auto containing_EX = containing_object_expr_from_member_expr(ME);
-					retval = upper_bound_lifetime_owner_if_available(containing_EX, Ctx, tu_state_cref);
+					retval = upper_bound_lifetime_owner_if_available(containing_EX, Ctx, tu_state_ref);
 				} else if (VD) {
 					retval = VD; /* static member */
 				} else {
@@ -2357,9 +2454,9 @@ namespace checker {
 				{
 					auto CO = dyn_cast<const clang::ConditionalOperator>(EX);
 					if (CO) {
-						auto res1 = upper_bound_lifetime_owner_if_available(CO->getTrueExpr(), Ctx, tu_state_cref);
-						auto res2 = upper_bound_lifetime_owner_if_available(CO->getFalseExpr(), Ctx, tu_state_cref);
-						return upper_bound_lifetime_owner(res1, res2, Ctx, tu_state_cref);
+						auto res1 = upper_bound_lifetime_owner_if_available(CO->getTrueExpr(), Ctx, tu_state_ref);
+						auto res2 = upper_bound_lifetime_owner_if_available(CO->getFalseExpr(), Ctx, tu_state_ref);
+						return upper_bound_lifetime_owner(res1, res2, Ctx, tu_state_ref);
 					} else {
 						const clang::Expr* potential_owner_EX = nullptr;
 						auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(EX);
@@ -2467,7 +2564,7 @@ namespace checker {
 										|| (mstd_vector_str == qname)
 										*/
 										) {
-										retval = upper_bound_lifetime_owner_if_available(potential_owner_EX_ii, Ctx, tu_state_cref);
+										retval = upper_bound_lifetime_owner_if_available(potential_owner_EX_ii, Ctx, tu_state_ref);
 									}
 								} else if (potential_owner_EX_ii->getType()->isReferenceType()) {
 									int q = 5;
@@ -3538,6 +3635,14 @@ namespace checker {
 				} else {
 					auto lhs_lifetime_info = scope_lifetime_info_from_lifetime_owner(lhs_slo.value(), *(MR.Context));
 					auto rhs_lifetime_info = scope_lifetime_info_from_lifetime_owner(rhs_slo.value(), *(MR.Context));
+
+					auto lhs_VD_ptr = std::get_if<const clang::VarDecl*>(&(lhs_slo.value()));
+						if (lhs_VD_ptr) {
+						auto lhs_PVD = dyn_cast<const clang::ParmVarDecl>(*lhs_VD_ptr);
+						if (lhs_PVD && lhs_PVD->getType()->isReferenceType()) {
+							int q = 5;
+						}
+					}
 
 					satisfies_checks = first_is_known_to_be_contained_in_scope_of_second(lhs_lifetime_info, rhs_lifetime_info, *(MR.Context));
 				}
