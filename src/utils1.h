@@ -1412,9 +1412,15 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		if (Specialization) {
 			for (unsigned i = 0; i < Specialization.getNumArgs(); i += 1) {
 				auto ArgumentLoc = Specialization.getArgLoc(i);
-				if (ArgumentLoc.getArgument().getKind() == clang::TemplateArgument::Type) {
+				const auto kind = ArgumentLoc.getArgument().getKind();
+				if (kind == clang::TemplateArgument::Type) {
 					retval.push_back(ArgumentLoc.getTypeSourceInfo()->getTypeLoc());
-					//retval.push_back(ArgumentLoc);
+				} else if (kind == clang::TemplateArgument::Integral) {
+					int q = 5;
+				} else if (kind == clang::TemplateArgument::Expression) {
+					int q = 5;
+				} else {
+					int q = 5;
 				}
 			}
 		} else {

@@ -113,10 +113,57 @@ namespace checker {
 	int CErrorRecord::m_next_available_id = 0;
 	class CErrorRecords : public std::set<CErrorRecord> {};
 
+	typedef size_t param_index_t;
+	typedef size_t lifetime_rank_t;
+	struct CParameterLifetimeRank {
+		param_index_t m_index = 0;
+		lifetime_rank_t m_rank = 0;
+	};
+
+	clang::FunctionDecl const * function_from_param(clang::ParmVarDecl const * PVD) {
+		clang::FunctionDecl const * retval = nullptr;
+		if (PVD) {
+			auto DC = PVD->getDeclContext();
+			retval = DC ? dyn_cast<const clang::FunctionDecl>(DC) : nullptr;
+			if (retval) {
+				IF_DEBUG(std::string function_name = retval->getNameAsString();)
+				int q = 5;
+			}
+		}
+		return retval;
+	}
+ 
+	class CFunctionLifetimeAnnotations {
+	public:
+		std::optional<lifetime_rank_t> parameter_rank(param_index_t index) {
+			std::optional<lifetime_rank_t> retval;
+			for (const auto&pl : m_parameter_lifetime_ranks) {
+				if (index == pl.m_index) {
+					return pl.m_rank;
+				}
+			}
+			return retval;
+		}
+		bool second_param_can_be_assigned_to_first(param_index_t index1, param_index_t index2) {
+			bool retval = false;
+			auto maybe_rank1 = parameter_rank(index1);
+			auto maybe_rank2 = parameter_rank(index2);
+			if (maybe_rank1.has_value() && maybe_rank2.has_value()) {
+				return (maybe_rank2.value() >= maybe_rank1.value());
+			}
+			return retval;
+		}
+		std::vector<CParameterLifetimeRank> m_parameter_lifetime_ranks;
+		std::vector<size_t> m_return_value_param_sources;
+		bool m_parse_errors_noted = false;
+	};
+
 	class CTUState : public CCommonTUState1 {
 	public:
 		/* Set of detected errors and warnings. */
 		CErrorRecords m_error_records;
+
+		std::map<clang::FunctionDecl const *, CFunctionLifetimeAnnotations> m_function_lifetime_annotations_map;
 	};
 
 	class MCSSSSuppressCheckDirectiveCall : public MatchFinder::MatchCallback
@@ -196,7 +243,7 @@ namespace checker {
 								SourceLocation l_ISLE = l_ISR.getEnd();
 
 	#ifndef NDEBUG
-								if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:392:")) {
+								if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:396:")) {
 									int q = 5;
 								}
 	#endif /*!NDEBUG*/
@@ -273,7 +320,7 @@ namespace checker {
 							SourceLocation l_ISLE = l_ISR.getEnd();
 
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:392:")) {
+							if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:396:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -315,7 +362,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:396:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -356,7 +403,7 @@ namespace checker {
 								SourceLocation l_ISLE = l_ISR.getEnd();
 
 #ifndef NDEBUG
-								if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:392:")) {
+								if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:396:")) {
 									int q = 5;
 								}
 #endif /*!NDEBUG*/
@@ -404,7 +451,7 @@ namespace checker {
 										|| ((FNDISLE == l_ISL) && (FNDISLE < l_ISLE))) {
 
 	#ifndef NDEBUG
-										if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:392:")) {
+										if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:396:")) {
 											int q = 5;
 										}
 	#endif /*!NDEBUG*/
@@ -480,7 +527,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:396:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -716,7 +763,16 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
-	void process_lifetime_annotations(const clang::FunctionDecl& func_decl, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
+	void process_function_lifetime_annotations(const clang::FunctionDecl& func_decl, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
+		auto iter = state1.m_function_lifetime_annotations_map.find(&func_decl);
+		if (state1.m_function_lifetime_annotations_map.end() != iter) {
+			if (iter->second.m_parse_errors_noted) {
+				/* already processed */
+				return;
+			}
+		}
+		CFunctionLifetimeAnnotations flta;
+		flta.m_parse_errors_noted = (nullptr != MR_ptr);
 		for (auto param : func_decl.parameters()) {
 			auto qtype = param->getType();
 			IF_DEBUG(const std::string qtype_str = qtype.getAsString();)
@@ -728,12 +784,15 @@ namespace checker {
 					name = tmplt_CXXRD->getQualifiedNameAsString();
 				}
 				DECLARE_CACHED_CONST_STRING(mse_rsv_parameter_lifetimes_str, mse_namespace_str() + "::rsv::parameter_lifetimes");
+				DECLARE_CACHED_CONST_STRING(mse_rsv_pl_str, mse_namespace_str() + "::rsv::pl");
 				DECLARE_CACHED_CONST_STRING(mse_rsv_return_value_lifetime_str, mse_namespace_str() + "::rsv::return_value_lifetime");
 				if (mse_rsv_parameter_lifetimes_str == name) {
 					auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
 						: param->getSourceRange();
 
-					auto process_parameter_lifetime = [&MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+					std::vector<CParameterLifetimeRank> parameter_lifetime_ranks;
+
+					auto process_parameter_lifetime = [&mse_rsv_pl_str, &parameter_lifetime_ranks, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
 						auto qtype = typeLoc.getType();
 						std::string element_name;
 						const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
@@ -742,48 +801,169 @@ namespace checker {
 						} else {
 							element_name = qtype.getAsString();
 						}
+						if (mse_rsv_pl_str == element_name) {
+							std::optional<param_index_t> maybe_param_index;
+							std::optional<lifetime_rank_t> maybe_lifetime_rank;
 
-						if (false) {
-							if (MR_ptr) {
-								std::string error_desc = std::string("error_desc");
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
+							if (true) {
+								/* Here we're parsing the non-type (size_t) template parameters of 'mse::rsv::pl<>'
+								from the string representation of the type (of the instantiated template). This is
+								kind of a hacky way to do it, but when we try to obtain the non-type template
+								arguments programmatically, we seem to get a (not useful?) clang::TemplateArgument::Expression
+								instead of a desired (and more specific and more useful) clang::TemplateArgument::Integral. */
+								std::string qtype_str = qtype.getAsString();
+								auto langle_bracket_index = qtype_str.find('<');
+								if (std::string::npos != langle_bracket_index) {
+									auto comma_index = qtype_str.find(',', langle_bracket_index+1);
+									if ((std::string::npos != comma_index) && (langle_bracket_index + 1 < comma_index)) {
+										auto rangle_bracket_index = qtype_str.find('>', comma_index+1);
+										if ((std::string::npos != rangle_bracket_index) && (comma_index + 1 < rangle_bracket_index)) {
+											std::string param_index_str = qtype_str.substr(langle_bracket_index + 1, int(comma_index) - int(langle_bracket_index) - 1);
+											auto param_index = atoi(param_index_str.c_str());
+											if (1 <= param_index) {
+												maybe_param_index = param_index;
+											}
+
+											std::string lifetime_rank_str = qtype_str.substr(comma_index + 1, int(rangle_bracket_index) - int(comma_index) - 1);
+											auto lifetime_rank = atoi(lifetime_rank_str.c_str());
+											if (1 <= lifetime_rank) {
+												maybe_lifetime_rank = lifetime_rank;
+											}
+										}
+									}
+								}
+							} else {
+								size_t component_index = 0;
+								auto process_parameter_lifetime_component = [&maybe_param_index, &maybe_lifetime_rank, &component_index, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+									auto qtype = typeLoc.getType();
+									std::string element_name;
+									const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+									if (l_CXXRD) {
+										element_name = l_CXXRD->getQualifiedNameAsString();
+									} else {
+										element_name = qtype.getAsString();
+									}
+
+									++component_index;
+
+									int q = 5;
+								};
+
+								/* We expected the "component types", i.e. non-type (size_t) template arguments,
+								in this case to be 'clang::TemplateArgument::Integral's. But instead they seem
+								to be reported as the (less specific) 'clang::TemplateArgument::Expression's, 
+								which aren't obviously useful (enough) for us. */
+								apply_to_component_types_if_any(typeLoc, process_parameter_lifetime_component, state1);
+							}
+
+							bool is_valid = true;
+							if ((!maybe_param_index.has_value()) || (1 > maybe_param_index.value())) {
+								is_valid = false;
+								if (MR_ptr) {
+									std::string error_desc = std::string("The first template argument of the 'mse::rsv::pl<size_t param_index, size_t lifetime_rank>' ")
+										+ "template must be an integer greater than zero.";
+									auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									}
 								}
 							}
+							if ((!maybe_lifetime_rank.has_value()) || (1 > maybe_lifetime_rank.value())) {
+								is_valid = false;
+								if (MR_ptr) {
+									std::string error_desc = std::string("The second template argument of the 'mse::rsv::pl<size_t param_index, size_t lifetime_rank>' ")
+										+ "template must be an integer greater than zero.";
+									auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									}
+								}
+							}
+							if (is_valid) {
+								parameter_lifetime_ranks.push_back(CParameterLifetimeRank{ maybe_param_index.value(), maybe_lifetime_rank.value() });
+							}
+						} else {
+							/* We seem to have encounterred a template argument that is not an mse::rsv::pl<>. We
+							should probably complain. */
+							int q = 5;
 						}
 						int q = 5;
 					};
 					auto tsi_ptr = param->getTypeSourceInfo();
 					if (tsi_ptr) {
-						process_parameter_lifetime(tsi_ptr->getTypeLoc(), SR, state1);
+						//process_parameter_lifetime(tsi_ptr->getTypeLoc(), SR, state1);
 						apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), process_parameter_lifetime, state1);
 					}
 
+					flta.m_parameter_lifetime_ranks = parameter_lifetime_ranks;
+
 				 } else if (mse_rsv_return_value_lifetime_str == name) {
+					auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
+						: param->getSourceRange();
 
-					/*** left off here ***/
+					std::vector<size_t> return_value_param_sources;
 
-					 int q = 5;
+					if (true) {
+						std::string qtype_str = qtype.getAsString();
+						const auto langle_bracket_index = qtype_str.find('<');
+						if (std::string::npos != langle_bracket_index) {
+							const auto rangle_bracket_index = qtype_str.find('>', langle_bracket_index+1);
+							if ((std::string::npos != rangle_bracket_index) && (langle_bracket_index + 1 < rangle_bracket_index)) {
+								auto last_delimiter_index = langle_bracket_index;
+								auto next_delimiter_index = qtype_str.find(',', last_delimiter_index+1);
+								if (std::string::npos == next_delimiter_index) {
+									next_delimiter_index = rangle_bracket_index;
+								}
+								while (true) {
+									if (!(last_delimiter_index + 1 < next_delimiter_index)) {
+										/* todo: report an error */
+										break;
+									}
+									std::string param_index_str = qtype_str.substr(last_delimiter_index + 1, int(next_delimiter_index) - int(last_delimiter_index) - 1);
+									auto param_index = atoi(param_index_str.c_str());
+									if (1 <= param_index) {
+										return_value_param_sources.push_back(param_index);
+									} else {
+										/* todo: report an error */
+										int q = 5;
+									}
+
+									if (rangle_bracket_index == next_delimiter_index) {
+										break;
+									}
+									last_delimiter_index = next_delimiter_index;
+									next_delimiter_index = qtype_str.find(',', last_delimiter_index+1);
+									if (std::string::npos == next_delimiter_index) {
+										next_delimiter_index = rangle_bracket_index;
+									}
+								}
+							}
+						}
+					} else {
+						;
+					}
+
+					flta.m_return_value_param_sources = return_value_param_sources;
+
+					int q = 5;
 				 }
 			}
 		}
+		state1.m_function_lifetime_annotations_map.insert_or_assign(&func_decl, flta);
+		int q = 5;
 	}
-	void process_lifetime_annotations(const clang::ParmVarDecl& parm_var_decl, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
-		auto PVD = &parm_var_decl;
-		auto DC = PVD->getDeclContext();
-		const clang::FunctionDecl* function_decl1 = DC ? dyn_cast<const clang::FunctionDecl>(DC) : nullptr;
+	void process_function_lifetime_annotations(const clang::ParmVarDecl& parm_var_decl, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
+		const clang::FunctionDecl* function_decl1 = function_from_param(&parm_var_decl);
 		if (function_decl1) {
 			IF_DEBUG(std::string function_name = function_decl1->getNameAsString();)
-
-			process_lifetime_annotations(*function_decl1, state1, MR_ptr, Rewrite_ptr);
+			process_function_lifetime_annotations(*function_decl1, state1, MR_ptr, Rewrite_ptr);
 		}
 	}
-	void process_lifetime_annotations(const clang::VarDecl& var_decl, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
+	void process_function_lifetime_annotations(const clang::VarDecl& var_decl, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
 		auto VD = &var_decl;
 		auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
 		if (PVD) {
-			process_lifetime_annotations(*PVD, state1, MR_ptr, Rewrite_ptr);
+			process_function_lifetime_annotations(*PVD, state1, MR_ptr, Rewrite_ptr);
 		}
 	}
 
@@ -807,7 +987,7 @@ namespace checker {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:396:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -979,7 +1159,7 @@ namespace checker {
 							}
 						}
 
-						process_lifetime_annotations(*VD, m_state1, &MR, &Rewrite);
+						process_function_lifetime_annotations(*VD, m_state1, &MR, &Rewrite);
 					} else {
 						auto FD = dyn_cast<const clang::FieldDecl>(D);
 						if (FD) {
@@ -1377,7 +1557,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:396:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -1423,7 +1603,7 @@ namespace checker {
 								if (DRE) {
 									auto D = DRE->getDecl();
 									auto VD = dyn_cast<const clang::VarDecl>(D);
-									process_lifetime_annotations(*VD, m_state1, &MR, &Rewrite);
+									process_function_lifetime_annotations(*VD, m_state1, &MR, &Rewrite);
 
 									int q = 5;
 								}
@@ -1469,7 +1649,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:396:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -2386,11 +2566,15 @@ namespace checker {
 					if (VD->getType()->isReferenceType()) {
 						satisfies_checks = false;
 						retval = {};
-						if (VD->hasInit()) {
-							retval = upper_bound_lifetime_owner_if_available(VD->getInit(), Ctx, tu_state_ref);
-							return retval;
+						auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
+						if (PVD) {
+							process_function_lifetime_annotations(*PVD, tu_state_ref);
+						} else {
+							if (VD->hasInit()) {
+								retval = upper_bound_lifetime_owner_if_available(VD->getInit(), Ctx, tu_state_ref);
+								return retval;
+							}
 						}
-						process_lifetime_annotations(*VD, tu_state_ref);
 					} else {
 						satisfies_checks = true;
 						retval = VD;
@@ -2742,7 +2926,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:396:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -2829,7 +3013,7 @@ namespace checker {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:396:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -3254,7 +3438,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:396:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -3559,7 +3743,7 @@ namespace checker {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:392:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:396:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
