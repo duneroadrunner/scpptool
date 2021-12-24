@@ -307,10 +307,35 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		return Tget_containing_element_of_type<clang::CompoundStmt>(NodePtr, context);
 	}
 
+
+	typedef size_t lifetime_id_t;
+	inline thread_local lifetime_id_t tl_next_available_lifetime_id = 0;
+	inline lifetime_id_t consume_new_lifetime_id() {
+		auto retval = tl_next_available_lifetime_id;
+		++tl_next_available_lifetime_id;
+		return retval;
+	}
+	typedef size_t lifetime_rank_t;
+	struct CAbstractLifetime {
+		lifetime_id_t m_id = 0;
+		clang::FunctionDecl const * m_function_context = nullptr;
+		bool operator==(const CAbstractLifetime& rhs) const {
+			return ((rhs.m_id == m_id) && (rhs.m_function_context == m_function_context));
+		}
+		bool operator<(const CAbstractLifetime& rhs) const {
+			if (m_function_context < rhs.m_function_context) {
+				return true;
+			} else if ((m_function_context == rhs.m_function_context) && (m_id < rhs.m_id)) {
+				return true;
+			}
+			return false;
+		}
+	};
 	struct CScopeLifetimeInfo1 {
 		std::optional<const clang::CompoundStmt*> m_maybe_containing_scope;
 		std::optional<COrderedSourceRange> m_maybe_source_range;
-		enum class ECategory { None, Automatic, ThisExpression, Immortal, Literal };
+		std::optional<CAbstractLifetime> m_maybe_abstract_lifetime;
+		enum class ECategory { None, Automatic, ThisExpression, Immortal, Literal, AbstractLifetime };
 		ECategory m_category = ECategory::None;
 	};
 	inline bool operator==(const CScopeLifetimeInfo1 &LHS, const CScopeLifetimeInfo1 &RHS) {
@@ -345,101 +370,9 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		return retval;
 	}
 
-	inline bool first_is_known_to_be_contained_in_scope_of_second(const CScopeLifetimeInfo1& sli1, const CScopeLifetimeInfo1& sli2, clang::ASTContext& context) {
+	inline bool first_is_contained_in_scope_of_second(clang::CompoundStmt const * scope1, clang::SourceRange SR1, clang::CompoundStmt const * const scope2, clang::SourceRange SR2, clang::ASTContext& context) {
 		bool retval = true;
-		if (CScopeLifetimeInfo1::ECategory::Literal == sli1.m_category) {
-			return false;
-		} else if (CScopeLifetimeInfo1::ECategory::Literal == sli2.m_category) {
-			return true;
-		} else {
-			if (CScopeLifetimeInfo1::ECategory::Immortal == sli1.m_category) {
-				if (CScopeLifetimeInfo1::ECategory::Immortal == sli2.m_category) {
-					if (sli1.m_maybe_source_range.has_value() && sli2.m_maybe_source_range.has_value()) {
-						return first_is_contained_in_scope_of_second(sli1.m_maybe_source_range.value(), sli2.m_maybe_source_range.value(), context);
-					} else {
-						/* There are (rare) cases when we know that the object in question must be of
-						thread_local or static duration, but nothing else. */
-						return false;
-					}
-				} else {
-					return false;
-				}
-			} else if (CScopeLifetimeInfo1::ECategory::Immortal == sli2.m_category) {
-				return true;
-			} else if (CScopeLifetimeInfo1::ECategory::ThisExpression == sli1.m_category) {
-				if (CScopeLifetimeInfo1::ECategory::ThisExpression == sli2.m_category) {
-					/* Both items are "this" expressions.
-					todo: handle this */
-				} else {
-					return false;
-				}
-			} else if (CScopeLifetimeInfo1::ECategory::ThisExpression == sli2.m_category) {
-				return true;
-			} else if (sli1.m_maybe_containing_scope.has_value()) {
-				if (sli2.m_maybe_containing_scope.has_value()) {
-					auto scope1 = sli1.m_maybe_containing_scope.value();
-					const auto scope2 = sli2.m_maybe_containing_scope.value();
-					if (scope2 == scope1) {
-						if (sli1.m_maybe_source_range.has_value() && sli2.m_maybe_source_range.has_value()) {
-							const auto SR1 = sli1.m_maybe_source_range.value();
-							const auto SR2 = sli2.m_maybe_source_range.value();
-							if (SR1.isValid() && SR2.isValid()) {
-								if (SR2.getEnd() < SR1.getBegin()) {
-									/* The second item occurs before the first item. */
-									retval = true;
-								} else if ( ((SR1.getBegin() < SR2.getBegin()) || (SR1.getBegin() == SR2.getBegin()))
-									&& ((SR2.getEnd() < SR1.getEnd()) || (SR1.getEnd() == SR2.getEnd())) ) {
-									/* The second item and first item are the same item, or the second item is a member
-									of, or base of, the first item. Perhaps unintuitively, the scope of an object is
-									"contained inside" the scope of any of its members or base classes as they are
-									constructed before and destructed after the object itself. Right? */
-									retval = true;
-								} else {
-									retval = false;
-								}
-							} else {
-								retval = false;
-							}
-						} else {
-							/* I don't know if there are any situations where we would know the containing scope
-							of each item, but not the their source range. */
-							assert(false);
-							return false;
-						}
-					}
-					while (scope2 != scope1) {
-						scope1 = get_containing_scope(scope1, context);
-						if (!scope1) {
-							retval = (scope2 == scope1);
-							break;
-						}
-					}
-				} else {
-					/* The second item doesn't seem to have any scope lifetime information. It may,
-					for example, correspond to an expression for which the scope lifetime cannot be
-					determined. */
-					return false;
-				}
-			} else if (sli2.m_maybe_containing_scope.has_value()) {
-				retval = true;
-			} else {
-				/* Neither item seems to have any scope lifetime information. This could, for example,
-				be a case where both items correspond to expressions where the scope lifetime of the
-				resulting object can't be determined. */
-				retval = false;
-			}
-		}
-		return retval;
-	}
-
-	template <typename NodeT, typename Node2T>
-	inline bool first_is_contained_in_scope_of_second(const NodeT* ST1, const Node2T* ST2, clang::ASTContext& context) {
-		bool retval = true;
-		auto scope1 = get_containing_scope(ST1, context);
-		const auto scope2 = get_containing_scope(ST2, context);
 		if (scope2 == scope1) {
-			const auto SR1 = ST1->getSourceRange();
-			const auto SR2 = ST2->getSourceRange();
 			if (SR1.isValid() && SR2.isValid()) {
 				if (SR2.getEnd() < SR1.getBegin()) {
 					/* The second item occurs before the first item. */
@@ -466,6 +399,12 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 			}
 		}
 		return retval;
+	}
+
+	template <typename NodeT, typename Node2T>
+	inline bool first_is_contained_in_scope_of_second(const NodeT* ST1, const Node2T* ST2, clang::ASTContext& context) {
+		return first_is_contained_in_scope_of_second(get_containing_scope(ST1, context), ST1->getSourceRange()
+			, get_containing_scope(ST2, context), ST2->getSourceRange(), context);
 	}
 
 	inline bool has_ancestor_base_class(const clang::QualType qtype, const std::string& qualified_base_class_name);
@@ -642,7 +581,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 
 			DECLARE_CACHED_CONST_STRING(prefix_str, mse_namespace_str() + "::rsv::");
 			static const std::string suffix_str = "FParam";
-			if (!(string_begins_with(qname, prefix_str) || string_ends_with(qname, suffix_str))) {
+			if (!(string_begins_with(qname, prefix_str) && string_ends_with(qname, suffix_str))) {
 				return qtype;
 			}
 
