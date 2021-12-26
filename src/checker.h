@@ -131,7 +131,7 @@ namespace checker {
 		CPairwiseLifetimeConstraint(const CAbstractLifetime& first, const CAbstractLifetime& second) : m_first(first), m_second(second) {}
 		virtual std::string species_str() const { return ""; }
 		enum class EYesNoDontKnow { Yes, No, DontKnow };
-		virtual EYesNoDontKnow second_can_be_assigned_to_first(const CAbstractLifetime& first, const CAbstractLifetime& second) const {
+		virtual EYesNoDontKnow second_can_be_assigned_to_first(const std::optional<CAbstractLifetime> maybe_first = {}, const std::optional<CAbstractLifetime> maybe_second = {}) const {
 			EYesNoDontKnow retval = EYesNoDontKnow::DontKnow;
 			return retval;
 		}
@@ -145,12 +145,14 @@ namespace checker {
 		typedef CPairwiseLifetimeConstraint base_class;
 		CEncompasses(const CAbstractLifetime& first, const CAbstractLifetime& second) : base_class{ first, second } {}
 		virtual std::string species_str() const { return "encompasses"; }
-		virtual EYesNoDontKnow second_can_be_assigned_to_first(const CAbstractLifetime& first, const CAbstractLifetime& second) const {
+		virtual EYesNoDontKnow second_can_be_assigned_to_first(const std::optional<CAbstractLifetime> maybe_first = {}, const std::optional<CAbstractLifetime> maybe_second = {}) const override {
 			EYesNoDontKnow retval = EYesNoDontKnow::DontKnow;
+			auto first = maybe_first.value_or(m_first);
+			auto second = maybe_second.value_or(m_second);
 			if ((first == m_first) && (second == m_second)) {
-				retval = EYesNoDontKnow::Yes;
-			} else if ((first == m_second) && (second == m_first)) {
 				retval = EYesNoDontKnow::No;
+			} else if ((first == m_second) && (second == m_first)) {
+				retval = EYesNoDontKnow::Yes;
 			}
 			return retval;
 		}
@@ -181,14 +183,28 @@ namespace checker {
 
 		EYesNoDontKnow second_can_be_assigned_to_first(const CAbstractLifetime& first, const CAbstractLifetime& second) const {
 			EYesNoDontKnow retval = EYesNoDontKnow::DontKnow;
-			auto range = m_lifetime_constraint_shptr_mmap.equal_range(first);
-			for (auto it = range.first; range.second != it; ++it) {
-				auto res1 = it->second->second_can_be_assigned_to_first(first, second);
-				if (EYesNoDontKnow::No == res1) {
-					retval = res1;
-					break;
-				} else if (EYesNoDontKnow::Yes == res1) {
-					retval = res1;
+			{
+				auto range = m_lifetime_constraint_shptr_mmap.equal_range(second);
+				for (auto it = range.first; range.second != it; ++it) {
+					auto res1 = it->second->second_can_be_assigned_to_first(first, second);
+					if (EYesNoDontKnow::No == res1) {
+						retval = res1;
+						break;
+					} else if (EYesNoDontKnow::Yes == res1) {
+						retval = res1;
+					}
+				}
+			}
+			if (!(EYesNoDontKnow::No == retval)) {
+				auto range = m_lifetime_constraint_shptr_mmap.equal_range(first);
+				for (auto it = range.first; range.second != it; ++it) {
+					auto res1 = it->second->second_can_be_assigned_to_first(first, second);
+					if (EYesNoDontKnow::No == res1) {
+						retval = res1;
+						break;
+					} else if (EYesNoDontKnow::Yes == res1) {
+						retval = res1;
+					}
 				}
 			}
 			return retval;
@@ -278,11 +294,11 @@ namespace checker {
 								SourceLocation l_ISL = l_ISR.getBegin();
 								SourceLocation l_ISLE = l_ISR.getEnd();
 
-	#ifndef NDEBUG
+#ifndef NDEBUG
 								if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:134:")) {
 									int q = 5;
 								}
-	#endif /*!NDEBUG*/
+#endif /*!NDEBUG*/
 								m_state1.m_suppress_check_region_set.emplace(l_ISR);
 								m_state1.m_suppress_check_region_set.insert(next_child_ST);
 
@@ -511,293 +527,6 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
-
-	clang::CXXMethodDecl const * call_operator_if_any(const clang::CXXRecordDecl* CXXRD) {
-		clang::CXXMethodDecl const * retval = nullptr;
-		if (CXXRD) {
-			if (CXXRD->isLambda()) {
-				retval = CXXRD->getLambdaCallOperator();
-			} else {
-				static const std::string call_operator_str = "operator()";
-				for (const auto& method : CXXRD->methods()) {
-					if (call_operator_str == method->getNameAsString()) {
-						/* The object appears to be a functor. */
-						retval = method;
-						break;
-					}
-				}
-
-				if (!retval) {
-					/* No call operator. Maybe it inherits one from a base class. */
-					for (const auto& base : CXXRD->bases()) {
-						retval = call_operator_if_any(base.getType()->getAsCXXRecordDecl());
-						if (retval) {
-							break;
-						}
-					}
-				}
-			}
-		}
-		return retval;
-	}
-
-	class MCSSSExprUtil : public MatchFinder::MatchCallback
-	{
-	public:
-		MCSSSExprUtil (Rewriter &Rewrite, CTUState& state1) :
-			Rewrite(Rewrite), m_state1(state1) {}
-
-		virtual void run(const MatchFinder::MatchResult &MR)
-		{
-			const clang::Expr* EX = MR.Nodes.getNodeAs<clang::Expr>("mcsssexprutil1");
-
-			if (EX != nullptr)
-			{
-				auto SR = nice_source_range(EX->getSourceRange(), Rewrite);
-				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
-
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
-
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
-
-				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
-
-#ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:134:")) {
-					int q = 5;
-				}
-#endif /*!NDEBUG*/
-
-				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(EX, Rewrite, *(MR.Context));
-				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
-				if (suppress_check_flag) {
-					return;
-				}
-
-				{
-					auto const * const EX_ii = IgnoreParenImpNoopCasts(EX, *(MR.Context));
-					auto const * const CE = dyn_cast<const CallExpr>(EX_ii);
-					if (CE) {
-						auto function_decl = CE->getDirectCallee();
-						auto num_args = CE->getNumArgs();
-						if (function_decl) {
-							const std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-							const auto FDSR = function_decl->getSourceRange();
-							bool is_potentially_from_standard_header = FDSR.getBegin().isInvalid()
-								|| MR.SourceManager->isInSystemHeader(FDSR.getBegin());
-							if (!is_potentially_from_standard_header) {
-								/*
-								bool filename_is_invalid = false;
-								std::string full_path_name = MR.SourceManager->getBufferName(FDSR.getBegin(), &filename_is_invalid);
-								static const std::string built_in_str = "<built-in>";
-								is_potentially_from_standard_header |= (built_in_str == full_path_name);
-								*/
-								/* filtered_out_by_location() returns true for SaferCPlusPlus headers as well
-								as standard and system headers.  */
-								is_potentially_from_standard_header |= filtered_out_by_location(*(MR.SourceManager), FDSR.getBegin());
-							}
-							if (is_potentially_from_standard_header) {
-								static const std::string std_move_str = "std::move";
-								if ((std_move_str == qualified_function_name) && (1 == num_args)) {
-									const auto arg_EX = CE->getArg(0);
-									assert(arg_EX);
-									const auto arg_qtype = arg_EX->getType();
-									IF_DEBUG(const auto arg_qtype_str = arg_EX->getType().getAsString();)
-									if (referenceable_by_scope_pointer(arg_qtype, (*this).m_state1)) {
-										auto l_source_text = Rewrite.getRewrittenText(SR);
-										if (true || string_begins_with(l_source_text, std_move_str)) {
-											/* todo: check for aliases */
-											const std::string error_desc = std::string("Cannot (yet) verify the safety of this explicit use of std::move() with ")
-												+ "an argument type ('" + arg_EX->getType().getAsString() + "') that yields scope pointers (unconditionally via the "
-												+ "'operator &' of some component). "
-												+ "(In particular, explicit use of std::move() with 'mse::TXScopeOwnerPointer<>' "
-												+ "or any object that might contain an 'mse::TXScopeOwnerPointer<>' is not supported.) ";
-											auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-											if (res.second) {
-												std::cout << (*(res.first)).as_a_string1() << " \n\n";
-											}
-										}
-									} else if (false) {
-										/* This branch is now redundant with the other branch, but may be 
-										resurrected at some point. */
-										const auto* CXXRD = arg_qtype.getTypePtr()->getAsCXXRecordDecl();
-										if (CXXRD) {
-											auto name = CXXRD->getQualifiedNameAsString();
-											const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
-											if (tmplt_CXXRD) {
-												name = tmplt_CXXRD->getQualifiedNameAsString();
-											}
-
-											DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, mse_namespace_str() + "::TXScopeOwnerPointer");
-											if (name == xscope_owner_ptr_str) {
-												const std::string error_desc = std::string("Explicit use of std::move() on ")
-													+ xscope_owner_ptr_str + "<> " + " is not supported.";
-												auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-												if (res.second) {
-													std::cout << (*(res.first)).as_a_string1() << " \n\n";
-												}
-											}
-										}
-									}
-								} else {
-									static const std::string malloc_str = "malloc";
-									static const std::string realloc_str = "realloc";
-									static const std::string free_str = "free";
-									static const std::string calloc_str = "calloc";
-									static const std::string alloca_str = "alloca";
-									std::string unsupported_function_str;
-									if (malloc_str == qualified_function_name) {
-										unsupported_function_str = malloc_str;
-									} else if (realloc_str == qualified_function_name) {
-										unsupported_function_str = realloc_str;
-									} else if (free_str == qualified_function_name) {
-										unsupported_function_str = free_str;
-									} else if (calloc_str == qualified_function_name) {
-										unsupported_function_str = calloc_str;
-									} else if (alloca_str == qualified_function_name) {
-										unsupported_function_str = alloca_str;
-									}
-									if ("" != unsupported_function_str) {
-										const std::string error_desc = std::string("The '") + unsupported_function_str
-											+ "' function is not supported.";
-										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
-									} else {
-
-										for (const auto& arg_EX : CE->arguments()) {
-											assert(arg_EX);
-											const auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
-											assert(arg_EX_ii);
-											const auto qtype = arg_EX_ii->getType();
-
-											auto const * const CXXRD = qtype->getAsCXXRecordDecl();
-											clang::FunctionDecl const * l_FD = call_operator_if_any(CXXRD);
-											if (l_FD) {
-												/* We're passing a lambda expression or function object as a parameter to
-												some kind of "opaque" standard library (or system, or SaferCPlusPlus) function.
-												In regular code, the function object would be checked when/where it's actually
-												called, but since we don't check standard library (or system) code, we have to
-												check for potential dangers here where it's being passed as a parameter. */
-												for (const auto& param : l_FD->parameters()) {
-													if (param->getType()->isReferenceType()) {
-														auto arg_SR = arg_EX_ii->getSourceRange();
-														if (arg_SR.isInvalid()) {
-															arg_SR = SR;
-														}
-														const std::string error_desc = std::string("Unable to verify the safety ")
-															+ "of the native reference parameter, '" + param->getNameAsString()
-															+ "', of the function object being passed (to an opaque "
-															+ "function/method/operator) here.";
-														auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, arg_SR.getBegin(), error_desc));
-														if (res.second) {
-															std::cout << (*(res.first)).as_a_string1() << " \n\n";
-														}
-													}
-												}
-											} else if (qtype->isFunctionPointerType()) {
-												const auto function_qtype = qtype->getPointeeType();
-												const auto FPT = function_qtype->getAs<const clang::FunctionProtoType>();
-												if (FPT) {
-													for (const auto& param_type : FPT->param_types()) {
-														if (param_type->isReferenceType()) {
-															auto arg_SR = arg_EX_ii->getSourceRange();
-															if (arg_SR.isInvalid()) {
-																arg_SR = SR;
-															}
-															const std::string error_desc = std::string("Unable to verify the safety ")
-																+ "of a native reference parameter of type '" + param_type.getAsString()
-																+ "', of the function being passed (to an opaque "
-																+ "function/method/operator) here.";
-															auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, arg_SR.getBegin(), error_desc));
-															if (res.second) {
-																std::cout << (*(res.first)).as_a_string1() << " \n\n";
-															}
-														}
-													}
-												}
-											}
-										}
-
-										std::string function_name = function_decl->getNameAsString();
-										static const std::string str_prefix_str = "str";
-										static const std::string mem_prefix_str = "mem";
-										if ((!(*this).m_state1.char_star_restrictions_are_disabled())
-											&& string_begins_with(function_name, str_prefix_str)) {
-											for (const auto& param : function_decl->parameters()) {
-												const auto uqtype_str = param->getType().getUnqualifiedType().getAsString();
-												static const std::string const_char_star_str = "const char *";
-												static const std::string char_star_str = "char *";
-												if ((const_char_star_str == uqtype_str) || (char_star_str == uqtype_str)) {
-													const std::string error_desc = std::string("'") + qualified_function_name
-														+ "' heuristically looks like a C standard library string function. "
-														+ "Those are not supported.";
-													auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-													if (res.second) {
-														std::cout << (*(res.first)).as_a_string1() << " \n\n";
-													}
-												}
-											}
-										} else if (string_begins_with(function_name, mem_prefix_str)) {
-											for (const auto& param : function_decl->parameters()) {
-												const auto uqtype_str = param->getType().getUnqualifiedType().getAsString();
-												static const std::string const_void_star_str = "const void *";
-												static const std::string void_star_str = "void *";
-												if ((const_void_star_str == uqtype_str) || (void_star_str == uqtype_str)) {
-													const std::string error_desc = std::string("'") + qualified_function_name
-														+ "' heuristically looks like a C standard library memory function. "
-														+ "Those are not supported.";
-													auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-													if (res.second) {
-														std::cout << (*(res.first)).as_a_string1() << " \n\n";
-													}
-												}
-											}
-										}
-
-									}
-								}
-							}
-
-						}
-					} else {
-						auto const * const CXXNE = dyn_cast<const clang::CXXNewExpr>(EX_ii);
-						auto const * const CXXDE = dyn_cast<const clang::CXXDeleteExpr>(EX_ii);
-						auto const * const CXXSVIE = dyn_cast<const clang::CXXScalarValueInitExpr>(EX_ii);
-						std::string unsupported_expression_str;
-						if (CXXNE) {
-							unsupported_expression_str = "'operator new' (returning type '"
-								+ CXXNE->getType().getAsString() + "')";
-						} else if (CXXDE) {
-							const auto arg_EX = CXXDE->getArgument();
-							unsupported_expression_str = "'operator delete'";
-							if (arg_EX) {
-								unsupported_expression_str += " (with argument type '"
-									+ arg_EX->getType().getAsString() + "')";
-							}
-						} else if (CXXSVIE) {
-							IF_DEBUG(CXXSVIE->getType().getAsString();)
-							unsupported_expression_str = "Default construction of scalar types (such as '" + CXXSVIE->getType().getAsString() + "')";
-						}
-						if ("" != unsupported_expression_str) {
-							const std::string error_desc = unsupported_expression_str
-								+ " is not supported.";
-							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
-						}
-
-					}
-				}
-			}
-		}
-
-	private:
-		Rewriter &Rewrite;
-		CTUState& m_state1;
-	};
 
 	void process_function_lifetime_annotations(const clang::FunctionDecl& func_decl, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
 		auto iter = state1.m_function_lifetime_annotations_map.find(&func_decl);
@@ -1105,574 +834,6 @@ namespace checker {
 			process_function_lifetime_annotations(*PVD, state1, MR_ptr, Rewrite_ptr);
 		}
 	}
-
-	class MCSSSDeclUtil : public MatchFinder::MatchCallback
-	{
-	public:
-		MCSSSDeclUtil (Rewriter &Rewrite, CTUState& state1) :
-			Rewrite(Rewrite), m_state1(state1) {}
-
-		virtual void run(const MatchFinder::MatchResult &MR)
-		{
-			const clang::Decl* D = MR.Nodes.getNodeAs<clang::Decl>("mcsssdeclutil1");
-
-			if ((D != nullptr))
-			{
-				auto SR = nice_source_range(D->getSourceRange(), Rewrite);
-				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
-
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
-
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
-
-#ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:134:")) {
-					int q = 5;
-				}
-#endif /*!NDEBUG*/
-
-				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
-
-				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(D, Rewrite, *(MR.Context));
-				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(DISR);
-				if (suppress_check_flag) {
-					return;
-				}
-
-				auto DD = dyn_cast<const DeclaratorDecl>(D);
-				if (DD) {
-					const auto qtype = DD->getType();
-					const std::string qtype_str = DD->getType().getAsString();
-					const auto TST = DD->getType()->getAs<clang::TemplateSpecializationType>();
-
-					auto VD = dyn_cast<const clang::VarDecl>(D);
-					if (VD) {
-						const auto storage_duration = VD->getStorageDuration();
-						const auto var_qualified_name = VD->getQualifiedNameAsString();
-						const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
-
-						if ((clang::StorageDuration::SD_Static == storage_duration) || (clang::StorageDuration::SD_Thread == storage_duration)) {
-							bool satisfies_checks = false;
-							if (CXXRD) {
-								auto type_name1 = CXXRD->getQualifiedNameAsString();
-								const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
-								if (tmplt_CXXRD) {
-									type_name1 = tmplt_CXXRD->getQualifiedNameAsString();
-								}
-
-								DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, mse_namespace_str() + "::rsv::TStaticImmutableObj");
-								static const std::string std_atomic_str = std::string("std::atomic");
-								DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadWriteAccessRequester_str, mse_namespace_str() + "::TAsyncSharedV2ReadWriteAccessRequester");
-								DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadOnlyAccessRequester_str, mse_namespace_str() + "::TAsyncSharedV2ReadOnlyAccessRequester");
-								DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2ImmutableFixedPointer_str, mse_namespace_str() + "::TAsyncSharedV2ImmutableFixedPointer");
-								DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2AtomicFixedPointer_str, mse_namespace_str() + "::TAsyncSharedV2AtomicFixedPointer");
-								DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, mse_namespace_str() + "::rsv::TThreadLocalObj");
-
-								if ((type_name1 == mse_rsv_static_immutable_obj_str1)
-									|| (type_name1 == std_atomic_str)
-									|| (type_name1 == mse_AsyncSharedV2ReadWriteAccessRequester_str)
-									|| (type_name1 == mse_AsyncSharedV2ReadOnlyAccessRequester_str)
-									|| (type_name1 == mse_TAsyncSharedV2ImmutableFixedPointer_str)
-									|| (type_name1 == mse_TAsyncSharedV2AtomicFixedPointer_str)
-									|| ((type_name1 == mse_rsv_ThreadLocalObj_str) && (clang::StorageDuration::SD_Thread == storage_duration))
-									) {
-									satisfies_checks = true;
-								}
-							}
-
-							if (!satisfies_checks) {
-								if (clang::StorageDuration::SD_Static == storage_duration) {
-									DECLARE_CACHED_CONST_STRING(const_char_star_str, "const char *");
-									if ((qtype.isConstQualified()) && (is_async_shareable(qtype))) {
-										satisfies_checks = true;
-									} else if (qtype.getAsString() == const_char_star_str) {
-										/* This isn't technically safe, but presumably this is likely
-										to be a string literal, which should be fine, so for now we'll
-										let it go. */
-										satisfies_checks = true;
-									} else {
-										const std::string error_desc = std::string("Unable to verify the safety of variable '")
-											+ var_qualified_name + "' of type '" + qtype_str + "' with 'static storage duration'. "
-											+ "'static storage duration' is supported for eligible types wrapped in the "
-											+ "'mse::rsv::TStaticImmutableObj<>' transparent template wrapper. Other supported wrappers include: "
-											+ "mse::rsv::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
-											+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>. "
-											+ "Note that objects with 'static storage duration' may be simultaneously accessible from different threads "
-											+ "and so have more stringent safety requirements than objects with 'thread_local storage duration'.";
-										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
-									}
-								} else {
-									assert(clang::StorageDuration::SD_Thread == storage_duration);
-									if (true || is_async_shareable(qtype)) {
-										satisfies_checks = true;
-									} else {
-										const std::string error_desc = std::string("Unable to verify the safety of variable '")
-											+ var_qualified_name + "' of type '" + qtype_str + "' with 'thread local storage duration'. "
-											+ "'thread local storage duration' is supported for eligible types wrapped in the "
-											+ "'mse::rsv::TThreadLocalObj<>' transparent template wrapper. Other supported wrappers include: "
-											+ "mse::rsv::TStaticImmutableObj<>, mse::rsv::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
-											+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>.";
-										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
-									}
-								}
-							}
-						}
-						if (CXXRD) {
-							auto type_name1 = CXXRD->getQualifiedNameAsString();
-							const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
-							if (tmplt_CXXRD) {
-								type_name1 = tmplt_CXXRD->getQualifiedNameAsString();
-							}
-
-							DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, mse_namespace_str() + "::rsv::TStaticImmutableObj");
-							DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, mse_namespace_str() + "::rsv::TThreadLocalObj");
-
-							if (type_name1 == mse_rsv_static_immutable_obj_str1) {
-								if (clang::StorageDuration::SD_Static != storage_duration) {
-									const std::string error_desc = std::string("Variable '") + var_qualified_name + "' of type '"
-										+ mse_rsv_static_immutable_obj_str1 + "' must be declared to have 'static' storage duration.";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-								}
-							} else if (type_name1 == mse_rsv_ThreadLocalObj_str) {
-								if (clang::StorageDuration::SD_Thread != storage_duration) {
-									const std::string error_desc = std::string("Variable '") + var_qualified_name + "' of type '"
-										+ mse_rsv_ThreadLocalObj_str + "' must be declared to have 'thread_local' storage duration.";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-								}
-							}
-						}
-
-						if (qtype.getTypePtr()->isScalarType()) {
-							const auto init_EX = VD->getInit();
-							if (!init_EX) {
-								auto PVD = dyn_cast<const ParmVarDecl>(VD);
-								if (!PVD) {
-									if (!VD->isExternallyDeclarable()) {
-										const std::string error_desc = std::string("Uninitialized ")
-											+ "scalar variable '" + VD->getNameAsString() + "' (of type '"
-											+ qtype.getAsString() + "') ";
-										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
-									} else {
-										/* todo: emit error that (uninitialized) 'extern' variables
-										aren't supported?  */;
-									}
-								}
-							}
-						}
-
-						const auto init_EX = VD->getInit();
-						if (init_EX) {
-							auto res = statement_makes_reference_to_decl(*VD, *init_EX);
-							if (res) {
-								const std::string error_desc = std::string("Reference to variable '")
-									+ VD->getNameAsString() + "' before the completion of its "
-									+ "construction/initialization is not supported.";
-								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
-							}
-						} else if (false && VD->isExternallyDeclarable()) {
-							const std::string error_desc = std::string("\"External\"/inline ")
-								+ "variable declarations (such as the declaration of "
-								+ VD->getNameAsString() + "' of type '" + qtype.getAsString()
-								+ "') are not currently supported.";
-							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
-						}
-
-						process_function_lifetime_annotations(*VD, m_state1, &MR, &Rewrite);
-					} else {
-						auto FD = dyn_cast<const clang::FieldDecl>(D);
-						if (FD) {
-							if (false && (qtype.getTypePtr()->isPointerType() || qtype.getTypePtr()->isReferenceType())) {
-								/* These are handled in MCSSSRecordDecl2. */
-							} else if (qtype.getTypePtr()->isScalarType()) {
-								const auto* init_EX = FD->getInClassInitializer();
-								if (!init_EX) {
-									const auto grandparent_DC = FD->getParent()->getParentFunctionOrMethod();
-									bool is_lambda_capture_field = false;
-
-									const auto& parents = MR.Context->getParents(*(FD->getParent()));
-									if ( !(parents.empty()) ) {
-										const auto LE = parents[0].get<LambdaExpr>();
-										if (LE) {
-											is_lambda_capture_field = true;
-										}
-									}
-									if (!is_lambda_capture_field) {
-										if (qtype.getTypePtr()->isPointerType()) {
-										} else {
-											const std::string error_desc = std::string("(Non-pointer) scalar fields (such those of type '")
-												+ qtype.getAsString() + "') require direct initializers.";
-											auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-											if (res.second) {
-												std::cout << (*(res.first)).as_a_string1() << " \n\n";
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-
-					const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
-					if (CXXRD) {
-						auto name = CXXRD->getQualifiedNameAsString();
-						const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
-						if (tmplt_CXXRD) {
-							name = tmplt_CXXRD->getQualifiedNameAsString();
-						}
-						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncShareableObj_str1, mse_namespace_str() + "::rsv::TAsyncShareableObj");
-						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncPassableObj_str1, mse_namespace_str() + "::rsv::TAsyncPassableObj");
-						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncShareableAndPassableObj_str1, mse_namespace_str() + "::rsv::TAsyncShareableAndPassableObj");
-						DECLARE_CACHED_CONST_STRING(mse_rsv_TFParam_str, mse_namespace_str() + "::rsv::TFParam");
-						static const std::string std_unique_ptr_str = "std::unique_ptr";
-						if (mse_rsv_TAsyncShareableObj_str1 == name) {
-							if (1 == CXXRD->getNumBases()) {
-								const auto& base = *(CXXRD->bases_begin());
-								const auto base_qtype = base.getType();
-								const auto base_qtype_str = base_qtype.getAsString();
-								if (!is_async_shareable(base_qtype)) {
-									const std::string error_desc = std::string("Unable to verify that the ")
-										+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableObj<> template, '"
-										+ base_qtype_str + "', is eligible to be safely shared (among threads). "
-										+ "If it is known to be so, then this error can be suppressed with a "
-										+ "'check suppression' directive. ";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-								}
-							} else {
-								/* This branch shouldn't happen. Unless the library's been changed somehow. */
-							}
-						} else if (mse_rsv_TAsyncPassableObj_str1 == name) {
-							if (1 == CXXRD->getNumBases()) {
-								const auto& base = *(CXXRD->bases_begin());
-								const auto base_qtype = base.getType();
-								const auto base_qtype_str = base_qtype.getAsString();
-								if (!is_async_passable(base_qtype)) {
-									const std::string error_desc = std::string("Unable to verify that the ")
-										+ "given (adjusted) parameter of the mse::rsv::TAsyncPassableObj<> template, '"
-										+ base_qtype_str + "', is eligible to be safely passed (between threads). "
-										+ "If it is known to be so, then this error can be suppressed with a "
-										+ "'check suppression' directive. ";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-								}
-							} else {
-								/* This branch shouldn't happen. Unless the library's been changed somehow. */
-							}
-						} else if (mse_rsv_TAsyncShareableAndPassableObj_str1 == name) {
-							if (1 == CXXRD->getNumBases()) {
-								const auto& base = *(CXXRD->bases_begin());
-								const auto base_qtype = base.getType();
-								const auto base_qtype_str = base_qtype.getAsString();
-								if ((!is_async_shareable(base_qtype)) || (!is_async_passable(base_qtype))) {
-									const std::string error_desc = std::string("Unable to verify that the ")
-										+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableAndPassableObj<> template, '"
-										+ base_qtype_str + "', is eligible to be safely shared and passed (among threads). "
-										+ "If it is known to be so, then this error can be suppressed with a "
-										+ "'check suppression' directive. ";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-								}
-							} else {
-								/* This branch shouldn't happen. Unless the library's been changed somehow. */
-							}
-						} else if (mse_rsv_TFParam_str == name) {
-							bool satisfies_checks = false;
-							auto VD = dyn_cast<const clang::VarDecl>(DD);
-							if (VD) {
-								auto FND = dyn_cast<const clang::FunctionDecl>(VD->getParentFunctionOrMethod());
-								if (FND) {
-									auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
-									if (PVD) {
-										satisfies_checks = true;
-									} else {
-										auto CE = dyn_cast<const clang::CallExpr>(IgnoreParenImpNoopCasts(VD->getInit(), *(MR.Context)));
-										if (CE) {
-											auto function_decl = CE->getDirectCallee();
-											auto num_args = CE->getNumArgs();
-											if (function_decl) {
-												std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-												DECLARE_CACHED_CONST_STRING(as_an_fparam_str, mse_namespace_str() + "::rsv::as_an_fparam");
-												if ((as_an_fparam_str == qualified_function_name)) {
-													if (1 == num_args) {
-														satisfies_checks = true;
-													}
-												}
-											}
-										}
-									}
-								}
-							}
-							if (!satisfies_checks) {
-								const std::string error_desc = std::string("Unsupported use of ")
-									+ "mse::rsv::TFParam<> (in type '" + name + "'). ";
-								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
-							}
-						} else if (qtype.getTypePtr()->isUnionType()) {
-							const std::string error_desc = std::string("Native unions (such as '" + qtype.getAsString() + "') are not ")
-								+ "supported. ";
-							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
-						} else if (true && (std_unique_ptr_str == name)) {
-							if (!qtype.isConstQualified()) {
-								const std::string error_desc = std::string("std::unique_ptr<>s that are not const qualified are not supported. ")
-									+ "Consider using a reference counting pointer from the SaferCPlusPlus library. ";
-								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
-							} else {
-								const auto init_EX = VD->getInit();
-								bool null_initialization = true;
-								if (init_EX) {
-									null_initialization = is_nullptr_literal(init_EX, *(MR.Context));
-									if (!null_initialization) {
-										const auto init_EX_ii = IgnoreParenImpNoopCasts(init_EX, *(MR.Context));
-										const auto CXXCE = dyn_cast<const CXXConstructExpr>(init_EX_ii);
-										if (CXXCE) {
-											if (1 == CXXCE->getNumArgs()) {
-												null_initialization = is_nullptr_literal(CXXCE->getArg(0), *(MR.Context));
-											} else if (0 == CXXCE->getNumArgs()) {
-												null_initialization = true;
-											}
-										}
-									}
-								}
-								if (null_initialization) {
-									const std::string error_desc = std::string("Null/default initialization of ")
-										+ "std::unique_ptr<>s (such as those of type '" + qtype.getAsString()
-										+ "') is not supported.";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-								}
-							}
-						} else {
-							auto check_for_and_handle_unsupported_element = [&MR, &SR](const clang::QualType& qtype, CTUState& state1) {
-								std::string element_name;
-								const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
-								if (l_CXXRD) {
-									element_name = l_CXXRD->getQualifiedNameAsString();
-								} else {
-									element_name = qtype.getAsString();
-								}
-
-								{
-									auto uei_ptr = unsupported_element_info_ptr(element_name);
-									if (uei_ptr) {
-										const auto& unsupported_element_info = *uei_ptr;
-										std::string error_desc = std::string("'") + element_name + std::string("' is not ")
-											+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
-										if ("" != unsupported_element_info.m_recommended_alternative) {
-											error_desc += "Consider using " + unsupported_element_info.m_recommended_alternative + " instead.";
-										}
-										auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
-									}
-								}
-							};
-							//check_for_and_handle_unsupported_element(qtype, (*this).m_state1);
-							//apply_to_component_types_if_any(qtype, check_for_and_handle_unsupported_element, (*this).m_state1);
-
-							auto check_for_and_handle_unsupported_element2 = [&MR](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
-								auto qtype = typeLoc.getType();
-								std::string element_name;
-								const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
-								if (l_CXXRD) {
-									element_name = l_CXXRD->getQualifiedNameAsString();
-								} else {
-									element_name = qtype.getAsString();
-								}
-
-								{
-									auto uei_ptr = unsupported_element_info_ptr(element_name);
-									if (uei_ptr) {
-										const auto& unsupported_element_info = *uei_ptr;
-										std::string error_desc = std::string("'") + element_name + std::string("' is not ")
-											+ "supported (in type '" + qtype.getAsString() + "' used in this declaration). ";
-										if ("" != unsupported_element_info.m_recommended_alternative) {
-											error_desc += "Consider using " + unsupported_element_info.m_recommended_alternative + " instead.";
-										}
-										auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, typeLoc.getSourceRange().getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
-									}
-								}
-							};
-							auto tsi_ptr = DD->getTypeSourceInfo();
-							if (tsi_ptr) {
-								check_for_and_handle_unsupported_element2(tsi_ptr->getTypeLoc(), SR, (*this).m_state1);
-								apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), check_for_and_handle_unsupported_element2, (*this).m_state1);
-							}
-						}
-					} else {
-						std::string unsupported_type_str;
-						if (qtype.getTypePtr()->isArrayType()) {
-							unsupported_type_str = "Native array";
-						} else if (qtype.getTypePtr()->isUnionType()) {
-							unsupported_type_str = "Native union";
-						}
-						if ("" != unsupported_type_str) {
-							const std::string error_desc = unsupported_type_str + std::string("s are not ")
-								+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
-							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
-						}
-					}
-				} else {
-					auto NAD = dyn_cast<const NamespaceAliasDecl>(D);
-					if (NAD) {
-						const auto ND = NAD->getNamespace();
-						if (ND) {
-							const auto source_namespace_str = ND->getQualifiedNameAsString();
-
-							DECLARE_CACHED_CONST_STRING(mse_namespace_str1, mse_namespace_str());
-							DECLARE_CACHED_CONST_STRING(mse_namespace_str2, mse_namespace_str() + std::string("::"));
-							if ((source_namespace_str == mse_namespace_str1)
-								|| string_begins_with(source_namespace_str, mse_namespace_str2)) {
-
-								/* This check might be a bit of a hack. The idea is that we want to
-								prevent the subversion of checks for use of elements in the mse::us
-								namespace by using an alias to the namespace.
-								*/
-
-								const std::string error_desc = std::string("This namespace alias (of namespace '")
-									+ source_namespace_str + "') could be used to subvert some of the checks. "
-									+ "So its use requires a 'check suppression' directive.";
-								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-
-	private:
-		Rewriter &Rewrite;
-		CTUState& m_state1;
-	};
-
-	class MCSSSDeclRefExprUtil : public MatchFinder::MatchCallback
-	{
-	public:
-		MCSSSDeclRefExprUtil (Rewriter &Rewrite, CTUState& state1) :
-			Rewrite(Rewrite), m_state1(state1) {}
-
-		virtual void run(const MatchFinder::MatchResult &MR)
-		{
-			const clang::DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssdeclrefexprutil1");
-
-			if ((DRE != nullptr))
-			{
-				auto SR = nice_source_range(DRE->getSourceRange(), Rewrite);
-				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
-
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
-
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
-
-				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
-
-				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(DRE, Rewrite, *(MR.Context));
-				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(DREISR);
-				if (suppress_check_flag) {
-					return;
-				}
-
-				{
-					auto D = DRE->getDecl();
-
-#ifndef NDEBUG
-					if (D->getType() != DRE->getType()) {
-						auto D_qtype_str = D->getType().getAsString();
-						auto DRE_qtype_str = DRE->getType().getAsString();
-						if (D->getType()->isReferenceType() == DRE->getType()->isReferenceType()) {
-							/* just a break-point site for debugging */
-							int q = 5;
-						}
-					}
-#endif /*!NDEBUG*/
-
-					auto DD = dyn_cast<const DeclaratorDecl>(D);
-					if (DD) {
-						auto qtype = DD->getType();
-						IF_DEBUG(std::string qtype_str = DD->getType().getAsString();)
-						const auto qualified_name = DD->getQualifiedNameAsString();
-						DECLARE_CACHED_CONST_STRING(mse_us_namespace_str1, mse_namespace_str() + "::us::");
-						if (string_begins_with(qualified_name, mse_us_namespace_str1)) {
-
-							DECLARE_CACHED_CONST_STRING(mse_us_namespace_str2, std::string("::") + mse_namespace_str() + "::us::");
-							auto l_source_text = Rewrite.getRewrittenText(SR);
-							if (string_begins_with(l_source_text, mse_us_namespace_str1)
-								|| string_begins_with(l_source_text, mse_us_namespace_str2)) {
-
-								/* We can't just flag all instantiations of elements in the 'mse::us' namespace because
-								they are used by some of the safe library elements. We just want to flag cases where they
-								are explicitly instantiated by the programmer. For now we'll just check that it's
-								explicitly expressed in the source text. This wouldn't catch aliases of elements, so the
-								declaration/definition of the offending aliases (including "using namespace") will need
-								to be screened for and flagged as well. */
-
-
-								const std::string error_desc = std::string("Elements in the 'mse::us' namespace (such as '"
-									+ qualified_name + "') are potentially unsafe. ")
-									+ "Their use requires a 'check suppression' directive.";
-								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
-							}
-						}
-					}
-
-				}
-			}
-		}
-
-	private:
-		Rewriter &Rewrite;
-		CTUState& m_state1;
-	};
 
 	class MCSSSReturnStmt : public MatchFinder::MatchCallback
 	{
@@ -2195,7 +1356,7 @@ namespace checker {
 		} else if (sli1.m_maybe_abstract_lifetime.has_value() || sli2.m_maybe_abstract_lifetime.has_value()) {
 			if (sli1.m_maybe_abstract_lifetime.has_value() && sli2.m_maybe_abstract_lifetime.has_value()) {
 				assert((CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli1.m_category) && (CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli2.m_category));
-				auto res1 = tu_state_cref.second_can_be_assigned_to_first(sli2.m_maybe_abstract_lifetime.value(), sli1.m_maybe_abstract_lifetime.value());
+				auto res1 = tu_state_cref.second_can_be_assigned_to_first(sli1.m_maybe_abstract_lifetime.value(), sli2.m_maybe_abstract_lifetime.value());
 				if (CTUState::EYesNoDontKnow::Yes == res1) {
 					return true;
 				} else {
@@ -2441,6 +1602,11 @@ namespace checker {
 							process_function_lifetime_annotations(*PVD, tu_state_ref);
 							auto maybe_abstract_lifetime = tu_state_ref.corresponding_abstract_lifetime_if_any(PVD);
 							if (maybe_abstract_lifetime.has_value()) {
+								if (PVD->hasInit()) {
+									/* at the moment parameters with lifetime annotation aren't allowed to have default values */
+									//todo: report error
+									int q = 3;
+								}
 								CScopeLifetimeInfo1 scope_lifetime_info1;
 								scope_lifetime_info1.m_maybe_abstract_lifetime = maybe_abstract_lifetime.value();
 								scope_lifetime_info1.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
@@ -2585,7 +1751,13 @@ namespace checker {
 							static const std::string operator_star_str = "operator*";
 							static const std::string operator_arrow_str = "operator->";
 							static const std::string operator_subscript_str = "operator[]";
-							auto operator_name = CXXOCE->getDirectCallee()->getNameAsString();
+							auto operator_fdecl = CXXOCE->getDirectCallee();
+							std::string operator_name;
+							if (operator_fdecl) {
+								operator_name = operator_fdecl->getNameAsString();
+							} else {
+								int q = 3;
+							}
 
 							if (((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs())) {
 								auto arg_EX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), Ctx);
@@ -2669,7 +1841,14 @@ namespace checker {
 							static const std::string method_at_str = "at";
 							static const std::string method_front_str = "front";
 							static const std::string method_back_str = "back";
-							auto method_name = CXXMCE->getDirectCallee()->getNameAsString();
+							auto method_decl = CXXMCE->getDirectCallee();
+							std::string method_name;
+							if (method_decl) {
+								method_name = method_decl->getNameAsString();
+							} else {
+								int q = 3;
+							}
+
 							if ((((method_value_str == method_name)) && (0 == CXXMCE->getNumArgs()))
 								|| (((method_at_str == method_name)) && (1 == CXXMCE->getNumArgs()))
 								|| (((method_front_str == method_name)) && (0 == CXXMCE->getNumArgs()))
@@ -2868,6 +2047,11 @@ namespace checker {
 						auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
 						if (PVD) {
 							process_function_lifetime_annotations(*PVD, tu_state_ref);
+							if (PVD->hasInit()) {
+								/* at the moment parameters with lifetime annotation aren't allowed to have default values */
+								//todo: report error
+								int q = 3;
+							}
 							auto maybe_abstract_lifetime = tu_state_ref.corresponding_abstract_lifetime_if_any(PVD);
 							if (maybe_abstract_lifetime.has_value()) {
 								CScopeLifetimeInfo1 scope_lifetime_info1;
@@ -2961,7 +2145,14 @@ namespace checker {
 							static const std::string operator_star_str = "operator*";
 							static const std::string operator_arrow_str = "operator->";
 							static const std::string operator_subscript_str = "operator[]";
-							auto operator_name = CXXOCE->getDirectCallee()->getNameAsString();
+							auto operator_fdecl = CXXOCE->getDirectCallee();
+							std::string operator_name;
+							if (operator_fdecl) {
+								operator_name = operator_fdecl->getNameAsString();
+							} else {
+								int q = 3;
+							}
+
 							if ((((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs()))
 								|| (((operator_subscript_str == operator_name)) && (2 == CXXOCE->getNumArgs()))
 								) {
@@ -2972,7 +2163,14 @@ namespace checker {
 							static const std::string method_at_str = "at";
 							static const std::string method_front_str = "front";
 							static const std::string method_back_str = "back";
-							auto method_name = CXXMCE->getDirectCallee()->getNameAsString();
+							auto method_decl = CXXMCE->getDirectCallee();
+							std::string method_name;
+							if (method_decl) {
+								method_name = method_decl->getNameAsString();
+							} else {
+								int q = 3;
+							}
+
 							if ((((method_value_str == method_name)) && (0 == CXXMCE->getNumArgs()))
 								|| (((method_at_str == method_name)) && (1 == CXXMCE->getNumArgs()))
 								|| (((method_front_str == method_name)) && (0 == CXXMCE->getNumArgs()))
@@ -3731,10 +2929,8 @@ namespace checker {
 		MCSSSMemberFunctionCall (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
-		virtual void run(const MatchFinder::MatchResult &MR)
-		{
-			const CXXMemberCallExpr* CXXMCE = MR.Nodes.getNodeAs<clang::CXXMemberCallExpr>("mcsssmemberfunctioncall1");
-			const CXXOperatorCallExpr* CXXOCE = MR.Nodes.getNodeAs<clang::CXXOperatorCallExpr>("mcssscxxoperatorcall1");
+		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+			, const CXXMemberCallExpr* CXXMCE = nullptr, const CXXOperatorCallExpr* CXXOCE = nullptr) {
 
 			if ((CXXMCE != nullptr) || (CXXOCE != nullptr))
 			{
@@ -3754,9 +2950,9 @@ namespace checker {
 				}
 #endif /*!NDEBUG*/
 
-				auto suppress_check_flag = CXXMCE ? m_state1.m_suppress_check_region_set.contains(CXXMCE, Rewrite, *(MR.Context))
-					: m_state1.m_suppress_check_region_set.contains(CXXOCE, Rewrite, *(MR.Context));
-				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CXXMCEISR);
+				auto suppress_check_flag = CXXMCE ? state1.m_suppress_check_region_set.contains(CXXMCE, Rewrite, *(MR.Context))
+					: state1.m_suppress_check_region_set.contains(CXXOCE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(CXXMCEISR);
 				if (suppress_check_flag) {
 					return;
 				}
@@ -3764,11 +2960,16 @@ namespace checker {
 				std::string method_name;
 				const clang::CXXMethodDecl* method_decl = nullptr;
 				if (CXXMCE) {
-					method_name = CXXMCE->getDirectCallee()->getNameAsString();;
-					method_decl = CXXMCE->getMethodDecl();
+					const auto method_decl1 = CXXMCE->getDirectCallee();
+					if (method_decl1) {
+						method_name = method_decl1->getNameAsString();
+					}
+					method_decl = dyn_cast<const clang::CXXMethodDecl>(method_decl1);
 				} else {
-					method_name = CXXOCE->getDirectCallee()->getNameAsString();;
 					const auto method_decl1 = CXXOCE->getDirectCallee();
+					if (method_decl1) {
+						method_name = method_decl1->getNameAsString();
+					}
 					method_decl = dyn_cast<const clang::CXXMethodDecl>(method_decl1);
 					if (!method_decl) {
 						/* This may be a free operator, rather than a member operator. */
@@ -3817,7 +3018,7 @@ namespace checker {
 					if (CXXDD) {
 						const std::string error_desc =  std::string("Explicitly calling destructors (such as '") + qmethod_name
 							+ "') is not supported.";
-						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+						auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 						if (res.second) {
 							std::cout << (*(res.first)).as_a_string1() << " \n\n";
 						}
@@ -3827,7 +3028,7 @@ namespace checker {
 					if (string_begins_with(method_name, tilda_str)) {
 						const std::string error_desc =  std::string("'") + method_name
 							+ "' looks like a destructor. Explicitly calling destructors is not supported.";
-						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+						auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 						if (res.second) {
 							std::cout << (*(res.first)).as_a_string1() << " \n\n";
 						}
@@ -3857,8 +3058,8 @@ namespace checker {
 					DEBUG_SOURCE_TEXT_STR(EX_source_text, nice_source_range(EX->getSourceRange(), Rewrite), Rewrite);
 
 					bool satisfies_checks = qtype->isPointerType()
-						? pointer_target_can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context), m_state1)
-						: can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context), m_state1);
+						? pointer_target_can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context), state1)
+						: can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context), state1);
 					if ((!satisfies_checks) && EX_iic) {
 						const auto MTE = dyn_cast<const clang::MaterializeTemporaryExpr>(EX_iic);
 						//const auto CXXTOE = dyn_cast<const clang::CXXTemporaryObjectExpr>(EX_iic);
@@ -3875,13 +3076,184 @@ namespace checker {
 							+ function_qname + "'). (This is often addressed "
 							+ "by obtaining a scope pointer to the object then calling the member " + function_species_str
 							+ " through the scope pointer.)";
-						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+						auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 						if (res.second) {
 							std::cout << (*(res.first)).as_a_string1() << " \n\n";
 						}
 					}
 				}
 			}
+		}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const CXXMemberCallExpr* CXXMCE = MR.Nodes.getNodeAs<clang::CXXMemberCallExpr>("mcsssmemberfunctioncall1");
+			const CXXOperatorCallExpr* CXXOCE = MR.Nodes.getNodeAs<clang::CXXOperatorCallExpr>("mcssscxxoperatorcall1");
+
+			s_handler1(MR, Rewrite, m_state1, CXXMCE, CXXOCE);
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
+	class MCSSSFunctionCall : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSFunctionCall (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+			, const CallExpr* CE = nullptr, const CXXOperatorCallExpr* CXXOCE = nullptr) {
+
+			if ((CE != nullptr) || (CXXOCE != nullptr))
+			{
+				auto raw_SR = CE ? CE->getSourceRange() : CXXOCE->getSourceRange();
+				auto SR = nice_source_range(raw_SR, Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:134:")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
+				auto suppress_check_flag = CE ? state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context))
+					: state1.m_suppress_check_region_set.contains(CXXOCE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(CEISR);
+				if (suppress_check_flag) {
+					return;
+				}
+
+				const clang::FunctionDecl* function_decl = nullptr;
+				if (CE) {
+					function_decl = CE->getDirectCallee();
+				} else {
+					function_decl = CXXOCE->getDirectCallee();
+				}
+				if (function_decl) {
+					const std::string function_name = function_decl->getNameAsString();
+					const std::string qfunction_name = function_decl->getQualifiedNameAsString();
+
+					auto function_declSR = nice_source_range(function_decl->getSourceRange(), Rewrite);
+					SourceLocation function_declSL = function_declSR.getBegin();
+
+					process_function_lifetime_annotations(*function_decl, state1, &MR, &Rewrite);
+					auto flta_iter = state1.m_function_lifetime_annotations_map.find(function_decl);
+					if (state1.m_function_lifetime_annotations_map.end() != flta_iter) {
+						auto flta = flta_iter->second;
+						flta.m_lifetime_constraint_shptrs;
+
+						auto arg1_iter = CE ? CE->arg_begin() : CXXOCE->arg_begin();
+						const auto arg1_end = CE ? CE->arg_end() : CXXOCE->arg_end();
+						for (const auto& param1 : function_decl->parameters()) {
+							if (arg1_end == arg1_iter) {
+								break;
+							}
+							auto maybe_abstract_lifetime1 = state1.corresponding_abstract_lifetime_if_any(param1);
+							if (maybe_abstract_lifetime1.has_value()) {
+								auto abstract_lifetime1 = maybe_abstract_lifetime1.value();
+
+								std::vector<std::shared_ptr<CPairwiseLifetimeConstraint> > arg1_constraint_shptrs;
+								for (const auto& constraint_shptr : flta.m_lifetime_constraint_shptrs) {
+									if (constraint_shptr->m_first == abstract_lifetime1) {
+										arg1_constraint_shptrs.push_back(constraint_shptr);
+									}
+								}
+
+								auto arg2_iter = CE ? CE->arg_begin() : CXXOCE->arg_begin();
+								const auto arg2_end = CE ? CE->arg_end() : CXXOCE->arg_end();
+								for (const auto& param2 : function_decl->parameters()) {
+									if (arg2_end == arg2_iter) {
+										break;
+									}
+									auto maybe_abstract_lifetime2 = state1.corresponding_abstract_lifetime_if_any(param2);
+									if (maybe_abstract_lifetime2.has_value()) {
+										auto abstract_lifetime2 = maybe_abstract_lifetime2.value();
+
+										for (const auto& constraint_shptr : arg1_constraint_shptrs) {
+											if (constraint_shptr->m_second == abstract_lifetime2) {
+												decltype(*arg1_iter) lhs_EX = nullptr;
+												decltype(*arg2_iter) rhs_EX = nullptr;
+												if (CPairwiseLifetimeConstraint::EYesNoDontKnow::Yes == constraint_shptr->second_can_be_assigned_to_first(maybe_abstract_lifetime1, maybe_abstract_lifetime2)) {
+													lhs_EX = *arg1_iter;
+													rhs_EX = *arg2_iter;
+												} else if (CPairwiseLifetimeConstraint::EYesNoDontKnow::Yes == constraint_shptr->second_can_be_assigned_to_first(maybe_abstract_lifetime2, maybe_abstract_lifetime1)) {
+													lhs_EX = *arg2_iter;
+													rhs_EX = *arg1_iter;
+												}
+												if (lhs_EX && rhs_EX) {
+
+													bool satisfies_checks = false;
+
+													/* Obtaining the declaration (location) of the pointer to be modified (or its owner) (and
+													therefore its scope lifetime) can be challenging. We are not always going to be able to
+													do so. */
+
+													auto lhs_slo = upper_bound_lifetime_owner_if_available(lhs_EX, *(MR.Context), state1);
+													auto rhs_slo = lower_bound_lifetime_owner_of_pointer_target_if_available(
+														remove_cast_from_TPointerForLegacy_to_raw_pointer(rhs_EX, *(MR.Context)), *(MR.Context), state1);
+													if (!(lhs_slo.has_value())) {
+														satisfies_checks = false;
+													} else if (!(rhs_slo.has_value())) {
+														satisfies_checks = false;
+													} else {
+														auto lhs_lifetime_info = scope_lifetime_info_from_lifetime_owner(lhs_slo.value(), *(MR.Context));
+														auto rhs_lifetime_info = scope_lifetime_info_from_lifetime_owner(rhs_slo.value(), *(MR.Context));
+
+														satisfies_checks = first_is_known_to_be_contained_in_scope_of_second(lhs_lifetime_info, rhs_lifetime_info, *(MR.Context), state1);
+													}
+
+													if (!satisfies_checks) {
+														std::string error_desc = std::string("Unable to verify that function call arguments (of types '")
+															+ lhs_EX->getType().getAsString() + "' and '" + rhs_EX->getType().getAsString()
+															+ "') satisfy the specified '" + constraint_shptr->species_str() + "' lifetime constraint (applied to  lifetime label ids '"
+															+ std::to_string(abstract_lifetime1.m_id) + "' and '" + std::to_string(abstract_lifetime2.m_id) + "').";
+														const auto hints_str = rhs_slo.hints_str();
+														if (!hints_str.empty()) {
+															error_desc += " (" + hints_str + ")";
+														} else {
+															const auto hints_str = lhs_slo.hints_str();
+															if (!hints_str.empty()) {
+																error_desc += " (" + hints_str + ")";
+															} else {
+																error_desc += " (Possibly due to being unable to verify that one argument outlives the other as specified.)";
+															}
+														}
+														auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+														if (res.second) {
+															std::cout << (*(res.first)).as_a_string1() << " \n\n";
+														}
+													}
+
+													int q = 5;
+												}
+											}
+										}
+									}
+									++arg2_iter;
+								}
+							}
+							++arg1_iter;
+						}
+					}
+				}
+			}
+		}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssfunctioncall1");
+			const CXXOperatorCallExpr* CXXOCE = MR.Nodes.getNodeAs<clang::CXXOperatorCallExpr>("mcssscxxoperatorcall1");
+
+			s_handler1(MR, Rewrite, m_state1, CE, CXXOCE);
 		}
 
 	private:
@@ -4132,7 +3504,7 @@ namespace checker {
 					auto rhs_lifetime_info = scope_lifetime_info_from_lifetime_owner(rhs_slo.value(), *(MR.Context));
 
 					auto lhs_VD_ptr = std::get_if<const clang::VarDecl*>(&(lhs_slo.value()));
-						if (lhs_VD_ptr) {
+					if (lhs_VD_ptr) {
 						auto lhs_PVD = dyn_cast<const clang::ParmVarDecl>(*lhs_VD_ptr);
 						if (lhs_PVD && lhs_PVD->getType()->isReferenceType()) {
 							int q = 5;
@@ -4160,6 +3532,879 @@ namespace checker {
 					if (res.second) {
 						std::cout << (*(res.first)).as_a_string1() << " \n\n";
 					}
+				}
+			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
+	clang::CXXMethodDecl const * call_operator_if_any(const clang::CXXRecordDecl* CXXRD) {
+		clang::CXXMethodDecl const * retval = nullptr;
+		if (CXXRD) {
+			if (CXXRD->isLambda()) {
+				retval = CXXRD->getLambdaCallOperator();
+			} else {
+				static const std::string call_operator_str = "operator()";
+				for (const auto& method : CXXRD->methods()) {
+					if (call_operator_str == method->getNameAsString()) {
+						/* The object appears to be a functor. */
+						retval = method;
+						break;
+					}
+				}
+
+				if (!retval) {
+					/* No call operator. Maybe it inherits one from a base class. */
+					for (const auto& base : CXXRD->bases()) {
+						retval = call_operator_if_any(base.getType()->getAsCXXRecordDecl());
+						if (retval) {
+							break;
+						}
+					}
+				}
+			}
+		}
+		return retval;
+	}
+
+	class MCSSSExprUtil : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSExprUtil (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const clang::Expr* EX = MR.Nodes.getNodeAs<clang::Expr>("mcsssexprutil1");
+
+			if (EX != nullptr)
+			{
+				auto SR = nice_source_range(EX->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:134:")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(EX, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(EXISR);
+				if (suppress_check_flag) {
+					return;
+				}
+
+				/* For some reason some of our expression matchers seem to be unreliable.
+				So we (redundantly) implement (some of) them in this general expression matcher
+				which seems to be more reliable. */
+
+				{
+					auto const * const EX_ii = IgnoreParenImpNoopCasts(EX, *(MR.Context));
+					auto const * const CE = dyn_cast<const CallExpr>(EX_ii);
+					if (CE) {
+						auto const * const CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(CE);
+						if (CXXOCE) {
+							MCSSSFunctionCall::s_handler1(MR, Rewrite, m_state1, nullptr, CXXOCE);
+							MCSSSMemberFunctionCall::s_handler1(MR, Rewrite, m_state1, nullptr, CXXOCE);
+						} else {
+							MCSSSFunctionCall::s_handler1(MR, Rewrite, m_state1, CE, nullptr);
+
+							auto const * const CXXMCE = dyn_cast<const clang::CXXMemberCallExpr>(CE);
+							if (CXXMCE) {
+								MCSSSFunctionCall::s_handler1(MR, Rewrite, m_state1, CXXMCE, nullptr);
+							}
+						}
+
+
+						auto function_decl = CE->getDirectCallee();
+						auto num_args = CE->getNumArgs();
+						if (function_decl) {
+							const std::string qualified_function_name = function_decl->getQualifiedNameAsString();
+							const auto FDSR = function_decl->getSourceRange();
+							bool is_potentially_from_standard_header = FDSR.getBegin().isInvalid()
+								|| MR.SourceManager->isInSystemHeader(FDSR.getBegin());
+							if (!is_potentially_from_standard_header) {
+								/*
+								bool filename_is_invalid = false;
+								std::string full_path_name = MR.SourceManager->getBufferName(FDSR.getBegin(), &filename_is_invalid);
+								static const std::string built_in_str = "<built-in>";
+								is_potentially_from_standard_header |= (built_in_str == full_path_name);
+								*/
+								/* filtered_out_by_location() returns true for SaferCPlusPlus headers as well
+								as standard and system headers.  */
+								is_potentially_from_standard_header |= filtered_out_by_location(*(MR.SourceManager), FDSR.getBegin());
+							}
+							if (is_potentially_from_standard_header) {
+								static const std::string std_move_str = "std::move";
+								if ((std_move_str == qualified_function_name) && (1 == num_args)) {
+									const auto arg_EX = CE->getArg(0);
+									assert(arg_EX);
+									const auto arg_qtype = arg_EX->getType();
+									IF_DEBUG(const auto arg_qtype_str = arg_EX->getType().getAsString();)
+									if (referenceable_by_scope_pointer(arg_qtype, (*this).m_state1)) {
+										auto l_source_text = Rewrite.getRewrittenText(SR);
+										if (true || string_begins_with(l_source_text, std_move_str)) {
+											/* todo: check for aliases */
+											const std::string error_desc = std::string("Cannot (yet) verify the safety of this explicit use of std::move() with ")
+												+ "an argument type ('" + arg_EX->getType().getAsString() + "') that yields scope pointers (unconditionally via the "
+												+ "'operator &' of some component). "
+												+ "(In particular, explicit use of std::move() with 'mse::TXScopeOwnerPointer<>' "
+												+ "or any object that might contain an 'mse::TXScopeOwnerPointer<>' is not supported.) ";
+											auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+											if (res.second) {
+												std::cout << (*(res.first)).as_a_string1() << " \n\n";
+											}
+										}
+									} else if (false) {
+										/* This branch is now redundant with the other branch, but may be 
+										resurrected at some point. */
+										const auto* CXXRD = arg_qtype.getTypePtr()->getAsCXXRecordDecl();
+										if (CXXRD) {
+											auto name = CXXRD->getQualifiedNameAsString();
+											const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
+											if (tmplt_CXXRD) {
+												name = tmplt_CXXRD->getQualifiedNameAsString();
+											}
+
+											DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, mse_namespace_str() + "::TXScopeOwnerPointer");
+											if (name == xscope_owner_ptr_str) {
+												const std::string error_desc = std::string("Explicit use of std::move() on ")
+													+ xscope_owner_ptr_str + "<> " + " is not supported.";
+												auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+												if (res.second) {
+													std::cout << (*(res.first)).as_a_string1() << " \n\n";
+												}
+											}
+										}
+									}
+								} else {
+									static const std::string malloc_str = "malloc";
+									static const std::string realloc_str = "realloc";
+									static const std::string free_str = "free";
+									static const std::string calloc_str = "calloc";
+									static const std::string alloca_str = "alloca";
+									std::string unsupported_function_str;
+									if (malloc_str == qualified_function_name) {
+										unsupported_function_str = malloc_str;
+									} else if (realloc_str == qualified_function_name) {
+										unsupported_function_str = realloc_str;
+									} else if (free_str == qualified_function_name) {
+										unsupported_function_str = free_str;
+									} else if (calloc_str == qualified_function_name) {
+										unsupported_function_str = calloc_str;
+									} else if (alloca_str == qualified_function_name) {
+										unsupported_function_str = alloca_str;
+									}
+									if ("" != unsupported_function_str) {
+										const std::string error_desc = std::string("The '") + unsupported_function_str
+											+ "' function is not supported.";
+										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+										if (res.second) {
+											std::cout << (*(res.first)).as_a_string1() << " \n\n";
+										}
+									} else {
+
+										for (const auto& arg_EX : CE->arguments()) {
+											assert(arg_EX);
+											const auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+											assert(arg_EX_ii);
+											const auto qtype = arg_EX_ii->getType();
+
+											auto const * const CXXRD = qtype->getAsCXXRecordDecl();
+											clang::FunctionDecl const * l_FD = call_operator_if_any(CXXRD);
+											if (l_FD) {
+												/* We're passing a lambda expression or function object as a parameter to
+												some kind of "opaque" standard library (or system, or SaferCPlusPlus) function.
+												In regular code, the function object would be checked when/where it's actually
+												called, but since we don't check standard library (or system) code, we have to
+												check for potential dangers here where it's being passed as a parameter. */
+												for (const auto& param : l_FD->parameters()) {
+													if (param->getType()->isReferenceType()) {
+														auto arg_SR = arg_EX_ii->getSourceRange();
+														if (arg_SR.isInvalid()) {
+															arg_SR = SR;
+														}
+														const std::string error_desc = std::string("Unable to verify the safety ")
+															+ "of the native reference parameter, '" + param->getNameAsString()
+															+ "', of the function object being passed (to an opaque "
+															+ "function/method/operator) here.";
+														auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, arg_SR.getBegin(), error_desc));
+														if (res.second) {
+															std::cout << (*(res.first)).as_a_string1() << " \n\n";
+														}
+													}
+												}
+											} else if (qtype->isFunctionPointerType()) {
+												const auto function_qtype = qtype->getPointeeType();
+												const auto FPT = function_qtype->getAs<const clang::FunctionProtoType>();
+												if (FPT) {
+													for (const auto& param_type : FPT->param_types()) {
+														if (param_type->isReferenceType()) {
+															auto arg_SR = arg_EX_ii->getSourceRange();
+															if (arg_SR.isInvalid()) {
+																arg_SR = SR;
+															}
+															const std::string error_desc = std::string("Unable to verify the safety ")
+																+ "of a native reference parameter of type '" + param_type.getAsString()
+																+ "', of the function being passed (to an opaque "
+																+ "function/method/operator) here.";
+															auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, arg_SR.getBegin(), error_desc));
+															if (res.second) {
+																std::cout << (*(res.first)).as_a_string1() << " \n\n";
+															}
+														}
+													}
+												}
+											}
+										}
+
+										std::string function_name = function_decl->getNameAsString();
+										static const std::string str_prefix_str = "str";
+										static const std::string mem_prefix_str = "mem";
+										if ((!(*this).m_state1.char_star_restrictions_are_disabled())
+											&& string_begins_with(function_name, str_prefix_str)) {
+											for (const auto& param : function_decl->parameters()) {
+												const auto uqtype_str = param->getType().getUnqualifiedType().getAsString();
+												static const std::string const_char_star_str = "const char *";
+												static const std::string char_star_str = "char *";
+												if ((const_char_star_str == uqtype_str) || (char_star_str == uqtype_str)) {
+													const std::string error_desc = std::string("'") + qualified_function_name
+														+ "' heuristically looks like a C standard library string function. "
+														+ "Those are not supported.";
+													auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+													if (res.second) {
+														std::cout << (*(res.first)).as_a_string1() << " \n\n";
+													}
+												}
+											}
+										} else if (string_begins_with(function_name, mem_prefix_str)) {
+											for (const auto& param : function_decl->parameters()) {
+												const auto uqtype_str = param->getType().getUnqualifiedType().getAsString();
+												static const std::string const_void_star_str = "const void *";
+												static const std::string void_star_str = "void *";
+												if ((const_void_star_str == uqtype_str) || (void_star_str == uqtype_str)) {
+													const std::string error_desc = std::string("'") + qualified_function_name
+														+ "' heuristically looks like a C standard library memory function. "
+														+ "Those are not supported.";
+													auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+													if (res.second) {
+														std::cout << (*(res.first)).as_a_string1() << " \n\n";
+													}
+												}
+											}
+										}
+
+									}
+								}
+							}
+
+						}
+					} else {
+						auto const * const CXXNE = dyn_cast<const clang::CXXNewExpr>(EX_ii);
+						auto const * const CXXDE = dyn_cast<const clang::CXXDeleteExpr>(EX_ii);
+						auto const * const CXXSVIE = dyn_cast<const clang::CXXScalarValueInitExpr>(EX_ii);
+						std::string unsupported_expression_str;
+						if (CXXNE) {
+							unsupported_expression_str = "'operator new' (returning type '"
+								+ CXXNE->getType().getAsString() + "')";
+						} else if (CXXDE) {
+							const auto arg_EX = CXXDE->getArgument();
+							unsupported_expression_str = "'operator delete'";
+							if (arg_EX) {
+								unsupported_expression_str += " (with argument type '"
+									+ arg_EX->getType().getAsString() + "')";
+							}
+						} else if (CXXSVIE) {
+							IF_DEBUG(CXXSVIE->getType().getAsString();)
+							unsupported_expression_str = "Default construction of scalar types (such as '" + CXXSVIE->getType().getAsString() + "')";
+						}
+						if ("" != unsupported_expression_str) {
+							const std::string error_desc = unsupported_expression_str
+								+ " is not supported.";
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+							if (res.second) {
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
+							}
+						}
+
+					}
+				}
+			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
+	class MCSSSDeclUtil : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSDeclUtil (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const clang::Decl* D = MR.Nodes.getNodeAs<clang::Decl>("mcsssdeclutil1");
+
+			if ((D != nullptr))
+			{
+				auto SR = nice_source_range(D->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:134:")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(D, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(DISR);
+				if (suppress_check_flag) {
+					return;
+				}
+
+				auto DD = dyn_cast<const DeclaratorDecl>(D);
+				if (DD) {
+					const auto qtype = DD->getType();
+					const std::string qtype_str = DD->getType().getAsString();
+					const auto TST = DD->getType()->getAs<clang::TemplateSpecializationType>();
+
+					auto VD = dyn_cast<const clang::VarDecl>(D);
+					if (VD) {
+						const auto storage_duration = VD->getStorageDuration();
+						const auto var_qualified_name = VD->getQualifiedNameAsString();
+						const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+
+						if ((clang::StorageDuration::SD_Static == storage_duration) || (clang::StorageDuration::SD_Thread == storage_duration)) {
+							bool satisfies_checks = false;
+							if (CXXRD) {
+								auto type_name1 = CXXRD->getQualifiedNameAsString();
+								const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
+								if (tmplt_CXXRD) {
+									type_name1 = tmplt_CXXRD->getQualifiedNameAsString();
+								}
+
+								DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, mse_namespace_str() + "::rsv::TStaticImmutableObj");
+								static const std::string std_atomic_str = std::string("std::atomic");
+								DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadWriteAccessRequester_str, mse_namespace_str() + "::TAsyncSharedV2ReadWriteAccessRequester");
+								DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadOnlyAccessRequester_str, mse_namespace_str() + "::TAsyncSharedV2ReadOnlyAccessRequester");
+								DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2ImmutableFixedPointer_str, mse_namespace_str() + "::TAsyncSharedV2ImmutableFixedPointer");
+								DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2AtomicFixedPointer_str, mse_namespace_str() + "::TAsyncSharedV2AtomicFixedPointer");
+								DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, mse_namespace_str() + "::rsv::TThreadLocalObj");
+
+								if ((type_name1 == mse_rsv_static_immutable_obj_str1)
+									|| (type_name1 == std_atomic_str)
+									|| (type_name1 == mse_AsyncSharedV2ReadWriteAccessRequester_str)
+									|| (type_name1 == mse_AsyncSharedV2ReadOnlyAccessRequester_str)
+									|| (type_name1 == mse_TAsyncSharedV2ImmutableFixedPointer_str)
+									|| (type_name1 == mse_TAsyncSharedV2AtomicFixedPointer_str)
+									|| ((type_name1 == mse_rsv_ThreadLocalObj_str) && (clang::StorageDuration::SD_Thread == storage_duration))
+									) {
+									satisfies_checks = true;
+								}
+							}
+
+							if (!satisfies_checks) {
+								if (clang::StorageDuration::SD_Static == storage_duration) {
+									DECLARE_CACHED_CONST_STRING(const_char_star_str, "const char *");
+									if ((qtype.isConstQualified()) && (is_async_shareable(qtype))) {
+										satisfies_checks = true;
+									} else if (qtype.getAsString() == const_char_star_str) {
+										/* This isn't technically safe, but presumably this is likely
+										to be a string literal, which should be fine, so for now we'll
+										let it go. */
+										satisfies_checks = true;
+									} else {
+										const std::string error_desc = std::string("Unable to verify the safety of variable '")
+											+ var_qualified_name + "' of type '" + qtype_str + "' with 'static storage duration'. "
+											+ "'static storage duration' is supported for eligible types wrapped in the "
+											+ "'mse::rsv::TStaticImmutableObj<>' transparent template wrapper. Other supported wrappers include: "
+											+ "mse::rsv::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
+											+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>. "
+											+ "Note that objects with 'static storage duration' may be simultaneously accessible from different threads "
+											+ "and so have more stringent safety requirements than objects with 'thread_local storage duration'.";
+										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+										if (res.second) {
+											std::cout << (*(res.first)).as_a_string1() << " \n\n";
+										}
+									}
+								} else {
+									assert(clang::StorageDuration::SD_Thread == storage_duration);
+									if (true || is_async_shareable(qtype)) {
+										satisfies_checks = true;
+									} else {
+										const std::string error_desc = std::string("Unable to verify the safety of variable '")
+											+ var_qualified_name + "' of type '" + qtype_str + "' with 'thread local storage duration'. "
+											+ "'thread local storage duration' is supported for eligible types wrapped in the "
+											+ "'mse::rsv::TThreadLocalObj<>' transparent template wrapper. Other supported wrappers include: "
+											+ "mse::rsv::TStaticImmutableObj<>, mse::rsv::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
+											+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>.";
+										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+										if (res.second) {
+											std::cout << (*(res.first)).as_a_string1() << " \n\n";
+										}
+									}
+								}
+							}
+						}
+						if (CXXRD) {
+							auto type_name1 = CXXRD->getQualifiedNameAsString();
+							const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
+							if (tmplt_CXXRD) {
+								type_name1 = tmplt_CXXRD->getQualifiedNameAsString();
+							}
+
+							DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, mse_namespace_str() + "::rsv::TStaticImmutableObj");
+							DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, mse_namespace_str() + "::rsv::TThreadLocalObj");
+
+							if (type_name1 == mse_rsv_static_immutable_obj_str1) {
+								if (clang::StorageDuration::SD_Static != storage_duration) {
+									const std::string error_desc = std::string("Variable '") + var_qualified_name + "' of type '"
+										+ mse_rsv_static_immutable_obj_str1 + "' must be declared to have 'static' storage duration.";
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									}
+								}
+							} else if (type_name1 == mse_rsv_ThreadLocalObj_str) {
+								if (clang::StorageDuration::SD_Thread != storage_duration) {
+									const std::string error_desc = std::string("Variable '") + var_qualified_name + "' of type '"
+										+ mse_rsv_ThreadLocalObj_str + "' must be declared to have 'thread_local' storage duration.";
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									}
+								}
+							}
+						}
+
+						if (qtype.getTypePtr()->isScalarType()) {
+							const auto init_EX = VD->getInit();
+							if (!init_EX) {
+								auto PVD = dyn_cast<const ParmVarDecl>(VD);
+								if (!PVD) {
+									if (!VD->isExternallyDeclarable()) {
+										const std::string error_desc = std::string("Uninitialized ")
+											+ "scalar variable '" + VD->getNameAsString() + "' (of type '"
+											+ qtype.getAsString() + "') ";
+										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+										if (res.second) {
+											std::cout << (*(res.first)).as_a_string1() << " \n\n";
+										}
+									} else {
+										/* todo: emit error that (uninitialized) 'extern' variables
+										aren't supported?  */;
+									}
+								}
+							}
+						}
+
+						const auto init_EX = VD->getInit();
+						if (init_EX) {
+							auto res = statement_makes_reference_to_decl(*VD, *init_EX);
+							if (res) {
+								const std::string error_desc = std::string("Reference to variable '")
+									+ VD->getNameAsString() + "' before the completion of its "
+									+ "construction/initialization is not supported.";
+								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+								if (res.second) {
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
+								}
+							}
+						} else if (false && VD->isExternallyDeclarable()) {
+							const std::string error_desc = std::string("\"External\"/inline ")
+								+ "variable declarations (such as the declaration of "
+								+ VD->getNameAsString() + "' of type '" + qtype.getAsString()
+								+ "') are not currently supported.";
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+							if (res.second) {
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
+							}
+						}
+
+						process_function_lifetime_annotations(*VD, m_state1, &MR, &Rewrite);
+					} else {
+						auto FD = dyn_cast<const clang::FieldDecl>(D);
+						if (FD) {
+							if (false && (qtype.getTypePtr()->isPointerType() || qtype.getTypePtr()->isReferenceType())) {
+								/* These are handled in MCSSSRecordDecl2. */
+							} else if (qtype.getTypePtr()->isScalarType()) {
+								const auto* init_EX = FD->getInClassInitializer();
+								if (!init_EX) {
+									const auto grandparent_DC = FD->getParent()->getParentFunctionOrMethod();
+									bool is_lambda_capture_field = false;
+
+									const auto& parents = MR.Context->getParents(*(FD->getParent()));
+									if ( !(parents.empty()) ) {
+										const auto LE = parents[0].get<LambdaExpr>();
+										if (LE) {
+											is_lambda_capture_field = true;
+										}
+									}
+									if (!is_lambda_capture_field) {
+										if (qtype.getTypePtr()->isPointerType()) {
+										} else {
+											const std::string error_desc = std::string("(Non-pointer) scalar fields (such those of type '")
+												+ qtype.getAsString() + "') require direct initializers.";
+											auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+											if (res.second) {
+												std::cout << (*(res.first)).as_a_string1() << " \n\n";
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+
+					const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+					if (CXXRD) {
+						auto name = CXXRD->getQualifiedNameAsString();
+						const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
+						if (tmplt_CXXRD) {
+							name = tmplt_CXXRD->getQualifiedNameAsString();
+						}
+						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncShareableObj_str1, mse_namespace_str() + "::rsv::TAsyncShareableObj");
+						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncPassableObj_str1, mse_namespace_str() + "::rsv::TAsyncPassableObj");
+						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncShareableAndPassableObj_str1, mse_namespace_str() + "::rsv::TAsyncShareableAndPassableObj");
+						DECLARE_CACHED_CONST_STRING(mse_rsv_TFParam_str, mse_namespace_str() + "::rsv::TFParam");
+						static const std::string std_unique_ptr_str = "std::unique_ptr";
+						if (mse_rsv_TAsyncShareableObj_str1 == name) {
+							if (1 == CXXRD->getNumBases()) {
+								const auto& base = *(CXXRD->bases_begin());
+								const auto base_qtype = base.getType();
+								const auto base_qtype_str = base_qtype.getAsString();
+								if (!is_async_shareable(base_qtype)) {
+									const std::string error_desc = std::string("Unable to verify that the ")
+										+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableObj<> template, '"
+										+ base_qtype_str + "', is eligible to be safely shared (among threads). "
+										+ "If it is known to be so, then this error can be suppressed with a "
+										+ "'check suppression' directive. ";
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									}
+								}
+							} else {
+								/* This branch shouldn't happen. Unless the library's been changed somehow. */
+							}
+						} else if (mse_rsv_TAsyncPassableObj_str1 == name) {
+							if (1 == CXXRD->getNumBases()) {
+								const auto& base = *(CXXRD->bases_begin());
+								const auto base_qtype = base.getType();
+								const auto base_qtype_str = base_qtype.getAsString();
+								if (!is_async_passable(base_qtype)) {
+									const std::string error_desc = std::string("Unable to verify that the ")
+										+ "given (adjusted) parameter of the mse::rsv::TAsyncPassableObj<> template, '"
+										+ base_qtype_str + "', is eligible to be safely passed (between threads). "
+										+ "If it is known to be so, then this error can be suppressed with a "
+										+ "'check suppression' directive. ";
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									}
+								}
+							} else {
+								/* This branch shouldn't happen. Unless the library's been changed somehow. */
+							}
+						} else if (mse_rsv_TAsyncShareableAndPassableObj_str1 == name) {
+							if (1 == CXXRD->getNumBases()) {
+								const auto& base = *(CXXRD->bases_begin());
+								const auto base_qtype = base.getType();
+								const auto base_qtype_str = base_qtype.getAsString();
+								if ((!is_async_shareable(base_qtype)) || (!is_async_passable(base_qtype))) {
+									const std::string error_desc = std::string("Unable to verify that the ")
+										+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableAndPassableObj<> template, '"
+										+ base_qtype_str + "', is eligible to be safely shared and passed (among threads). "
+										+ "If it is known to be so, then this error can be suppressed with a "
+										+ "'check suppression' directive. ";
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									}
+								}
+							} else {
+								/* This branch shouldn't happen. Unless the library's been changed somehow. */
+							}
+						} else if (mse_rsv_TFParam_str == name) {
+							bool satisfies_checks = false;
+							auto VD = dyn_cast<const clang::VarDecl>(DD);
+							if (VD) {
+								auto FND = dyn_cast<const clang::FunctionDecl>(VD->getParentFunctionOrMethod());
+								if (FND) {
+									auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
+									if (PVD) {
+										satisfies_checks = true;
+									} else {
+										auto CE = dyn_cast<const clang::CallExpr>(IgnoreParenImpNoopCasts(VD->getInit(), *(MR.Context)));
+										if (CE) {
+											auto function_decl = CE->getDirectCallee();
+											auto num_args = CE->getNumArgs();
+											if (function_decl) {
+												std::string qualified_function_name = function_decl->getQualifiedNameAsString();
+												DECLARE_CACHED_CONST_STRING(as_an_fparam_str, mse_namespace_str() + "::rsv::as_an_fparam");
+												if ((as_an_fparam_str == qualified_function_name)) {
+													if (1 == num_args) {
+														satisfies_checks = true;
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+							if (!satisfies_checks) {
+								const std::string error_desc = std::string("Unsupported use of ")
+									+ "mse::rsv::TFParam<> (in type '" + name + "'). ";
+								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+								if (res.second) {
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
+								}
+							}
+						} else if (qtype.getTypePtr()->isUnionType()) {
+							const std::string error_desc = std::string("Native unions (such as '" + qtype.getAsString() + "') are not ")
+								+ "supported. ";
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+							if (res.second) {
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
+							}
+						} else if (true && (std_unique_ptr_str == name)) {
+							if (!qtype.isConstQualified()) {
+								const std::string error_desc = std::string("std::unique_ptr<>s that are not const qualified are not supported. ")
+									+ "Consider using a reference counting pointer from the SaferCPlusPlus library. ";
+								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+								if (res.second) {
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
+								}
+							} else {
+								const auto init_EX = VD->getInit();
+								bool null_initialization = true;
+								if (init_EX) {
+									null_initialization = is_nullptr_literal(init_EX, *(MR.Context));
+									if (!null_initialization) {
+										const auto init_EX_ii = IgnoreParenImpNoopCasts(init_EX, *(MR.Context));
+										const auto CXXCE = dyn_cast<const CXXConstructExpr>(init_EX_ii);
+										if (CXXCE) {
+											if (1 == CXXCE->getNumArgs()) {
+												null_initialization = is_nullptr_literal(CXXCE->getArg(0), *(MR.Context));
+											} else if (0 == CXXCE->getNumArgs()) {
+												null_initialization = true;
+											}
+										}
+									}
+								}
+								if (null_initialization) {
+									const std::string error_desc = std::string("Null/default initialization of ")
+										+ "std::unique_ptr<>s (such as those of type '" + qtype.getAsString()
+										+ "') is not supported.";
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									}
+								}
+							}
+						} else {
+							auto check_for_and_handle_unsupported_element = [&MR, &SR](const clang::QualType& qtype, CTUState& state1) {
+								std::string element_name;
+								const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+								if (l_CXXRD) {
+									element_name = l_CXXRD->getQualifiedNameAsString();
+								} else {
+									element_name = qtype.getAsString();
+								}
+
+								{
+									auto uei_ptr = unsupported_element_info_ptr(element_name);
+									if (uei_ptr) {
+										const auto& unsupported_element_info = *uei_ptr;
+										std::string error_desc = std::string("'") + element_name + std::string("' is not ")
+											+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
+										if ("" != unsupported_element_info.m_recommended_alternative) {
+											error_desc += "Consider using " + unsupported_element_info.m_recommended_alternative + " instead.";
+										}
+										auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+										if (res.second) {
+											std::cout << (*(res.first)).as_a_string1() << " \n\n";
+										}
+									}
+								}
+							};
+							//check_for_and_handle_unsupported_element(qtype, (*this).m_state1);
+							//apply_to_component_types_if_any(qtype, check_for_and_handle_unsupported_element, (*this).m_state1);
+
+							auto check_for_and_handle_unsupported_element2 = [&MR](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+								auto qtype = typeLoc.getType();
+								std::string element_name;
+								const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+								if (l_CXXRD) {
+									element_name = l_CXXRD->getQualifiedNameAsString();
+								} else {
+									element_name = qtype.getAsString();
+								}
+
+								{
+									auto uei_ptr = unsupported_element_info_ptr(element_name);
+									if (uei_ptr) {
+										const auto& unsupported_element_info = *uei_ptr;
+										std::string error_desc = std::string("'") + element_name + std::string("' is not ")
+											+ "supported (in type '" + qtype.getAsString() + "' used in this declaration). ";
+										if ("" != unsupported_element_info.m_recommended_alternative) {
+											error_desc += "Consider using " + unsupported_element_info.m_recommended_alternative + " instead.";
+										}
+										auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, typeLoc.getSourceRange().getBegin(), error_desc));
+										if (res.second) {
+											std::cout << (*(res.first)).as_a_string1() << " \n\n";
+										}
+									}
+								}
+							};
+							auto tsi_ptr = DD->getTypeSourceInfo();
+							if (tsi_ptr) {
+								check_for_and_handle_unsupported_element2(tsi_ptr->getTypeLoc(), SR, (*this).m_state1);
+								apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), check_for_and_handle_unsupported_element2, (*this).m_state1);
+							}
+						}
+					} else {
+						std::string unsupported_type_str;
+						if (qtype.getTypePtr()->isArrayType()) {
+							unsupported_type_str = "Native array";
+						} else if (qtype.getTypePtr()->isUnionType()) {
+							unsupported_type_str = "Native union";
+						}
+						if ("" != unsupported_type_str) {
+							const std::string error_desc = unsupported_type_str + std::string("s are not ")
+								+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+							if (res.second) {
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
+							}
+						}
+					}
+				} else {
+					auto NAD = dyn_cast<const NamespaceAliasDecl>(D);
+					if (NAD) {
+						const auto ND = NAD->getNamespace();
+						if (ND) {
+							const auto source_namespace_str = ND->getQualifiedNameAsString();
+
+							DECLARE_CACHED_CONST_STRING(mse_namespace_str1, mse_namespace_str());
+							DECLARE_CACHED_CONST_STRING(mse_namespace_str2, mse_namespace_str() + std::string("::"));
+							if ((source_namespace_str == mse_namespace_str1)
+								|| string_begins_with(source_namespace_str, mse_namespace_str2)) {
+
+								/* This check might be a bit of a hack. The idea is that we want to
+								prevent the subversion of checks for use of elements in the mse::us
+								namespace by using an alias to the namespace.
+								*/
+
+								const std::string error_desc = std::string("This namespace alias (of namespace '")
+									+ source_namespace_str + "') could be used to subvert some of the checks. "
+									+ "So its use requires a 'check suppression' directive.";
+								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+								if (res.second) {
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
+	class MCSSSDeclRefExprUtil : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSDeclRefExprUtil (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const clang::DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssdeclrefexprutil1");
+
+			if ((DRE != nullptr))
+			{
+				auto SR = nice_source_range(DRE->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(DRE, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(DREISR);
+				if (suppress_check_flag) {
+					return;
+				}
+
+				{
+					auto D = DRE->getDecl();
+
+#ifndef NDEBUG
+					if (D->getType() != DRE->getType()) {
+						auto D_qtype_str = D->getType().getAsString();
+						auto DRE_qtype_str = DRE->getType().getAsString();
+						if (D->getType()->isReferenceType() == DRE->getType()->isReferenceType()) {
+							/* just a break-point site for debugging */
+							int q = 5;
+						}
+					}
+#endif /*!NDEBUG*/
+
+					auto DD = dyn_cast<const DeclaratorDecl>(D);
+					if (DD) {
+						auto qtype = DD->getType();
+						IF_DEBUG(std::string qtype_str = DD->getType().getAsString();)
+						const auto qualified_name = DD->getQualifiedNameAsString();
+						DECLARE_CACHED_CONST_STRING(mse_us_namespace_str1, mse_namespace_str() + "::us::");
+						if (string_begins_with(qualified_name, mse_us_namespace_str1)) {
+
+							DECLARE_CACHED_CONST_STRING(mse_us_namespace_str2, std::string("::") + mse_namespace_str() + "::us::");
+							auto l_source_text = Rewrite.getRewrittenText(SR);
+							if (string_begins_with(l_source_text, mse_us_namespace_str1)
+								|| string_begins_with(l_source_text, mse_us_namespace_str2)) {
+
+								/* We can't just flag all instantiations of elements in the 'mse::us' namespace because
+								they are used by some of the safe library elements. We just want to flag cases where they
+								are explicitly instantiated by the programmer. For now we'll just check that it's
+								explicitly expressed in the source text. This wouldn't catch aliases of elements, so the
+								declaration/definition of the offending aliases (including "using namespace") will need
+								to be screened for and flagged as well. */
+
+
+								const std::string error_desc = std::string("Elements in the 'mse::us' namespace (such as '"
+									+ qualified_name + "') are potentially unsafe. ")
+									+ "Their use requires a 'check suppression' directive.";
+								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+								if (res.second) {
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
+								}
+							}
+						}
+					}
+
 				}
 			}
 		}
@@ -4396,8 +4641,8 @@ namespace checker {
 			HandlerForSSSReturnStmt(R, tu_state()), HandlerForSSSRecordDecl2(R, tu_state()), HandlerForSSSAsAnFParam(R, tu_state()),
 			HandlerForSSSMakeXScopePointerTo(R, tu_state()), HandlerForSSSNativeReferenceVar(R, tu_state()),
 			HandlerForSSSArgToNativeReferenceParam(R, tu_state()), HandlerForSSSPointerArithmetic(R, tu_state()), HandlerForSSSAddressOf(R, tu_state()),
-			HandlerForSSSNativePointerVar(R, tu_state()), HandlerForSSSCast(R, tu_state()), HandlerForSSSMemberFunctionCall(R, tu_state()),
-			HandlerForSSSConstructionInitializer(R, tu_state()), HandlerForSSSPointerAssignment(R, tu_state())
+			HandlerForSSSNativePointerVar(R, tu_state()), HandlerForSSSCast(R, tu_state()), HandlerForSSSMemberFunctionCall(R, tu_state()), 
+			HandlerForSSSFunctionCall(R, tu_state()), HandlerForSSSConstructionInitializer(R, tu_state()), HandlerForSSSPointerAssignment(R, tu_state())
 		{
 			Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerMisc1);
 			Matcher.addMatcher(callExpr(argumentCountIs(0)).bind("mcssssuppresscheckcall"), &HandlerForSSSSuppressCheckDirectiveCall);
@@ -4449,6 +4694,8 @@ namespace checker {
 			Matcher.addMatcher(cxxConstCastExpr().bind("mcssscast1"), &HandlerForSSSCast);
 			Matcher.addMatcher(cxxMemberCallExpr().bind("mcsssmemberfunctioncall1"), &HandlerForSSSMemberFunctionCall);
 			Matcher.addMatcher(cxxOperatorCallExpr().bind("mcssscxxoperatorcall1"), &HandlerForSSSMemberFunctionCall);
+			Matcher.addMatcher(cxxMemberCallExpr().bind("mcsssfunctioncall1"), &HandlerForSSSFunctionCall);
+			Matcher.addMatcher(cxxOperatorCallExpr().bind("mcssscxxoperatorcall1"), &HandlerForSSSFunctionCall);
 			Matcher.addMatcher(cxxCtorInitializer().bind("mcsssconstructioninitializer1"), &HandlerForSSSConstructionInitializer);
 			Matcher.addMatcher(expr(allOf(
 				ignoringImplicit(ignoringParenImpCasts(expr(
@@ -4497,6 +4744,7 @@ namespace checker {
 		MCSSSNativePointerVar HandlerForSSSNativePointerVar;
 		MCSSSCast HandlerForSSSCast;
 		MCSSSMemberFunctionCall HandlerForSSSMemberFunctionCall;
+		MCSSSFunctionCall HandlerForSSSFunctionCall;
 		MCSSSConstructionInitializer HandlerForSSSConstructionInitializer;
 		MCSSSPointerAssignment HandlerForSSSPointerAssignment;
 
