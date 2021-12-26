@@ -197,12 +197,12 @@ The relative lifetimes of objects declared within the same function definition a
 So the question is how the programmer can express the intended lifetime constraints. A fairly unintrusive option might be to add annotation parameters to the function interface, perhaps like:
 
 ```cpp
-int* foo1(int*& long_lived_pointer, int*& short_lived_pointer, int*& other_long_lived_pointer
-	, mse::rsv::parameter_lifetime_labels<mse::rsv::pll<1, MSE_LIFETIME_LABEL(1)>, mse::rsv::pll<2, MSE_LIFETIME_LABEL(2)>, mse::rsv::pll<3, MSE_LIFETIME_LABEL(1)> > = {}
-	, mse::rsv::encompasses<MSE_LIFETIME_LABEL(1), MSE_LIFETIME_LABEL(2)> = {}
-	, mse::rsv::return_value_lifetime<MSE_LIFETIME_LABEL(1)> = {});
+int* foo1(int*& long_lived_pointer, int*& short_lived_pointer, int*& other_long_lived_pointer, mse::rsv::ltn::lifetime_notes<
+	mse::rsv::ltn::parameter_lifetime_labels<mse::rsv::ltn::pll<1, MSE_LIFETIME_LABEL(1)>, mse::rsv::ltn::pll<2, MSE_LIFETIME_LABEL(2)>, mse::rsv::ltn::pll<3, MSE_LIFETIME_LABEL(1)> >
+	, mse::rsv::ltn::encompasses<MSE_LIFETIME_LABEL(1), MSE_LIFETIME_LABEL(2)>
+	, mse::rsv::ltn::return_value_lifetime<MSE_LIFETIME_LABEL(1)> > = {});
 ```
-where the last three "unused" parameters express the relative lifetimes of the pointer/reference parameters and the lifetime of the return value.
+where the last "unused" parameter expresses the relative lifetimes of the pointer/reference parameters and the lifetime of the return value.
 
 Until such a "lifetime expression" mechanism is supported by the tool, [run-time checked](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#tnoradproxypointer) pointers can safely provide equivalent functionality. For what's it's worth, function calls involving such lifetime issues don't seem to be very common in performance-critical inner loops. So the benefit of moving the lifetime checking from run-time to compile-time is more one of correctness and reliability than performance.
 
