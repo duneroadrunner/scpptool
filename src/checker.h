@@ -548,17 +548,17 @@ namespace checker {
 				if (tmplt_CXXRD) {
 					name = tmplt_CXXRD->getQualifiedNameAsString();
 				}
-				DECLARE_CACHED_CONST_STRING(mse_rsv_parameter_lifetime_labels_str, mse_namespace_str() + "::rsv::parameter_lifetime_labels");
-				DECLARE_CACHED_CONST_STRING(mse_rsv_pll_str, mse_namespace_str() + "::rsv::pll");
-				DECLARE_CACHED_CONST_STRING(mse_rsv_return_value_lifetime_str, mse_namespace_str() + "::rsv::return_value_lifetime");
-				DECLARE_CACHED_CONST_STRING(mse_rsv_encompasses_lifetime_str, mse_namespace_str() + "::rsv::encompasses");
-				if (mse_rsv_parameter_lifetime_labels_str == name) {
+				DECLARE_CACHED_CONST_STRING(mse_rsv_ltn_lifetime_notes_str, mse_namespace_str() + "::rsv::ltn::lifetime_notes");
+				if (mse_rsv_ltn_lifetime_notes_str == name) {
 					auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
 						: param->getSourceRange();
 
-					std::map<param_index_t, CAbstractLifetime> param_lifetime_map;
+					auto process_lifetime_note = [&flta, &param, &func_decl, &MR_ptr, &Rewrite_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+						DECLARE_CACHED_CONST_STRING(mse_rsv_ltn_parameter_lifetime_labels_str, mse_namespace_str() + "::rsv::ltn::parameter_lifetime_labels");
+						DECLARE_CACHED_CONST_STRING(mse_rsv_ltn_pll_str, mse_namespace_str() + "::rsv::ltn::pll");
+						DECLARE_CACHED_CONST_STRING(mse_rsv_ltn_return_value_lifetime_str, mse_namespace_str() + "::rsv::ltn::return_value_lifetime");
+						DECLARE_CACHED_CONST_STRING(mse_rsv_ltn_encompasses_lifetime_str, mse_namespace_str() + "::rsv::ltn::encompasses");
 
-					auto process_parameter_lifetime = [&mse_rsv_pll_str, &param_lifetime_map, &func_decl, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
 						auto qtype = typeLoc.getType();
 						std::string element_name;
 						const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
@@ -567,12 +567,179 @@ namespace checker {
 						} else {
 							element_name = qtype.getAsString();
 						}
-						if (mse_rsv_pll_str == element_name) {
-							std::optional<param_index_t> maybe_param_index;
-							std::optional<lifetime_id_t> maybe_lifetime_label_id;
+
+						if (mse_rsv_ltn_parameter_lifetime_labels_str == element_name) {
+							auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
+								: param->getSourceRange();
+
+							std::map<param_index_t, CAbstractLifetime> param_lifetime_map;
+
+							auto process_parameter_lifetime = [&mse_rsv_ltn_pll_str, &param_lifetime_map, &func_decl, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+								auto qtype = typeLoc.getType();
+								std::string element_name;
+								const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+								if (l_CXXRD) {
+									element_name = l_CXXRD->getQualifiedNameAsString();
+								} else {
+									element_name = qtype.getAsString();
+								}
+								if (mse_rsv_ltn_pll_str == element_name) {
+									std::optional<param_index_t> maybe_param_index;
+									std::optional<lifetime_id_t> maybe_lifetime_label_id;
+
+									if (true) {
+										/* Here we're parsing the non-type (size_t) template parameters of 'mse::rsv::pll<>'
+										from the string representation of the type (of the instantiated template). This is
+										kind of a hacky way to do it, but when we try to obtain the non-type template
+										arguments programmatically, we seem to get a (not useful?) clang::TemplateArgument::Expression
+										instead of a desired (and more specific and more useful) clang::TemplateArgument::Integral. */
+										std::string qtype_str = qtype.getAsString();
+										auto langle_bracket_index = qtype_str.find('<');
+										if (std::string::npos != langle_bracket_index) {
+											auto comma_index = qtype_str.find(',', langle_bracket_index+1);
+											if ((std::string::npos != comma_index) && (langle_bracket_index + 1 < comma_index)) {
+												auto rangle_bracket_index = qtype_str.find('>', comma_index+1);
+												if ((std::string::npos != rangle_bracket_index) && (comma_index + 1 < rangle_bracket_index)) {
+													std::string param_index_str = qtype_str.substr(langle_bracket_index + 1, int(comma_index) - int(langle_bracket_index) - 1);
+													auto param_index = atoi(param_index_str.c_str());
+													if (1 <= param_index) {
+														maybe_param_index = param_index_t(param_index);
+													}
+
+													std::string lifetime_label_id_str = qtype_str.substr(comma_index + 1, int(rangle_bracket_index) - int(comma_index) - 1);
+													auto lifetime_label_id = atoi(lifetime_label_id_str.c_str());
+													if (1 <= lifetime_label_id) {
+														maybe_lifetime_label_id = lifetime_id_t(lifetime_label_id);
+													}
+												}
+											}
+										}
+									} else {
+										size_t component_index = 0;
+										auto process_parameter_lifetime_component = [&maybe_param_index, &maybe_lifetime_label_id, &component_index, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+											auto qtype = typeLoc.getType();
+											std::string element_name;
+											const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+											if (l_CXXRD) {
+												element_name = l_CXXRD->getQualifiedNameAsString();
+											} else {
+												element_name = qtype.getAsString();
+											}
+
+											++component_index;
+
+											int q = 5;
+										};
+
+										/* We expected the "component types", i.e. non-type (size_t) template arguments,
+										in this case to be 'clang::TemplateArgument::Integral's. But instead they seem
+										to be reported as the (less specific) 'clang::TemplateArgument::Expression's, 
+										which aren't obviously useful (enough) for us. */
+										apply_to_component_types_if_any(typeLoc, process_parameter_lifetime_component, state1);
+									}
+
+									bool is_valid = true;
+									if ((!maybe_param_index.has_value()) || (1 > maybe_param_index.value())) {
+										is_valid = false;
+										if (MR_ptr) {
+											std::string error_desc = std::string("The first template argument of the 'mse::rsv::pll<size_t param_index, size_t lifetime_label_id>' ")
+												+ "template must be an integer greater than zero.";
+											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+											if (res.second) {
+												std::cout << (*(res.first)).as_a_string1() << " \n\n";
+											}
+										}
+									}
+									if ((!maybe_lifetime_label_id.has_value()) || (1 > maybe_lifetime_label_id.value())) {
+										is_valid = false;
+										if (MR_ptr) {
+											std::string error_desc = std::string("The second template argument of the 'mse::rsv::pll<size_t param_index, size_t lifetime_label_id>' ")
+												+ "template must be an integer greater than zero.";
+											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+											if (res.second) {
+												std::cout << (*(res.first)).as_a_string1() << " \n\n";
+											}
+										}
+									}
+									if (is_valid) {
+										param_lifetime_map.insert_or_assign(maybe_param_index.value(), CAbstractLifetime{ maybe_lifetime_label_id.value(), &func_decl });
+									}
+								} else {
+									/* We seem to have encounterred a template argument that is not an mse::rsv::pll<>. We
+									should probably complain. */
+									int q = 5;
+								}
+								int q = 5;
+							};
+							auto tsi_ptr = param->getTypeSourceInfo();
+							if (tsi_ptr) {
+								//process_parameter_lifetime(tsi_ptr->getTypeLoc(), SR, state1);
+								apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), process_parameter_lifetime, state1);
+							}
+
+							flta.m_param_lifetime_map = param_lifetime_map;
+
+						} else if (mse_rsv_ltn_return_value_lifetime_str == element_name) {
+							auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
+								: param->getSourceRange();
+
+							std::optional<CAbstractLifetime> maybe_return_value_lifetime;
 
 							if (true) {
-								/* Here we're parsing the non-type (size_t) template parameters of 'mse::rsv::pll<>'
+								std::string qtype_str = qtype.getAsString();
+								const auto langle_bracket_index = qtype_str.find('<');
+								if (std::string::npos != langle_bracket_index) {
+									const auto rangle_bracket_index = qtype_str.find('>', langle_bracket_index+1);
+									if ((std::string::npos != rangle_bracket_index) && (langle_bracket_index + 1 < rangle_bracket_index)) {
+										auto last_delimiter_index = langle_bracket_index;
+										auto next_delimiter_index = qtype_str.find(',', last_delimiter_index+1);
+										if (std::string::npos == next_delimiter_index) {
+											next_delimiter_index = rangle_bracket_index;
+										}
+										while (true) {
+											if (!(last_delimiter_index + 1 < next_delimiter_index)) {
+												/* todo: report an error */
+												break;
+											}
+											std::string lifetime_label_id_str = qtype_str.substr(last_delimiter_index + 1, int(next_delimiter_index) - int(last_delimiter_index) - 1);
+											auto lifetime_label_id = atoi(lifetime_label_id_str.c_str());
+
+											if (1 <= lifetime_label_id) {
+												maybe_return_value_lifetime = CAbstractLifetime{ lifetime_id_t(lifetime_label_id), &func_decl };
+											} else {
+												/* todo: report an error */
+												int q = 5;
+											}
+
+											if (rangle_bracket_index == next_delimiter_index) {
+												break;
+											}
+											last_delimiter_index = next_delimiter_index;
+											next_delimiter_index = qtype_str.find(',', last_delimiter_index+1);
+											if (std::string::npos == next_delimiter_index) {
+												next_delimiter_index = rangle_bracket_index;
+											}
+										}
+									}
+								}
+							} else {
+								;
+							}
+							if (maybe_return_value_lifetime.has_value()) {
+								flta.m_maybe_return_value_lifetime = maybe_return_value_lifetime;
+							}
+
+							int q = 5;
+
+						} else if (mse_rsv_ltn_encompasses_lifetime_str == element_name) {
+							auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
+								: param->getSourceRange();
+
+							std::optional<lifetime_id_t> maybe_first_lifetime_label_id;
+							std::optional<lifetime_id_t> maybe_second_lifetime_label_id;
+
+							if (true) {
+								/* Here we're parsing the non-type (size_t) template parameters of 'mse::rsv::encompasses<>'
 								from the string representation of the type (of the instantiated template). This is
 								kind of a hacky way to do it, but when we try to obtain the non-type template
 								arguments programmatically, we seem to get a (not useful?) clang::TemplateArgument::Expression
@@ -584,23 +751,23 @@ namespace checker {
 									if ((std::string::npos != comma_index) && (langle_bracket_index + 1 < comma_index)) {
 										auto rangle_bracket_index = qtype_str.find('>', comma_index+1);
 										if ((std::string::npos != rangle_bracket_index) && (comma_index + 1 < rangle_bracket_index)) {
-											std::string param_index_str = qtype_str.substr(langle_bracket_index + 1, int(comma_index) - int(langle_bracket_index) - 1);
-											auto param_index = atoi(param_index_str.c_str());
-											if (1 <= param_index) {
-												maybe_param_index = param_index_t(param_index);
+											std::string first_lifetime_label_id_str = qtype_str.substr(langle_bracket_index + 1, int(comma_index) - int(langle_bracket_index) - 1);
+											auto first_lifetime_label_id = atoi(first_lifetime_label_id_str.c_str());
+											if (1 <= first_lifetime_label_id) {
+												maybe_first_lifetime_label_id = lifetime_id_t(first_lifetime_label_id);
 											}
 
-											std::string lifetime_label_id_str = qtype_str.substr(comma_index + 1, int(rangle_bracket_index) - int(comma_index) - 1);
-											auto lifetime_label_id = atoi(lifetime_label_id_str.c_str());
-											if (1 <= lifetime_label_id) {
-												maybe_lifetime_label_id = lifetime_id_t(lifetime_label_id);
+											std::string second_lifetime_label_id_str = qtype_str.substr(comma_index + 1, int(rangle_bracket_index) - int(comma_index) - 1);
+											auto second_lifetime_label_id = atoi(second_lifetime_label_id_str.c_str());
+											if (1 <= second_lifetime_label_id) {
+												maybe_second_lifetime_label_id = lifetime_id_t(second_lifetime_label_id);
 											}
 										}
 									}
 								}
 							} else {
 								size_t component_index = 0;
-								auto process_parameter_lifetime_component = [&maybe_param_index, &maybe_lifetime_label_id, &component_index, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+								auto process_parameter_lifetime_component = [&maybe_first_lifetime_label_id, &maybe_second_lifetime_label_id, &component_index, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
 									auto qtype = typeLoc.getType();
 									std::string element_name;
 									const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
@@ -615,42 +782,25 @@ namespace checker {
 									int q = 5;
 								};
 
-								/* We expected the "component types", i.e. non-type (size_t) template arguments,
-								in this case to be 'clang::TemplateArgument::Integral's. But instead they seem
-								to be reported as the (less specific) 'clang::TemplateArgument::Expression's, 
-								which aren't obviously useful (enough) for us. */
-								apply_to_component_types_if_any(typeLoc, process_parameter_lifetime_component, state1);
+								auto tsi_ptr = param->getTypeSourceInfo();
+								if (tsi_ptr) {
+									/* We expected the "component types", i.e. non-type (size_t) template arguments,
+									in this case to be 'clang::TemplateArgument::Integral's. But instead they seem
+									to be reported as the (less specific) 'clang::TemplateArgument::Expression's, 
+									which aren't obviously useful (enough) for us. */
+									apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), process_parameter_lifetime_component, state1);
+								}
 							}
 
-							bool is_valid = true;
-							if ((!maybe_param_index.has_value()) || (1 > maybe_param_index.value())) {
-								is_valid = false;
-								if (MR_ptr) {
-									std::string error_desc = std::string("The first template argument of the 'mse::rsv::pll<size_t param_index, size_t lifetime_label_id>' ")
-										+ "template must be an integer greater than zero.";
-									auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-								}
+							if (maybe_first_lifetime_label_id.has_value() && maybe_second_lifetime_label_id.has_value()) {
+								flta.m_lifetime_constraint_shptrs.push_back(std::make_shared<CEncompasses>(
+									CEncompasses{ CAbstractLifetime{ maybe_first_lifetime_label_id.value(), &func_decl }
+										, CAbstractLifetime{ maybe_second_lifetime_label_id.value(), &func_decl } }));
+							} else {
+								//todo: report error
+								int q = 5;
 							}
-							if ((!maybe_lifetime_label_id.has_value()) || (1 > maybe_lifetime_label_id.value())) {
-								is_valid = false;
-								if (MR_ptr) {
-									std::string error_desc = std::string("The second template argument of the 'mse::rsv::pll<size_t param_index, size_t lifetime_label_id>' ")
-										+ "template must be an integer greater than zero.";
-									auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-								}
-							}
-							if (is_valid) {
-								param_lifetime_map.insert_or_assign(maybe_param_index.value(), CAbstractLifetime{ maybe_lifetime_label_id.value(), &func_decl });
-							}
-						} else {
-							/* We seem to have encounterred a template argument that is not an mse::rsv::pll<>. We
-							should probably complain. */
+
 							int q = 5;
 						}
 						int q = 5;
@@ -658,135 +808,9 @@ namespace checker {
 					auto tsi_ptr = param->getTypeSourceInfo();
 					if (tsi_ptr) {
 						//process_parameter_lifetime(tsi_ptr->getTypeLoc(), SR, state1);
-						apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), process_parameter_lifetime, state1);
+						apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), process_lifetime_note, state1);
 					}
-
-					flta.m_param_lifetime_map = param_lifetime_map;
-
-				 } else if (mse_rsv_return_value_lifetime_str == name) {
-					auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
-						: param->getSourceRange();
-
-					std::optional<CAbstractLifetime> maybe_return_value_lifetime;
-
-					if (true) {
-						std::string qtype_str = qtype.getAsString();
-						const auto langle_bracket_index = qtype_str.find('<');
-						if (std::string::npos != langle_bracket_index) {
-							const auto rangle_bracket_index = qtype_str.find('>', langle_bracket_index+1);
-							if ((std::string::npos != rangle_bracket_index) && (langle_bracket_index + 1 < rangle_bracket_index)) {
-								auto last_delimiter_index = langle_bracket_index;
-								auto next_delimiter_index = qtype_str.find(',', last_delimiter_index+1);
-								if (std::string::npos == next_delimiter_index) {
-									next_delimiter_index = rangle_bracket_index;
-								}
-								while (true) {
-									if (!(last_delimiter_index + 1 < next_delimiter_index)) {
-										/* todo: report an error */
-										break;
-									}
-									std::string lifetime_label_id_str = qtype_str.substr(last_delimiter_index + 1, int(next_delimiter_index) - int(last_delimiter_index) - 1);
-									auto lifetime_label_id = atoi(lifetime_label_id_str.c_str());
-
-									if (1 <= lifetime_label_id) {
-										maybe_return_value_lifetime = CAbstractLifetime{ lifetime_id_t(lifetime_label_id), &func_decl };
-									} else {
-										/* todo: report an error */
-										int q = 5;
-									}
-
-									if (rangle_bracket_index == next_delimiter_index) {
-										break;
-									}
-									last_delimiter_index = next_delimiter_index;
-									next_delimiter_index = qtype_str.find(',', last_delimiter_index+1);
-									if (std::string::npos == next_delimiter_index) {
-										next_delimiter_index = rangle_bracket_index;
-									}
-								}
-							}
-						}
-					} else {
-						;
-					}
-					if (maybe_return_value_lifetime.has_value()) {
-						flta.m_maybe_return_value_lifetime = maybe_return_value_lifetime;
-					}
-
-					int q = 5;
-
-				 } else if (mse_rsv_encompasses_lifetime_str == name) {
-					auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
-						: param->getSourceRange();
-
-					std::optional<lifetime_id_t> maybe_first_lifetime_label_id;
-					std::optional<lifetime_id_t> maybe_second_lifetime_label_id;
-
-					if (true) {
-						/* Here we're parsing the non-type (size_t) template parameters of 'mse::rsv::encompasses<>'
-						from the string representation of the type (of the instantiated template). This is
-						kind of a hacky way to do it, but when we try to obtain the non-type template
-						arguments programmatically, we seem to get a (not useful?) clang::TemplateArgument::Expression
-						instead of a desired (and more specific and more useful) clang::TemplateArgument::Integral. */
-						std::string qtype_str = qtype.getAsString();
-						auto langle_bracket_index = qtype_str.find('<');
-						if (std::string::npos != langle_bracket_index) {
-							auto comma_index = qtype_str.find(',', langle_bracket_index+1);
-							if ((std::string::npos != comma_index) && (langle_bracket_index + 1 < comma_index)) {
-								auto rangle_bracket_index = qtype_str.find('>', comma_index+1);
-								if ((std::string::npos != rangle_bracket_index) && (comma_index + 1 < rangle_bracket_index)) {
-									std::string first_lifetime_label_id_str = qtype_str.substr(langle_bracket_index + 1, int(comma_index) - int(langle_bracket_index) - 1);
-									auto first_lifetime_label_id = atoi(first_lifetime_label_id_str.c_str());
-									if (1 <= first_lifetime_label_id) {
-										maybe_first_lifetime_label_id = lifetime_id_t(first_lifetime_label_id);
-									}
-
-									std::string second_lifetime_label_id_str = qtype_str.substr(comma_index + 1, int(rangle_bracket_index) - int(comma_index) - 1);
-									auto second_lifetime_label_id = atoi(second_lifetime_label_id_str.c_str());
-									if (1 <= second_lifetime_label_id) {
-										maybe_second_lifetime_label_id = lifetime_id_t(second_lifetime_label_id);
-									}
-								}
-							}
-						}
-					} else {
-						size_t component_index = 0;
-						auto process_parameter_lifetime_component = [&maybe_first_lifetime_label_id, &maybe_second_lifetime_label_id, &component_index, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
-							auto qtype = typeLoc.getType();
-							std::string element_name;
-							const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
-							if (l_CXXRD) {
-								element_name = l_CXXRD->getQualifiedNameAsString();
-							} else {
-								element_name = qtype.getAsString();
-							}
-
-							++component_index;
-
-							int q = 5;
-						};
-
-						auto tsi_ptr = param->getTypeSourceInfo();
-						if (tsi_ptr) {
-							/* We expected the "component types", i.e. non-type (size_t) template arguments,
-							in this case to be 'clang::TemplateArgument::Integral's. But instead they seem
-							to be reported as the (less specific) 'clang::TemplateArgument::Expression's, 
-							which aren't obviously useful (enough) for us. */
-							apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), process_parameter_lifetime_component, state1);
-						}
-					}
-
-					if (maybe_first_lifetime_label_id.has_value() && maybe_second_lifetime_label_id.has_value()) {
-						flta.m_lifetime_constraint_shptrs.push_back(std::make_shared<CEncompasses>(
-							CEncompasses{ CAbstractLifetime{ maybe_first_lifetime_label_id.value(), &func_decl }
-								, CAbstractLifetime{ maybe_second_lifetime_label_id.value(), &func_decl } }));
-					} else {
-						//todo: report error
-						int q = 5;
-					}
-
-					int q = 5;
-				 }
+				}
 			}
 		}
 		state1.m_function_lifetime_annotations_map.insert_or_assign(&func_decl, flta);
