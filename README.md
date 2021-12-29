@@ -188,6 +188,8 @@ Note that the `mse::rsv::make_xscope_pointer_to()` function, which allows you to
 
 The set of potentially unsafe elements in C++, and in the standard library itself, is pretty large. This tool does not yet address them all. In particular it does not complain about the use of essential elements for which the SaferCPlusPlus library does not (yet) provide a safe alternative, such as conatiners like maps, sets, etc.,. 
 
+Also `rsv::xscope_vector<>` is not yet available. The other available (resizable) vectors do not support elements containing scope pointer/references, so in the meantime you'll have to use (run-time checked) [proxy pointers](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#tnoradproxypointer) (or (the unsafe) `std::vector<>`).
+
 ### Future directions
 
 #### Annotating lifetime constraints in function interfaces
