@@ -194,7 +194,7 @@ Also `rsv::xscope_vector<>` is not yet available. The other available (resizable
 
 #### Annotating lifetime constraints in function interfaces
 
-The relative lifetimes of objects declared within the same function definition are directly deduced (at compile-time) by this tool from the location of their declarations. This deduction can't so readily be done with references to objects that are passed through function call boundaries (either as parameters or return values). So it can be helpful to allow the programmer to express constraints on the lifetimes of reference objects passed in and out of a function in the function interface and have the analyzer tool verify/enforce that those constraints are observed on the sending and receiving side of the function call.
+The relative lifetimes of objects declared within the same function definition are directly deduced (at "compile-time") by this tool from the location of their declarations. This deduction can't so readily be done with references to objects that are passed through function call boundaries (either as parameters or return values). So it can be helpful to allow the programmer to express constraints on the lifetimes of reference objects passed in and out of a function in the function interface and have the analyzer tool verify/enforce that those constraints are observed on the sending and receiving side of the function call.
 
 So the question is how the programmer can express the intended lifetime constraints. A fairly unintrusive option might be to add annotation parameters to the function interface, perhaps like:
 
