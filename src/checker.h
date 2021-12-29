@@ -295,7 +295,7 @@ namespace checker {
 								SourceLocation l_ISLE = l_ISR.getEnd();
 
 #ifndef NDEBUG
-								if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:134:")) {
+								if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:9999:")) {
 									int q = 5;
 								}
 #endif /*!NDEBUG*/
@@ -372,7 +372,7 @@ namespace checker {
 							SourceLocation l_ISLE = l_ISR.getEnd();
 
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:134:")) {
+							if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:9999:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -414,7 +414,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:134:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:9999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -455,7 +455,7 @@ namespace checker {
 								SourceLocation l_ISLE = l_ISR.getEnd();
 
 #ifndef NDEBUG
-								if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:134:")) {
+								if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:9999:")) {
 									int q = 5;
 								}
 #endif /*!NDEBUG*/
@@ -503,7 +503,7 @@ namespace checker {
 										|| ((FNDISLE == l_ISL) && (FNDISLE < l_ISLE))) {
 
 	#ifndef NDEBUG
-										if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:134:")) {
+										if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:9999:")) {
 											int q = 5;
 										}
 	#endif /*!NDEBUG*/
@@ -859,98 +859,6 @@ namespace checker {
 		}
 	}
 
-	class MCSSSReturnStmt : public MatchFinder::MatchCallback
-	{
-	public:
-		MCSSSReturnStmt (Rewriter &Rewrite, CTUState& state1) :
-			Rewrite(Rewrite), m_state1(state1) {}
-
-		virtual void run(const MatchFinder::MatchResult &MR)
-		{
-			const clang::ReturnStmt* ST = MR.Nodes.getNodeAs<clang::ReturnStmt>("mcsssreturnstmt");
-
-			if ((ST != nullptr)/* && (DRE != nullptr)*/)
-			{
-				auto SR = nice_source_range(ST->getSourceRange(), Rewrite);
-				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
-
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
-
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
-
-				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
-
-#ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:134:")) {
-					int q = 5;
-				}
-#endif /*!NDEBUG*/
-
-				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ST, Rewrite, *(MR.Context));
-				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(STISR);
-				if (suppress_check_flag) {
-					return;
-				}
-
-				if (ST->getRetValue()) {
-					if (is_xscope_type(ST->getRetValue()->getType(), (*this).m_state1)
-						&& (!(*this).m_state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(ST->getRetValue()->getType()))
-						) {
-						bool xscope_return_value_wrapper_present = false;
-						const clang::Stmt* stii = IgnoreParenImpNoopCasts(ST->getRetValue(), *(MR.Context));
-						while (!dyn_cast<const CallExpr>(stii)) {
-							//stii->dump();
-							auto* CXXCE = dyn_cast<const CXXConstructExpr>(stii);
-							if (CXXCE && (1 <= CXXCE->getNumArgs()) && (CXXCE->getArg(0))) {
-								stii = IgnoreParenImpNoopCasts(CXXCE->getArg(0), *(MR.Context));
-								continue;
-							}
-							break;
-						}
-						auto* CE = dyn_cast<const CallExpr>(stii);
-						if (CE) {
-							auto function_decl = CE->getDirectCallee();
-							auto num_args = CE->getNumArgs();
-							if (function_decl) {
-								std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-								DECLARE_CACHED_CONST_STRING(return_value_str, mse_namespace_str() + "::return_value");
-								if (return_value_str == qualified_function_name) {
-									xscope_return_value_wrapper_present = true;
-								}
-							}
-						}
-						if (!xscope_return_value_wrapper_present) {
-							auto E = dyn_cast<const clang::Expr>(stii);
-							if (E) {
-								auto E_ii = IgnoreParenImpNoopCasts(E, *(MR.Context));
-								auto DRE = dyn_cast<const clang::DeclRefExpr>(E_ii);
-								if (DRE) {
-									auto D = DRE->getDecl();
-									auto VD = dyn_cast<const clang::VarDecl>(D);
-									process_function_lifetime_annotations(*VD, m_state1, &MR, &Rewrite);
-
-									int q = 5;
-								}
-							}
-						}
-						if (!xscope_return_value_wrapper_present) {
-							const std::string error_desc = std::string("Return values of xscope type (such as '")
-							+ ST->getRetValue()->getType().getAsString() + "') need to be wrapped in the mse::return_value() function wrapper.";
-							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
-						}
-					}
-				}
-			}
-		}
-
-	private:
-		Rewriter &Rewrite;
-		CTUState& m_state1;
-	};
-
 	class MCSSSRecordDecl2 : public MatchFinder::MatchCallback
 	{
 	public:
@@ -973,7 +881,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:134:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:9999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -1768,143 +1676,192 @@ namespace checker {
 						return lower_bound_lifetime_owner(res1, res2, Ctx, tu_state_ref);
 					} else {
 						const clang::Expr* potential_owner_EX = nullptr;
-						auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(EX);
-						auto CXXMCE = dyn_cast<const clang::CXXMemberCallExpr>(EX);
 						auto CE = dyn_cast<const clang::CallExpr>(EX);
-						if (CXXOCE) {
-							static const std::string operator_star_str = "operator*";
-							static const std::string operator_arrow_str = "operator->";
-							static const std::string operator_subscript_str = "operator[]";
-							auto operator_fdecl = CXXOCE->getDirectCallee();
-							std::string operator_name;
-							if (operator_fdecl) {
-								operator_name = operator_fdecl->getNameAsString();
-							} else {
-								int q = 3;
-							}
+						if (CE) {
 
-							if (((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs())) {
-								auto arg_EX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), Ctx);
-								if (arg_EX) {
-									const auto arg_EX_qtype = arg_EX->getType();
-									IF_DEBUG(const auto arg_EX_qtype_str = arg_EX_qtype.getAsString();)
+							bool rv_lifetime_annotation_is_present = false;
+							auto FD = CE->getDirectCallee();
+							if (FD) {
+								process_function_lifetime_annotations(*FD, tu_state_ref);
+								auto flta_iter = tu_state_ref.m_function_lifetime_annotations_map.find(FD);
+								if (tu_state_ref.m_function_lifetime_annotations_map.end() != flta_iter) {
+									auto flta = flta_iter->second;
+									if (flta.m_maybe_return_value_lifetime.has_value()) {
+										auto rv_lifetime = flta.m_maybe_return_value_lifetime.value();
+										/* A list of function call arguments that correspond to the parameters that are
+										specified (via annotations) to have the same lifetime as the return value. */
+										std::vector<clang::Expr const *> potential_rv_source_args;
 
-									const auto CXXRD = remove_mse_transparent_wrappers(arg_EX->getType()).getTypePtr()->getAsCXXRecordDecl();
-									if (CXXRD) {
-										DECLARE_CACHED_CONST_STRING(xscope_f_ptr_str, mse_namespace_str() + "::TXScopeFixedPointer");
-										DECLARE_CACHED_CONST_STRING(xscope_f_const_ptr_str, mse_namespace_str() + "::TXScopeFixedConstPointer");
-										DECLARE_CACHED_CONST_STRING(xscope_obj_f_ptr_str, mse_namespace_str() + "::TXScopeObjFixedPointer");
-										DECLARE_CACHED_CONST_STRING(xscope_obj_f_const_ptr_str, mse_namespace_str() + "::TXScopeObjFixedConstPointer");
-										DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, mse_namespace_str() + "::TXScopeOwnerPointer");
-
-										DECLARE_CACHED_CONST_STRING(rsv_xscope_f_ptr_str, mse_namespace_str() + "::rsv::TXScopeFixedPointer");
-										DECLARE_CACHED_CONST_STRING(rsv_xscope_f_const_ptr_str, mse_namespace_str() + "::rsv::TXScopeFixedConstPointer");
-										DECLARE_CACHED_CONST_STRING(rsv_xscope_obj_f_ptr_str, mse_namespace_str() + "::rsv::TXScopeObjFixedPointer");
-										DECLARE_CACHED_CONST_STRING(rsv_xscope_obj_f_const_ptr_str, mse_namespace_str() + "::rsv::TXScopeObjFixedConstPointer");
-										DECLARE_CACHED_CONST_STRING(rsv_xscope_nn_ptr_str, mse_namespace_str() + "::rsv::TXScopeNotNullPointer");
-										DECLARE_CACHED_CONST_STRING(rsv_xscope_nn_const_ptr_str, mse_namespace_str() + "::rsv::TXScopeNotNullConstPointer");
-										DECLARE_CACHED_CONST_STRING(rsv_xscope_obj_nn_ptr_str, mse_namespace_str() + "::rsv::TXScopeObjNotNullPointer");
-										DECLARE_CACHED_CONST_STRING(rsv_xscope_obj_nn_const_ptr_str, mse_namespace_str() + "::rsv::TXScopeObjNotNullConstPointer");
-										DECLARE_CACHED_CONST_STRING(rsv_xscope_ptr_str, mse_namespace_str() + "::rsv::TXScopePointer");
-										DECLARE_CACHED_CONST_STRING(rsv_xscope_const_ptr_str, mse_namespace_str() + "::rsv::TXScopeConstPointer");
-										DECLARE_CACHED_CONST_STRING(rsv_xscope_obj_ptr_str, mse_namespace_str() + "::rsv::TXScopeObjPointer");
-										DECLARE_CACHED_CONST_STRING(rsv_xscope_obj_const_ptr_str, mse_namespace_str() + "::rsv::TXScopeObjConstPointer");
-										DECLARE_CACHED_CONST_STRING(rsv_xscope_owner_ptr_str, mse_namespace_str() + "::rsv::TXScopeOwnerPointer");
-
-										DECLARE_CACHED_CONST_STRING(reg_proxy_ptr_str, mse_namespace_str() + "::TRegisteredProxyPointer");
-										DECLARE_CACHED_CONST_STRING(reg_proxy_const_ptr_str, mse_namespace_str() + "::TRegisteredProxyConstPointer");
-										DECLARE_CACHED_CONST_STRING(norad_proxy_ptr_str, mse_namespace_str() + "::TNoradProxyPointer");
-										DECLARE_CACHED_CONST_STRING(norad_proxy_const_ptr_str, mse_namespace_str() + "::TNoradProxyConstPointer");
-										static const std::string unique_ptr_str = "std::unique_ptr";
-										auto qname = CXXRD->getQualifiedNameAsString();
-										if ((xscope_f_ptr_str == qname) || (xscope_f_const_ptr_str == qname)
-											|| (xscope_obj_f_ptr_str == qname) || (xscope_obj_f_const_ptr_str == qname)
-
-											|| (rsv_xscope_f_ptr_str == qname) || (rsv_xscope_f_const_ptr_str == qname)
-											|| (rsv_xscope_obj_f_ptr_str == qname) || (rsv_xscope_obj_f_const_ptr_str == qname)
-											|| (rsv_xscope_nn_ptr_str == qname) || (rsv_xscope_nn_const_ptr_str == qname)
-											|| (rsv_xscope_obj_nn_ptr_str == qname) || (rsv_xscope_obj_nn_const_ptr_str == qname)
-											|| (rsv_xscope_ptr_str == qname) || (rsv_xscope_const_ptr_str == qname)
-											|| (rsv_xscope_obj_ptr_str == qname) || (rsv_xscope_obj_const_ptr_str == qname)
-
-											|| (reg_proxy_ptr_str == qname) || (reg_proxy_const_ptr_str == qname)
-											|| (norad_proxy_ptr_str == qname) || (norad_proxy_const_ptr_str == qname)
-											/*|| ((xscope_owner_ptr_str == qname) && ())*/) {
-											satisfies_checks = true;
-											retval = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref);
-											if (!retval.has_value()) {
-												retval = dyn_cast<const clang::Expr>(arg_EX);
+										IF_DEBUG(auto num_args = CE->getNumArgs();)
+										auto arg1_iter = CE->arg_begin();
+										const auto arg1_end = CE->arg_end();
+										for (const auto& param1 : FD->parameters()) {
+											if (arg1_end == arg1_iter) {
+												break;
 											}
-											return retval;
-										} else if (unique_ptr_str == qname) {
-											if (arg_EX_qtype.isConstQualified()) {
-												/* We're treating `const std::unique_ptr<>`s as similar to mse::TXScopeOwnerPointer<>s. */
-												if (arg_EX->isLValue()) {
-													satisfies_checks = true;
-													retval = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref);
-													if (!retval.has_value()) {
-														retval = dyn_cast<const clang::Expr>(arg_EX);
-													}
-													return retval;
+											auto maybe_abstract_lifetime1 = tu_state_ref.corresponding_abstract_lifetime_if_any(param1);
+											if (maybe_abstract_lifetime1.has_value()) {
+												const auto abstract_lifetime1 = maybe_abstract_lifetime1.value();
+												if (abstract_lifetime1 == rv_lifetime) {
+													potential_rv_source_args.push_back(*arg1_iter);
 												}
 											}
+											++arg1_iter;
 										}
-									} else if (arg_EX->getType()->isReferenceType()) {
-										int q = 5;
+
+										if (1 <= potential_rv_source_args.size()) {
+											CMaybeStaticLifetimeOwnerWithHints maybe_lblo = lower_bound_lifetime_owner_if_available(potential_rv_source_args.front(), Ctx, tu_state_ref);
+											for (auto arg_EX : potential_rv_source_args) {
+												auto maybe_lblo2 = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref);
+												/* We assign to maybe_lblo the "lesser" of itself and maybe_lblo2 */
+												maybe_lblo = lower_bound_lifetime_owner(maybe_lblo, maybe_lblo2, Ctx, tu_state_ref);
+											}
+											if (maybe_lblo.has_value()) {
+												return maybe_lblo.value();
+											}
+										}
+
 									}
 								}
 							}
 
-							if ((((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs()))
-								|| (((operator_subscript_str == operator_name)) && (2 == CXXOCE->getNumArgs()))
-								) {
-								potential_owner_EX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), Ctx);
-							}
-						} else if (CXXMCE) {
-							static const std::string method_value_str = "value";
-							static const std::string method_at_str = "at";
-							static const std::string method_front_str = "front";
-							static const std::string method_back_str = "back";
-							auto method_decl = CXXMCE->getDirectCallee();
-							std::string method_name;
-							if (method_decl) {
-								method_name = method_decl->getNameAsString();
-							} else {
-								int q = 3;
-							}
+							auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(EX);
+							auto CXXMCE = dyn_cast<const clang::CXXMemberCallExpr>(EX);
+							if (CXXOCE) {
+								static const std::string operator_star_str = "operator*";
+								static const std::string operator_arrow_str = "operator->";
+								static const std::string operator_subscript_str = "operator[]";
+								auto operator_fdecl = CXXOCE->getDirectCallee();
+								std::string operator_name;
+								if (operator_fdecl) {
+									operator_name = operator_fdecl->getNameAsString();
+								} else {
+									int q = 3;
+								}
 
-							if ((((method_value_str == method_name)) && (0 == CXXMCE->getNumArgs()))
-								|| (((method_at_str == method_name)) && (1 == CXXMCE->getNumArgs()))
-								|| (((method_front_str == method_name)) && (0 == CXXMCE->getNumArgs()))
-								|| (((method_back_str == method_name)) && (0 == CXXMCE->getNumArgs()))
-								) {
-								potential_owner_EX = IgnoreParenImpNoopCasts(CXXMCE->getImplicitObjectArgument(), Ctx);
-							} else {
-								const auto CXXMCE_qtype = CXXMCE->getType();
-								if (contains_non_owning_scope_reference(CXXMCE_qtype, tu_state_ref)) {
-									auto maybe_lb_lifetime_owner = lower_bound_lifetime_owner_of_returned_reference_object_if_available(CXXMCE, Ctx, tu_state_ref);
-									if (maybe_lb_lifetime_owner.has_value()) {
-										return maybe_lb_lifetime_owner;
+								if (((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs())) {
+									auto arg_EX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), Ctx);
+									if (arg_EX) {
+										const auto arg_EX_qtype = arg_EX->getType();
+										IF_DEBUG(const auto arg_EX_qtype_str = arg_EX_qtype.getAsString();)
+
+										const auto CXXRD = remove_mse_transparent_wrappers(arg_EX->getType()).getTypePtr()->getAsCXXRecordDecl();
+										if (CXXRD) {
+											DECLARE_CACHED_CONST_STRING(xscope_f_ptr_str, mse_namespace_str() + "::TXScopeFixedPointer");
+											DECLARE_CACHED_CONST_STRING(xscope_f_const_ptr_str, mse_namespace_str() + "::TXScopeFixedConstPointer");
+											DECLARE_CACHED_CONST_STRING(xscope_obj_f_ptr_str, mse_namespace_str() + "::TXScopeObjFixedPointer");
+											DECLARE_CACHED_CONST_STRING(xscope_obj_f_const_ptr_str, mse_namespace_str() + "::TXScopeObjFixedConstPointer");
+											DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, mse_namespace_str() + "::TXScopeOwnerPointer");
+
+											DECLARE_CACHED_CONST_STRING(rsv_xscope_f_ptr_str, mse_namespace_str() + "::rsv::TXScopeFixedPointer");
+											DECLARE_CACHED_CONST_STRING(rsv_xscope_f_const_ptr_str, mse_namespace_str() + "::rsv::TXScopeFixedConstPointer");
+											DECLARE_CACHED_CONST_STRING(rsv_xscope_obj_f_ptr_str, mse_namespace_str() + "::rsv::TXScopeObjFixedPointer");
+											DECLARE_CACHED_CONST_STRING(rsv_xscope_obj_f_const_ptr_str, mse_namespace_str() + "::rsv::TXScopeObjFixedConstPointer");
+											DECLARE_CACHED_CONST_STRING(rsv_xscope_nn_ptr_str, mse_namespace_str() + "::rsv::TXScopeNotNullPointer");
+											DECLARE_CACHED_CONST_STRING(rsv_xscope_nn_const_ptr_str, mse_namespace_str() + "::rsv::TXScopeNotNullConstPointer");
+											DECLARE_CACHED_CONST_STRING(rsv_xscope_obj_nn_ptr_str, mse_namespace_str() + "::rsv::TXScopeObjNotNullPointer");
+											DECLARE_CACHED_CONST_STRING(rsv_xscope_obj_nn_const_ptr_str, mse_namespace_str() + "::rsv::TXScopeObjNotNullConstPointer");
+											DECLARE_CACHED_CONST_STRING(rsv_xscope_ptr_str, mse_namespace_str() + "::rsv::TXScopePointer");
+											DECLARE_CACHED_CONST_STRING(rsv_xscope_const_ptr_str, mse_namespace_str() + "::rsv::TXScopeConstPointer");
+											DECLARE_CACHED_CONST_STRING(rsv_xscope_obj_ptr_str, mse_namespace_str() + "::rsv::TXScopeObjPointer");
+											DECLARE_CACHED_CONST_STRING(rsv_xscope_obj_const_ptr_str, mse_namespace_str() + "::rsv::TXScopeObjConstPointer");
+											DECLARE_CACHED_CONST_STRING(rsv_xscope_owner_ptr_str, mse_namespace_str() + "::rsv::TXScopeOwnerPointer");
+
+											DECLARE_CACHED_CONST_STRING(reg_proxy_ptr_str, mse_namespace_str() + "::TRegisteredProxyPointer");
+											DECLARE_CACHED_CONST_STRING(reg_proxy_const_ptr_str, mse_namespace_str() + "::TRegisteredProxyConstPointer");
+											DECLARE_CACHED_CONST_STRING(norad_proxy_ptr_str, mse_namespace_str() + "::TNoradProxyPointer");
+											DECLARE_CACHED_CONST_STRING(norad_proxy_const_ptr_str, mse_namespace_str() + "::TNoradProxyConstPointer");
+											static const std::string unique_ptr_str = "std::unique_ptr";
+											auto qname = CXXRD->getQualifiedNameAsString();
+											if ((xscope_f_ptr_str == qname) || (xscope_f_const_ptr_str == qname)
+												|| (xscope_obj_f_ptr_str == qname) || (xscope_obj_f_const_ptr_str == qname)
+
+												|| (rsv_xscope_f_ptr_str == qname) || (rsv_xscope_f_const_ptr_str == qname)
+												|| (rsv_xscope_obj_f_ptr_str == qname) || (rsv_xscope_obj_f_const_ptr_str == qname)
+												|| (rsv_xscope_nn_ptr_str == qname) || (rsv_xscope_nn_const_ptr_str == qname)
+												|| (rsv_xscope_obj_nn_ptr_str == qname) || (rsv_xscope_obj_nn_const_ptr_str == qname)
+												|| (rsv_xscope_ptr_str == qname) || (rsv_xscope_const_ptr_str == qname)
+												|| (rsv_xscope_obj_ptr_str == qname) || (rsv_xscope_obj_const_ptr_str == qname)
+
+												|| (reg_proxy_ptr_str == qname) || (reg_proxy_const_ptr_str == qname)
+												|| (norad_proxy_ptr_str == qname) || (norad_proxy_const_ptr_str == qname)
+												/*|| ((xscope_owner_ptr_str == qname) && ())*/) {
+												satisfies_checks = true;
+												retval = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref);
+												if (!retval.has_value()) {
+													retval = dyn_cast<const clang::Expr>(arg_EX);
+												}
+												return retval;
+											} else if (unique_ptr_str == qname) {
+												if (arg_EX_qtype.isConstQualified()) {
+													/* We're treating `const std::unique_ptr<>`s as similar to mse::TXScopeOwnerPointer<>s. */
+													if (arg_EX->isLValue()) {
+														satisfies_checks = true;
+														retval = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref);
+														if (!retval.has_value()) {
+															retval = dyn_cast<const clang::Expr>(arg_EX);
+														}
+														return retval;
+													}
+												}
+											}
+										} else if (arg_EX->getType()->isReferenceType()) {
+											int q = 5;
+										}
 									}
 								}
-							}
-						} else if (CE) {
-							auto function_qname = CE->getDirectCallee()->getQualifiedNameAsString();
 
-							static const std::string std_move_str = "std::move";
-							if ((std_move_str == function_qname) && (1 == CE->getNumArgs())) {
-								return lower_bound_lifetime_owner_if_available(CE->getArg(0), Ctx, tu_state_ref);
-							}
+								if ((((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs()))
+									|| (((operator_subscript_str == operator_name)) && (2 == CXXOCE->getNumArgs()))
+									) {
+									potential_owner_EX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), Ctx);
+								}
+							} else if (CXXMCE) {
+								static const std::string method_value_str = "value";
+								static const std::string method_at_str = "at";
+								static const std::string method_front_str = "front";
+								static const std::string method_back_str = "back";
+								auto method_decl = CXXMCE->getDirectCallee();
+								std::string method_name;
+								if (method_decl) {
+									method_name = method_decl->getNameAsString();
+								} else {
+									int q = 3;
+								}
 
-							static const std::string function_get_str = "std::get";
-							if (((function_get_str == function_qname)) && (1 == CE->getNumArgs())) {
-								potential_owner_EX = IgnoreParenImpNoopCasts(CE->getArg(0), Ctx);
-							} else {
-								const auto CE_qtype = CE->getType();
-								if (contains_non_owning_scope_reference(CE_qtype, tu_state_ref)) {
-									auto maybe_lb_lifetime_owner = lower_bound_lifetime_owner_of_returned_reference_object_if_available(CE, Ctx, tu_state_ref);
-									if (maybe_lb_lifetime_owner.has_value()) {
-										return maybe_lb_lifetime_owner;
+								if ((((method_value_str == method_name)) && (0 == CXXMCE->getNumArgs()))
+									|| (((method_at_str == method_name)) && (1 == CXXMCE->getNumArgs()))
+									|| (((method_front_str == method_name)) && (0 == CXXMCE->getNumArgs()))
+									|| (((method_back_str == method_name)) && (0 == CXXMCE->getNumArgs()))
+									) {
+									potential_owner_EX = IgnoreParenImpNoopCasts(CXXMCE->getImplicitObjectArgument(), Ctx);
+								} else {
+									const auto CXXMCE_qtype = CXXMCE->getType();
+									if (contains_non_owning_scope_reference(CXXMCE_qtype, tu_state_ref)) {
+										auto maybe_lb_lifetime_owner = lower_bound_lifetime_owner_of_returned_reference_object_if_available(CXXMCE, Ctx, tu_state_ref);
+										if (maybe_lb_lifetime_owner.has_value()) {
+											return maybe_lb_lifetime_owner;
+										}
+									}
+								}
+							} else if (CE) {
+								auto function_qname = CE->getDirectCallee()->getQualifiedNameAsString();
+
+								static const std::string std_move_str = "std::move";
+								if ((std_move_str == function_qname) && (1 == CE->getNumArgs())) {
+									return lower_bound_lifetime_owner_if_available(CE->getArg(0), Ctx, tu_state_ref);
+								}
+
+								static const std::string function_get_str = "std::get";
+								if (((function_get_str == function_qname)) && (1 == CE->getNumArgs())) {
+									potential_owner_EX = IgnoreParenImpNoopCasts(CE->getArg(0), Ctx);
+								} else {
+									const auto CE_qtype = CE->getType();
+									if (contains_non_owning_scope_reference(CE_qtype, tu_state_ref)) {
+										auto maybe_lb_lifetime_owner = lower_bound_lifetime_owner_of_returned_reference_object_if_available(CE, Ctx, tu_state_ref);
+										if (maybe_lb_lifetime_owner.has_value()) {
+											return maybe_lb_lifetime_owner;
+										}
 									}
 								}
 							}
@@ -2459,7 +2416,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:134:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:9999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -2546,7 +2503,7 @@ namespace checker {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:134:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:9999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -2620,6 +2577,131 @@ namespace checker {
 								if (res.second) {
 									std::cout << (*(res.first)).as_a_string1() << " \n\n";
 								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
+	class MCSSSReturnStmt : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSReturnStmt (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const clang::ReturnStmt* ST = MR.Nodes.getNodeAs<clang::ReturnStmt>("mcsssreturnstmt");
+
+			if ((ST != nullptr)/* && (DRE != nullptr)*/)
+			{
+				auto SR = nice_source_range(ST->getSourceRange(), Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:9999:")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ST, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(STISR);
+				if (suppress_check_flag) {
+					return;
+				}
+
+				if (ST->getRetValue()) {
+					if (is_xscope_type(ST->getRetValue()->getType(), (*this).m_state1)
+						&& (!(*this).m_state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(ST->getRetValue()->getType()))
+						) {
+
+						bool rv_lifetime_annotation_is_present = false;
+						auto E = dyn_cast<const clang::Expr>(ST->getRetValue());
+						if (E) {
+							auto FD = Tget_containing_element_of_type<clang::FunctionDecl>(E, *(MR.Context));
+							if (FD) {
+								process_function_lifetime_annotations(*FD, m_state1, &MR, &Rewrite);
+								auto flta_iter = m_state1.m_function_lifetime_annotations_map.find(FD);
+								if (m_state1.m_function_lifetime_annotations_map.end() != flta_iter) {
+									if (flta_iter->second.m_maybe_return_value_lifetime.has_value()) {
+										rv_lifetime_annotation_is_present = true;
+										auto rv_lifetime = flta_iter->second.m_maybe_return_value_lifetime.value();
+										auto maybe_lblo = lower_bound_lifetime_owner_if_available(E, *(MR.Context), m_state1);
+										bool satisfies_checks = false;
+										if (maybe_lblo.has_value()) {
+											auto lblo = maybe_lblo.value();
+											auto lbsli = scope_lifetime_info_from_lifetime_owner(lblo, *(MR.Context));
+											CScopeLifetimeInfo1 rvsli;
+											rvsli.m_maybe_abstract_lifetime = rv_lifetime;
+											rvsli.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
+											satisfies_checks = first_is_known_to_be_contained_in_scope_of_second(rvsli, lbsli, *(MR.Context), m_state1);
+											if (!satisfies_checks) {
+												if (lbsli.m_maybe_abstract_lifetime.has_value()) {
+													if (lbsli.m_maybe_abstract_lifetime.value() == rv_lifetime) {
+														satisfies_checks = true;
+													}
+												}
+											}
+										}
+										if (!satisfies_checks) {
+											const std::string error_desc = std::string("Unable to verify that the return value conforms to the lifetime specified.");
+											auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+											if (res.second) {
+												std::cout << (*(res.first)).as_a_string1() << " \n\n";
+											}
+										}
+										return;
+									}
+								}
+							} else {
+								int q = 3;
+							}
+						}
+						if (rv_lifetime_annotation_is_present) {
+							return;
+						}
+
+						bool xscope_return_value_wrapper_present = false;
+						const clang::Stmt* stii = IgnoreParenImpNoopCasts(ST->getRetValue(), *(MR.Context));
+						while (!dyn_cast<const CallExpr>(stii)) {
+							//stii->dump();
+							auto* CXXCE = dyn_cast<const CXXConstructExpr>(stii);
+							if (CXXCE && (1 <= CXXCE->getNumArgs()) && (CXXCE->getArg(0))) {
+								stii = IgnoreParenImpNoopCasts(CXXCE->getArg(0), *(MR.Context));
+								continue;
+							}
+							break;
+						}
+						auto* CE = dyn_cast<const CallExpr>(stii);
+						if (CE) {
+							auto function_decl = CE->getDirectCallee();
+							auto num_args = CE->getNumArgs();
+							if (function_decl) {
+								std::string qualified_function_name = function_decl->getQualifiedNameAsString();
+								DECLARE_CACHED_CONST_STRING(return_value_str, mse_namespace_str() + "::return_value");
+								if (return_value_str == qualified_function_name) {
+									xscope_return_value_wrapper_present = true;
+								}
+							}
+						}
+						if (!xscope_return_value_wrapper_present) {
+							const std::string error_desc = std::string("Return values of xscope type (such as '")
+							+ ST->getRetValue()->getType().getAsString() + "') need to be wrapped in the mse::return_value() function wrapper.";
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+							if (res.second) {
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
 							}
 						}
 					}
@@ -2969,7 +3051,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:134:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:9999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -3144,7 +3226,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:134:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:9999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -3173,7 +3255,6 @@ namespace checker {
 					auto flta_iter = state1.m_function_lifetime_annotations_map.find(function_decl);
 					if (state1.m_function_lifetime_annotations_map.end() != flta_iter) {
 						auto flta = flta_iter->second;
-						flta.m_lifetime_constraint_shptrs;
 
 						auto arg1_iter = CE ? CE->arg_begin() : CXXOCE->arg_begin();
 						const auto arg1_end = CE ? CE->arg_end() : CXXOCE->arg_end();
@@ -3450,7 +3531,7 @@ namespace checker {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:134:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:9999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -3616,7 +3697,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:134:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:9999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -3892,7 +3973,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:134:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:9999:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
