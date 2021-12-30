@@ -158,11 +158,12 @@ namespace checker {
 		}
 	};
 
-	typedef size_t param_index_t;
+	typedef size_t param_ordinal_t;
+#define IMPLICIT_THIS_PARAM_ORDINAL 0
  
 	class CFunctionLifetimeAnnotations {
 	public:
-		std::map<param_index_t, CAbstractLifetime> m_param_lifetime_map;
+		std::map<param_ordinal_t, CAbstractLifetime> m_param_lifetime_map;
 		std::vector<std::shared_ptr<CPairwiseLifetimeConstraint> > m_lifetime_constraint_shptrs;
 		std::optional<CAbstractLifetime> m_maybe_return_value_lifetime;
 		bool m_parse_errors_noted = false;
@@ -213,6 +214,19 @@ namespace checker {
 			auto iter = m_vardecl_to_abstract_lifetime_map.find(VD);
 			if (m_vardecl_to_abstract_lifetime_map.end() != iter) {
 				return iter->second;
+			}
+			return {};
+		}
+		std::optional<CAbstractLifetime> corresponding_abstract_lifetime_if_any(clang::CXXThisExpr const * CXXTE, clang::ASTContext& context) const {
+			const auto FD = Tget_containing_element_of_type<clang::FunctionDecl>(CXXTE, context);
+			if (FD) {
+				auto flta_iter = m_function_lifetime_annotations_map.find(FD);
+				if (m_function_lifetime_annotations_map.end() != flta_iter) {
+					auto pl_iter = flta_iter->second.m_param_lifetime_map.find(IMPLICIT_THIS_PARAM_ORDINAL);
+					if (flta_iter->second.m_param_lifetime_map.end() != pl_iter) {
+						return pl_iter->second;
+					}
+				}
 			}
 			return {};
 		}
@@ -572,7 +586,7 @@ namespace checker {
 							auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
 								: param->getSourceRange();
 
-							std::map<param_index_t, CAbstractLifetime> param_lifetime_map;
+							std::map<param_ordinal_t, CAbstractLifetime> param_lifetime_map;
 
 							auto process_parameter_lifetime = [&mse_rsv_ltn_pll_str, &param_lifetime_map, &func_decl, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
 								auto qtype = typeLoc.getType();
@@ -584,7 +598,7 @@ namespace checker {
 									element_name = qtype.getAsString();
 								}
 								if (mse_rsv_ltn_pll_str == element_name) {
-									std::optional<param_index_t> maybe_param_index;
+									std::optional<param_ordinal_t> maybe_param_ordinal;
 									std::optional<lifetime_id_t> maybe_lifetime_label_id;
 
 									if (true) {
@@ -600,10 +614,27 @@ namespace checker {
 											if ((std::string::npos != comma_index) && (langle_bracket_index + 1 < comma_index)) {
 												auto rangle_bracket_index = qtype_str.find('>', comma_index+1);
 												if ((std::string::npos != rangle_bracket_index) && (comma_index + 1 < rangle_bracket_index)) {
-													std::string param_index_str = qtype_str.substr(langle_bracket_index + 1, int(comma_index) - int(langle_bracket_index) - 1);
-													auto param_index = atoi(param_index_str.c_str());
-													if (1 <= param_index) {
-														maybe_param_index = param_index_t(param_index);
+													std::string param_ordinal_str = qtype_str.substr(langle_bracket_index + 1, int(comma_index) - int(langle_bracket_index) - 1);
+													auto param_ordinal = atoi(param_ordinal_str.c_str());
+													if (func_decl.getNumParams() < param_ordinal) {
+														if (MR_ptr) {
+															std::string error_desc = std::string("The specified parameter ordinal ('") + std::to_string(param_ordinal)
+																+ "') is greater than the number of parameters (" + std::to_string(func_decl.getNumParams()) + ").";
+															auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+															if (res.second) {
+																std::cout << (*(res.first)).as_a_string1() << " \n\n";
+															}
+														}
+													} else if ((1 <= param_ordinal) || (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal)) {
+														maybe_param_ordinal = param_ordinal_t(param_ordinal);
+													} else {
+														if (MR_ptr) {
+															std::string error_desc = std::string("'") + param_ordinal_str + "' is not a valid parameter ordinal value.";
+															auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+															if (res.second) {
+																std::cout << (*(res.first)).as_a_string1() << " \n\n";
+															}
+														}
 													}
 
 													std::string lifetime_label_id_str = qtype_str.substr(comma_index + 1, int(rangle_bracket_index) - int(comma_index) - 1);
@@ -616,7 +647,7 @@ namespace checker {
 										}
 									} else {
 										size_t component_index = 0;
-										auto process_parameter_lifetime_component = [&maybe_param_index, &maybe_lifetime_label_id, &component_index, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+										auto process_parameter_lifetime_component = [&maybe_param_ordinal, &maybe_lifetime_label_id, &component_index, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
 											auto qtype = typeLoc.getType();
 											std::string element_name;
 											const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
@@ -639,11 +670,11 @@ namespace checker {
 									}
 
 									bool is_valid = true;
-									if ((!maybe_param_index.has_value()) || (1 > maybe_param_index.value())) {
+									if ((!maybe_param_ordinal.has_value()) || ((1 > maybe_param_ordinal.value()) && (IMPLICIT_THIS_PARAM_ORDINAL != maybe_param_ordinal.value()))) {
 										is_valid = false;
 										if (MR_ptr) {
-											std::string error_desc = std::string("The first template argument of the 'mse::rsv::pll<size_t param_index, size_t lifetime_label_id>' ")
-												+ "template must be an integer greater than zero.";
+											std::string error_desc = std::string("The first template argument of the 'mse::rsv::pll<parameter_ordinal_t param_ordinal, lifetime_label_t lifetime_label_id>' ")
+												+ "template must be an integer greater than zero or MSE_IMPLICIT_THIS_PARAM_ORDINAL.";
 											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
 											if (res.second) {
 												std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -653,7 +684,7 @@ namespace checker {
 									if ((!maybe_lifetime_label_id.has_value()) || (1 > maybe_lifetime_label_id.value())) {
 										is_valid = false;
 										if (MR_ptr) {
-											std::string error_desc = std::string("The second template argument of the 'mse::rsv::pll<size_t param_index, size_t lifetime_label_id>' ")
+											std::string error_desc = std::string("The second template argument of the 'mse::rsv::pll<size_t param_ordinal, size_t lifetime_label_id>' ")
 												+ "template must be an integer greater than zero.";
 											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
 											if (res.second) {
@@ -662,7 +693,7 @@ namespace checker {
 										}
 									}
 									if (is_valid) {
-										param_lifetime_map.insert_or_assign(maybe_param_index.value(), CAbstractLifetime{ maybe_lifetime_label_id.value(), &func_decl });
+										param_lifetime_map.insert_or_assign(maybe_param_ordinal.value(), CAbstractLifetime{ maybe_lifetime_label_id.value(), &func_decl });
 									}
 								} else {
 									/* We seem to have encounterred a template argument that is not an mse::rsv::pll<>. We
@@ -698,17 +729,28 @@ namespace checker {
 										}
 										while (true) {
 											if (!(last_delimiter_index + 1 < next_delimiter_index)) {
-												/* todo: report an error */
+												if (MR_ptr) {
+													std::string error_desc = std::string("Parse error in return value lifetime specification.");
+													auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+													if (res.second) {
+														std::cout << (*(res.first)).as_a_string1() << " \n\n";
+													}
+												}
 												break;
 											}
 											std::string lifetime_label_id_str = qtype_str.substr(last_delimiter_index + 1, int(next_delimiter_index) - int(last_delimiter_index) - 1);
 											auto lifetime_label_id = atoi(lifetime_label_id_str.c_str());
 
+											maybe_return_value_lifetime = CAbstractLifetime{ lifetime_id_t(lifetime_label_id), &func_decl };
 											if (1 <= lifetime_label_id) {
-												maybe_return_value_lifetime = CAbstractLifetime{ lifetime_id_t(lifetime_label_id), &func_decl };
 											} else {
-												/* todo: report an error */
-												int q = 5;
+												if (MR_ptr) {
+													std::string error_desc = std::string("Currently, only integers greater than zero are supported as 'lifetime label id's. ('") + lifetime_label_id_str + "' specified.)";
+													auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+													if (res.second) {
+														std::cout << (*(res.first)).as_a_string1() << " \n\n";
+													}
+												}
 											}
 
 											if (rangle_bracket_index == next_delimiter_index) {
@@ -753,14 +795,30 @@ namespace checker {
 										if ((std::string::npos != rangle_bracket_index) && (comma_index + 1 < rangle_bracket_index)) {
 											std::string first_lifetime_label_id_str = qtype_str.substr(langle_bracket_index + 1, int(comma_index) - int(langle_bracket_index) - 1);
 											auto first_lifetime_label_id = atoi(first_lifetime_label_id_str.c_str());
+											maybe_first_lifetime_label_id = lifetime_id_t(first_lifetime_label_id);
 											if (1 <= first_lifetime_label_id) {
-												maybe_first_lifetime_label_id = lifetime_id_t(first_lifetime_label_id);
+											} else {
+												if (MR_ptr) {
+													std::string error_desc = std::string("Currently, only integers greater than zero are supported as 'lifetime label id's. ('") + first_lifetime_label_id_str + "' specified.)";
+													auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+													if (res.second) {
+														std::cout << (*(res.first)).as_a_string1() << " \n\n";
+													}
+												}
 											}
 
 											std::string second_lifetime_label_id_str = qtype_str.substr(comma_index + 1, int(rangle_bracket_index) - int(comma_index) - 1);
 											auto second_lifetime_label_id = atoi(second_lifetime_label_id_str.c_str());
+											maybe_second_lifetime_label_id = lifetime_id_t(second_lifetime_label_id);
 											if (1 <= second_lifetime_label_id) {
-												maybe_second_lifetime_label_id = lifetime_id_t(second_lifetime_label_id);
+											} else {
+												if (MR_ptr) {
+													std::string error_desc = std::string("Currently, only integers greater than zero are supported as 'lifetime label id's. ('") + second_lifetime_label_id_str + "' specified.)";
+													auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+													if (res.second) {
+														std::cout << (*(res.first)).as_a_string1() << " \n\n";
+													}
+												}
 											}
 										}
 									}
@@ -797,8 +855,13 @@ namespace checker {
 									CEncompasses{ CAbstractLifetime{ maybe_first_lifetime_label_id.value(), &func_decl }
 										, CAbstractLifetime{ maybe_second_lifetime_label_id.value(), &func_decl } }));
 							} else {
-								//todo: report error
-								int q = 5;
+								if (MR_ptr) {
+									std::string error_desc = std::string("Parse error in 'encompassing' lifetime constraint specification.");
+									auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									}
+								}
 							}
 
 							int q = 5;
@@ -817,14 +880,26 @@ namespace checker {
 
 		for (const auto& param_lifetime : flta.m_param_lifetime_map) {
 			auto param_iter = func_decl.param_begin();
-			auto param_index = param_lifetime.first;
-			if (func_decl.param_size() < param_index) {
-				//todo: report error
+			auto param_ordinal = param_lifetime.first;
+			if (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal) {
+				int q = 5;
+			} else if (func_decl.param_size() < param_ordinal) {
+				assert(false);
 				continue;
-			} else {
-				assert(1 <= param_index);
-				param_iter += (param_index - 1);
-				state1.m_vardecl_to_abstract_lifetime_map.insert_or_assign(*param_iter, param_lifetime.second);
+			} else if (1 <= param_ordinal) {
+				param_iter += (param_ordinal - 1);
+				auto PVD = *param_iter;
+				state1.m_vardecl_to_abstract_lifetime_map.insert_or_assign(PVD, param_lifetime.second);
+
+				if (PVD->hasInit()) {
+					if (MR_ptr) {
+						std::string error_desc = std::string("Currently, parameters with lifetime annotation aren't permitted to have default values (with parameter of type '") + PVD->getType().getAsString() + "').";
+						auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), PVD->getSourceRange().getBegin(), error_desc));
+						if (res.second) {
+							std::cout << (*(res.first)).as_a_string1() << " \n\n";
+						}
+					}
+				}
 			}
 		}
 
@@ -1534,11 +1609,6 @@ namespace checker {
 							process_function_lifetime_annotations(*PVD, tu_state_ref);
 							auto maybe_abstract_lifetime = tu_state_ref.corresponding_abstract_lifetime_if_any(PVD);
 							if (maybe_abstract_lifetime.has_value()) {
-								if (PVD->hasInit()) {
-									/* at the moment parameters with lifetime annotation aren't allowed to have default values */
-									//todo: report error
-									int q = 3;
-								}
 								CScopeLifetimeInfo1 scope_lifetime_info1;
 								scope_lifetime_info1.m_maybe_abstract_lifetime = maybe_abstract_lifetime.value();
 								scope_lifetime_info1.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
@@ -1602,6 +1672,18 @@ namespace checker {
 		}
 		if (CXXTE) {
 			retval = CXXTE;
+			auto maybe_abstract_lifetime = tu_state_ref.corresponding_abstract_lifetime_if_any(CXXTE, Ctx);
+			if (maybe_abstract_lifetime) {
+				CScopeLifetimeInfo1 sli1;
+				sli1.m_maybe_abstract_lifetime = maybe_abstract_lifetime.value();
+				sli1.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
+				const auto CS = Tget_containing_element_of_type<clang::CompoundStmt>(CXXTE, Ctx);
+				if (CS) {
+					sli1.m_maybe_containing_scope = CS;
+				}
+				sli1.m_maybe_source_range = CXXTE->getSourceRange();
+				retval = CStaticLifetimeOwner{ sli1 };
+			}
 		} else if (SL) {
 			retval = SL;
 		} else {
@@ -1678,6 +1760,8 @@ namespace checker {
 						const clang::Expr* potential_owner_EX = nullptr;
 						auto CE = dyn_cast<const clang::CallExpr>(EX);
 						if (CE) {
+							auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(EX);
+							auto CXXMCE = dyn_cast<const clang::CXXMemberCallExpr>(EX);
 
 							bool rv_lifetime_annotation_is_present = false;
 							auto FD = CE->getDirectCallee();
@@ -1687,7 +1771,7 @@ namespace checker {
 								if (tu_state_ref.m_function_lifetime_annotations_map.end() != flta_iter) {
 									auto flta = flta_iter->second;
 									if (flta.m_maybe_return_value_lifetime.has_value()) {
-										auto rv_lifetime = flta.m_maybe_return_value_lifetime.value();
+										const auto rv_lifetime = flta.m_maybe_return_value_lifetime.value();
 										/* A list of function call arguments that correspond to the parameters that are
 										specified (via annotations) to have the same lifetime as the return value. */
 										std::vector<clang::Expr const *> potential_rv_source_args;
@@ -1708,6 +1792,16 @@ namespace checker {
 											}
 											++arg1_iter;
 										}
+										if (CXXMCE) {
+											auto this_lifetime_iter = flta.m_param_lifetime_map.find(IMPLICIT_THIS_PARAM_ORDINAL);
+											if (flta.m_param_lifetime_map.end() != this_lifetime_iter) {
+												const auto abstract_lifetime1 = this_lifetime_iter->second;
+												if (abstract_lifetime1 == rv_lifetime) {
+													auto this_arg_EX = CXXMCE->getImplicitObjectArgument();
+													potential_rv_source_args.push_back(this_arg_EX);
+												}
+											}
+										}
 
 										if (1 <= potential_rv_source_args.size()) {
 											CMaybeStaticLifetimeOwnerWithHints maybe_lblo = lower_bound_lifetime_owner_if_available(potential_rv_source_args.front(), Ctx, tu_state_ref);
@@ -1725,8 +1819,6 @@ namespace checker {
 								}
 							}
 
-							auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(EX);
-							auto CXXMCE = dyn_cast<const clang::CXXMemberCallExpr>(EX);
 							if (CXXOCE) {
 								static const std::string operator_star_str = "operator*";
 								static const std::string operator_arrow_str = "operator->";
@@ -2028,11 +2120,6 @@ namespace checker {
 						auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
 						if (PVD) {
 							process_function_lifetime_annotations(*PVD, tu_state_ref);
-							if (PVD->hasInit()) {
-								/* at the moment parameters with lifetime annotation aren't allowed to have default values */
-								//todo: report error
-								int q = 3;
-							}
 							auto maybe_abstract_lifetime = tu_state_ref.corresponding_abstract_lifetime_if_any(PVD);
 							if (maybe_abstract_lifetime.has_value()) {
 								CScopeLifetimeInfo1 scope_lifetime_info1;
@@ -3211,11 +3298,11 @@ namespace checker {
 			Rewrite(Rewrite), m_state1(state1) {}
 
 		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
-			, const CallExpr* CE = nullptr, const CXXOperatorCallExpr* CXXOCE = nullptr) {
+			, const CallExpr* CE) {
 
-			if ((CE != nullptr) || (CXXOCE != nullptr))
+			if (CE != nullptr)
 			{
-				auto raw_SR = CE ? CE->getSourceRange() : CXXOCE->getSourceRange();
+				auto raw_SR = CE->getSourceRange();
 				auto SR = nice_source_range(raw_SR, Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
@@ -3231,19 +3318,12 @@ namespace checker {
 				}
 #endif /*!NDEBUG*/
 
-				auto suppress_check_flag = CE ? state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context))
-					: state1.m_suppress_check_region_set.contains(CXXOCE, Rewrite, *(MR.Context));
-				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(CEISR);
+				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
 				if (suppress_check_flag) {
 					return;
 				}
 
-				const clang::FunctionDecl* function_decl = nullptr;
-				if (CE) {
-					function_decl = CE->getDirectCallee();
-				} else {
-					function_decl = CXXOCE->getDirectCallee();
-				}
+				const clang::FunctionDecl* function_decl = function_decl = CE->getDirectCallee();
 				if (function_decl) {
 					const std::string function_name = function_decl->getNameAsString();
 					const std::string qfunction_name = function_decl->getQualifiedNameAsString();
@@ -3256,15 +3336,38 @@ namespace checker {
 					if (state1.m_function_lifetime_annotations_map.end() != flta_iter) {
 						auto flta = flta_iter->second;
 
-						auto arg1_iter = CE ? CE->arg_begin() : CXXOCE->arg_begin();
-						const auto arg1_end = CE ? CE->arg_end() : CXXOCE->arg_end();
-						for (const auto& param1 : function_decl->parameters()) {
-							if (arg1_end == arg1_iter) {
-								break;
+						auto arg_from_param_ordinal = [&CE](auto param_ordinal) {
+							clang::Expr const * retval = nullptr;
+							if (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal) {
+								auto CXXMCE = dyn_cast<CXXMemberCallExpr>(CE);
+								if (CXXMCE) {
+									retval = CXXMCE->getImplicitObjectArgument();
+								} else {
+									//assert(false);?
+									//todo: report error?
+								}
+							} else {
+								if (!(1 <= param_ordinal)) {
+									assert(false);
+									//continue;
+								}
+								if (CE->getNumArgs() < param_ordinal) {
+									/* If this happens then either an error should be reported elsewhere
+									or there should be a compile error. */
+									//continue;
+								} else {
+									retval = CE->getArg(int(param_ordinal - 1));
+								}
 							}
-							auto maybe_abstract_lifetime1 = state1.corresponding_abstract_lifetime_if_any(param1);
-							if (maybe_abstract_lifetime1.has_value()) {
-								auto abstract_lifetime1 = maybe_abstract_lifetime1.value();
+							return retval;
+						};
+
+						for (const auto& param_lifetime1 : flta.m_param_lifetime_map) {
+							clang::Expr const * arg1_EX = arg_from_param_ordinal(param_lifetime1.first);
+							if (!arg1_EX) {
+								continue;
+							} else {
+								auto abstract_lifetime1 = param_lifetime1.second;
 
 								std::vector<std::shared_ptr<CPairwiseLifetimeConstraint> > arg1_constraint_shptrs;
 								for (const auto& constraint_shptr : flta.m_lifetime_constraint_shptrs) {
@@ -3273,26 +3376,23 @@ namespace checker {
 									}
 								}
 
-								auto arg2_iter = CE ? CE->arg_begin() : CXXOCE->arg_begin();
-								const auto arg2_end = CE ? CE->arg_end() : CXXOCE->arg_end();
-								for (const auto& param2 : function_decl->parameters()) {
-									if (arg2_end == arg2_iter) {
-										break;
-									}
-									auto maybe_abstract_lifetime2 = state1.corresponding_abstract_lifetime_if_any(param2);
-									if (maybe_abstract_lifetime2.has_value()) {
-										auto abstract_lifetime2 = maybe_abstract_lifetime2.value();
+								for (const auto& param_lifetime2 : flta.m_param_lifetime_map) {
+									clang::Expr const * arg2_EX = arg_from_param_ordinal(param_lifetime2.first);
+									if (!arg2_EX) {
+										continue;
+									} else {
+										auto abstract_lifetime2 = param_lifetime2.second;
 
 										for (const auto& constraint_shptr : arg1_constraint_shptrs) {
 											if (constraint_shptr->m_second == abstract_lifetime2) {
-												decltype(*arg1_iter) lhs_EX = nullptr;
-												decltype(*arg2_iter) rhs_EX = nullptr;
-												if (CPairwiseLifetimeConstraint::EYesNoDontKnow::Yes == constraint_shptr->second_can_be_assigned_to_first(maybe_abstract_lifetime1, maybe_abstract_lifetime2)) {
-													lhs_EX = *arg1_iter;
-													rhs_EX = *arg2_iter;
-												} else if (CPairwiseLifetimeConstraint::EYesNoDontKnow::Yes == constraint_shptr->second_can_be_assigned_to_first(maybe_abstract_lifetime2, maybe_abstract_lifetime1)) {
-													lhs_EX = *arg2_iter;
-													rhs_EX = *arg1_iter;
+												decltype(arg1_EX) lhs_EX = nullptr;
+												decltype(arg2_EX) rhs_EX = nullptr;
+												if (CPairwiseLifetimeConstraint::EYesNoDontKnow::Yes == constraint_shptr->second_can_be_assigned_to_first(abstract_lifetime1, abstract_lifetime2)) {
+													lhs_EX = arg1_EX;
+													rhs_EX = arg2_EX;
+												} else if (CPairwiseLifetimeConstraint::EYesNoDontKnow::Yes == constraint_shptr->second_can_be_assigned_to_first(abstract_lifetime2, abstract_lifetime1)) {
+													lhs_EX = arg2_EX;
+													rhs_EX = arg1_EX;
 												}
 												if (lhs_EX && rhs_EX) {
 
@@ -3317,9 +3417,13 @@ namespace checker {
 													}
 
 													if (!satisfies_checks) {
-														std::string error_desc = std::string("Unable to verify that function call arguments (of types '")
+														std::string implicit_or_explicit_str;
+														if ((IMPLICIT_THIS_PARAM_ORDINAL == param_lifetime1.first) || (IMPLICIT_THIS_PARAM_ORDINAL == param_lifetime2.first)) {
+															implicit_or_explicit_str = "(implicit or explicit) member ";
+														}
+														std::string error_desc = std::string("Unable to verify that ") + implicit_or_explicit_str + "function call arguments (of types '"
 															+ lhs_EX->getType().getAsString() + "' and '" + rhs_EX->getType().getAsString()
-															+ "') satisfy the specified '" + constraint_shptr->species_str() + "' lifetime constraint (applied to  lifetime label ids '"
+															+ "') satisfy the specified '" + constraint_shptr->species_str() + "' lifetime constraint (applied to lifetime label ids '"
 															+ std::to_string(abstract_lifetime1.m_id) + "' and '" + std::to_string(abstract_lifetime2.m_id) + "').";
 														const auto hints_str = rhs_slo.hints_str();
 														if (!hints_str.empty()) {
@@ -3332,7 +3436,7 @@ namespace checker {
 																error_desc += " (Possibly due to being unable to verify that one argument outlives the other as specified.)";
 															}
 														}
-														auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+														auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, lhs_EX->getSourceRange().getBegin(), error_desc));
 														if (res.second) {
 															std::cout << (*(res.first)).as_a_string1() << " \n\n";
 														}
@@ -3343,10 +3447,8 @@ namespace checker {
 											}
 										}
 									}
-									++arg2_iter;
 								}
 							}
-							++arg1_iter;
 						}
 					}
 				}
@@ -3357,8 +3459,11 @@ namespace checker {
 		{
 			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssfunctioncall1");
 			const CXXOperatorCallExpr* CXXOCE = MR.Nodes.getNodeAs<clang::CXXOperatorCallExpr>("mcssscxxoperatorcall1");
+			if ((!CE) && CXXOCE) {
+				CE = CXXOCE;
+			}
 
-			s_handler1(MR, Rewrite, m_state1, CE, CXXOCE);
+			s_handler1(MR, Rewrite, m_state1, CE);
 		}
 
 	private:
@@ -3716,19 +3821,7 @@ namespace checker {
 					auto const * const EX_ii = IgnoreParenImpNoopCasts(EX, *(MR.Context));
 					auto const * const CE = dyn_cast<const CallExpr>(EX_ii);
 					if (CE) {
-						auto const * const CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(CE);
-						if (CXXOCE) {
-							MCSSSFunctionCall::s_handler1(MR, Rewrite, m_state1, nullptr, CXXOCE);
-							MCSSSMemberFunctionCall::s_handler1(MR, Rewrite, m_state1, nullptr, CXXOCE);
-						} else {
-							MCSSSFunctionCall::s_handler1(MR, Rewrite, m_state1, CE, nullptr);
-
-							auto const * const CXXMCE = dyn_cast<const clang::CXXMemberCallExpr>(CE);
-							if (CXXMCE) {
-								MCSSSFunctionCall::s_handler1(MR, Rewrite, m_state1, CXXMCE, nullptr);
-							}
-						}
-
+						MCSSSFunctionCall::s_handler1(MR, Rewrite, m_state1, CE);
 
 						auto function_decl = CE->getDirectCallee();
 						auto num_args = CE->getNumArgs();
