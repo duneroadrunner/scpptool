@@ -18,8 +18,9 @@ Note that this tool is still in development and not well tested.
     1. [Restrictions on the use of native pointers and references](#restrictions-on-the-use-of-native-pointers-and-references)
     2. [Range-based `for` loops by reference](#range-based-for-loops-by-reference)
     3. [Lambda captures](#lambda-captures)
-    4. [SaferCPlusPlus elements](#safercplusplus-elements)
-    5. [Elements not (yet) addressed](#elements-not-yet-addressed)
+    4. [Annotating lifetime constraints in function interfaces](#annotating-lifetime-constraints-in-function-interfaces)
+    5. [SaferCPlusPlus elements](#safercplusplus-elements)
+    6. [Elements not (yet) addressed](#elements-not-yet-addressed)
 6. [Autotranslation](#autotranslation)
 7. [Questions and comments](#questions-and-comments)
 
