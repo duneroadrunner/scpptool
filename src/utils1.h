@@ -308,16 +308,9 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 	}
 
 
-	typedef size_t lifetime_id_t;
-	inline thread_local lifetime_id_t tl_next_available_lifetime_id = 0;
-	inline lifetime_id_t consume_new_lifetime_id() {
-		auto retval = tl_next_available_lifetime_id;
-		++tl_next_available_lifetime_id;
-		return retval;
-	}
-	typedef size_t lifetime_rank_t;
+	typedef std::string lifetime_id_t;
 	struct CAbstractLifetime {
-		lifetime_id_t m_id = 0;
+		lifetime_id_t m_id;
 		clang::FunctionDecl const * m_function_context = nullptr;
 		bool operator==(const CAbstractLifetime& rhs) const {
 			return ((rhs.m_id == m_id) && (rhs.m_function_context == m_function_context));
