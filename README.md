@@ -189,7 +189,7 @@ MSE_ATTR_PARAM_STR("mse::lifetime_label<#>")
 ```
 where you would substitute the '#' with a number of your choosing. (Actually, non-numbers are also supported, but for now we recommend using numbers.) (Btw, `MSE_ATTR_PARAM_STR()` is a macro defined in the SaferCPlusPlus library.)
 
-The remaining lifetime constraint information is incorporated into an attribute applied to the function declaration. This attribute can contain multiple elements that are one of three kinds. One element assigns a lifetime label to the function return value (if any), one element assigns a lifetime label to the implicit `this` parameter (if any) and the other element(s) express the intended constraint(s) on those lifetimes. This attribute is prepended to the function declaration and looks something like:
+The remaining lifetime constraint information is incorporated into an attribute applied to the function declaration. This attribute can contain multiple elements that are each one of three kinds. One element assigns a lifetime label to the function return value (if any), one element assigns a lifetime label to the implicit `this` parameter (if any) and the other element(s) express the intended constraint(s) on those lifetimes. This attribute is prepended to the function declaration and looks something like:
 ```cpp
 MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value<42>; this<42>; encompasses<42, 99> }")
 ```
