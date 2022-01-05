@@ -1,5 +1,5 @@
 
-Dec 2021
+Jan 2022
 
 ### Overview
 
@@ -18,8 +18,9 @@ Note that this tool is still in development and not well tested.
     1. [Restrictions on the use of native pointers and references](#restrictions-on-the-use-of-native-pointers-and-references)
     2. [Range-based `for` loops by reference](#range-based-for-loops-by-reference)
     3. [Lambda captures](#lambda-captures)
-    4. [SaferCPlusPlus elements](#safercplusplus-elements)
-    5. [Elements not (yet) addressed](#elements-not-yet-addressed)
+    4. [Annotating lifetime constraints in function interfaces](#annotating-lifetime-constraints-in-function-interfaces)
+    5. [SaferCPlusPlus elements](#safercplusplus-elements)
+    6. [Elements not (yet) addressed](#elements-not-yet-addressed)
 6. [Autotranslation](#autotranslation)
 7. [Questions and comments](#questions-and-comments)
 
@@ -178,6 +179,73 @@ void main(int argc, char* argv[]) {
 }
 ```
 
+#### Annotating lifetime constraints in function interfaces
+
+The relative lifetimes of objects declared within the same function definition are directly deduced (at compile-time) by this tool from the location of their declarations. This deduction can't so readily be done with references to objects that are passed through function call boundaries (either as parameters or return values). So it can be helpful to allow the programmer to express constraints on the lifetimes of reference objects passed in and out of a function in the function interface and have the analyzer tool verify/enforce that those constraints are observed on the sending and receiving side of the function call.
+
+The following example demonstrates the "lifetime annotation attributes" supported by this tool. First we add attributes to the parameters in the function declaration. (In our example it's a member function.) These attributes assign a "lifetime label" to the parameter. Multiple parameters can share the same lifetime label, in which case the lifetime label will represent the shortest (scope) lifetime of all the parameters associated with it. The attribute is appended to the parameter declaration and the syntax of the parameter attribute is:
+```cpp
+MSE_ATTR_PARAM_STR("mse::lifetime_label<#>")
+```
+where you would substitute the '#' with a number of your choosing. (Actually, non-numbers are also supported, but for now we recommend using numbers.) (Btw, `MSE_ATTR_PARAM_STR()` is a macro defined in the SaferCPlusPlus library.)
+
+The remaining lifetime constraint information is incorporated into an attribute applied to the function declaration. This attribute can contain multiple elements that are each one of three kinds. One element assigns a lifetime label to the function return value (if any), one element assigns a lifetime label to the implicit `this` parameter (if any) and the other element(s) express the intended constraint(s) on those lifetimes. This attribute is prepended to the function declaration and looks something like:
+```cpp
+MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value<42>; this<42>; encompasses<42, 99> }")
+```
+where the `return_value<42>` element assigns the lifetime label "42" to the return value, the `this<42>` element assigns the lifetime label "42" to the implicit `this` parameter, and the `encompasses<42, 99>` element indicates the constraint that all elements associated with the lifetime label "42" must outlive all elements associated with the lifetime label "99". Note that in this case, because we assigned the same lifetime label to the return value and the implicit `this` parameter, this member function is be permitted to return references to data members.
+
+example:
+```cpp
+#include "msescope.h"
+
+void main(int argc, char* argv[]) {
+    struct CK : mse::rsv::ContainsNonOwningScopeReferenceTagBase {
+        MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value<42>; this<42>; encompasses<42, 99> }")
+        int* good_foo1(int*& i_ptr1 MSE_ATTR_PARAM_STR("mse::lifetime_label<42>")
+            , int*& i_ptr2 MSE_ATTR_PARAM_STR("mse::lifetime_label<99>")
+            , int*& i_ptr3 MSE_ATTR_PARAM_STR("mse::lifetime_label<42>"))
+        {
+            i_ptr2 = i_ptr3;
+            int* l_i_ptr4 = i_ptr2;
+            i_ptr2 = m_i_ptr1;
+            return m_i_ptr1;
+        }
+        MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value<42>; this<42>; encompasses<42, 99> }")
+        int* bad_foo2(int*& i_ptr1 MSE_ATTR_PARAM_STR("mse::lifetime_label<42>")
+            , int*& i_ptr2 MSE_ATTR_PARAM_STR("mse::lifetime_label<99>")
+            , int*& i_ptr3 MSE_ATTR_PARAM_STR("mse::lifetime_label<42>"))
+        {
+            i_ptr2 = i_ptr3;
+            i_ptr3 = i_ptr2; // error, doesn't satisfy the specified lifetime constraints
+            int* l_i_ptr4 = i_ptr2;
+            m_i_ptr1 = i_ptr2; // error, doesn't satisfy the specified lifetime constraints
+            i_ptr2 = m_i_ptr1;
+            return i_ptr2; // error, doesn't satisfy the specified lifetime constraints
+        }
+        int m_i1 = 7;
+        int* m_i_ptr1 = &m_i1;
+    };
+    CK k1;
+    int i1 = 10;
+    int i2 = 20;
+    int* iptr1 = &i1;
+    int* iptr2 = &i2;
+    int* iptr3 = iptr2;
+    iptr2 = k1.good_foo1(iptr1, iptr3, iptr1);
+    iptr2 = CK().bad_foo2(iptr1, iptr3, iptr3); // errors, doesn't satisfy the specified lifetime constraints
+    /* This last line violates three constraints: First, the implicit 'this' argument (associated with lifetime label 
+    "42") is a short-lived temporary that doesn't outlive the second function call argument, iptr3 (associated with 
+    lifetime label "99"). And also, the third argument, iptr3 (associated with lifetime label "42"), does not outlive 
+    the second argument, which is also iptr3 (but associated with lifetime label "99" there). And finally, the assignment 
+    of the return value to iptr2 is not permitted because the return value lifetime, which is the shortest lifetime of 
+    elements associated with lifetime label "42" (which in this case is the CK() temporary expression) is too short-lived 
+    to be assigned to iptr2. */
+}
+```
+
+Note that this attribute syntax using function macros taking string literal arguments is partly an artifact of the maintenance cost of supporting custom C++ attributes. It's possible that a slightly cleaner syntax will be introduced in the future, but presumably there would be no reason why this syntax wouldn't continue to be supported.
+
 #### SaferCPlusPlus elements
 
 Most of the restrictions required to ensure safety of the elements in the SaferCPlusPlus library are implemented in the type system. However, some of the necessary restrictions cannot be implemented in the type system. This tool is meant to enforce those remaining restrictions. Elements requiring enforcement help are generally relegated to the `mse::rsv` namespace. One exception is the restriction that scope types (regardless of the namespace in which they reside), cannot be used as members of structs/classes that are not themselves scope types. The tool will flag any violations of this restriction.
@@ -189,24 +257,6 @@ Note that the `mse::rsv::make_xscope_pointer_to()` function, which allows you to
 The set of potentially unsafe elements in C++, and in the standard library itself, is pretty large. This tool does not yet address them all. In particular it does not complain about the use of essential elements for which the SaferCPlusPlus library does not (yet) provide a safe alternative, such as conatiners like maps, sets, etc.,. 
 
 Also `rsv::xscope_nii_vector<>` is not yet available. The other available (resizable) vectors do not support elements containing scope pointer/references, so in the meantime you'll have to use (run-time checked) [proxy pointers](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#tnoradproxypointer) (or (the unsafe) `std::vector<>`).
-
-### Future directions
-
-#### Annotating lifetime constraints in function interfaces
-
-The relative lifetimes of objects declared within the same function definition are directly deduced (at "compile-time") by this tool from the location of their declarations. This deduction can't so readily be done with references to objects that are passed through function call boundaries (either as parameters or return values). So it can be helpful to allow the programmer to express constraints on the lifetimes of reference objects passed in and out of a function in the function interface and have the analyzer tool verify/enforce that those constraints are observed on the sending and receiving side of the function call.
-
-So the question is how the programmer can express the intended lifetime constraints. A fairly unintrusive option might be to add annotation parameters to the function interface, perhaps like:
-
-```cpp
-int* foo1(int*& long_lived_pointer, int*& short_lived_pointer, int*& other_long_lived_pointer, mse::rsv::ltn::lifetime_notes<
-	mse::rsv::ltn::parameter_lifetime_labels<mse::rsv::ltn::pll<1, MSE_LIFETIME_LABEL(1)>, mse::rsv::ltn::pll<2, MSE_LIFETIME_LABEL(2)>, mse::rsv::ltn::pll<3, MSE_LIFETIME_LABEL(1)> >
-	, mse::rsv::ltn::encompasses<MSE_LIFETIME_LABEL(1), MSE_LIFETIME_LABEL(2)>
-	, mse::rsv::ltn::return_value_lifetime<MSE_LIFETIME_LABEL(1)> > = {});
-```
-where the last "unused" parameter expresses the relative lifetimes of the pointer/reference parameters and the lifetime of the return value.
-
-Until such a "lifetime expression" mechanism is supported by the tool, [run-time checked](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#tnoradproxypointer) pointers can safely provide equivalent functionality. For what's it's worth, function calls involving such lifetime issues don't seem to be very common in performance-critical inner loops. So the benefit of moving the lifetime checking from run-time to compile-time is more one of correctness and reliability than performance.
 
 ### Autotranslation
 
