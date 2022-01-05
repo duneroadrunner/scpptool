@@ -2881,8 +2881,14 @@ namespace convm1 {
 					l_changed_from_original = true;
 				} else if (is_innermost_indirection && (og_direct_type_was_FILE_type)) {
 					is_FILE_star = true;
+					if (("struct _IO_FILE" == direct_type_original_qtype_str) || ("const struct _IO_FILE" == direct_type_original_qtype_str)) {
+						/* _IO_FILE is just a non-portable alias of FILE. */
+						std::string new_type_str = ("struct _IO_FILE" == direct_type_original_qtype_str) ? "FILE" : "const FILE";
+						direct_type_state_ref.set_current_non_function_qtype_str(new_type_str);
+						l_changed_from_original = true;
+					}
 					/* For the moment, we leave "FILE *" types alone. This may change at some point. */
-					l_changed_from_original = ("native pointer" != indirection_state_ref.original_species());
+					l_changed_from_original |= ("native pointer" != indirection_state_ref.original_species());
 				} else if (is_innermost_indirection && (og_direct_type_was_target_of_other_untranslatable_type)) {
 					is_other_untranslatable_indirect_type = true;
 					/* This indirect type has been deemed untraslatable. */
@@ -6997,7 +7003,7 @@ namespace convm1 {
 								+ replacement_qtype_str + ", ";
 						} else {
 							whole_cast_expression_replacement_text = "("
-								+ replacement_qtype_str + ")(";
+								+ replacement_qtype_str + " const &)(";
 						}
 					} else {
 						if ("Dual" == ConvertMode) {
