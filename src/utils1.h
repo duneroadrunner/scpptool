@@ -48,6 +48,18 @@
 #include "llvm/IR/Function.h"
 /**********************************************************************************************************************/
 
+#ifndef MU_UTIL_LLVM_MAJOR
+#ifdef LLVM_VERSION_MAJOR
+#define MU_UTIL_LLVM_MAJOR LLVM_VERSION_MAJOR
+#else /*LLVM_VERSION_MAJOR*/
+#ifdef __clang_major__
+#define MU_UTIL_LLVM_MAJOR __clang_major__
+#else /*__clang_major__*/
+#define MU_UTIL_LLVM_MAJOR 10
+#endif /*__clang_major__*/
+#endif /*LLVM_VERSION_MAJOR*/
+#endif /*MU_UTIL_LLVM_MAJOR*/
+
 #define PP_CONCAT(a, b) a##b
 #define DECLARE_CACHED_CONST_STRING(name, init_value) \
 							thread_local std::string PP_CONCAT(s_, name); \
@@ -745,6 +757,12 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		return retval;
 	}
 
+#if MU_UTIL_LLVM_MAJOR <= 12
+#define SCPP_IMPL_DYNTYPEDNODE clang::ast_type_traits::DynTypedNode
+#elif MU_UTIL_LLVM_MAJOR > 12
+#define SCPP_IMPL_DYNTYPEDNODE clang::DynTypedNode
+#endif /*MU_UTIL_LLVM_MAJOR*/
+
 	class CRegionAndElementSet : public COrderedRegionSet {
 	public:
 		typedef COrderedRegionSet base_class;
@@ -759,7 +777,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 				return false;
 			}
 			NodeT const * NodeConstPtr = NodePtr;
-			auto maybe_dyn_typed_node = std::optional(clang::ast_type_traits::DynTypedNode::create(*NodeConstPtr));
+			auto maybe_dyn_typed_node = std::optional(SCPP_IMPL_DYNTYPEDNODE::create(*NodeConstPtr));
 			while (maybe_dyn_typed_node.has_value()) {
 				const auto& dyn_typed_node_cref = maybe_dyn_typed_node.value();
 				{
@@ -788,7 +806,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 				return std::pair{ m_dyn_type_nodes.end(), false };
 			}
 			NodeT const * NodeConstPtr = NodePtr;
-			auto dyn_typed_node = clang::ast_type_traits::DynTypedNode::create(*NodeConstPtr);
+			auto dyn_typed_node = SCPP_IMPL_DYNTYPEDNODE::create(*NodeConstPtr);
 			auto retval = m_dyn_type_nodes.insert(dyn_typed_node);
 
 			auto element_id = static_cast<const void*>(NodePtr);
@@ -797,7 +815,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 			return retval;
 		}
 
-		std::set<clang::ast_type_traits::DynTypedNode> m_dyn_type_nodes;
+		std::set<SCPP_IMPL_DYNTYPEDNODE> m_dyn_type_nodes;
 		std::set<const void*> m_element_ids;
 	};
 	class CSuppressCheckRegionSet : public CRegionAndElementSet {
@@ -819,7 +837,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 			IF_DEBUG(auto or_set_size = (*this).size());
 			IF_DEBUG(auto dtn_set_size = (*this).m_dyn_type_nodes.size());
 			NodeT const * NodeConstPtr = NodePtr;
-			auto maybe_dyn_typed_node = std::optional(clang::ast_type_traits::DynTypedNode::create(*NodeConstPtr));
+			auto maybe_dyn_typed_node = std::optional(SCPP_IMPL_DYNTYPEDNODE::create(*NodeConstPtr));
 			while (maybe_dyn_typed_node.has_value()) {
 				const auto& dyn_typed_node_cref = maybe_dyn_typed_node.value();
 				if (false) {

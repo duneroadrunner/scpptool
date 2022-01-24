@@ -97,7 +97,12 @@ class MyDiagConsumer : public DiagnosticConsumer {
 /*Main*/
 int main(int argc, const char **argv) 
 {
+#if MU_LLVM_MAJOR <= 12
   CommonOptionsParser op(argc, argv, MatcherSampleCategory);
+#elif MU_LLVM_MAJOR > 12
+  auto op_result = CommonOptionsParser::create(argc, argv, MatcherSampleCategory);
+  auto& op = *op_result;
+#endif /*MU_LLVM_MAJOR*/
   ClangTool Tool(op.getCompilations(), op.getSourcePathList());
 
   std::shared_ptr<DiagnosticConsumer> diag_consumer_shptr(new MyDiagConsumer());

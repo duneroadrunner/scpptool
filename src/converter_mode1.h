@@ -564,7 +564,15 @@ namespace convm1 {
 					if (true || (!l_maybe_typeLoc.has_value())) {
 						/* When there is no source text, we'll generate the array size expression text here. */
 						auto array_size = CATP->getSize();
+#if MU_LLVM_MAJOR <= 12
 						size_text = array_size.toString(10, false);/*check this*/
+#elif MU_LLVM_MAJOR > 12
+						llvm::SmallVector<char, 0> char_vec1;
+						array_size.toString(char_vec1, 10, false);/*check this*/
+						for (const auto& ch : char_vec1) {
+							size_text.push_back(ch);
+						}
+#endif /*MU_LLVM_MAJOR*/
 					} else {
 						/* When there is source text, the array size expression will be read from the source
 						(elsewhere) when required. */
@@ -8818,7 +8826,7 @@ namespace convm1 {
 							if (ConvertToSCPP && (lhs_res2.ddecl_conversion_state_ptr) && lhs_is_an_indirect_type) {
 								std::string bo_replacement_code;
 
-								std::string opcode_str = BO->getOpcodeStr();
+								auto opcode_str = std::string(BO->getOpcodeStr());
 								if ("==" == opcode_str) {
 									bo_replacement_code += "!";
 								} else { assert("!=" == opcode_str); }
@@ -12002,7 +12010,7 @@ namespace convm1 {
 								seem to be available, so here we're matching them manually. Btw, a "compound
 								assignment operator" would be something like "+=" or "-=". */
 								const auto opcode = BO->getOpcode();
-								const std::string opcode_str= BO->getOpcodeStr();
+								const auto opcode_str= std::string(BO->getOpcodeStr());
 								if (("+" == opcode_str) || ("+=" == opcode_str)
 									|| ("-" == opcode_str) || ("-=" == opcode_str)
 									|| ("<=" == opcode_str) || ("<" == opcode_str)
@@ -12013,7 +12021,7 @@ namespace convm1 {
 								}
 							} else if (UO) {
 								const auto opcode = UO->getOpcode();
-								const std::string opcode_str= UO->getOpcodeStr(opcode);
+								const auto opcode_str= std::string(UO->getOpcodeStr(opcode));
 								if (("++" == opcode_str) || ("--" == opcode_str)) {
 									pointer_arithmetic_flag = true;
 								}
@@ -12946,7 +12954,7 @@ namespace convm1 {
 				current_fii_shptr()->m_first_include_directive_loc_is_valid = true;
 			}
 
-			std::string file_name_str = file_name;
+			auto file_name_str = std::string(file_name);
 			if (("msetl.h" == file_name_str) || ("mselegacyhelpers.h" == file_name_str)) {
 				current_fii_shptr()->m_legacyhelpers_include_directive_found = true;
 			}
@@ -13067,7 +13075,7 @@ namespace convm1 {
 							FileID PrevFID = FileID()) override {
 
 		bool filename_is_invalid = false;
-		std::string full_path_name = m_Rewriter_ref.getSourceMgr().getBufferName(Loc, &filename_is_invalid);
+		auto full_path_name = std::string(m_Rewriter_ref.getSourceMgr().getBufferName(Loc, &filename_is_invalid));
 		if (string_begins_with(full_path_name, "/home")) {
 			int q = 5;
 		}
@@ -13247,7 +13255,7 @@ namespace convm1 {
 						assert(fii_ref.m_beginning_of_file_loc_is_valid);
 
 						bool filename_is_invalid = false;
-						std::string full_path_name = TheRewriter.getSourceMgr().getBufferName(fii_ref.m_beginning_of_file_loc, &filename_is_invalid);
+						auto full_path_name = std::string(TheRewriter.getSourceMgr().getBufferName(fii_ref.m_beginning_of_file_loc, &filename_is_invalid));
 
 						if (filtered_out_by_location(TheRewriter.getSourceMgr(), fii_ref.m_beginning_of_file_loc)) {
 							continue;
@@ -13288,7 +13296,7 @@ namespace convm1 {
 				for (auto  I = TheRewriter.buffer_begin(), E = TheRewriter.buffer_end(); I != E; ++I) {
 					const FileEntry *Entry = TheRewriter.getSourceMgr().getFileEntryForID(I->first);
 
-					std::string pathname = Entry->tryGetRealPathName();
+					auto pathname = std::string(Entry->tryGetRealPathName());
 					auto found_pos = pathname.find_last_of("/\\");
 					std::string path;
 					std::string filename;

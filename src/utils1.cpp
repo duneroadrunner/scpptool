@@ -221,9 +221,9 @@ bool filtered_out_by_location(const SourceManager &SM, SourceLocation SL) {
 	*/
 	} else {
 		bool filename_is_invalid = false;
-		std::string full_path_name = SM.getBufferName(SL, &filename_is_invalid);
+		auto full_path_name = std::string(SM.getBufferName(SL, &filename_is_invalid));
 		if ("" == full_path_name) {
-			full_path_name = SL.printToString(SM);
+			full_path_name = std::string(SL.printToString(SM));
 
 			/*
 			static const std::string spelling_prefix("<Spelling=");

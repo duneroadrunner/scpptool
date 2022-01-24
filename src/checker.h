@@ -5333,7 +5333,7 @@ namespace checker {
 					current_fii_shptr()->m_first_include_directive_loc_is_valid = true;
 				}
 
-				std::string file_name_str = file_name;
+				auto file_name_str = std::string(file_name);
 				if ("mselegacyhelpers.h" == file_name_str) {
 					current_fii_shptr()->m_legacyhelpers_include_directive_found = true;
 				}
@@ -5372,7 +5372,7 @@ namespace checker {
 								FileID PrevFID = FileID()) override {
 
 			bool filename_is_invalid = false;
-			std::string full_path_name = m_Rewriter_ref.getSourceMgr().getBufferName(Loc, &filename_is_invalid);
+			auto full_path_name = std::string(m_Rewriter_ref.getSourceMgr().getBufferName(Loc, &filename_is_invalid));
 
 			std::string full_path_name2 = Loc.printToString(m_Rewriter_ref.getSourceMgr());
 			auto last_colon_pos = full_path_name2.find_first_of(':');
@@ -5511,7 +5511,7 @@ namespace checker {
 						assert(fii_ref.m_beginning_of_file_loc_is_valid);
 
 						bool filename_is_invalid = false;
-						std::string full_path_name = TheRewriter.getSourceMgr().getBufferName(fii_ref.m_beginning_of_file_loc, &filename_is_invalid);
+						auto full_path_name = std::string(TheRewriter.getSourceMgr().getBufferName(fii_ref.m_beginning_of_file_loc, &filename_is_invalid));
 
 						if (filtered_out_by_location(TheRewriter.getSourceMgr(), fii_ref.m_beginning_of_file_loc)) {
 							continue;
