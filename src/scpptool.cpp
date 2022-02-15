@@ -101,6 +101,10 @@ int main(int argc, const char **argv)
   CommonOptionsParser op(argc, argv, MatcherSampleCategory);
 #elif MU_LLVM_MAJOR > 12
   auto op_result = CommonOptionsParser::create(argc, argv, MatcherSampleCategory);
+  if (!op_result) {
+    std::cout << "\nInvalid argument(s). \n";
+    exit(-1);
+  }
   auto& op = *op_result;
 #endif /*MU_LLVM_MAJOR*/
   ClangTool Tool(op.getCompilations(), op.getSourcePathList());

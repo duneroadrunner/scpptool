@@ -4662,13 +4662,23 @@ namespace convm1 {
 						replacement_code += "static ";
 					}
 				}
-				if (res4.m_just_a_native_array && (!res4.m_some_addressable_indirection) && ("Dual" == ConvertMode)) {
+				if (res4.m_just_a_native_array && (!res4.m_some_addressable_indirection)) {
 					if (const_qualifier_stripped_from_direct_qtype_str) {
 						replacement_code += "const ";
 					}
-					replacement_code += "MSE_LH_FIXED_ARRAY_DECLARATION(" + direct_qtype_str;
-					replacement_code += ", " + res4.m_native_array_size_text;
-					replacement_code += ", " + variable_name + ")";
+					if ("Dual" == ConvertMode) {
+						replacement_code += "MSE_LH_FIXED_ARRAY_DECLARATION(" + direct_qtype_str;
+						replacement_code += ", " + res4.m_native_array_size_text;
+						replacement_code += ", " + variable_name + ")";
+					} else if ("FasterAndStricter" == ConvertMode) {
+						replacement_code += "mse::TXScopeObj<mse::nii_array<" + direct_qtype_str;
+						replacement_code += ", " + res4.m_native_array_size_text;
+						replacement_code += "> " + variable_name;
+					} else {
+						replacement_code += "mse::lh::TNativeArrayReplacement<" + direct_qtype_str;
+						replacement_code += ", " + res4.m_native_array_size_text;
+						replacement_code += "> " + variable_name;
+					}
 
 					size_t num_init_elements_rough_estimate = std::count(initializer_append_str.begin(), initializer_append_str.end(), ',');
 					if (64/* arbitrary */ < num_init_elements_rough_estimate) {
@@ -7917,7 +7927,7 @@ namespace convm1 {
 						/* We assume this means that the ('&') operator has been explicitly overloaded.
 						(This assumption needs to be verified.) We'll just leave this case alone for
 						now. */
-						return;
+						//return;
 					}
 				}
 
