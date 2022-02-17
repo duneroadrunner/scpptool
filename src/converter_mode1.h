@@ -7924,10 +7924,8 @@ namespace convm1 {
 						DEBUG_SOURCE_LOCATION_STR(decl_uo_debug_source_location_str, D_UO->getSourceRange(), Rewrite);
 						DEBUG_SOURCE_TEXT_STR(decl_uo_debug_source_text, D_UO->getSourceRange(), Rewrite);
 						IF_DEBUG(auto b1 = D_UO->isImplicit();)
-						/* We assume this means that the ('&') operator has been explicitly overloaded.
-						(This assumption needs to be verified.) We'll just leave this case alone for
-						now. */
-						//return;
+						int(5);
+						/* Todo: Ensure that the ('&') operator hasn't been explicitly overloaded. */
 					}
 				}
 

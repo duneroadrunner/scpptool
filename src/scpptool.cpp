@@ -101,8 +101,8 @@ int main(int argc, const char **argv)
   CommonOptionsParser op(argc, argv, MatcherSampleCategory);
 #elif MU_LLVM_MAJOR > 12
   auto op_result = CommonOptionsParser::create(argc, argv, MatcherSampleCategory);
-  if (!op_result) {
-    std::cout << "\nInvalid argument(s). \n";
+  if (auto E = op_result.takeError()) {
+    std::cerr << "\n" << toString(std::move(E)) << "\n";
     exit(-1);
   }
   auto& op = *op_result;
