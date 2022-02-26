@@ -5455,7 +5455,7 @@ namespace checker {
 			int q = 5;
 		}
 		~MyFrontendAction() {
-			std::cout << "\n" << (*this).m_tu_state.m_error_records.size() << " errors found. \n";
+			std::cout << "\n" << (*this).m_tu_state.m_error_records.size() << " verification failures. \n";
 			std::cout.flush();
 			//llvm::errs() << "\n~MyFrontendAction() " << '\n';
 

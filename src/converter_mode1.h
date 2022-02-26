@@ -12412,6 +12412,17 @@ namespace convm1 {
 		auto *ToDecl = Importer.Import(D);
 #elif MU_LLVM_MAJOR > 8
 		const clang::Decl *ToDecl = nullptr;
+
+		llvm::Expected<Decl *> ImportedOrErr = Importer.Import(D);
+		if (!ImportedOrErr) {
+			llvm::Error Err = ImportedOrErr.takeError();
+			llvm::errs() << "ERROR: " << Err << "\n";
+			consumeError(std::move(Err));
+			//To->getTranslationUnitDecl()->dump();
+			return;
+		} else {
+			ToDecl = *ImportedOrErr;
+		}
 #endif /*MU_LLVM_MAJOR*/
 		if (ToDecl) {
 			auto TDSR = cm1_nice_source_range(ToDecl->getSourceRange(), localRewriter);
@@ -12480,8 +12491,7 @@ namespace convm1 {
 					continue;
 
 				if (true) {
-					ASTImporter Importer(CI.getASTContext(),
-							CI.getFileManager(),
+					ASTImporter Importer(CI.getASTContext(), CI.getFileManager(),
 								multi_tu_state_ptr->ast_units.at(I)->getASTContext(),
 								multi_tu_state_ptr->ast_units.at(I)->getFileManager(),
 								/* MinimalImport=*/false);
@@ -12538,6 +12548,17 @@ namespace convm1 {
 									auto *NNSToDecl = Importer.Import(NNS);
 #elif MU_LLVM_MAJOR > 8
 									clang::NestedNameSpecifier *NNSToDecl = nullptr;
+
+									llvm::Expected<NestedNameSpecifier *> ImportedOrErr = Importer.Import(NNS);
+									if (!ImportedOrErr) {
+										llvm::Error Err = ImportedOrErr.takeError();
+										llvm::errs() << "ERROR: " << Err << "\n";
+										consumeError(std::move(Err));
+										//To->getTranslationUnitDecl()->dump();
+										return;
+									} else {
+										NNSToDecl = *ImportedOrErr;
+									}
 #endif /*MU_LLVM_MAJOR*/
 									if (NNSToDecl) {
 										int q = 5;
