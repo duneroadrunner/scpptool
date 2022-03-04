@@ -75,6 +75,7 @@ namespace convm1 {
     std::string ConvertMode = "";
     bool ScopeTypeFunctionParameters = false;
     bool ScopeTypePointerFunctionParameters = false;
+	bool AddressableVars = false;
 
     struct Options {
         bool CheckSystemHeader = false;
@@ -89,6 +90,7 @@ namespace convm1 {
         std::string ConvertMode = "";
         bool ScopeTypeFunctionParameters = false;
         bool ScopeTypePointerFunctionParameters = false;
+		bool AddressableVars = false;
     };
 
 	/* This class specifies a declaration and a level of "indirection"(/"dereference") relative to the declared
@@ -4924,6 +4926,13 @@ namespace convm1 {
 		}
 #endif /*!NDEBUG*/
 
+		if (CTUAnalysis && (unordered_SR.getBegin() == unordered_SR.getEnd())) {
+			/* We've observed that declarations imported from other translation units may not report
+			the correct end location of their source range, and anyway we imported them for purposes
+			of code analysis, not to modify them here. */
+			return;
+		}
+
 		auto suppress_check_flag = false /*state1.m_suppress_check_region_set.contains(DD, *(MR.Context))*/;
 		//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
 		if (suppress_check_flag) {
@@ -7496,6 +7505,21 @@ namespace convm1 {
 					auto ddcs_map_iter = res1.first;
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 					//bool update_declaration_flag = res1.second;
+
+					if (AddressableVars) {
+						auto qtype = DD->getType();
+						IF_DEBUG(std::string qtype_str = DD->getType().getAsString();)
+						if (qtype->isEnumeralType() || qtype->isPointerType() || qtype->isArrayType()) {
+						} else {
+							if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+								ddcs_ref.m_indirection_state_stack.at(0).set_original_pointer_target_state("native pointer target");
+								ddcs_ref.m_indirection_state_stack.at(0).set_current_pointer_target_state("pointer target");
+							} else {
+								ddcs_ref.direct_type_state_ref().set_original_pointer_target_state("native pointer target");
+								ddcs_ref.direct_type_state_ref().set_current_pointer_target_state("pointer target");
+							}
+						}
+					}
 
 					for (size_t i = 0; (i < ddcs_ref.m_indirection_state_stack.size()); i += 1) {
 						if ("native array" == ddcs_ref.m_indirection_state_stack.at(i).current_species()) {
@@ -12408,6 +12432,16 @@ namespace convm1 {
 
 	void import_decl(ASTImporter& Importer, clang::Decl& decl_ref, clang::Rewriter& localRewriter, CompilerInstance &CI) {
 		auto D = &decl_ref;
+
+		/* For our purposes, we only need to import function definitions. (I think.) */
+		auto FD = llvm::dyn_cast<clang::FunctionDecl>(D);
+		if (!FD) {
+			return;
+		}
+		if (!FD->isThisDeclarationADefinition()) {
+			return;
+		}
+
 #if MU_LLVM_MAJOR <= 8
 		auto *ToDecl = Importer.Import(D);
 #elif MU_LLVM_MAJOR > 8
@@ -13819,6 +13853,7 @@ namespace convm1 {
         ConvertMode = options.ConvertMode;
         ScopeTypeFunctionParameters = options.ScopeTypeFunctionParameters;
         ScopeTypePointerFunctionParameters = options.ScopeTypePointerFunctionParameters || options.ScopeTypeFunctionParameters;
+		AddressableVars = options.AddressableVars;
 
 		int Status = Tool.buildASTs(Misc1::s_multi_tu_state_ref().ast_units);
 

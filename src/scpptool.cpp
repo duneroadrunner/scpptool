@@ -80,6 +80,7 @@ cl::opt<bool> ScopeTypeFunctionParameters("ScopeTypeFunctionParameters", cl::des
   "\t This can result in invalid code (that may need to be fixed manually) in some cases, but the resulting \n"
   "\t functions may support arguments of scope type (including raw pointers). "), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> ScopeTypePointerFunctionParameters("ScopeTypePointerFunctionParameters", cl::desc("same as 'ScopeTypeFunctionParameters', but only applies to pointers, not iterators"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
+cl::opt<bool> AddressableVars("AddressableVars", cl::desc("Make variables of (safely) 'addressable' type even if they are never used as a pointer target."), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 
 /**********************************************************************************************************************/
 
@@ -150,7 +151,8 @@ int main(int argc, const char **argv)
           DoNotResolveMergeConflicts,
           ConvertMode,
           ScopeTypeFunctionParameters,
-          ScopeTypePointerFunctionParameters
+          ScopeTypePointerFunctionParameters,
+          AddressableVars
       };
     retval = convm1::buildASTs_and_run(Tool, options);
 #endif //!EXCLUDE_CONVERTER_MODE1
