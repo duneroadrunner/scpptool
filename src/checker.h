@@ -309,7 +309,7 @@ namespace checker {
 								SourceLocation l_ISLE = l_ISR.getEnd();
 
 #ifndef NDEBUG
-								if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:472:")) {
+								if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:309:")) {
 									int q = 5;
 								}
 #endif /*!NDEBUG*/
@@ -386,7 +386,7 @@ namespace checker {
 							SourceLocation l_ISLE = l_ISR.getEnd();
 
 #ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:472:")) {
+							if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:309:")) {
 								int q = 5;
 							}
 #endif /*!NDEBUG*/
@@ -428,7 +428,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:472:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:309:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -469,7 +469,7 @@ namespace checker {
 								SourceLocation l_ISLE = l_ISR.getEnd();
 
 #ifndef NDEBUG
-								if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:472:")) {
+								if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:309:")) {
 									int q = 5;
 								}
 #endif /*!NDEBUG*/
@@ -517,7 +517,7 @@ namespace checker {
 										|| ((FNDISLE == l_ISL) && (FNDISLE < l_ISLE))) {
 
 	#ifndef NDEBUG
-										if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:472:")) {
+										if (std::string::npos != debug_source_location_str2.find("test1_1proj.cpp:309:")) {
 											int q = 5;
 										}
 	#endif /*!NDEBUG*/
@@ -1252,7 +1252,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:472:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:309:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -1899,7 +1899,7 @@ namespace checker {
 					) {
 					if (VD->getType()->isReferenceType()) {
 						satisfies_checks = false;
-						retval = {};
+						retval = VD;
 						auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
 						if (PVD) {
 							process_function_lifetime_annotations(*PVD, tu_state_ref);
@@ -2837,7 +2837,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:472:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:309:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -2924,7 +2924,7 @@ namespace checker {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:472:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:309:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -3032,7 +3032,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:472:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:309:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -3472,7 +3472,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:472:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:309:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -3647,7 +3647,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:472:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:309:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -3970,7 +3970,7 @@ namespace checker {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:472:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:309:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -4136,7 +4136,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:472:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:309:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -4400,7 +4400,7 @@ namespace checker {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:472:")) {
+				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:309:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
