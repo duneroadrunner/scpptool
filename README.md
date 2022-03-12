@@ -244,8 +244,6 @@ void main(int argc, char* argv[]) {
 }
 ```
 
-Note that this attribute syntax using function macros taking string literal arguments is partly an artifact of the maintenance cost of supporting custom C++ attributes. It's possible that a slightly cleaner syntax will be introduced in the future, but presumably there would be no reason why this syntax wouldn't continue to be supported.
-
 #### SaferCPlusPlus elements
 
 Most of the restrictions required to ensure safety of the elements in the SaferCPlusPlus library are implemented in the type system. However, some of the necessary restrictions cannot be implemented in the type system. This tool is meant to enforce those remaining restrictions. Elements requiring enforcement help are generally relegated to the `mse::rsv` namespace. One exception is the restriction that scope types (regardless of the namespace in which they reside), cannot be used as members of structs/classes that are not themselves scope types. The tool will flag any violations of this restriction.
