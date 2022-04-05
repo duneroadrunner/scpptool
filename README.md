@@ -181,9 +181,9 @@ void main(int argc, char* argv[]) {
 
 #### Annotating lifetime constraints in function interfaces
 
-The relative lifetimes of objects declared within the same function definition are directly deduced (at compile-time) by this tool from the location of their declarations. This deduction can't so readily be done with references to objects that are passed through function call boundaries (either as parameters or return values). So it can be helpful to allow the programmer to express constraints on the lifetimes of reference objects passed in and out of a function in the function interface and have the analyzer tool verify/enforce that those constraints are observed on the sending and receiving side of the function call.
+The relative lifetimes of objects declared within the same function definition are directly deduced (at compile-time) by this tool from the location of their declarations. This deduction can't so readily be done with references to objects that are passed through function call boundaries (either as parameters or return values). So it can be helpful to allow the programmer to express constraints on the lifetimes of objects passed in (by reference) and returned in the function interface and have the analyzer tool verify/enforce that those constraints are observed on the sending and receiving side of the function call.
 
-The following example demonstrates the "lifetime annotation attributes" supported by this tool. First we add attributes to the parameters in the function declaration. (In our example it's a member function.) These attributes assign a "lifetime label" to the parameter. Multiple parameters can share the same lifetime label, in which case the lifetime label will represent the shortest (scope) lifetime of all the parameters associated with it. The attribute is appended to the parameter declaration and the syntax of the parameter attribute is:
+The following example demonstrates the "lifetime annotation attributes" supported by this tool. First we add attributes to the (native) reference parameters in the function declaration. (In our example it's a member function.) These attributes assign a "lifetime label" to the reference parameter. Multiple parameters can share the same lifetime label, in which case the lifetime label will represent the shortest (scope) lifetime of all the parameters associated with it. The attribute is appended to the parameter declaration and the syntax of the parameter attribute is:
 ```cpp
 MSE_ATTR_PARAM_STR("mse::lifetime_label<#>")
 ```
@@ -243,6 +243,14 @@ void main(int argc, char* argv[]) {
     to be assigned to iptr2. */
 }
 ```
+
+To be clear, the parameter lifetime label annotations refer to the lifetime of the object refered to directly by the (native) reference parameter, not any object referenced by that object. So for example in the parameter declaration:
+
+```cpp
+int*& i_ptr1 MSE_ATTR_PARAM_STR("mse::lifetime_label<42>")
+```
+
+The lifetime label refers to the object of type `int*`, not the `int` pointed to by that (pointer) object. By rule, we can infer that any target `int` object must outlive the `int*` object that points to it, but lifetime annotations to further constrain the lifetime of the (`int`) target of the pointer object are not yet supported.
 
 #### SaferCPlusPlus elements
 
