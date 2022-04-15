@@ -1,11 +1,11 @@
 
-Jan 2022
+Apr 2022
 
 ### Overview
 
 scpptool is a command line tool to help enforce a memory and data race safe subset of C++. It's designed to work with the [SaferCPlusPlus](https://github.com/duneroadrunner/SaferCPlusPlus) library. It analyzes the specified C++ file(s) and reports places in the code that it cannot verify to be safe.
 
-Note that this tool enforces a slightly more restricted subset of reference usages than the lifetime profile checker does. So code that conforms to the subset enforced by this tool should automatically be conformant to the subset enforced by an (eventually completed) lifetime profile checker. While the extra restrictions have a cost (notably with the ability to use standard library elements), they arguably also have the benefit of being easier to understand, with fewer "surprises" and less guessing about where the limits are.
+Note that this tool enforces a slightly more restricted subset of reference usages than the lifetime profile checker does. So code that conforms to the subset enforced by this tool should generally be conformant[*](#third-party-lifetime-annotations) to the subset enforced by an (eventually completed) lifetime profile checker. While the extra restrictions have a cost (notably with the ability to use standard library elements), they arguably also have the benefit of being easier to understand, with fewer "surprises" and less guessing about where the limits are.
 
 Note that this tool is still in development and not well tested.
 
@@ -252,6 +252,10 @@ int*& i_ptr1 MSE_ATTR_PARAM_STR("mse::lifetime_label<42>")
 
 The lifetime label refers to the object of type `int*`, not the `int` pointed to by that (pointer) object. By rule, we can infer that any target `int` object must outlive the `int*` object that points to it, but lifetime annotations to further constrain the lifetime of the (`int`) target of the pointer object are not yet supported.
 
+##### third party lifetime annotations
+
+Note that other static lifetime analyzers in development introduce their own distinct lifetime annotations (including the lifetime profile checker and [others](https://discourse.llvm.org/t/rfc-lifetime-annotations-for-c/61377)). Those analyzers may not recognize the lifetime annotations introduced here, so to be compliant with those analyzers you may have to use their lifetime annotations as well. Ideally, in the future scpptool would also support those lifetime annotations, reducing the need for redundant annotations.
+
 #### SaferCPlusPlus elements
 
 Most of the restrictions required to ensure safety of the elements in the SaferCPlusPlus library are implemented in the type system. However, some of the necessary restrictions cannot be implemented in the type system. This tool is meant to enforce those remaining restrictions. Elements requiring enforcement help are generally relegated to the `mse::rsv` namespace. One exception is the restriction that scope types (regardless of the namespace in which they reside), cannot be used as members of structs/classes that are not themselves scope types. The tool will flag any violations of this restriction.
@@ -267,6 +271,53 @@ Also `rsv::xscope_nii_vector<>` is not yet available. The other available (resiz
 ### Autotranslation
 
 This tool also has some ability to convert C source files to the memory safe subset of C++ it enforces and is demonstrated in the [SaferCPlusPlus-AutoTranslation2](https://github.com/duneroadrunner/SaferCPlusPlus-AutoTranslation2) project.
+
+### "Flow (in)sensitive" analysis
+
+Some of the other C++ lifetime analyzers in development employ "flow sensitive" analysis. That is, they determine whether or not an operation is safe based, in part, on the operations that precede it in the program execution. So for example in this piece of code:
+
+```cpp
+int foo1(int* num_ptr) {
+    int retval = 0;
+    const bool b1 = !num_ptr;
+
+    if (false) 			// condition 1
+    //if ((!num_ptr)) 		// condition 2
+    //if (!(!(!num_ptr))) 	// condition 3
+    //if (b1) 			// condition 4
+    {
+        num_ptr = &retval;
+    }
+    retval = *num_ptr;
+    return retval;
+}
+```
+
+the lifetime profile checker [complains](https://godbolt.org/z/4G1Mj8x4j) that `num_ptr` is being dereferenced when it cannot verify that its value is not null:
+
+```
+<source>:12:14: warning: dereferencing a possibly null pointer [-Wlifetime-null]
+    retval = *num_ptr;
+             ^~~~~~~~
+<source>:1:10: note: the parameter is assumed to be potentially null. Consider using gsl::not_null<>, a reference instead of a pointer or an assert() to explicitly remove null
+int foo1(int* num_ptr) {
+         ^~~~~~~~~~~~
+1 warning generated.
+```
+
+But if we replace "condition 1" in the example with "condition 2", this will ensure that in the event `num_ptr` has a null value it will be replaced with a valid one. The lifetime profile checker recognizes this and in this case no longer complains about the possible null value.
+
+"condition 3" is a slightly more complicated/obfuscated version of "condition 2", but the lifetime profile checker [is able](https://godbolt.org/z/76PGz6EdK) to recognize it as such.
+
+However, "condition 4" is just an indirect version of "condition 2", but the lifetime profile checker (at the time of writing) [does not](https://godbolt.org/z/M9hzY4n4f) acknowledge this, and will again complain about the dereference of a possible null value.
+
+While a static analyzer can get arbitrarily good at recognizing safe code, there will, in theory, always be some safe code that it won't be able to verify as such in a timely manner. (Because "halting problem", right?) So the question is whether or not a static analyzer should attempt to identify as much safe code as it can, or whether it should instead only accept a well-defined, easy to understand subset of safe code.
+
+The advantage of maximizing the set of code accepted as safe is that it reduces the modifications of pre-existing/legacy code needed to bring it into safety conformance. The disadvantage is that it may take programmers (and code modification/generation tools) more time and effort to become familiar with the boundaries between code that will and won't be accepted as safe. (Assuming the boundary is even static.)
+
+Currently, scpptool does not use "flow sensitive" criteria to determine whether or not code will be accepted as safe. As a result, the set of accepted code may be smaller / more restricted than those of "flow sensitive" analyzers. But perhaps also easier to understand. Pre-existing/legacy code is, to some degree, addressed via [autotranslation](https://github.com/duneroadrunner/scpptool#autotranslation).
+
+With respect to the example given above, scpptool simply doesn't condone null (raw) pointer values at all. If null values are desired, the pointer would have to be wrapped in an "optional" container, or a smart pointer that (safely) supports null values would have to be used instead.
 
 ### Questions and comments
 If you have questions or comments you can create a post in the [discussion section](https://github.com/duneroadrunner/scpptool/discussions).
