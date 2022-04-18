@@ -26,10 +26,13 @@
 
 #include "checker.h"
 
-//define EXCLUDE_CONVERTER_MODE1
 #ifndef EXCLUDE_CONVERTER_MODE1
 #include "converter_mode1.h"
 #endif //!EXCLUDE_CONVERTER_MODE1
+
+#ifndef EXCLUDE_C2VALIDCPP
+#include "converter_c2validcpp.h"
+#endif //!EXCLUDE_C2VALIDCPP
 
 /*Clang Headers*/
 #include "clang/AST/AST.h"
@@ -74,13 +77,14 @@ cl::opt<bool> DoNotResolveMergeConflicts("DoNotResolveMergeConflicts", cl::desc(
 cl::opt<std::string> ConvertMode("ConvertMode", cl::desc("specify the code conversion technique to use: \n"
   "\t Dual \t- The resulting code can be compiled as either safe C++ or (potentially faster) unsafe 'plain' C or C++. \n"
   "\t SlowAndFlexible \t- (Default) \n"
-  "\t FasterAndStricter \t- The resulting (safe) code should be faster, but code that is not of 'good form' may not translate properly. \n"
+  "\t FasterAndStricter \t- The resulting (safe) code should be faster, but code that is not of 'good form' may not translate properly. (Preliminary implementation only.)\n"
   ), cl::init(""), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> ScopeTypeFunctionParameters("ScopeTypeFunctionParameters", cl::desc("Use 'scope' types when converting pointer and iterator function parameters. \n"
   "\t This can result in invalid code (that may need to be fixed manually) in some cases, but the resulting \n"
   "\t functions may support arguments of scope type (including raw pointers). "), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> ScopeTypePointerFunctionParameters("ScopeTypePointerFunctionParameters", cl::desc("same as 'ScopeTypeFunctionParameters', but only applies to pointers, not iterators"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
-cl::opt<bool> AddressableVars("AddressableVars", cl::desc("Make variables of (safely) 'addressable' type even if they are never used as a pointer target."), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
+cl::opt<bool> AddressableVars("AddressableVars", cl::desc("make variables of (safely) 'addressable' type even if they are never used as a pointer target"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
+cl::opt<bool> ConvertC2ValidCpp("ConvertC2ValidCpp", cl::desc("Modify C source to (more) conform to the subset supported by C++. (Preliminary implementation only.)"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 
 /**********************************************************************************************************************/
 
@@ -114,6 +118,11 @@ int main(int argc, const char **argv)
   //Tool.setDiagnosticConsumer(diag_consumer_shptr.get());
 
   int retval = -1;
+
+  if (ConvertC2ValidCpp && ConvertToSCPP) {
+    llvm::errs() << "incompatible options: ConvertC2ValidCpp and ConvertToSCPP may not both be used at the same time. Instead use each alone in two separate runs." << '\n';
+    return retval;
+  }
 
   if (true) {
     checker::Options options = {
@@ -156,6 +165,36 @@ int main(int argc, const char **argv)
       };
     retval = convm1::buildASTs_and_run(Tool, options);
 #endif //!EXCLUDE_CONVERTER_MODE1
+  } else if (ConvertC2ValidCpp.getValue()) {
+#ifndef EXCLUDE_C2VALIDCPP
+
+    /* The "checker" pass, among other things, determined which regions of the code are indicated
+    to be excluded from the checks. The "convert" pass also needs this information. Rather than
+    re-compute it, we'll copy it from the stored "states" of the checker pass. */
+    for (const auto& checker_state : checker::g_final_tu_states) {
+      convc2validcpp::CTUState convm1_state;
+      convm1_state.m_suppress_check_region_set = checker_state.m_suppress_check_region_set;
+      convc2validcpp::g_prepared_initial_tu_states.push_back(convm1_state);
+    }
+    std::reverse(convc2validcpp::g_prepared_initial_tu_states.begin(), convc2validcpp::g_prepared_initial_tu_states.end());
+
+    convc2validcpp::Options options = {
+          CheckSystemHeader,
+          MainFileOnly,
+          ConvertC2ValidCpp,
+          CTUAnalysis,
+          EnableNamespaceImport,
+          SuppressPrompts,
+          DoNotReplaceOriginalSource,
+          MergeCommand,
+          DoNotResolveMergeConflicts,
+          ConvertMode,
+          ScopeTypeFunctionParameters,
+          ScopeTypePointerFunctionParameters,
+          AddressableVars
+      };
+    retval = convc2validcpp::buildASTs_and_run(Tool, options);
+#endif //!EXCLUDE_C2VALIDCPP
   }
 
   return retval;

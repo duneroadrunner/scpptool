@@ -166,6 +166,7 @@ class COrderedSourceRange : public clang::SourceRange {
 	bool is_rewritable() const { return (Rewritable == m_rewritability); }
 	rewritability_t m_rewritability = Rewritable;
 };
+/*
 inline bool operator==(const COrderedSourceRange &LHS, const COrderedSourceRange &RHS) {
 	return static_cast<const COrderedSourceRange::base_class &>(LHS) == static_cast<const COrderedSourceRange::base_class &>(RHS);
 	//return LHS.getBegin() == RHS.getBegin();
@@ -173,6 +174,7 @@ inline bool operator==(const COrderedSourceRange &LHS, const COrderedSourceRange
 inline bool operator!=(const COrderedSourceRange &LHS, const COrderedSourceRange &RHS) {
 	return !(LHS == RHS);
 }
+*/
 inline bool operator<(const COrderedSourceRange &LHS, const COrderedSourceRange &RHS) {
 	if (LHS.getBegin() < RHS.getBegin()) {
 		return true;
@@ -1258,6 +1260,8 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 			, {"std::unique_ptr", "mse::TRefCountingPointer", "mse::TXScopeOwnerPointer", "mse::TXScopeOwnerPointer<> or a reference counting pointer from the SaferCPlusPlus library"}
 			, {"std::function", "mse::mstd::function", "mse::xscope_function", "mse::mstd::function or mse::xscope_function"}
 			, {"std::tuple", "mse::mstd::tuple", "mse::xscope_tuple", "mse::mstd::tuple or mse::xscope_tuple"}
+			, {"std::optional", "mse::mstd::optional", "mse::st_optional", "a corresponding substitute from the SaferCPlusPlus library"}
+			, {"std::any", "mse::mstd::any", "mse::st_any", "a corresponding substitute from the SaferCPlusPlus library"}
 			};
 		return l_unsupported_element_infos;
 	}

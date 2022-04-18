@@ -5,10 +5,8 @@
 // http://www.boost.org/LICENSE_1_0.txt)
 
 
-#ifndef __CONVERTER_MODE1_H
-#define __CONVERTER_MODE1_H
-
-#ifndef EXCLUDE_CONVERTER_MODE1
+#ifndef __CONVERTER_C2VALIDCPP_H
+#define __CONVERTER_C2VALIDCPP_H
 
 #include "utils1.h"
 #include "checker.h"
@@ -58,7 +56,7 @@
 #include "llvm/IR/Function.h"
 
 
-namespace convm1 {
+namespace convc2validcpp {
     using namespace llvm;
     using namespace clang;
     using namespace clang::ast_matchers;
@@ -67,7 +65,7 @@ namespace convm1 {
 
     bool CheckSystemHeader = false;
     bool MainFileOnly = false;
-    bool ConvertToSCPP = true;
+    bool ConvertC2ValidCpp = true;
     bool CTUAnalysis = false;
     bool EnableNamespaceImport = false;
     bool SuppressPrompts = false;
@@ -82,7 +80,7 @@ namespace convm1 {
     struct Options {
         bool CheckSystemHeader = false;
         bool MainFileOnly = false;
-        bool ConvertToSCPP = true;
+        bool ConvertC2ValidCpp = true;
         bool CTUAnalysis = false;
         bool EnableNamespaceImport = false;
         bool SuppressPrompts = false;
@@ -2222,7 +2220,7 @@ namespace convm1 {
 			DEBUG_SOURCE_TEXT_STR(debug_source_text1, OSR, Rewrite);
 
 #ifndef NDEBUG
-			if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+			if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/
@@ -2233,7 +2231,7 @@ namespace convm1 {
 						DEBUG_SOURCE_TEXT_STR(debug_source_text1, OSR, Rewrite);
 
 #ifndef NDEBUG
-						if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+						if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 							int q = 5;
 						}
 #endif /*!NDEBUG*/
@@ -2262,7 +2260,7 @@ namespace convm1 {
 						DEBUG_SOURCE_TEXT_STR(debug_source_text2, debug_SR2, Rewrite);
 
 #ifndef NDEBUG
-						if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+						if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 							int q = 5;
 						}
 #endif /*!NDEBUG*/
@@ -2289,7 +2287,7 @@ namespace convm1 {
 						DEBUG_SOURCE_TEXT_STR(debug_source_text2, debug_SR2, Rewrite);
 
 #ifndef NDEBUG
-						if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+						if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 							int q = 5;
 						}
 #endif /*!NDEBUG*/
@@ -2360,7 +2358,6 @@ namespace convm1 {
 		COrderedRegionSet m_already_modified_regions;
 		std::unordered_set<decltype(std::declval<clang::TypeLoc>().getOpaqueData())> m_already_modified_typeLocs;
 	};
-
 
 	/* A definition of a preprocessor macro. */
 	class CPPMacroDefinitionInfo {
@@ -2798,7 +2795,7 @@ namespace convm1 {
 
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, parens_SR, Rewrite);
 
-					if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+					if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 						int q = 5;
 					}
 				}
@@ -2808,7 +2805,7 @@ namespace convm1 {
 				std::string parens_text = Rewrite.getRewrittenText(parens_SR);
 				retval = parens_text;
 
-				if (ConvertToSCPP && (!suppress_modifications) && state1_ptr) {
+				if (ConvertC2ValidCpp && (!suppress_modifications) && state1_ptr) {
 					/* We've stored the function parameters as a string. Now we're going
 					to "blank out"/erase the original source text of the parameters. */
 					std::string blank_text = parens_text;
@@ -2849,7 +2846,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+			if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 				int q = 5;
 			}
 		}
@@ -3404,7 +3401,7 @@ namespace convm1 {
 
 						//DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+						if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 							int q = 5;
 						}
 					}
@@ -3508,7 +3505,7 @@ namespace convm1 {
 											int q = 3;
 										}
 										if (0 == i) {
-											if (ConvertToSCPP && (!suppress_modifications) && state1_ptr) {
+											if (ConvertC2ValidCpp && (!suppress_modifications) && state1_ptr) {
 												/* This is the last "indirection" to be processed. Now we're going
 												to "blank out"/erase any parentheses and contained items ((pointer)
 												asterisks, bracketed array size expressions, const qualifiers, etc)
@@ -3904,7 +3901,7 @@ namespace convm1 {
 					}
 
 					if (definition_SR.isValid()) {
-						if (ConvertToSCPP && (!suppress_modifications) && state1_ptr) {
+						if (ConvertC2ValidCpp && (!suppress_modifications) && state1_ptr) {
 							auto& state1 = *state1_ptr;
 							//suffix_str = indirection_state_ref.m_function_type_state.m_params_current_str + suffix_str;
 							if ("" != suffix_str) {
@@ -4290,7 +4287,7 @@ namespace convm1 {
 									std::string initializer_info_str = default_init_value_str(qtype);
 									ddcs_ref.m_current_initialization_expr_str = initializer_info_str;
 
-									if (ConvertToSCPP && (ESuppressModifications::No == suppress_modifications) && state1_ptr) {
+									if (ConvertC2ValidCpp && (ESuppressModifications::No == suppress_modifications) && state1_ptr) {
 										/* Specify that the new initialization string should be
 										inserted at the end of the declaration. */
 										//ddcs_ref.m_maybe_embedded_initializer_insert_before_point = ddcs_ref.m_ddecl_cptr->getSourceRange().getEnd().getLocWithOffset(+1);
@@ -4308,7 +4305,7 @@ namespace convm1 {
 				ddcs_ref.m_original_initialization_has_been_noted = true;
 			}
 
-			if (ConvertToSCPP && (ESuppressModifications::No == suppress_modifications) && state1_ptr) {
+			if (ConvertC2ValidCpp && (ESuppressModifications::No == suppress_modifications) && state1_ptr) {
 				auto& SR = decl_source_range;
 				auto qtype = VD->getType();
 				//const auto storage_duration = VD->getStorageDuration();
@@ -4768,7 +4765,7 @@ namespace convm1 {
 				function). */
 			}
 
-			if (ConvertToSCPP && (ESuppressModifications::No == suppress_modifications) && state1_ptr) {
+			if (ConvertC2ValidCpp && (ESuppressModifications::No == suppress_modifications) && state1_ptr) {
 				if (ddcs_ref.direct_qtype_has_been_changed()
 					/*|| ("" != ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state.m_params_current_str)*/) {
 
@@ -4941,7 +4938,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+		if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -4982,7 +4979,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(l_debug_source_text, return_type_source_range, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != l_debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != l_debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5010,7 +5007,7 @@ namespace convm1 {
 				auto& ddcs_ref = (*ddcs_map_iter).second;
 				bool update_declaration_flag = res1.second;
 
-				if (ConvertToSCPP && return_type_source_range.isValid() && (1 <= res.m_replacement_code.size())
+				if (ConvertC2ValidCpp && return_type_source_range.isValid() && (1 <= res.m_replacement_code.size())
 						&& changed_from_original) {
 					if (return_type_source_range.isValid() && res.m_replacement_return_type_post_params_suffix_str.empty()) {
 						IF_DEBUG(std::string code_to_be_replaced = return_type_source_range.isValid() ? Rewrite.getRewrittenText(return_type_source_range) : std::string("[invalid]");)
@@ -5217,7 +5214,7 @@ namespace convm1 {
 						ddcs_ref.m_has_been_replaced_as_a_whole = true;
 					}
 
-					if (ConvertToSCPP && last_decl_source_range.isValid() && (3 <= replacement_code.size())
+					if (ConvertC2ValidCpp && last_decl_source_range.isValid() && (3 <= replacement_code.size())
 							&& changed_from_original) {
 						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, last_decl_source_range, replacement_code);
 						//auto res2 = Rewrite.ReplaceText(last_decl_source_range, replacement_code);
@@ -5255,7 +5252,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+		if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5319,7 +5316,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+		if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5448,7 +5445,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+		if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5789,7 +5786,7 @@ namespace convm1 {
 				}
 				auto& excs_shptr_ref = (*excs_iter).second;
 
-				if (ConvertToSCPP) {
+				if (ConvertC2ValidCpp) {
 					std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>((*this).m_replacement_code);
 					(*excs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 					(*excs_shptr_ref).update_current_text();
@@ -5817,7 +5814,7 @@ namespace convm1 {
 				}
 				auto& excs_shptr_ref = (*excs_iter).second;
 				if (0 == (*excs_shptr_ref).m_expr_text_modifier_stack.size()) {
-					if (ConvertToSCPP) {
+					if (ConvertC2ValidCpp) {
 						std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>((*this).m_replacement_code);
 						(*excs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 						(*excs_shptr_ref).update_current_text();
@@ -5849,7 +5846,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+		if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5881,7 +5878,7 @@ namespace convm1 {
 			if (lhs_is_ineligible_for_xscope_status) {
 				if (!rhs_is_ineligible_for_xscope_status) {
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+					if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -6018,7 +6015,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+		if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -6046,7 +6043,7 @@ namespace convm1 {
 
 			if (lhs_is_ineligible_for_xscope_status != rhs_is_ineligible_for_xscope_status) {
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -6251,7 +6248,7 @@ namespace convm1 {
 				int q = 7;
 			}
 
-			if (ConvertToSCPP && (BOSR.isValid())) {
+			if (ConvertC2ValidCpp && (BOSR.isValid())) {
 				update_declaration(*DD, Rewrite, state1);
 
 				//state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, (*this).ddecl_indirection_cref());
@@ -6290,7 +6287,7 @@ namespace convm1 {
 
 			ddcs_ref.m_current_initialization_expr_str = initializer_info_str;
 
-			if (ConvertToSCPP && decl_source_range.isValid()) {
+			if (ConvertC2ValidCpp && decl_source_range.isValid()) {
 				update_declaration(*DD, Rewrite, state1);
 
 				//state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, (*this).ddecl_indirection_cref());
@@ -6318,7 +6315,7 @@ namespace convm1 {
 			DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, Rewrite);
 			DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
-			if (ConvertToSCPP && decl_source_range.isValid() && (CESR.isValid())) {
+			if (ConvertC2ValidCpp && decl_source_range.isValid() && (CESR.isValid())) {
 				update_declaration(*DD, Rewrite, state1);
 
 				//state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, ddecl_indirection_cref());
@@ -6365,7 +6362,7 @@ namespace convm1 {
 		{
 			auto CESR = cm1_adj_nice_source_range(CE->getSourceRange(), state1, Rewrite);
 
-			if (ConvertToSCPP && (CESR.isValid())) {
+			if (ConvertC2ValidCpp && (CESR.isValid())) {
 				state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, CESR, m_ce_replacement_code);
 				//auto res2 = Rewrite.ReplaceText(CESR, m_ce_replacement_code);
 
@@ -6585,7 +6582,7 @@ namespace convm1 {
 					auto& array_cs_shptr_ref = (*array_cs_iter).second;
 
 					std::string UO_replacement_text = "((" + (*array_cs_shptr_ref).m_current_text_str + ") + (" + (*index_cs_shptr_ref).m_current_text_str + "))";
-					if (ConvertToSCPP) {
+					if (ConvertC2ValidCpp) {
 						std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(UO_replacement_text);
 						(*uocs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 						(*uocs_shptr_ref).update_current_text();
@@ -6664,7 +6661,7 @@ namespace convm1 {
 						UO_replacement_text = "mse::lh::address_of_array_element_replacement(" + (*array_cs_shptr_ref).m_current_text_str + ", " + (*index_cs_shptr_ref).m_current_text_str + ")";
 					}
 
-					if (ConvertToSCPP) {
+					if (ConvertC2ValidCpp) {
 						std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(UO_replacement_text);
 						(*uocs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 						(*uocs_shptr_ref).update_current_text();
@@ -6718,7 +6715,7 @@ namespace convm1 {
 					auto& array_cs_shptr_ref = (*array_cs_iter).second;
 
 					std::string UO_replacement_text = "((" + (*array_cs_shptr_ref).m_current_text_str + ") + (" + (*index_cs_shptr_ref).m_current_text_str + "))";
-					if (ConvertToSCPP) {
+					if (ConvertC2ValidCpp) {
 						std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(UO_replacement_text);
 						(*uocs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 						(*uocs_shptr_ref).update_current_text();
@@ -6797,7 +6794,7 @@ namespace convm1 {
 						UO_replacement_text = "mse::lh::address_of_array_element_replacement(" + (*array_cs_shptr_ref).m_current_text_str + ", " + (*index_cs_shptr_ref).m_current_text_str + ")";
 					}
 
-					if (ConvertToSCPP) {
+					if (ConvertC2ValidCpp) {
 						std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(UO_replacement_text);
 						(*uocs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 						(*uocs_shptr_ref).update_current_text();
@@ -6831,7 +6828,7 @@ namespace convm1 {
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-			if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+			if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/
@@ -6933,7 +6930,7 @@ namespace convm1 {
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-			if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+			if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/
@@ -7087,7 +7084,7 @@ namespace convm1 {
 		assert((*this).m_c_style_cast_expr_cptr);
 		auto res1 = generate_declaration_replacement_code((*this).m_ddecl_indirection.m_ddecl_cptr, Rewrite, &state1, state1.m_ddecl_conversion_state_map);
 
-		if (ConvertToSCPP && (true || res1.m_changed_from_original)) {
+		if (ConvertC2ValidCpp && (true || res1.m_changed_from_original)) {
 			auto whole_cast_expression_SR = write_once_source_range({ m_c_style_cast_expr_cptr->getBeginLoc(), m_c_style_cast_expr_cptr->getEndLoc() });
 			if (whole_cast_expression_SR.isValid()) {
 				IF_DEBUG(auto whole_cast_expression_text = Rewrite.getRewrittenText(whole_cast_expression_SR);)
@@ -7221,7 +7218,7 @@ namespace convm1 {
 								already_wrapped_flag = true;
 							}
 						}
-						if (ConvertToSCPP && (!already_wrapped_flag)) {
+						if (ConvertC2ValidCpp && (!already_wrapped_flag)) {
 							auto shptr1 = std::make_shared<CNullableAnyRandomAccessIterCastExprTextModifier>(LHS->getType()->getPointeeType());
 							(*lhscs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 							(*lhscs_shptr_ref).update_current_text();
@@ -7242,7 +7239,7 @@ namespace convm1 {
 								already_wrapped_flag = true;
 							}
 						}
-						if (ConvertToSCPP && (!already_wrapped_flag)) {
+						if (ConvertC2ValidCpp && (!already_wrapped_flag)) {
 							auto shptr1 = std::make_shared<CNullableAnyRandomAccessIterCastExprTextModifier>(RHS->getType()->getPointeeType());
 							(*rhscs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 							(*rhscs_shptr_ref).update_current_text();
@@ -7500,7 +7497,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7589,7 +7586,7 @@ namespace convm1 {
 
 									if (cast_operation_SR.isValid()
 											&& (("void" == rhs_ddecl_current_direct_qtype_str) || ("const void" == rhs_ddecl_current_direct_qtype_str))) {
-										if (ConvertToSCPP) {
+										if (ConvertC2ValidCpp) {
 											(*rhs_res2.ddecl_conversion_state_ptr).set_current_direct_qtype(direct_rhs_qtype);
 
 											auto cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);
@@ -7608,7 +7605,7 @@ namespace convm1 {
 											update_declaration_if_not_suppressed(*(rhs_res2.ddecl_cptr), Rewrite, *(MR.Context), m_state1);
 										}
 									} else {
-										if (ConvertToSCPP) {
+										if (ConvertC2ValidCpp) {
 											if (false) {
 												(*rhs_res2.ddecl_conversion_state_ptr).set_current_direct_qtype(direct_rhs_qtype);
 											}
@@ -7642,7 +7639,7 @@ namespace convm1 {
 							}
 						}
 
-						if (ConvertToSCPP && (rhs_res2.ddecl_conversion_state_ptr) && lhs_is_an_indirect_type) {
+						if (ConvertC2ValidCpp && (rhs_res2.ddecl_conversion_state_ptr) && lhs_is_an_indirect_type) {
 							for (size_t i = 0; ((0 + i) < ddcs_ref.m_indirection_state_stack.size())
 														&& (rhs_res2.indirection_level + i < (*(rhs_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack.size()); i += 1) {
 								{
@@ -7757,7 +7754,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7872,7 +7869,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7885,7 +7882,7 @@ namespace convm1 {
 					return;
 				}
 
-				if (false && ConvertToSCPP) {
+				if (false && ConvertC2ValidCpp) {
 					std::string null_value_str;
 					if ("Dual" == ConvertMode) {
 						null_value_str = "MSE_LH_NULL_POINTER";
@@ -7931,7 +7928,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7996,7 +7993,7 @@ namespace convm1 {
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 #ifndef NDEBUG
-					if (std::string::npos != decl_debug_source_location_str.find("pngtest.c:99999:")) {
+					if (std::string::npos != decl_debug_source_location_str.find("connect.c:942:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -8115,7 +8112,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8257,7 +8254,7 @@ namespace convm1 {
 								return;
 							}
 
-							if (ConvertToSCPP && decl_source_range.isValid() && (SR.isValid())
+							if (ConvertC2ValidCpp && decl_source_range.isValid() && (SR.isValid())
 									&& (nullptr != res2.ddecl_conversion_state_ptr)) {
 								auto cr_shptr = std::make_shared<CMallocArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), BO, bo_replacement_code);
 
@@ -8337,7 +8334,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8423,7 +8420,7 @@ namespace convm1 {
 													return;
 												}
 
-												if (ConvertToSCPP && decl_source_range.isValid() && (SR.isValid())) {
+												if (ConvertC2ValidCpp && decl_source_range.isValid() && (SR.isValid())) {
 													std::string null_value_str;
 													if ("Dual" == ConvertMode) {
 														null_value_str = "MSE_LH_NULL_POINTER";
@@ -8483,7 +8480,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8555,7 +8552,7 @@ namespace convm1 {
 											callee_replacement_code = "mse::lh::free";
 										}
 
-										if (ConvertToSCPP) {
+										if (ConvertC2ValidCpp) {
 											state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, callee_SR, callee_replacement_code);
 										}
 									} else {
@@ -8596,7 +8593,7 @@ namespace convm1 {
 									}
 
 									if ("" != arg_element_type_str) {
-										if (ConvertToSCPP && (arg_res2.ddecl_conversion_state_ptr) && arg_is_an_indirect_type) {
+										if (ConvertC2ValidCpp && (arg_res2.ddecl_conversion_state_ptr) && arg_is_an_indirect_type) {
 											auto arg_source_text = Rewrite.getRewrittenText(arg_source_range);
 											//std::string ce_replacement_code = "(" + arg_source_text + ").resize(0)";
 											std::string ce_replacement_code;
@@ -8727,7 +8724,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8775,7 +8772,7 @@ namespace convm1 {
 						}
 
 						if ("" != lhs_element_type_str) {
-							if (ConvertToSCPP && (lhs_res2.ddecl_conversion_state_ptr) && lhs_is_an_indirect_type) {
+							if (ConvertC2ValidCpp && (lhs_res2.ddecl_conversion_state_ptr) && lhs_is_an_indirect_type) {
 								auto lhs_source_text = Rewrite.getRewrittenText(lhs_source_range);
 								std::string bo_replacement_code = "( (" + lhs_source_text + ") = typename std::remove_reference<decltype(" + lhs_source_text + ")>::type() )";
 
@@ -8875,7 +8872,7 @@ namespace convm1 {
 						}
 
 						if ("" != lhs_element_type_str) {
-							if (ConvertToSCPP && (lhs_res2.ddecl_conversion_state_ptr) && lhs_is_an_indirect_type) {
+							if (ConvertC2ValidCpp && (lhs_res2.ddecl_conversion_state_ptr) && lhs_is_an_indirect_type) {
 								std::string bo_replacement_code;
 
 								auto opcode_str = std::string(BO->getOpcodeStr());
@@ -8939,7 +8936,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8982,7 +8979,7 @@ namespace convm1 {
 								callee_replacement_code = "mse::lh::memset";
 							}
 
-							if (ConvertToSCPP) {
+							if (ConvertC2ValidCpp) {
 								state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, callee_SR, callee_replacement_code);
 							}
 						} else {
@@ -9023,7 +9020,7 @@ namespace convm1 {
 					std::string function_name = function_decl->getNameAsString();
 					static const std::string memset_str = "memset";
 					if (memset_str == function_name) {
-						if (ConvertToSCPP && SR.isValid()) {
+						if (ConvertC2ValidCpp && SR.isValid()) {
 
 							auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
 							/* This modification needs to be queued so that it will be executed after any other
@@ -9107,7 +9104,7 @@ namespace convm1 {
 								callee_replacement_code = memcpy_flag ? "mse::lh::memcpy" : "mse::lh::memcmp";
 							}
 
-							if (ConvertToSCPP) {
+							if (ConvertC2ValidCpp) {
 								state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, callee_SR, callee_replacement_code);
 							}
 						} else {
@@ -9151,7 +9148,7 @@ namespace convm1 {
 					static const std::string memcmp_str = "memcmp";
 					bool memcmp_flag = (!memcpy_flag) && (memcmp_str == function_name);
 					if (memcpy_flag || memcmp_flag) {
-						if (ConvertToSCPP && SR.isValid()) {
+						if (ConvertC2ValidCpp && SR.isValid()) {
 
 							auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
 							/* This modification needs to be queued so that it will be executed after any other
@@ -9269,7 +9266,7 @@ namespace convm1 {
 						* references to declared variables. */
 						if ((QT == LHS_QT)/* && (1 == res2.indirection_level)*/) {
 							lhs_qualifies = true;
-							if (ConvertToSCPP && (nullptr != res2.ddecl_conversion_state_ptr)) {
+							if (ConvertC2ValidCpp && (nullptr != res2.ddecl_conversion_state_ptr)) {
 								{
 									/* Here we're establishing and "enforcing" the constraint that the lhs value must
 									* be of an (array) type that can be assigned to the target variable. */
@@ -9312,7 +9309,7 @@ namespace convm1 {
 						* references to declared variables. */
 						if (QT == RHS_QT) {
 							rhs_qualifies = true;
-							if (ConvertToSCPP && (nullptr != res2.ddecl_conversion_state_ptr)) {
+							if (ConvertC2ValidCpp && (nullptr != res2.ddecl_conversion_state_ptr)) {
 								{
 									/* Here we're establishing and "enforcing" the constraint that the rhs value must
 									* be of an (array) type that can be assigned to the target variable. */
@@ -9369,7 +9366,7 @@ namespace convm1 {
 						}
 					}
 
-					if (ConvertToSCPP) {
+					if (ConvertC2ValidCpp) {
 						/* Here we're establishing and "enforcing" the constraint that the lhs and rhs
 						* values of the conditional operator must be the same type. */
 						{
@@ -9484,7 +9481,7 @@ namespace convm1 {
 				auto non_const_csce_pointee_QT = csce_pointee_QT; non_const_csce_pointee_QT.removeLocalConst();
 				auto precasted_expr_pointee_QT = llvm::isa<clang::ArrayType>(precasted_expr_QT) ? llvm::cast<clang::ArrayType>(precasted_expr_QT)->getElementType() : precasted_expr_QT->getPointeeType();
 				IF_DEBUG(std::string precasted_expr_pointee_QT_str = precasted_expr_pointee_QT.getAsString();)
-				if (ConvertToSCPP) {
+				if (ConvertC2ValidCpp) {
 					std::string og_cast_operation_str = Rewrite.getRewrittenText(cast_operation_SR);
 					std::string expression_replacement_code;
 					if ("void *" == csce_QT.getAsString()) {
@@ -9568,7 +9565,7 @@ namespace convm1 {
 				auto non_const_csce_pointee_QT = csce_pointee_QT; non_const_csce_pointee_QT.removeLocalConst();
 				auto precasted_expr_pointee_QT = llvm::isa<clang::ArrayType>(precasted_expr_QT) ? llvm::cast<clang::ArrayType>(precasted_expr_QT)->getElementType() : precasted_expr_QT->getPointeeType();
 				IF_DEBUG(std::string precasted_expr_pointee_QT_str = precasted_expr_pointee_QT.getAsString();)
-				if (ConvertToSCPP) {
+				if (ConvertC2ValidCpp) {
 					auto maybe_DD = ddecl_of_expression_if_available(precasted_expr_ptr, *(MR.Context));
 					if (maybe_DD.has_value()) {
 						/* If a declaration for the "pre-casted" expression is available, then
@@ -9618,7 +9615,7 @@ namespace convm1 {
 				auto non_const_csce_pointee_QT = csce_pointee_QT; non_const_csce_pointee_QT.removeLocalConst();
 				auto precasted_expr_pointee_QT = llvm::isa<clang::ArrayType>(precasted_expr_QT) ? llvm::cast<clang::ArrayType>(precasted_expr_QT)->getElementType() : precasted_expr_QT->getPointeeType();
 				IF_DEBUG(std::string precasted_expr_pointee_QT_str = precasted_expr_pointee_QT.getAsString();)
-				if (ConvertToSCPP) {
+				if (ConvertC2ValidCpp) {
 					auto maybe_DD = ddecl_of_expression_if_available(precasted_expr_ptr, *(MR.Context));
 					if (maybe_DD.has_value()) {
 						/* If a declaration for the "pre-casted" expression is available, then
@@ -9668,6 +9665,9 @@ namespace convm1 {
 			if (!RHS) {
 				return;
 			}
+			if ((!LHS) && (!VLD)) {
+				return;
+			}
 
 			auto SR = cm1_adj_nice_source_range(RHS->getSourceRange(), state1, Rewrite);
 			RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
@@ -9679,7 +9679,7 @@ namespace convm1 {
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-			if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+			if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/
@@ -9689,7 +9689,7 @@ namespace convm1 {
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -9717,296 +9717,351 @@ namespace convm1 {
 			}
 			auto DD = lhs_res2.ddecl_cptr;
 
-			IF_DEBUG(std::string LHS_qtype_str = LHS ? LHS->getType().getAsString() : (VLD ? VLD->getType().getAsString() : "");)
-			IF_DEBUG(std::string RHS_qtype_str = RHS->getType().getAsString();)
+			auto RHS_ii = IgnoreParenImpCasts(RHS);
 
-			//auto lhs_res2 = infer_array_type_info_from_stmt(*LHS, "", state1);
-			auto rhs_res2 = infer_array_type_info_from_stmt(*RHS, "", state1);
-			bool lhs_is_an_indirect_type = LHS ? is_an_indirect_type(LHS->getType()) : is_an_indirect_type(VLD->getType());
-			bool rhs_is_an_indirect_type = is_an_indirect_type(RHS->getType());
-			if (lhs_is_an_indirect_type != rhs_is_an_indirect_type) {
-				/* This might happen if one side is a reference type and the other side isn't. */
-				int q = 5;
+			std::string LHS_qtype_str = LHS ? LHS->getType().getAsString() : (VLD ? VLD->getType().getAsString() : "");
+			std::string RHS_ii_qtype_str = RHS_ii->getType().getAsString();
+
+			assert(LHS || VLD);
+			auto LHS_qtype = LHS ? LHS->getType() : VLD->getType();
+			auto RHS_ii_qtype = RHS_ii->getType();
+			if ((!LHS_qtype->isPointerType()) || (!RHS_ii_qtype->isPointerType())) {
+				return;
 			}
 
-			if (lhs_res2.ddecl_cptr) {
-				auto LHSDD_SR = cm1_adj_nice_source_range(lhs_res2.ddecl_cptr->getSourceRange(), state1, Rewrite);
-				bool LHS_decl_is_non_modifiable = filtered_out_by_location(MR, LHSDD_SR.getBegin());
-				if (LHS_decl_is_non_modifiable) {
-					auto LHS_qtype = LHS->getType();
-					auto RHS_qtype = RHS->getType();
+			if ((("void *" == RHS_ii_qtype_str) || ("const void *" == RHS_ii_qtype_str))
+				&& ("void *" != LHS_qtype_str) && ("const void *" != LHS_qtype_str)) {
 
-					assert(RHS->getType().getTypePtrOrNull());
-					auto rhs_source_range = write_once_source_range(cm1_adj_nice_source_range(RHS->getSourceRange(), state1, Rewrite));
-					std::string rhs_source_text;
-					if (rhs_source_range.isValid()) {
-						IF_DEBUG(rhs_source_text = Rewrite.getRewrittenText(rhs_source_range);)
+				auto* CSCE = dyn_cast<const clang::CStyleCastExpr>(RHS_ii);
+				if (CSCE) {
+					auto SE = CSCE->getSubExpr();
+					assert(SE);
+					auto* IL = dyn_cast<const clang::IntegerLiteral>(SE);
+					if (IL) {
+						/* We'll just assume the integer literal is a '0'. So this is like a 'NULL'.
+						Pointer assignment to 'NULL' already qualifies as valid C++. */
+						int q = 5;
+						return;
 					}
+				}
 
-					auto RHS_ii = IgnoreParenImpNoopCasts(RHS, *(MR.Context));
+				{
+					std::string RHS_ii_text = Rewrite.getRewrittenText(SR);
+					RHS_ii_text = "(" + LHS_qtype_str + ")(" + RHS_ii_text + ")";
+					CExprTextYieldingReplacementAction(Rewrite, MR, RHS_ii, RHS_ii_text).do_replacement(state1);
+				}
+			}
 
-					auto DRE = given_or_descendant_DeclRefExpr(RHS_ii, *(MR.Context));
+			if (false) {
+				//auto lhs_res2 = infer_array_type_info_from_stmt(*LHS, "", state1);
+				auto rhs_res2 = infer_array_type_info_from_stmt(*RHS, "", state1);
+				bool lhs_is_an_indirect_type = LHS ? is_an_indirect_type(LHS->getType()) : is_an_indirect_type(VLD->getType());
+				bool rhs_is_an_indirect_type = is_an_indirect_type(RHS->getType());
+				if (lhs_is_an_indirect_type != rhs_is_an_indirect_type) {
+					/* This might happen if one side is a reference type and the other side isn't. */
+					int q = 5;
+				}
 
-					if ((nullptr != DRE) && rhs_source_range.isValid()
-						&& LHS_qtype->isPointerType() && (!LHS_qtype->isFunctionPointerType())) {
+				if (lhs_res2.ddecl_cptr) {
+					auto LHSDD_SR = cm1_adj_nice_source_range(lhs_res2.ddecl_cptr->getSourceRange(), state1, Rewrite);
+					bool LHS_decl_is_non_modifiable = filtered_out_by_location(MR, LHSDD_SR.getBegin());
+					if (LHS_decl_is_non_modifiable) {
+						auto LHS_qtype = LHS->getType();
+						auto RHS_qtype = RHS->getType();
 
-						assert(nullptr != RHS);
-						auto rhs_iter = state1.m_expr_conversion_state_map.find(RHS);
-						if (state1.m_expr_conversion_state_map.end() == rhs_iter) {
-							std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*RHS, Rewrite);
-							rhs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+						assert(RHS->getType().getTypePtrOrNull());
+						auto rhs_source_range = write_once_source_range(cm1_adj_nice_source_range(RHS->getSourceRange(), state1, Rewrite));
+						std::string rhs_source_text;
+						if (rhs_source_range.isValid()) {
+							IF_DEBUG(rhs_source_text = Rewrite.getRewrittenText(rhs_source_range);)
 						}
-						auto& rhs_shptr_ref = (*rhs_iter).second;
 
-						if (ConvertToSCPP) {
-							std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
-							if (1 <= (*rhs_shptr_ref).m_expr_text_modifier_stack.size()) {
-								if ("unsafe make raw pointer from" == (*rhs_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
-									/* already applied */
-									return;
+						auto DRE = given_or_descendant_DeclRefExpr(RHS_ii, *(MR.Context));
+
+						if ((nullptr != DRE) && rhs_source_range.isValid()
+							&& LHS_qtype->isPointerType() && (!LHS_qtype->isFunctionPointerType())) {
+
+							assert(nullptr != RHS);
+							auto rhs_iter = state1.m_expr_conversion_state_map.find(RHS);
+							if (state1.m_expr_conversion_state_map.end() == rhs_iter) {
+								std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*RHS, Rewrite);
+								rhs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+							}
+							auto& rhs_shptr_ref = (*rhs_iter).second;
+
+							if (ConvertC2ValidCpp) {
+								std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
+								if (1 <= (*rhs_shptr_ref).m_expr_text_modifier_stack.size()) {
+									if ("unsafe make raw pointer from" == (*rhs_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+										/* already applied */
+										return;
+									}
+								}
+								(*rhs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
+								(*rhs_shptr_ref).update_current_text();
+
+								state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, rhs_source_range, (*rhs_shptr_ref).m_current_text_str);
+								//(*this).Rewrite.ReplaceText(rhs_source_range, (*rhs_shptr_ref).m_current_text_str);
+								return;
+							}
+						} else {
+							int q = 5;
+						}
+						int q = 5;
+			
+						return;
+					}
+				}
+
+				auto rhsii_EX = RHS->IgnoreParenImpCasts();
+				auto rhsii_stmt_class = rhsii_EX->getStmtClass();
+				//clang::Stmt::StmtClass::CXXStaticCastExprClass;
+				if (rhs_is_an_indirect_type && (rhsii_EX->getStmtClass() == clang::Stmt::StmtClass::CStyleCastExprClass)) {
+					auto CSCE = dyn_cast<const clang::CStyleCastExpr>(rhsii_EX);
+					const clang::CXXStaticCastExpr* CXXSCE = dyn_cast<const clang::CXXStaticCastExpr>(rhsii_EX);
+					assert(CSCE || CXXSCE);
+					auto cast_qtype = definition_qtype(CSCE ? CSCE->getTypeAsWritten() : CXXSCE->getTypeAsWritten());
+					bool finished_cast_handling_flag = false;
+
+					if (CSCE) {
+						auto csce_QT = definition_qtype(CSCE->getType());
+						auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
+						assert(precasted_expr_ptr);
+						auto precasted_expr_SR = cm1_adj_nice_source_range(precasted_expr_ptr->getSourceRange(), state1, Rewrite);
+						auto CSCESR = write_once_source_range(cm1_adj_nice_source_range(CSCE->getSourceRange(), state1, Rewrite));
+						auto cast_operation_SR = write_once_source_range(clang::SourceRange(CSCE->getLParenLoc(), CSCE->getRParenLoc()));
+
+						if ((csce_QT->isPointerType()) && precasted_expr_ptr->getType()->isPointerType() && cast_operation_SR.isValid()) {
+							std::string csce_QT_str = csce_QT.getAsString();
+							if ("void *" == csce_QT_str) {
+								/* This case is handled by the MCSSSExprUtil handler. */
+								finished_cast_handling_flag = true;
+							}
+						}
+
+						auto precasted_CE = llvm::dyn_cast<const clang::CallExpr>(precasted_expr_ptr->IgnoreParenCasts());
+						if (precasted_CE) {
+							auto alloc_function_info1 = analyze_malloc_resemblance(*precasted_CE, Rewrite);
+							if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+								/* This case is handled elsewhere. */
+								finished_cast_handling_flag = true;
+							}
+						}
+					}
+					if (!finished_cast_handling_flag) {
+						if (cast_qtype->isPointerType() || (cast_qtype->isReferenceType())) {
+							if (DD && (DD->getType()->isPointerType() || (DD->getType()->isReferenceType()))) {
+								auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
+								auto ddcs_map_iter = res1.first;
+								auto& ddcs_ref = (*ddcs_map_iter).second;
+								bool update_declaration_flag = res1.second;
+
+								auto cast_pointee_qtype = definition_qtype(cast_qtype->getPointeeType());
+								auto DD_pointee_qtype = definition_qtype(DD->getType()->getPointeeType());
+
+								auto const_adjusted_cast_pointee_qtype = cast_pointee_qtype;
+								auto const_cast_pointee_qtype = const_adjusted_cast_pointee_qtype;
+								const_cast_pointee_qtype.addConst();
+								if (const_cast_pointee_qtype == DD_pointee_qtype) {
+									const_adjusted_cast_pointee_qtype = const_cast_pointee_qtype;
+								}
+								IF_DEBUG(std::string const_adjusted_cast_pointee_qtype_str = const_adjusted_cast_pointee_qtype.getAsString();)
+								IF_DEBUG(std::string const_cast_pointee_qtype_str = const_cast_pointee_qtype.getAsString();)
+								IF_DEBUG(std::string DD_qtype_str = definition_qtype(DD->getType()).getAsString();)
+
+								if (ConvertC2ValidCpp) {
+									if (DD_pointee_qtype == const_adjusted_cast_pointee_qtype) {
+										for (size_t i = 0; i < ddcs_ref.m_indirection_state_stack.size(); ++i) {
+											std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CTargetConstrainsCStyleCastExprArray2ReplacementAction>(Rewrite, MR,
+													CDDeclIndirection(*DD, i), *CSCE);
+
+											if (ddcs_ref.has_been_determined_to_be_an_array(i)) {
+												(*cr_shptr).do_replacement(state1);
+											} else {
+												state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+											}
+										}
+									} else {
+										CSCE ? handle_c_style_cast_without_context(MR, Rewrite, state1, CSCE)
+											: handle_cxx_static_cast_without_context(MR, Rewrite, state1, CXXSCE);
+									}
 								}
 							}
-							(*rhs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
-							(*rhs_shptr_ref).update_current_text();
+						}
+					}
+				}
 
-							state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, rhs_source_range, (*rhs_shptr_ref).m_current_text_str);
-							//(*this).Rewrite.ReplaceText(rhs_source_range, (*rhs_shptr_ref).m_current_text_str);
-							return;
+				int lhs_indirection_level_adjustment = 0;
+				auto rhs_res3 = leading_addressof_operator_info_from_stmt(*RHS);
+				if (rhs_res3.without_leading_addressof_operator_expr_cptr) {
+					assert(rhs_res3.leading_addressof_operator_detected && rhs_res3.addressof_unary_operator_cptr);
+
+					RHS = rhs_res3.without_leading_addressof_operator_expr_cptr;
+					rhs_res2 = infer_array_type_info_from_stmt(*RHS, "", state1);
+
+					auto without_leading_addressof_operator_expr_cptr_ii = IgnoreParenImpNoopCasts(rhs_res3.without_leading_addressof_operator_expr_cptr, *(MR.Context));
+					if (false && (clang::Stmt::StmtClass::ArraySubscriptExprClass == (*(without_leading_addressof_operator_expr_cptr_ii)).getStmtClass())) {
+						assert(llvm::isa<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr_ii));
+						if (1 <= rhs_res2.indirection_level) {
+							rhs_res2.indirection_level -= 1;
+						} else {
+							int q = 3;
 						}
 					} else {
-						int q = 5;
-					}
-					int q = 5;
-		
-					return;
-				}
-			}
-
-			auto rhsii_EX = RHS->IgnoreParenImpCasts();
-			auto rhsii_stmt_class = rhsii_EX->getStmtClass();
-			//clang::Stmt::StmtClass::CXXStaticCastExprClass;
-			if (rhs_is_an_indirect_type && (rhsii_EX->getStmtClass() == clang::Stmt::StmtClass::CStyleCastExprClass)) {
-				auto CSCE = dyn_cast<const clang::CStyleCastExpr>(rhsii_EX);
-				const clang::CXXStaticCastExpr* CXXSCE = dyn_cast<const clang::CXXStaticCastExpr>(rhsii_EX);
-				assert(CSCE || CXXSCE);
-				auto cast_qtype = definition_qtype(CSCE ? CSCE->getTypeAsWritten() : CXXSCE->getTypeAsWritten());
-				bool finished_cast_handling_flag = false;
-
-				if (CSCE) {
-					auto csce_QT = definition_qtype(CSCE->getType());
-					auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
-					assert(precasted_expr_ptr);
-					auto precasted_expr_SR = cm1_adj_nice_source_range(precasted_expr_ptr->getSourceRange(), state1, Rewrite);
-					auto CSCESR = write_once_source_range(cm1_adj_nice_source_range(CSCE->getSourceRange(), state1, Rewrite));
-					auto cast_operation_SR = write_once_source_range(clang::SourceRange(CSCE->getLParenLoc(), CSCE->getRParenLoc()));
-
-					if ((csce_QT->isPointerType()) && precasted_expr_ptr->getType()->isPointerType() && cast_operation_SR.isValid()) {
-						std::string csce_QT_str = csce_QT.getAsString();
-						if ("void *" == csce_QT_str) {
-							/* This case is handled by the MCSSSExprUtil handler. */
-							finished_cast_handling_flag = true;
-						}
-					}
-
-					auto precasted_CE = llvm::dyn_cast<const clang::CallExpr>(precasted_expr_ptr->IgnoreParenCasts());
-					if (precasted_CE) {
-						auto alloc_function_info1 = analyze_malloc_resemblance(*precasted_CE, Rewrite);
-						if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
-							/* This case is handled elsewhere. */
-							finished_cast_handling_flag = true;
-						}
+						lhs_indirection_level_adjustment += 1;
 					}
 				}
-				if (!finished_cast_handling_flag) {
-					if (cast_qtype->isPointerType() || (cast_qtype->isReferenceType())) {
-						if (DD && (DD->getType()->isPointerType() || (DD->getType()->isReferenceType()))) {
-							auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
-							auto ddcs_map_iter = res1.first;
-							auto& ddcs_ref = (*ddcs_map_iter).second;
-							bool update_declaration_flag = res1.second;
 
-							auto cast_pointee_qtype = definition_qtype(cast_qtype->getPointeeType());
-							auto DD_pointee_qtype = definition_qtype(DD->getType()->getPointeeType());
+				if (llvm::isa<const clang::CallExpr>(RHS->IgnoreParenCasts())) {
+					auto CE = llvm::cast<const clang::CallExpr>(RHS->IgnoreParenCasts());
+					auto alloc_function_info1 = analyze_malloc_resemblance(*CE, Rewrite);
+					if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+						/* This seems to be some kind of malloc/realloc function. These case should not be
+						* handled here. They are handled elsewhere. */
+						return;
+					}
+				}
 
-							auto const_adjusted_cast_pointee_qtype = cast_pointee_qtype;
-							auto const_cast_pointee_qtype = const_adjusted_cast_pointee_qtype;
-							const_cast_pointee_qtype.addConst();
-							if (const_cast_pointee_qtype == DD_pointee_qtype) {
-								const_adjusted_cast_pointee_qtype = const_cast_pointee_qtype;
+				if (ConvertC2ValidCpp && (lhs_res2.ddecl_conversion_state_ptr) && (rhs_res2.ddecl_conversion_state_ptr) && lhs_is_an_indirect_type) {
+					for (size_t i = 0; lhs_indirection_level_adjustment > i; i += 1) {
+						/* These are the lhs indirection levels (actually, there should at max one) that
+						have no corresponding indirection level in the rhs variable because a `&`
+						("address of") operator caused the correspondence to be shifted (by one level). */
+						if (EIsAnInitialization::No == is_an_initialization) {
+							auto& lhs_indirection_state_ref = lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.at(i);
+							if (lhs_indirection_state_ref.xscope_eligibility()) {
+								/* Currently, (non-initialization) assignment operations make the
+								target (and therefore the source too) ineligible for xscope status. */
+								lhs_indirection_state_ref.set_xscope_eligibility(false);
+								lhs_res2.update_declaration_flag |= true;
+								state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*(lhs_res2.ddecl_cptr), i));
 							}
-							IF_DEBUG(std::string const_adjusted_cast_pointee_qtype_str = const_adjusted_cast_pointee_qtype.getAsString();)
-							IF_DEBUG(std::string const_cast_pointee_qtype_str = const_cast_pointee_qtype.getAsString();)
-							IF_DEBUG(std::string DD_qtype_str = definition_qtype(DD->getType()).getAsString();)
+						}
+					}
+					for (size_t i = 0; (i + lhs_res2.indirection_level + lhs_indirection_level_adjustment < (*(lhs_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack.size())
+												&& (i + rhs_res2.indirection_level < (*(rhs_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack.size()); i += 1) {
 
-							if (ConvertToSCPP) {
-								if (DD_pointee_qtype == const_adjusted_cast_pointee_qtype) {
-									for (size_t i = 0; i < ddcs_ref.m_indirection_state_stack.size(); ++i) {
-										std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CTargetConstrainsCStyleCastExprArray2ReplacementAction>(Rewrite, MR,
-												CDDeclIndirection(*DD, i), *CSCE);
+						auto adjusted_lhs_indirection_level = i + lhs_res2.indirection_level + lhs_indirection_level_adjustment;
+						auto rhs_indirection_level = i + rhs_res2.indirection_level;
 
-										if (ddcs_ref.has_been_determined_to_be_an_array(i)) {
-											(*cr_shptr).do_replacement(state1);
-										} else {
+						auto& lhs_indirection_state_ref = lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.at(adjusted_lhs_indirection_level);
+						auto& rhs_indirection_state_ref = rhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.at(rhs_indirection_level);
+
+						{
+							auto& lhs_is_ineligible_for_xscope_status = lhs_indirection_state_ref.m_is_ineligible_for_xscope_status;
+							auto& rhs_is_ineligible_for_xscope_status = rhs_indirection_state_ref.m_is_ineligible_for_xscope_status;
+
+							if ((0 == i) && (EIsAnInitialization::No == is_an_initialization) && (false == lhs_is_ineligible_for_xscope_status)) {
+								/* Currently, (non-initialization) assignment operations make the
+								target (and therefore the source too) ineligible for xscope status. */
+								lhs_is_ineligible_for_xscope_status = rhs_is_ineligible_for_xscope_status;
+								lhs_res2.update_declaration_flag |= true;
+								state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*(lhs_res2.ddecl_cptr), adjusted_lhs_indirection_level));
+							}
+
+							if (lhs_is_ineligible_for_xscope_status) {
+								if (!rhs_is_ineligible_for_xscope_status) {
+									rhs_is_ineligible_for_xscope_status = lhs_is_ineligible_for_xscope_status;
+									rhs_res2.update_declaration_flag |= true;
+									state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level));
+								}
+							}					}
+
+						{
+							/* Here we're establishing and "enforcing" the constraint that the rhs value must
+							* be of an (array) type that can be assigned to the lhs. */
+							std::shared_ptr<CArray2ReplacementAction> cr_shptr;
+							if (1 > adjusted_lhs_indirection_level) {
+								cr_shptr = std::make_shared<CAssignmentTargetConstrainsSourceArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(lhs_res2.ddecl_cptr), adjusted_lhs_indirection_level), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level));
+							} else {
+								/* Levels of indirection beyond the first one must be of the same type,
+								* not just of "compatible" types. */
+								cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(lhs_res2.ddecl_cptr), adjusted_lhs_indirection_level), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level));
+							}
+
+							if ((*(lhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(adjusted_lhs_indirection_level)) {
+								(*cr_shptr).do_replacement(state1);
+								if (!(*(lhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_a_dynamic_array(adjusted_lhs_indirection_level)) {
+									state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+								}
+							} else {
+								state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+								state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+
+								if ((*(lhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_ineligible_for_xscope_status(adjusted_lhs_indirection_level)) {
+									(*cr_shptr).do_replacement(state1);
+								} else {
+									state1.m_xscope_ineligibility_contingent_replacement_map.insert(cr_shptr);
+								}
+							}
+						}
+						{
+							/* Here we're establishing the constraint in the opposite direction as well. */
+							std::shared_ptr<CArray2ReplacementAction> cr_shptr;
+							if (1 > adjusted_lhs_indirection_level) {
+								cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level), CDDeclIndirection(*(lhs_res2.ddecl_cptr), adjusted_lhs_indirection_level));
+							} else {
+								/* Levels of indirection beyond the first one must be of the same type,
+								* not just of "compatible" types. */
+								cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level), CDDeclIndirection(*(lhs_res2.ddecl_cptr), adjusted_lhs_indirection_level));
+							}
+
+							if ((*(rhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(rhs_indirection_level)) {
+								(*cr_shptr).do_replacement(state1);
+								if (!(*(rhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_a_dynamic_array(rhs_indirection_level)) {
+									state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+								}
+							} else {
+								state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+								state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+							}
+						}
+					}
+				}
+
+				IF_DEBUG(auto b1 = rhs_res2.ddecl_cptr ? llvm::isa<const clang::FunctionDecl>(rhs_res2.ddecl_cptr) : false;)
+				IF_DEBUG(std::string rhs_qtype_str = RHS->getType().getAsString();)
+				IF_DEBUG(std::string rhs_ddecl_qtype_str = rhs_res2.ddecl_cptr ? rhs_res2.ddecl_cptr->getType().getAsString() : std::string("");)
+
+				if (lhs_res2.ddecl_cptr && rhs_res2.ddecl_cptr && lhs_res2.ddecl_conversion_state_ptr && rhs_res2.ddecl_conversion_state_ptr) {
+					if (((0 == rhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size()) || (0 == rhs_res2.indirection_level))
+						&& llvm::isa<const clang::FunctionDecl>(rhs_res2.ddecl_cptr)) {
+
+						auto rhs_FND = llvm::cast<const clang::FunctionDecl>(rhs_res2.ddecl_cptr);
+
+						if ((CDDeclIndirection::no_indirection == lhs_res2.indirection_level) || (0 == lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size())) {
+						} else if (lhs_res2.indirection_level >= lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size()) {
+							assert(lhs_res2.indirection_level == lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size());
+							auto& lhs_direct_type_state_ref = lhs_res2.ddecl_conversion_state_ptr->direct_type_state_ref();
+							auto lhs_pointee_maybe_qtype = lhs_direct_type_state_ref.current_qtype_if_any();
+							if (lhs_pointee_maybe_qtype.has_value()) {
+								auto lhs_pointee_qtype = lhs_pointee_maybe_qtype.value();
+								if (lhs_pointee_qtype->isFunctionType()) {
+									lhs_direct_type_state_ref.m_function_type_state.m_function_decl_ptr = rhs_FND;
+									update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+
+									for (auto param_PVD : rhs_FND->parameters()) {
+										auto PVD_res1 = state1.m_ddecl_conversion_state_map.insert(*param_PVD);
+										auto PVD_ddcs_map_iter = PVD_res1.first;
+										auto& PVD_ddcs_ref = (*PVD_ddcs_map_iter).second;
+										for (size_t j = 0; j < PVD_ddcs_ref.m_indirection_state_stack.size(); j += 1) {
+											auto cr_shptr = std::make_shared<CUpdateDeclIndirectionArray2ReplacementAction>(Rewrite, MR,
+												CDDeclIndirection(*param_PVD, j),
+												CDDeclIndirection(*(lhs_res2.ddecl_conversion_state_ptr->m_ddecl_cptr), CDDeclIndirection::no_indirection));
 											state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+											state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
 										}
 									}
 								} else {
-									CSCE ? handle_c_style_cast_without_context(MR, Rewrite, state1, CSCE)
-										: handle_cxx_static_cast_without_context(MR, Rewrite, state1, CXXSCE);
+									int q = 5;
 								}
-							}
-						}
-					}
-				}
-			}
-
-			int lhs_indirection_level_adjustment = 0;
-			auto rhs_res3 = leading_addressof_operator_info_from_stmt(*RHS);
-			if (rhs_res3.without_leading_addressof_operator_expr_cptr) {
-				assert(rhs_res3.leading_addressof_operator_detected && rhs_res3.addressof_unary_operator_cptr);
-
-				RHS = rhs_res3.without_leading_addressof_operator_expr_cptr;
-				rhs_res2 = infer_array_type_info_from_stmt(*RHS, "", state1);
-
-				auto without_leading_addressof_operator_expr_cptr_ii = IgnoreParenImpNoopCasts(rhs_res3.without_leading_addressof_operator_expr_cptr, *(MR.Context));
-				if (false && (clang::Stmt::StmtClass::ArraySubscriptExprClass == (*(without_leading_addressof_operator_expr_cptr_ii)).getStmtClass())) {
-					assert(llvm::isa<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr_ii));
-					if (1 <= rhs_res2.indirection_level) {
-						rhs_res2.indirection_level -= 1;
-					} else {
-						int q = 3;
-					}
-				} else {
-					lhs_indirection_level_adjustment += 1;
-				}
-			}
-
-			if (llvm::isa<const clang::CallExpr>(RHS->IgnoreParenCasts())) {
-				auto CE = llvm::cast<const clang::CallExpr>(RHS->IgnoreParenCasts());
-				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, Rewrite);
-				if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
-					/* This seems to be some kind of malloc/realloc function. These case should not be
-					* handled here. They are handled elsewhere. */
-					return;
-				}
-			}
-
-			if (ConvertToSCPP && (lhs_res2.ddecl_conversion_state_ptr) && (rhs_res2.ddecl_conversion_state_ptr) && lhs_is_an_indirect_type) {
-				for (size_t i = 0; lhs_indirection_level_adjustment > i; i += 1) {
-					/* These are the lhs indirection levels (actually, there should at max one) that
-					have no corresponding indirection level in the rhs variable because a `&`
-					("address of") operator caused the correspondence to be shifted (by one level). */
-					if (EIsAnInitialization::No == is_an_initialization) {
-						auto& lhs_indirection_state_ref = lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.at(i);
-						if (lhs_indirection_state_ref.xscope_eligibility()) {
-							/* Currently, (non-initialization) assignment operations make the
-							target (and therefore the source too) ineligible for xscope status. */
-							lhs_indirection_state_ref.set_xscope_eligibility(false);
-							lhs_res2.update_declaration_flag |= true;
-							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*(lhs_res2.ddecl_cptr), i));
-						}
-					}
-				}
-				for (size_t i = 0; (i + lhs_res2.indirection_level + lhs_indirection_level_adjustment < (*(lhs_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack.size())
-											&& (i + rhs_res2.indirection_level < (*(rhs_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack.size()); i += 1) {
-
-					auto adjusted_lhs_indirection_level = i + lhs_res2.indirection_level + lhs_indirection_level_adjustment;
-					auto rhs_indirection_level = i + rhs_res2.indirection_level;
-
-					auto& lhs_indirection_state_ref = lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.at(adjusted_lhs_indirection_level);
-					auto& rhs_indirection_state_ref = rhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.at(rhs_indirection_level);
-
-					{
-						auto& lhs_is_ineligible_for_xscope_status = lhs_indirection_state_ref.m_is_ineligible_for_xscope_status;
-						auto& rhs_is_ineligible_for_xscope_status = rhs_indirection_state_ref.m_is_ineligible_for_xscope_status;
-
-						if ((0 == i) && (EIsAnInitialization::No == is_an_initialization) && (false == lhs_is_ineligible_for_xscope_status)) {
-							/* Currently, (non-initialization) assignment operations make the
-							target (and therefore the source too) ineligible for xscope status. */
-							lhs_is_ineligible_for_xscope_status = rhs_is_ineligible_for_xscope_status;
-							lhs_res2.update_declaration_flag |= true;
-							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*(lhs_res2.ddecl_cptr), adjusted_lhs_indirection_level));
-						}
-
-						if (lhs_is_ineligible_for_xscope_status) {
-							if (!rhs_is_ineligible_for_xscope_status) {
-								rhs_is_ineligible_for_xscope_status = lhs_is_ineligible_for_xscope_status;
-								rhs_res2.update_declaration_flag |= true;
-								state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level));
-							}
-						}					}
-
-					{
-						/* Here we're establishing and "enforcing" the constraint that the rhs value must
-						* be of an (array) type that can be assigned to the lhs. */
-						std::shared_ptr<CArray2ReplacementAction> cr_shptr;
-						if (1 > adjusted_lhs_indirection_level) {
-							cr_shptr = std::make_shared<CAssignmentTargetConstrainsSourceArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(lhs_res2.ddecl_cptr), adjusted_lhs_indirection_level), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level));
-						} else {
-							/* Levels of indirection beyond the first one must be of the same type,
-							* not just of "compatible" types. */
-							cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(lhs_res2.ddecl_cptr), adjusted_lhs_indirection_level), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level));
-						}
-
-						if ((*(lhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(adjusted_lhs_indirection_level)) {
-							(*cr_shptr).do_replacement(state1);
-							if (!(*(lhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_a_dynamic_array(adjusted_lhs_indirection_level)) {
-								state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
-							}
-						} else {
-							state1.m_array2_contingent_replacement_map.insert(cr_shptr);
-							state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
-
-							if ((*(lhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_ineligible_for_xscope_status(adjusted_lhs_indirection_level)) {
-								(*cr_shptr).do_replacement(state1);
 							} else {
-								state1.m_xscope_ineligibility_contingent_replacement_map.insert(cr_shptr);
-							}
-						}
-					}
-					{
-						/* Here we're establishing the constraint in the opposite direction as well. */
-						std::shared_ptr<CArray2ReplacementAction> cr_shptr;
-						if (1 > adjusted_lhs_indirection_level) {
-							cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level), CDDeclIndirection(*(lhs_res2.ddecl_cptr), adjusted_lhs_indirection_level));
-						} else {
-							/* Levels of indirection beyond the first one must be of the same type,
-							* not just of "compatible" types. */
-							cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level), CDDeclIndirection(*(lhs_res2.ddecl_cptr), adjusted_lhs_indirection_level));
-						}
-
-						if ((*(rhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(rhs_indirection_level)) {
-							(*cr_shptr).do_replacement(state1);
-							if (!(*(rhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_a_dynamic_array(rhs_indirection_level)) {
-								state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+								int q = 3;
 							}
 						} else {
-							state1.m_array2_contingent_replacement_map.insert(cr_shptr);
-							state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
-						}
-					}
-				}
-			}
-
-			IF_DEBUG(auto b1 = rhs_res2.ddecl_cptr ? llvm::isa<const clang::FunctionDecl>(rhs_res2.ddecl_cptr) : false;)
-			IF_DEBUG(std::string rhs_qtype_str = RHS->getType().getAsString();)
-			IF_DEBUG(std::string rhs_ddecl_qtype_str = rhs_res2.ddecl_cptr ? rhs_res2.ddecl_cptr->getType().getAsString() : std::string("");)
-
-			if (lhs_res2.ddecl_cptr && rhs_res2.ddecl_cptr && lhs_res2.ddecl_conversion_state_ptr && rhs_res2.ddecl_conversion_state_ptr) {
-				if (((0 == rhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size()) || (0 == rhs_res2.indirection_level))
-					&& llvm::isa<const clang::FunctionDecl>(rhs_res2.ddecl_cptr)) {
-
-					auto rhs_FND = llvm::cast<const clang::FunctionDecl>(rhs_res2.ddecl_cptr);
-
-					if ((CDDeclIndirection::no_indirection == lhs_res2.indirection_level) || (0 == lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size())) {
-					} else if (lhs_res2.indirection_level >= lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size()) {
-						assert(lhs_res2.indirection_level == lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size());
-						auto& lhs_direct_type_state_ref = lhs_res2.ddecl_conversion_state_ptr->direct_type_state_ref();
-						auto lhs_pointee_maybe_qtype = lhs_direct_type_state_ref.current_qtype_if_any();
-						if (lhs_pointee_maybe_qtype.has_value()) {
-							auto lhs_pointee_qtype = lhs_pointee_maybe_qtype.value();
-							if (lhs_pointee_qtype->isFunctionType()) {
-								lhs_direct_type_state_ref.m_function_type_state.m_function_decl_ptr = rhs_FND;
+							auto& lhs_pointee_indirection_state_ref = lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.at(lhs_res2.indirection_level);
+							if (lhs_pointee_indirection_state_ref.m_current_is_function_type) {
+								lhs_pointee_indirection_state_ref.m_function_type_state.m_function_decl_ptr = rhs_FND;
 								update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 
 								for (auto param_PVD : rhs_FND->parameters()) {
@@ -10016,7 +10071,7 @@ namespace convm1 {
 									for (size_t j = 0; j < PVD_ddcs_ref.m_indirection_state_stack.size(); j += 1) {
 										auto cr_shptr = std::make_shared<CUpdateDeclIndirectionArray2ReplacementAction>(Rewrite, MR,
 											CDDeclIndirection(*param_PVD, j),
-											CDDeclIndirection(*(lhs_res2.ddecl_conversion_state_ptr->m_ddecl_cptr), CDDeclIndirection::no_indirection));
+											CDDeclIndirection(*(lhs_res2.ddecl_conversion_state_ptr->m_ddecl_cptr), lhs_res2.indirection_level));
 										state1.m_array2_contingent_replacement_map.insert(cr_shptr);
 										state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
 									}
@@ -10024,66 +10079,43 @@ namespace convm1 {
 							} else {
 								int q = 5;
 							}
-						} else {
-							int q = 3;
 						}
-					} else {
-						auto& lhs_pointee_indirection_state_ref = lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.at(lhs_res2.indirection_level);
-						if (lhs_pointee_indirection_state_ref.m_current_is_function_type) {
-							lhs_pointee_indirection_state_ref.m_function_type_state.m_function_decl_ptr = rhs_FND;
-							update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+					}
+					if (true || (CDDeclIndirection::no_indirection == lhs_res2.indirection_level)) {
+						auto res1 = state1.m_ddecl_conversion_state_map.insert(*(lhs_res2.ddecl_cptr));
+						auto ddcs_map_iter = res1.first;
+						auto& ddcs_ref = (*ddcs_map_iter).second;
+						bool update_declaration_flag = res1.second;
 
-							for (auto param_PVD : rhs_FND->parameters()) {
-								auto PVD_res1 = state1.m_ddecl_conversion_state_map.insert(*param_PVD);
-								auto PVD_ddcs_map_iter = PVD_res1.first;
-								auto& PVD_ddcs_ref = (*PVD_ddcs_map_iter).second;
-								for (size_t j = 0; j < PVD_ddcs_ref.m_indirection_state_stack.size(); j += 1) {
-									auto cr_shptr = std::make_shared<CUpdateDeclIndirectionArray2ReplacementAction>(Rewrite, MR,
-										CDDeclIndirection(*param_PVD, j),
-										CDDeclIndirection(*(lhs_res2.ddecl_conversion_state_ptr->m_ddecl_cptr), lhs_res2.indirection_level));
-									state1.m_array2_contingent_replacement_map.insert(cr_shptr);
-									state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+						auto adjusted_lhs_indirection_level = lhs_res2.indirection_level + lhs_indirection_level_adjustment;
+						auto rhs_indirection_level = rhs_res2.indirection_level;
+						if (adjusted_lhs_indirection_level == rhs_indirection_level) {
+							auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(rhs_res2.ddecl_cptr));
+							auto rhs_ddcs_map_iter = rhs_res1.first;
+							auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
+							bool rhs_update_declaration_flag = rhs_res1.second;
+
+							auto& lhs_function_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state;
+							auto& rhs_function_state_ref = rhs_ddcs_ref.direct_type_state_ref().m_function_type_state;
+							if (rhs_function_state_ref.has_been_changed()) {
+								if (!lhs_function_state_ref.has_been_changed()) {
+									lhs_function_state_ref = rhs_function_state_ref;
+								} else {
+									int q = 7;
 								}
+							} else if (lhs_function_state_ref.has_been_changed()) {
+								rhs_function_state_ref = lhs_function_state_ref;
 							}
-						} else {
-							int q = 5;
 						}
 					}
 				}
-				if (true || (CDDeclIndirection::no_indirection == lhs_res2.indirection_level)) {
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*(lhs_res2.ddecl_cptr));
-					auto ddcs_map_iter = res1.first;
-					auto& ddcs_ref = (*ddcs_map_iter).second;
-					bool update_declaration_flag = res1.second;
 
-					auto adjusted_lhs_indirection_level = lhs_res2.indirection_level + lhs_indirection_level_adjustment;
-					auto rhs_indirection_level = rhs_res2.indirection_level;
-					if (adjusted_lhs_indirection_level == rhs_indirection_level) {
-						auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(rhs_res2.ddecl_cptr));
-						auto rhs_ddcs_map_iter = rhs_res1.first;
-						auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
-						bool rhs_update_declaration_flag = rhs_res1.second;
-
-						auto& lhs_function_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state;
-						auto& rhs_function_state_ref = rhs_ddcs_ref.direct_type_state_ref().m_function_type_state;
-						if (rhs_function_state_ref.has_been_changed()) {
-							if (!lhs_function_state_ref.has_been_changed()) {
-								lhs_function_state_ref = rhs_function_state_ref;
-							} else {
-								int q = 7;
-							}
-						} else if (lhs_function_state_ref.has_been_changed()) {
-							rhs_function_state_ref = lhs_function_state_ref;
-						}
-					}
+				if (lhs_res2.ddecl_cptr && lhs_res2.update_declaration_flag) {
+					update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 				}
-			}
-
-			if (lhs_res2.ddecl_cptr && lhs_res2.update_declaration_flag) {
-				update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
-			}
-			if (rhs_res2.ddecl_cptr && rhs_res2.update_declaration_flag) {
-				update_declaration_if_not_suppressed(*(rhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+				if (rhs_res2.ddecl_cptr && rhs_res2.update_declaration_flag) {
+					update_declaration_if_not_suppressed(*(rhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+				}
 			}
 		}
 
@@ -10118,7 +10150,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10163,7 +10195,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10244,7 +10276,7 @@ namespace convm1 {
 								}
 								auto& arg_shptr_ref = (*arg_iter).second;
 
-								if (ConvertToSCPP) {
+								if (ConvertC2ValidCpp) {
 									std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
 									if (1 <= (*arg_shptr_ref).m_expr_text_modifier_stack.size()) {
 										if ("unsafe make raw pointer from" == (*arg_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
@@ -10297,7 +10329,7 @@ namespace convm1 {
 										}
 										auto& arg_shptr_ref = (*arg_iter).second;
 
-										if (ConvertToSCPP) {
+										if (ConvertC2ValidCpp) {
 											std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
 											if (1 <= (*arg_shptr_ref).m_expr_text_modifier_stack.size()) {
 												if ("unsafe make raw pointer from" == (*arg_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
@@ -10354,7 +10386,7 @@ namespace convm1 {
 											(*arg_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 											(*arg_shptr_ref).update_current_text();
 
-											if (ConvertToSCPP) {
+											if (ConvertC2ValidCpp) {
 												std::shared_ptr<CDDeclIndirectionReplacementAction> cr_shptr = std::make_shared<CExprTextDDIReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, CDDeclIndirection::no_indirection), arg_EX, (*arg_shptr_ref).m_current_text_str);
 
 												if (ddcs_ref.has_been_determined_to_be_a_pointer_target()) {
@@ -10432,7 +10464,7 @@ namespace convm1 {
 							return;
 						}
 
-						if (ConvertToSCPP) {
+						if (ConvertC2ValidCpp) {
 							auto args = CE->arguments();
 							for (auto arg : args) {
 								auto rhs_res2 = infer_array_type_info_from_stmt(*arg, "", state1);
@@ -10513,7 +10545,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10572,7 +10604,7 @@ namespace convm1 {
 											if (DRE2) {
 												auto arg_VD2 = dyn_cast<const clang::VarDecl>(DRE2->getDecl());
 												if (arg_VD2) {
-													if (ConvertToSCPP) {
+													if (ConvertC2ValidCpp) {
 														/* Here we imposing that the passed argument be of the same type as the (non-const) reference
 														parameter. In particular, if the reference parameter is converted to a "safely addressable"
 														type (that has its '&' operator overloaded), then any passed argument must also be converted
@@ -10649,7 +10681,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10801,7 +10833,7 @@ namespace convm1 {
 								return;
 							}
 
-							if (ConvertToSCPP && decl_source_range.isValid() && (SR.isValid())) {
+							if (ConvertC2ValidCpp && decl_source_range.isValid() && (SR.isValid())) {
 								auto cr_shptr = std::make_shared<CInitializerArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0/*indirection_level*/), array_initializer_info_str);
 
 								if (lhs_has_been_determined_to_be_an_array) {
@@ -10856,7 +10888,7 @@ namespace convm1 {
 					* "sizeof(something) * something_else". So we're just going to assume that
 					* this is an instance of an array being allocated. */
 
-					if (ConvertToSCPP && SR.isValid()) {
+					if (ConvertC2ValidCpp && SR.isValid()) {
 						auto lambda = [MR, *this, CE, DD](){ s_handler1(MR, (*this).Rewrite, (*this).m_state1, CE, DD); };
 						/* This modification needs to be queued so that it will be executed after any other
 						modifications that might affect the relevant part of the source text. */
@@ -10892,7 +10924,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10983,7 +11015,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10994,7 +11026,7 @@ namespace convm1 {
 					return;
 				}
 
-				if (ConvertToSCPP && SR.isValid()) {
+				if (ConvertC2ValidCpp && SR.isValid()) {
 					s_handler1(MR, (*this).Rewrite, (*this).m_state1, FND, RS, DRE);
 				} else {
 					int q = 7;
@@ -11030,7 +11062,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -11136,7 +11168,7 @@ namespace convm1 {
 							}
 						}
 
-						if (ConvertToSCPP && (SR.isValid()) && ("" != ce_replacement_code)) {
+						if (ConvertC2ValidCpp && (SR.isValid()) && ("" != ce_replacement_code)) {
 							auto cr_shptr = std::make_shared<CExprTextDDIReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), CE, ce_replacement_code);
 							if ((nullptr != res2.ddecl_conversion_state_ptr)) {
 								if (true || (*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(res2.indirection_level)) {
@@ -11186,7 +11218,7 @@ namespace convm1 {
 					std::string function_name = function_decl->getNameAsString();
 					static const std::string fread_str = "fread";
 					if (fread_str == function_name) {
-						if (ConvertToSCPP && SR.isValid()) {
+						if (ConvertC2ValidCpp && SR.isValid()) {
 
 							auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
 							/* This modification needs to be queued so that it will be executed after any other
@@ -11329,7 +11361,7 @@ namespace convm1 {
 							}
 						}
 
-						if (ConvertToSCPP && (SR.isValid()) && ("" != ce_replacement_code)) {
+						if (ConvertC2ValidCpp && (SR.isValid()) && ("" != ce_replacement_code)) {
 							auto cr_shptr = std::make_shared<CExprTextDDIReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), CE, ce_replacement_code);
 							if ((nullptr != res2.ddecl_conversion_state_ptr)) {
 								if (true || (*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(res2.indirection_level)) {
@@ -11367,7 +11399,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -11386,7 +11418,7 @@ namespace convm1 {
 					std::string function_name = function_decl->getNameAsString();
 					static const std::string fwrite_str = "fwrite";
 					if (fwrite_str == function_name) {
-						if (ConvertToSCPP && SR.isValid()) {
+						if (ConvertC2ValidCpp && SR.isValid()) {
 
 							auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
 							/* This modification needs to be queued so that it will be executed after any other
@@ -11428,7 +11460,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -11905,7 +11937,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -11916,7 +11948,7 @@ namespace convm1 {
 					return;
 				}
 
-				if (ConvertToSCPP && SR.isValid()) {
+				if (ConvertC2ValidCpp && SR.isValid()) {
 					if (false) {
 						auto lambda = [MR, *this](){ s_handler1(MR, (*this).Rewrite, (*this).m_state1); };
 						/* This modification needs to be queued so that it will be executed after any other
@@ -11958,7 +11990,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 				if (std::string::npos != debug_source_text.find("png_malloc")) {
@@ -11978,6 +12010,16 @@ namespace convm1 {
 
 				auto E_ii = IgnoreParenImpNoopCasts(E, *(MR.Context));
 
+				auto BO = dyn_cast<const clang::BinaryOperator>(E_ii);
+				if (BO) {
+					if (clang::BinaryOperator::Opcode::BO_Assign == BO->getOpcode()) {
+						if (BO->getLHS()->getType()->isPointerType()) {
+							MCSSSAssignment::s_handler1(MR, Rewrite, state1, BO->getLHS(), BO->getRHS());
+						}
+					}
+				}
+
+#if 0
 				auto *CSCE = dyn_cast<const clang::CStyleCastExpr>(E);
 				if (CSCE) {
 					bool finished_cast_handling_flag = false;
@@ -12105,6 +12147,7 @@ namespace convm1 {
 						}
 					}
 				}
+#endif /*0*/
 			}
 		}
 
@@ -12124,7 +12167,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -12135,7 +12178,7 @@ namespace convm1 {
 					return;
 				}
 
-				if (ConvertToSCPP && SR.isValid()) {
+				if (ConvertC2ValidCpp && SR.isValid()) {
 					s_handler1(MR, (*this).Rewrite, (*this).m_state1);
 				} else {
 					int q = 7;
@@ -12170,7 +12213,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -12711,6 +12754,7 @@ namespace convm1 {
 		HandlerForSSSArgToReferenceParameterPassing(R, tu_state()), HandlerForSSSReturnValue(R, tu_state()), HandlerForSSSFRead(R, tu_state()), HandlerForSSSFWrite(R, tu_state()), 
 		HandlerForSSSAddressOf(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForMisc1(R, tu_state(), CI)
 	{
+#if 0
 		Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerForMisc1);
 
 		/* The ordering of the matchers has not yet been thoroughly considered, but generally you'd want
@@ -12722,9 +12766,11 @@ namespace convm1 {
 					hasType(pointerType()), anyOf(clang::ast_matchers::implicitCastExpr(), clang::ast_matchers::cStyleCastExpr().bind("b"))
 					)))))).bind("a"),
 			&HandlerForSSSNullToPointer);
+#endif /*0*/
 
 		Matcher.addMatcher(expr().bind("mcsssexprutil1"), &HandlerForSSSExprUtil);
 
+#if 0
 		Matcher.addMatcher(expr(allOf(
 				hasParent(expr(anyOf(
 					unaryOperator(hasOperatorName("++")), unaryOperator(hasOperatorName("--")),
@@ -12901,6 +12947,7 @@ namespace convm1 {
 					)),
 					hasLHS(expr(hasType(pointerType())))
 					)).bind("mcssscomparewithnull1"), &HandlerForSSSCompareWithNull2);
+#endif /*0*/
 
 		Matcher.addMatcher(binaryOperator(allOf(
 				anyOf(hasOperatorName("="), hasOperatorName("=="), hasOperatorName("!="),
@@ -12921,6 +12968,7 @@ namespace convm1 {
 				))).bind("mcsssassignment7")
 					)), &HandlerForSSSAssignment);
 
+#if 0
 		Matcher.addMatcher(clang::ast_matchers::recordDecl().bind("mcsssrecorddecl"), &HandlerForSSSRecordDecl);
 
 		Matcher.addMatcher(varDecl(hasInitializer(ignoringParenCasts(
@@ -12949,6 +12997,7 @@ namespace convm1 {
 				))).bind("mcsssconditionalinitializer3"), &HandlerForSSSConditionalInitializer);
 
 		Matcher.addMatcher(decl().bind("mcsssdeclutil1"), &HandlerForSSSDeclUtil);
+#endif /*0*/
 
 	}
 
@@ -13273,7 +13322,7 @@ namespace convm1 {
 			}
 		}
 		~MyFrontendActionPass1() {
-			if (ConvertToSCPP) {
+			if (ConvertC2ValidCpp) {
 				auto res = overwriteChangedFiles();
 				int q = 5;
 			}
@@ -13318,7 +13367,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+					if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -13396,7 +13445,7 @@ namespace convm1 {
 							continue;
 						}
 
-						if (!(fii_ref.m_legacyhelpers_include_directive_found)) {
+						if (false && !(fii_ref.m_legacyhelpers_include_directive_found)) {
 							if (false/* While it might be aesthetically nicer to put our include directive
 								together with the (first) ones already present, it is sometimes not correct. */
 								&& fii_ref.m_first_include_directive_loc_is_valid) {
@@ -13915,7 +13964,7 @@ namespace convm1 {
 
         CheckSystemHeader = options.CheckSystemHeader;
         MainFileOnly = options.MainFileOnly;
-        ConvertToSCPP = options.ConvertToSCPP;
+        ConvertC2ValidCpp = options.ConvertC2ValidCpp;
         CTUAnalysis = options.CTUAnalysis;
         EnableNamespaceImport = options.EnableNamespaceImport;
         SuppressPrompts = options.SuppressPrompts;
@@ -14006,7 +14055,5 @@ namespace convm1 {
 		return retval;
 	}
 }
-#else /*!EXCLUDE_CONVERTER_MODE1*/
-#endif /*!EXCLUDE_CONVERTER_MODE1*/
 
-#endif //__CONVERTER_MODE1_H
+#endif //__CONVERTER_C2VALIDCPP_H

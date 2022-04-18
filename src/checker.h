@@ -2301,6 +2301,9 @@ namespace checker {
 									DECLARE_CACHED_CONST_STRING(fixed_optional_str, mse_namespace_str() + "::fixed_optional");
 									DECLARE_CACHED_CONST_STRING(xscope_fixed_optional_str, mse_namespace_str() + "::xscope_fixed_optional");
 									DECLARE_CACHED_CONST_STRING(xscope_borrowing_fixed_optional_str, mse_namespace_str() + "::xscope_borrowing_fixed_optional");
+									DECLARE_CACHED_CONST_STRING(fixed_any_str, mse_namespace_str() + "::fixed_any");
+									DECLARE_CACHED_CONST_STRING(xscope_fixed_any_str, mse_namespace_str() + "::xscope_fixed_any");
+									DECLARE_CACHED_CONST_STRING(xscope_borrowing_fixed_any_str, mse_namespace_str() + "::xscope_borrowing_fixed_any");
 
 									auto qname = CXXRD->getQualifiedNameAsString();
 									if ((xscope_owner_ptr_str == qname) || (xscope_tuple_str == qname)
@@ -2312,6 +2315,7 @@ namespace checker {
 										|| (fixed_nii_vector_str == qname) || (xscope_fixed_nii_vector_str == qname) || (xscope_borrowing_fixed_nii_vector_str == qname)
 										|| (fixed_nii_basic_string_str == qname) || (xscope_fixed_nii_basic_string_str == qname) || (xscope_borrowing_fixed_nii_basic_string_str == qname)
 										|| (fixed_optional_str == qname) || (xscope_fixed_optional_str == qname) || (xscope_borrowing_fixed_optional_str == qname)
+										|| (fixed_any_str == qname) || (xscope_fixed_any_str == qname) || (xscope_borrowing_fixed_any_str == qname)
 										) {
 										retval = lower_bound_lifetime_owner_if_available(potential_owner_EX_ii, Ctx, tu_state_ref);
 									}
@@ -2607,6 +2611,8 @@ namespace checker {
 									DECLARE_CACHED_CONST_STRING(xscope_borrowing_fixed_nii_basic_string_str, mse_namespace_str() + "::xscope_borrowing_fixed_nii_basic_string");
 									DECLARE_CACHED_CONST_STRING(xscope_fixed_optional_str, mse_namespace_str() + "::xscope_fixed_optional");
 									DECLARE_CACHED_CONST_STRING(xscope_borrowing_fixed_optional_str, mse_namespace_str() + "::xscope_borrowing_fixed_optional");
+									DECLARE_CACHED_CONST_STRING(xscope_fixed_any_str, mse_namespace_str() + "::xscope_fixed_any");
+									DECLARE_CACHED_CONST_STRING(xscope_borrowing_fixed_any_str, mse_namespace_str() + "::xscope_borrowing_fixed_any");
 
 									static const std::string std_unique_ptr_str = "std::unique_ptr";
 									static const std::string std_shared_ptr_str = "std::shared_ptr";
@@ -2651,6 +2657,7 @@ namespace checker {
 										|| (xscope_nii_array_str == qname) || (xscope_fixed_nii_vector_str == qname) || (xscope_borrowing_fixed_nii_vector_str == qname)
 										|| (xscope_fixed_nii_basic_string_str == qname) || (xscope_borrowing_fixed_nii_basic_string_str == qname)
 										|| (xscope_fixed_optional_str == qname) || (xscope_borrowing_fixed_optional_str == qname)
+										|| (xscope_fixed_any_str == qname) || (xscope_borrowing_fixed_any_str == qname)
 
 										/*
 										|| (mstd_optional_str == qname) || (mstd_tuple_str == qname)
