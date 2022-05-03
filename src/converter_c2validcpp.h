@@ -66,6 +66,7 @@ namespace convc2validcpp {
     bool CheckSystemHeader = false;
     bool MainFileOnly = false;
     bool ConvertC2ValidCpp = true;
+    bool ExpandPointerMacros = false;
     bool CTUAnalysis = false;
     bool EnableNamespaceImport = false;
     bool SuppressPrompts = false;
@@ -81,6 +82,7 @@ namespace convc2validcpp {
         bool CheckSystemHeader = false;
         bool MainFileOnly = false;
         bool ConvertC2ValidCpp = true;
+		bool ExpandPointerMacros = false;
         bool CTUAnalysis = false;
         bool EnableNamespaceImport = false;
         bool SuppressPrompts = false;
@@ -2574,6 +2576,13 @@ namespace convc2validcpp {
 							std::string text1 = Rewrite.getRewrittenText({ SL1, SL1 });
 							SL1 = SL1.getLocWithOffset(+text1.length());
 							text1 = Rewrite.getRewrittenText({ SL1, SL1 });
+							while ("" == text1) {
+								SL1 = SL1.getLocWithOffset(+1);
+								if (!(SL1.isValid())) {
+									break;
+								}
+								text1 = Rewrite.getRewrittenText({ SL1, SL1 });
+							}
 							if ("(" == text1) {
 								auto maybe_close_paren_SL = matching_close_parentheses_if_any(Rewrite, SL1.getLocWithOffset(+1));
 								if (maybe_close_paren_SL.has_value()) {
@@ -2588,8 +2597,8 @@ namespace convc2validcpp {
 						if (true) {
 							auto found_macro_iter = state1.m_pp_macro_definitions.find(macro_name);
 							if (state1.m_pp_macro_definitions.end() != found_macro_iter) {
-								std::string macro_def_text = Rewrite.getRewrittenText(found_macro_iter->second.definition_SR());
-								auto found_iter2 = macro_def_text.find_first_of(";=");
+								std::string macro_decl_text = Rewrite.getRewrittenText(found_macro_iter->second.definition_SR());
+								auto found_iter2 = macro_decl_text.find_first_of(";=");
 								if (std::string::npos == found_iter2) {
 									/* Here we're going to assume that the macro definition is just a single
 									expression. (Todo: improve the criteria for making such an assumption.) So
@@ -11968,6 +11977,361 @@ namespace convc2validcpp {
 		CTUState& m_state1;
 	};
 
+	struct Parse {
+		typedef decltype(std::declval<std::string_view>().length()) index_t;
+		typedef std::pair<index_t, index_t> range_t;
+
+		template<typename T>
+		static auto length(const T& range) {
+			return range.second - range.first;
+		}
+
+		template<typename T>
+		static auto substring_view(std::string_view sv1, T range) {
+			auto retval = sv1;
+			if (sv1.length() < range.second) {
+				range.second = sv1.length();
+			}
+			if (range.second < range.first) {
+				retval.remove_prefix(retval.length());
+			}
+			else {
+				retval.remove_suffix(retval.length() - range.second);
+				assert(retval.length() >= range.first);
+				retval.remove_prefix(range.first);
+			}
+
+			return retval;
+		}
+
+		static auto find_non_whitespace(std::string_view sv1, size_t pos = 0) {
+			if (pos > sv1.length()) { pos = sv1.length(); }
+			auto res_iter = std::find_if(sv1.cbegin() + pos, sv1.cend(), [](auto ch) { return !std::isspace(ch); });
+			assert(0 <= res_iter - sv1.cbegin());
+			return std::string_view::size_type(res_iter - sv1.cbegin());
+		}
+
+		static auto find_whitespace(std::string_view sv1, size_t pos = 0) {
+			if (pos > sv1.length()) { pos = sv1.length(); }
+			auto res_iter = std::find_if(sv1.cbegin() + pos, sv1.cend(), [](auto ch) { return std::isspace(ch); });
+			return res_iter - sv1.cbegin();
+		}
+
+		static auto find_alpha(std::string_view sv1, size_t pos = 0) {
+			if (pos > sv1.length()) { pos = sv1.length(); }
+			auto res_iter = std::find_if(sv1.cbegin() + pos, sv1.cend(), [](auto ch) { return std::isalpha(ch); });
+			return res_iter - sv1.cbegin();
+		}
+
+		static bool is_alpha_or_underscore(char ch) {
+			return std::isalpha(ch) || ('_' == ch);
+		}
+
+		static auto find_alpha_or_underscore(std::string_view sv1, size_t pos = 0) {
+			if (pos > sv1.length()) { pos = sv1.length(); }
+			auto res_iter = std::find_if(sv1.cbegin() + pos, sv1.cend(), [](auto ch) { return is_alpha_or_underscore(ch); });
+			return res_iter - sv1.cbegin();
+		}
+
+		static bool is_alnum_or_underscore(char ch) {
+			return (std::isalnum(ch) || ('_' == ch));
+		}
+
+		static auto find_non_alnumund(std::string_view sv1, size_t pos = 0) {
+			if (pos > sv1.length()) { pos = sv1.length(); }
+			auto res_iter = std::find_if(sv1.cbegin() + pos, sv1.cend(), [](auto ch) { return !is_alnum_or_underscore(ch); });
+			return res_iter - sv1.cbegin();
+		}
+
+		static auto find_string(std::string_view waldo_sv, std::string_view sv1, size_t pos = 0) {
+			if (pos > sv1.length()) { pos = sv1.length(); }
+			auto target_pos = sv1.find(waldo_sv, pos);
+			if (std::string_view::npos == target_pos) {
+				target_pos = sv1.length();
+			}
+			return target_pos;
+		}
+
+		static bool is_a_one_char_token(char ch1) {
+			std::string one_char_tokens = "(){}[],;\n";
+			for (const auto ch : one_char_tokens) {
+				if (ch == ch1) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		//is_a_one_char_token_or_space_or_alpha_or_underscore
+		static bool is_a_not_part_of_an_unrecognized_token(char ch) {
+			return is_a_one_char_token(ch) || std::isspace(ch) || is_alpha_or_underscore(ch);
+		}
+
+		static auto find_non_unrecognized_token_char(std::string_view sv1, size_t pos = 0) {
+			if (pos > sv1.length()) { pos = sv1.length(); }
+			auto res_iter = std::find_if(sv1.cbegin() + pos, sv1.cend(), [](auto ch) { return is_a_not_part_of_an_unrecognized_token(ch); });
+			return res_iter - sv1.cbegin();
+		}
+
+		static auto find_potential_token_v1(std::string_view sv1, size_t pos = 0) {
+			auto retval = std::pair{ sv1.length() , sv1.length() };
+			auto start_pos = find_non_whitespace(sv1, pos);
+			if (start_pos >= sv1.length()) {
+				return retval;
+			}
+			auto first_ch = sv1.at(start_pos);
+			if (is_a_one_char_token(first_ch)) {
+				retval = { start_pos, start_pos + 1 };
+				return retval;
+			}
+			else if (is_alpha_or_underscore(first_ch)) {
+				auto end_pos = find_non_alnumund(sv1, start_pos);
+				retval = { start_pos, end_pos };
+				return retval;
+			}
+			else {
+				if (start_pos + 1 < sv1.length()) {
+					auto second_ch = sv1.at(start_pos + 1);
+					if (('/' == first_ch) && ('*' == second_ch)) {
+						auto end_comment_delimiter_pos = Parse::find_string("*/", sv1, start_pos + 2);
+						if (sv1.length() > end_comment_delimiter_pos) {
+							retval = { start_pos, end_comment_delimiter_pos + std::string("*/").length() };
+							return retval;
+						}
+					}
+					else if (('/' == first_ch) && ('/' == second_ch)) {
+						auto end_comment_delimiter_pos = Parse::find_string("\n", sv1, start_pos + 2);
+						if (sv1.length() > end_comment_delimiter_pos) {
+							retval = { start_pos, end_comment_delimiter_pos + std::string("\n").length() };
+							return retval;
+						}
+					}
+				}
+				auto end_pos = find_non_unrecognized_token_char(sv1, start_pos + 1);
+				retval = { start_pos, end_pos };
+				return retval;
+			}
+			return retval;
+		}
+
+		template<typename T>
+		static bool is_a_comment(std::string_view sv1, const T& range) {
+			if (range.second >= sv1.length()) {
+				return false;
+			}
+			/*try */{
+				if ((2 <= length(range)) && ('/' == sv1.at(range.first)) && ('/' == sv1.at(range.first + 1))) {
+					return true;
+				}
+				else if ((4 <= length(range)) && ('/' == sv1.at(range.first)) && ('*' == sv1.at(range.first + 1)) && ('*' == sv1.at(range.second - 2)) && ('/' == sv1.at(range.second - 1))) {
+					return true;
+				}
+			}
+			/*
+			catch (...) {
+				int q = 5;
+			};
+			*/
+			return false;
+		}
+
+		static auto find_potential_noncomment_token_v1(std::string_view sv1, size_t pos = 0) {
+			auto retval = find_potential_token_v1(sv1, pos);
+			while ((sv1.length() > retval.first) && is_a_comment(sv1, retval)) {
+				retval = find_potential_token_v1(sv1, retval.second);
+			}
+			return retval;
+		}
+
+		static auto find_uncommented_token(std::string_view waldo_sv, std::string_view sv1, size_t pos = 0) {
+			if (pos > sv1.length()) { pos = sv1.length(); }
+			auto retval = find_potential_noncomment_token_v1(sv1, pos);
+			while ((sv1.length() > retval.first) && (substring_view(sv1, retval) != waldo_sv)) {
+				retval = find_potential_noncomment_token_v1(sv1, retval.second);
+			}
+			return retval;
+		}
+
+		static auto find_first_uncommented_token(std::vector<std::string> const& waldo_set, std::string_view sv1, size_t pos = 0) {
+			if (pos > sv1.length()) { pos = sv1.length(); }
+
+			auto is_in_waldo_set = [&waldo_set, &sv1](range_t range1) {
+				bool retval = false;
+				auto range1_sv = substring_view(sv1, range1);
+				for (auto const& waldo_str : waldo_set) {
+					if (range1_sv == waldo_str) {
+						return true;
+					}
+				}
+				return retval;
+			};
+
+			auto retval = find_potential_noncomment_token_v1(sv1, pos);
+			while ((sv1.length() > retval.first) && (!is_in_waldo_set(retval))) {
+				retval = find_potential_noncomment_token_v1(sv1, retval.second);
+			}
+			return retval;
+		}
+
+		static auto find_stmt_with_semicolon(std::string_view sv1, size_t pos = 0) {
+			auto retval = std::pair{ sv1.length(), sv1.length() };
+			auto first_token_range = find_potential_token_v1(sv1, pos);
+			auto semic_range = find_uncommented_token(";", sv1, first_token_range.first);
+			if (semic_range.first >= sv1.length()) {
+				return retval;
+			}
+			else {
+				retval = { first_token_range.first, semic_range.second };
+				return retval;
+			}
+		}
+
+		static auto find_token_sequence(std::vector<std::string> const& token_sequence, std::string_view sv1, size_t pos = 0) {
+			auto retval = std::pair{ sv1.length(), sv1.length() };
+			if (pos > sv1.length()) { pos = sv1.length(); }
+			while (pos < sv1.length()) {
+				auto candidate_sequence_start_pos = sv1.length();
+				auto candidate_sequence_end_pos = pos;
+				auto sequence_token_pos = pos;
+				bool rejected_candidate_flag = false;
+				for (const auto& target_token : token_sequence) {
+					auto candidate_token_span = Parse::find_potential_noncomment_token_v1(sv1, sequence_token_pos);
+					if (candidate_token_span.first >= int(sv1.length())) {
+						return retval;
+					}
+					auto candidate_token_sv = Parse::substring_view(sv1, candidate_token_span);
+
+					if (!(target_token == candidate_token_sv)) {
+						rejected_candidate_flag = true;
+						break;
+					}
+					else {
+						if (candidate_token_span.first < candidate_sequence_start_pos) {
+							candidate_sequence_start_pos = candidate_token_span.first;
+						}
+						if (candidate_token_span.second > candidate_sequence_end_pos) {
+							candidate_sequence_end_pos = candidate_token_span.second;
+						}
+					}
+
+					sequence_token_pos = candidate_token_span.second;
+				}
+
+				if (!rejected_candidate_flag) {
+					retval = { candidate_sequence_start_pos, candidate_sequence_end_pos };
+					return retval;
+				}
+
+				pos = Parse::find_potential_noncomment_token_v1(sv1, pos).second;
+			}
+			return retval;
+		};
+
+		static auto find_matching_closing_delimiter(std::string_view opening_delimiter, std::string_view closing_delimiter, std::string_view str, std::string::size_type start_index) {
+			int right_angle_brackets_required = 1;
+			while (true) {
+				auto next_r_range = find_uncommented_token(closing_delimiter, str, start_index);
+				auto next_r_index = next_r_range.first;
+
+				if (str.length() <= next_r_index) {
+					return next_r_index;
+				}
+				auto substr1 = str.substr(start_index, size_t(next_r_index - start_index));
+
+				auto next_l_subrange = find_uncommented_token(opening_delimiter, substr1);
+				auto next_l_subindex = next_l_subrange.first;
+				if (substr1.length() <= next_l_subindex) {
+					right_angle_brackets_required -= 1;
+					start_index = next_r_index + 1;
+				}
+				else {
+					right_angle_brackets_required += 1;
+					start_index = start_index + next_l_subindex + 1;
+				}
+				if (1 > right_angle_brackets_required) {
+					return next_r_index;
+				}
+			}
+		}
+
+		static auto find_matching_right_angle_bracket(std::string_view str, std::string::size_type start_index) {
+			return find_matching_closing_delimiter("<", ">", str, start_index);
+		}
+
+		static auto find_matching_right_parenthesis(std::string_view str, std::string::size_type start_index) {
+			return find_matching_closing_delimiter("(", ")", str, start_index);
+		}
+
+		static auto find_matching_right_brace(std::string_view str, std::string::size_type start_index) {
+			return find_matching_closing_delimiter("{", "}", str, start_index);
+		}
+
+		static auto find_matching_closing_delimiter(std::vector<std::string> const& opening_delimiter_set, std::string_view closing_delimiter, std::string_view str, std::string::size_type start_index) {
+			int right_angle_brackets_required = 1;
+			while (true) {
+				auto next_r_range = find_uncommented_token(closing_delimiter, str, start_index);
+				auto next_r_index = next_r_range.first;
+
+				if (str.length() <= next_r_index) {
+					return next_r_index;
+				}
+				auto substr1 = str.substr(start_index, size_t(next_r_index - start_index));
+
+				auto next_l_subrange = Parse::range_t{ substr1.length(), substr1.length() };
+				for (auto const& opening_delimiter : opening_delimiter_set) {
+					auto next_l_subrange2 = find_uncommented_token(opening_delimiter, substr1);
+					if (next_l_subrange2.first < next_l_subrange.first) {
+						next_l_subrange = next_l_subrange2;
+					}
+				}
+				auto next_l_subindex = next_l_subrange.first;
+				if (substr1.length() <= next_l_subindex) {
+					right_angle_brackets_required -= 1;
+					start_index = next_r_index + 1;
+				}
+				else {
+					right_angle_brackets_required += 1;
+					start_index = start_index + next_l_subindex + 1;
+				}
+				if (1 > right_angle_brackets_required) {
+					return next_r_index;
+				}
+			}
+		}
+
+		struct CCodeSession {
+			CCodeSession(std::string code_text) : m_code_text(code_text) {
+				note_line_ranges();
+			}
+			void note_line_ranges() {
+				size_t line_num = 0;
+				size_t last_newline_index = 0;
+				while (m_code_text.length() > last_newline_index) {
+					auto next_new_line_index = m_code_text.find("\n", last_newline_index + 1);
+					if (decltype(m_code_text)::npos == next_new_line_index) {
+						next_new_line_index = m_code_text.length();
+					}
+					m_line_ranges.insert({ line_num, { last_newline_index + 1, next_new_line_index } });
+
+					line_num += 1;
+					last_newline_index = next_new_line_index;
+				}
+			}
+			auto line_num_from_char_index(const size_t char_index) const {
+				size_t retval = m_line_ranges.size();
+				for (auto const& mapping : m_line_ranges) {
+					if ((char_index >= mapping.second.first) && (char_index < mapping.second.second)) {
+						retval = mapping.first;
+						return retval;
+					}
+				}
+				return retval;
+			}
+			std::string m_code_text;
+			std::map<size_t, std::pair<size_t, size_t> > m_line_ranges;
+		};
+	};
+
 	class MCSSSExprUtil : public MatchFinder::MatchCallback
 	{
 	public:
@@ -12009,6 +12373,207 @@ namespace convc2validcpp {
 				which seems to be more reliable. */
 
 				auto E_ii = IgnoreParenImpNoopCasts(E, *(MR.Context));
+
+				if (ExpandPointerMacros) {
+					if (E->getType()->isPointerType()) {
+						const auto raw_SR = E->getSourceRange();
+						if (raw_SR.isValid()) {
+							DEBUG_SOURCE_LOCATION_STR(debug_raw_source_location_str, raw_SR, Rewrite);
+							DEBUG_SOURCE_TEXT_STR(debug_raw_source_text, raw_SR, Rewrite);
+
+							auto& SM = Rewrite.getSourceMgr();
+							const auto SPSL = SM.getSpellingLoc(raw_SR.getBegin());
+							const auto SPSLE = SM.getSpellingLoc(raw_SR.getEnd());
+							const auto spelling_SR = clang::SourceRange{ SPSL, SPSLE };
+
+							if (raw_SR.getBegin().isMacroID()) {
+								auto returnSR = raw_SR;
+								std::string macro_decl_text;
+								auto SL = raw_SR.getBegin();
+								auto SLE = raw_SR.getEnd();
+
+								/* The element could be nested within multiple macro instances. We are going to obtain
+								and store a list of (the source ranges of) all the (nested) macro instances which contain
+								the element. */
+								auto nested_macro_ranges = std::vector<clang::SourceRange>{};
+								auto macro1_SL = SM.getImmediateMacroCallerLoc(SL);
+								auto macro1_SLE = SM.getImmediateMacroCallerLoc(SLE);
+								auto last_macro1_SL = SL;
+								auto last_macro1_SLE = SLE;
+								while (macro1_SL != last_macro1_SL) {
+									nested_macro_ranges.push_back({ macro1_SL, macro1_SLE });
+
+									last_macro1_SL = macro1_SL;
+									last_macro1_SLE = macro1_SLE;
+									macro1_SL = SM.getImmediateMacroCallerLoc(macro1_SL);
+									macro1_SLE = SM.getImmediateMacroCallerLoc(macro1_SLE);
+
+									auto new_macro1_SR = clang::SourceRange{ macro1_SL, macro1_SLE };
+									DEBUG_SOURCE_TEXT_STR(debug_macro1_source_text, new_macro1_SR, Rewrite);
+									auto adjusted_macro_SPSR = clang::SourceRange{ SM.getSpellingLoc(new_macro1_SR.getBegin()), SM.getSpellingLoc(new_macro1_SR.getEnd()) };
+									DEBUG_SOURCE_TEXT_STR(debug_adjusted_macro_source_text, adjusted_macro_SPSR, Rewrite);
+
+									auto b16 = SM.isMacroArgExpansion(macro1_SL);
+									auto b17 = SM.isMacroArgExpansion(adjusted_macro_SPSR.getBegin());
+									auto b18 = SM.isMacroBodyExpansion(macro1_SL);
+									auto b19 = SM.isMacroBodyExpansion(adjusted_macro_SPSR.getBegin());
+									int q = 5;
+								}
+
+								/* This lambda is supposed to take a string of comma separated arguments (without the enclosing
+								parentheses) and return the set of individual arguments. */
+								auto parse_args = [](std::string_view str, const char delim)
+								{
+									/* But this simple implementation doesn't exclude commas enclosed in parentheses from being
+									considered argument delimiters. */
+									std::vector<std::string_view> retval;
+									size_t start;
+									size_t end = 0;
+								
+									while ((start = str.find_first_not_of(delim, end)) != std::string::npos)
+									{
+										end = str.find(delim, start);
+										retval.push_back(str.substr(start, end - start));
+									}
+									return retval;
+								};
+
+								std::string macro_args_text;
+								std::vector<std::string_view> macro_args;
+
+								int nesting_level = 0;
+
+								/* Here we're going to find (well, estimate/guess) the "outermost" macro that
+								contains the element, and consists of only an expression. (As opposed to, for
+								example, a declaration, or more than one statement.) */
+								for (const auto& macro2_SR : nested_macro_ranges) {
+									if (!filtered_out_by_location(SM, macro2_SR.getBegin())) {
+										auto adjusted_macro_SPSR = clang::SourceRange{ SM.getSpellingLoc(macro2_SR.getBegin()), SM.getSpellingLoc(macro2_SR.getEnd()) };
+										std::string macro_name;
+										if (adjusted_macro_SPSR.isValid() && ((adjusted_macro_SPSR.getBegin() < adjusted_macro_SPSR.getEnd()) || (adjusted_macro_SPSR.getBegin() == adjusted_macro_SPSR.getEnd()))) {
+											macro_name = Rewrite.getRewrittenText(adjusted_macro_SPSR);
+										}
+
+										/* If the macro is a function macro, then adjusted_macro_SPSR would not
+										currently include the arguments. Here we attempt to extend
+										adjusted_macro_SPSR to include any arguments. */
+										const auto expansion_SR = SM.getExpansionRange(adjusted_macro_SPSR.getBegin()).getAsRange();
+										DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, expansion_SR, Rewrite);
+										if ((!(adjusted_macro_SPSR.getBegin() < expansion_SR.getBegin())) && (!(expansion_SR.getEnd() < adjusted_macro_SPSR.getEnd()))
+											&& (!(expansion_SR == adjusted_macro_SPSR))) {
+											adjusted_macro_SPSR = expansion_SR;
+										} else {
+											auto SL1 = adjusted_macro_SPSR.getBegin();
+											std::string text1 = Rewrite.getRewrittenText({ SL1, SL1 });
+											SL1 = SL1.getLocWithOffset(+text1.length());
+											text1 = Rewrite.getRewrittenText({ SL1, SL1 });
+											while ("" == text1) {
+												SL1 = SL1.getLocWithOffset(+1);
+												if (!(SL1.isValid())) {
+													break;
+												}
+												text1 = Rewrite.getRewrittenText({ SL1, SL1 });
+											}
+											if ("(" == text1) {
+												auto maybe_close_paren_SL = matching_close_parentheses_if_any(Rewrite, SL1.getLocWithOffset(+1));
+												if (maybe_close_paren_SL.has_value()) {
+													adjusted_macro_SPSR = clang::SourceRange{ adjusted_macro_SPSR.getBegin(), maybe_close_paren_SL.value() };
+													auto macro_args_SL = SL1.getLocWithOffset(+1);
+													auto macro_args_SLE = maybe_close_paren_SL.value().getLocWithOffset(-1);
+													if (macro_args_SLE < macro_args_SL) {
+														macro_args_SLE = macro_args_SL;
+													}
+
+													macro_args_text = Rewrite.getRewrittenText({ macro_args_SL, macro_args_SLE });
+													macro_args = parse_args(macro_args_text, ',');
+
+													int q = 5;
+												} else {
+													int q = 3;
+												}
+											}
+										}
+										DEBUG_SOURCE_TEXT_STR(debug_adjusted_macro_source_text2, adjusted_macro_SPSR, Rewrite);
+
+										if (true) {
+											auto found_macro_iter = state1.m_pp_macro_definitions.find(macro_name);
+											if (state1.m_pp_macro_definitions.end() != found_macro_iter) {
+												macro_decl_text = Rewrite.getRewrittenText(found_macro_iter->second.definition_SR());
+												returnSR = adjusted_macro_SPSR;
+											} else {
+												int q = 5;
+											}
+										}
+									}
+
+									++nesting_level;
+								}
+								DEBUG_SOURCE_TEXT_STR(debug_macro_source_text, returnSR, Rewrite);
+
+								std::string macro_def_text;
+
+						        auto code_session = Parse::CCodeSession(macro_decl_text);
+				                auto ptok1_range = Parse::find_potential_noncomment_token_v1(macro_decl_text, 0);
+								if (macro_decl_text.length() <= ptok1_range.second) {
+									/* Didn't find a non-comment token. Presumably because the macro declaration text is not
+									available. */
+									return;
+								}
+								auto char_after_ptok1 = macro_decl_text.at(ptok1_range.second);
+								if ('(' == char_after_ptok1) {
+									auto rparen1_index = Parse::find_matching_right_parenthesis(macro_decl_text, ptok1_range.second + 1);
+									if (macro_decl_text.length() <= rparen1_index) {
+										/* error: lparen without matching rparen */
+										int q = 3;
+										return;
+									}
+
+					                auto ptok2_range = Parse::find_potential_noncomment_token_v1(macro_decl_text, rparen1_index + 1);
+									auto macro_def_text_sv = Parse::substring_view(macro_decl_text, Parse::range_t{ ptok2_range.first, macro_decl_text.length() });
+									macro_def_text = std::string{ macro_def_text_sv };
+
+									auto macro_params_sv = Parse::substring_view(macro_decl_text, Parse::range_t{ ptok1_range.second + 1, rparen1_index });
+									auto macro_params = parse_args(macro_params_sv, ',');
+									if (macro_params.size() != macro_args.size()) {
+										/* error: The number of macro arguments does not match the number of macro parameters. */
+										int q = 3;
+										return;
+									}
+
+									for (size_t i = 0; macro_params.size() > i; i += 1) {
+										/* Here we're replacing all the parameter instances in the macro defintion text
+										with their corresponding given argument. */
+										auto& macro_param = macro_params.at(i);
+										auto& macro_arg = macro_args.at(i);
+										auto macro_param_span1 = Parse::find_uncommented_token(macro_param, macro_def_text, 0);
+										while (macro_def_text.length() > macro_param_span1.first) {
+											macro_def_text.replace(macro_param_span1.first, macro_param.length(), macro_arg);
+
+											macro_param_span1 = Parse::find_uncommented_token(macro_param, macro_def_text, macro_param_span1.first + macro_param.length());
+										}
+									}
+								} else {
+					                auto ptok2_range = Parse::find_potential_noncomment_token_v1(macro_decl_text, ptok1_range.second);
+									auto macro_def_text_sv = Parse::substring_view(macro_decl_text, Parse::range_t{ ptok2_range.first, macro_decl_text.length() });
+									macro_def_text = std::string{ macro_def_text_sv };
+								}
+
+								state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, write_once_source_range(returnSR), macro_def_text);
+
+								int q = 5;
+							}
+							if (raw_SR != SR) {
+								int q = 5;
+							}
+							if (spelling_SR.isValid()) {
+								DEBUG_SOURCE_LOCATION_STR(debug_spelling_source_location_str, spelling_SR, Rewrite);
+								DEBUG_SOURCE_TEXT_STR(debug_spelling_source_text, spelling_SR, Rewrite);
+								int q = 5;
+							}
+						}
+					}
+					return;
+				}
 
 				auto BO = dyn_cast<const clang::BinaryOperator>(E_ii);
 				if (BO) {
@@ -12178,7 +12743,7 @@ namespace convc2validcpp {
 					return;
 				}
 
-				if (ConvertC2ValidCpp && SR.isValid()) {
+				if ((ConvertC2ValidCpp || ExpandPointerMacros)  && SR.isValid()) {
 					s_handler1(MR, (*this).Rewrite, (*this).m_state1);
 				} else {
 					int q = 7;
@@ -13137,7 +13702,7 @@ namespace convc2validcpp {
 		auto macro_def = MD->getDefinition();
 		auto MDSL = macro_def.getMacroInfo()->getDefinitionLoc();
 		auto MDSLE = macro_def.getMacroInfo()->getDefinitionEndLoc();
-		std::string macro_def_text = m_Rewriter_ref.getRewrittenText({ MDSL, MDSLE });
+		std::string macro_decl_text = m_Rewriter_ref.getRewrittenText({ MDSL, MDSLE });
 #endif /*!NDEBUG*/
 
 		if (current_fii_shptr()) {
@@ -13172,7 +13737,7 @@ namespace convc2validcpp {
 		std::string macro_name = MacroNameTok.getName();
 		std::string macro_text = m_Rewriter_ref.getRewrittenText(Range);
 
-		auto&SM = (*this).m_Rewriter_ref.getSourceMgr();
+		auto& SM = (*this).m_Rewriter_ref.getSourceMgr();
 		IF_DEBUG(std::string debug_source_location_str = Range.getBegin().printToString(SM);)
 
 		if (filtered_out_by_location(SM, Range.getBegin())) {
@@ -13202,7 +13767,7 @@ namespace convc2validcpp {
 		auto MacroDefSR = COrderedSourceRange(MDSL, MDSLE);
 
 #ifndef NDEBUG
-		std::string macro_def_text = m_Rewriter_ref.getRewrittenText({ MDSL, MDSLE });
+		std::string macro_decl_text = m_Rewriter_ref.getRewrittenText({ MDSL, MDSLE });
 
 		if (string_begins_with(macro_nametok_text, "MACRO")) {
 			int q = 5;
@@ -13322,7 +13887,7 @@ namespace convc2validcpp {
 			}
 		}
 		~MyFrontendActionPass1() {
-			if (ConvertC2ValidCpp) {
+			if (ConvertC2ValidCpp || ExpandPointerMacros) {
 				auto res = overwriteChangedFiles();
 				int q = 5;
 			}
@@ -13965,6 +14530,7 @@ namespace convc2validcpp {
         CheckSystemHeader = options.CheckSystemHeader;
         MainFileOnly = options.MainFileOnly;
         ConvertC2ValidCpp = options.ConvertC2ValidCpp;
+		ExpandPointerMacros = options.ExpandPointerMacros;
         CTUAnalysis = options.CTUAnalysis;
         EnableNamespaceImport = options.EnableNamespaceImport;
         SuppressPrompts = options.SuppressPrompts;

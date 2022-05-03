@@ -2577,6 +2577,13 @@ namespace convm1 {
 							std::string text1 = Rewrite.getRewrittenText({ SL1, SL1 });
 							SL1 = SL1.getLocWithOffset(+text1.length());
 							text1 = Rewrite.getRewrittenText({ SL1, SL1 });
+							while ("" == text1) {
+								SL1 = SL1.getLocWithOffset(+1);
+								if (!(SL1.isValid())) {
+									break;
+								}
+								text1 = Rewrite.getRewrittenText({ SL1, SL1 });
+							}
 							if ("(" == text1) {
 								auto maybe_close_paren_SL = matching_close_parentheses_if_any(Rewrite, SL1.getLocWithOffset(+1));
 								if (maybe_close_paren_SL.has_value()) {

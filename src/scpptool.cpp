@@ -26,10 +26,12 @@
 
 #include "checker.h"
 
+#define EXCLUDE_CONVERTER_MODE1
 #ifndef EXCLUDE_CONVERTER_MODE1
 #include "converter_mode1.h"
 #endif //!EXCLUDE_CONVERTER_MODE1
 
+#define EXCLUDE_C2VALIDCPP
 #ifndef EXCLUDE_C2VALIDCPP
 #include "converter_c2validcpp.h"
 #endif //!EXCLUDE_C2VALIDCPP
@@ -65,8 +67,6 @@ using namespace clang::tooling;
 /**********************************************************************************************************************/
 static llvm::cl::OptionCategory MatcherSampleCategory("TBD");
 
-cl::opt<bool> CheckSystemHeader("SysHeader", cl::desc("process system headers also"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
-cl::opt<bool> MainFileOnly("MainOnly", cl::desc("process the main file only"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> ConvertToSCPP("ConvertToSCPP", cl::desc("translate the source to a (memory) safe subset of the language"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> CTUAnalysis("CTUAnalysis", cl::desc("cross translation unit analysis"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> EnableNamespaceImport("EnableNamespaceImport", cl::desc("enable importing of namespaces from other translation units"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
@@ -85,6 +85,9 @@ cl::opt<bool> ScopeTypeFunctionParameters("ScopeTypeFunctionParameters", cl::des
 cl::opt<bool> ScopeTypePointerFunctionParameters("ScopeTypePointerFunctionParameters", cl::desc("same as 'ScopeTypeFunctionParameters', but only applies to pointers, not iterators"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> AddressableVars("AddressableVars", cl::desc("make variables of (safely) 'addressable' type even if they are never used as a pointer target"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> ConvertC2ValidCpp("ConvertC2ValidCpp", cl::desc("Modify C source to (more) conform to the subset supported by C++. (Preliminary implementation only.)"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
+cl::opt<bool> ExpandPointerMacros("ExpandPointerMacros", cl::desc("Modify source so that instantiations of macros that contain pointers are replaced by their macro expansion. (May require multiple runs for nested macros.) (Preliminary implementation only.)"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
+cl::opt<bool> CheckSystemHeader("SysHeader", cl::desc("deprecated - process system headers also"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
+cl::opt<bool> MainFileOnly("MainOnly", cl::desc("process the main file only"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 
 /**********************************************************************************************************************/
 
@@ -119,8 +122,19 @@ int main(int argc, const char **argv)
 
   int retval = -1;
 
-  if (ConvertC2ValidCpp && ConvertToSCPP) {
-    llvm::errs() << "incompatible options: ConvertC2ValidCpp and ConvertToSCPP may not both be used at the same time. Instead use each alone in two separate runs." << '\n';
+  int num_exclusive_options = 0;
+  if (ConvertToSCPP) {
+    num_exclusive_options += 1;
+  }
+  if (ConvertC2ValidCpp) {
+    num_exclusive_options += 1;
+  }
+  if (ExpandPointerMacros) {
+    num_exclusive_options += 1;
+  }
+
+  if (1 < num_exclusive_options) {
+    llvm::errs() << "More than one mutually exclusive option indicated: The ConvertToSCPP, ConvertC2ValidCpp and ExpandPointerMacros options are mutually exclusive. You may only use one at a time.." << '\n';
     return retval;
   }
 
@@ -165,7 +179,7 @@ int main(int argc, const char **argv)
       };
     retval = convm1::buildASTs_and_run(Tool, options);
 #endif //!EXCLUDE_CONVERTER_MODE1
-  } else if (ConvertC2ValidCpp.getValue()) {
+  } else if (ConvertC2ValidCpp.getValue() || ExpandPointerMacros.getValue()) {
 #ifndef EXCLUDE_C2VALIDCPP
 
     /* The "checker" pass, among other things, determined which regions of the code are indicated
@@ -182,6 +196,7 @@ int main(int argc, const char **argv)
           CheckSystemHeader,
           MainFileOnly,
           ConvertC2ValidCpp,
+          ExpandPointerMacros,
           CTUAnalysis,
           EnableNamespaceImport,
           SuppressPrompts,

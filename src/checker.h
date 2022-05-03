@@ -113,10 +113,10 @@ namespace checker {
 	int CErrorRecord::m_next_available_id = 0;
 	class CErrorRecords : public std::set<CErrorRecord> {};
 
-	clang::FunctionDecl const * function_from_param(clang::ParmVarDecl const * PVD) {
+	clang::FunctionDecl const * enclosing_function_if_any(clang::VarDecl const * VD) {
 		clang::FunctionDecl const * retval = nullptr;
-		if (PVD) {
-			auto DC = PVD->getDeclContext();
+		if (VD) {
+			auto DC = VD->getDeclContext();
 			retval = DC ? dyn_cast<const clang::FunctionDecl>(DC) : nullptr;
 			if (retval) {
 				IF_DEBUG(std::string function_name = retval->getNameAsString();)
@@ -124,6 +124,9 @@ namespace checker {
 			}
 		}
 		return retval;
+	}
+	clang::FunctionDecl const * function_from_param(clang::ParmVarDecl const * PVD) {
+		return enclosing_function_if_any(PVD);
 	}
 
 	struct CPairwiseLifetimeConstraint {
