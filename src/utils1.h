@@ -619,6 +619,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		if (CXXRD) {
 			auto qname = CXXRD->getQualifiedNameAsString();
 
+			DECLARE_CACHED_CONST_STRING(rsvtxscopeobj_str, mse_namespace_str() + "::rsv::TXScopeObj");
 			DECLARE_CACHED_CONST_STRING(txscopeobj_str, mse_namespace_str() + "::TXScopeObj");
 			DECLARE_CACHED_CONST_STRING(tregobj_str, mse_namespace_str() + "::TRegisteredObj");
 			DECLARE_CACHED_CONST_STRING(tndregobj_str, mse_namespace_str() + "::TNDRegisteredObj");
@@ -632,10 +633,11 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 			DECLARE_CACHED_CONST_STRING(tstaticimmutableobj_str, mse_namespace_str() + "::rsv::TStaticImmutableObj");
 			DECLARE_CACHED_CONST_STRING(tstaticatomicobj_str, mse_namespace_str() + "::rsv::TStaticAtomicObj");
 
-			if (!((qname == txscopeobj_str) || (qname == tregobj_str) || (qname == tndregobj_str)
+			if (!((qname == rsvtxscopeobj_str) || (qname == tregobj_str) || (qname == tndregobj_str)
 				|| (qname == tgnoradobj_str) || (qname == tnoradobj_str) || (qname == tndnoradobj_str)
 				|| (qname == tasyncshareableobj_str) || (qname == tasyncpassableobj_str) || (qname == tasyncshareableandpassableobj_str)
 				|| (qname == tthreadlocalobj_str) || (qname == tstaticimmutableobj_str) || (qname == tstaticatomicobj_str)
+				|| (qname == txscopeobj_str)
 				)) {
 				return retval;
 			}
