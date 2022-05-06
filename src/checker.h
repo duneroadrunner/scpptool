@@ -1338,11 +1338,11 @@ namespace checker {
 							for (const auto& field : RD->fields()) {
 								const auto field_qtype = field->getType();
 								IF_DEBUG(auto field_qtype_str = field_qtype.getAsString();)
+								const auto ICIEX = field->getInClassInitializer();
 								if (field_qtype.getTypePtr()->isPointerType()
 									&& (!(*this).m_state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(field_qtype))
 									&& (!m_state1.m_suppress_check_region_set.contains(instantiation_source_range(field->getSourceRange(), Rewrite)))
 									) {
-									const auto ICIEX = field->getInClassInitializer();
 									if (!ICIEX) {
 										unverified_pointer_fields.push_back(field);
 									} else if (is_nullptr_literal(ICIEX, *(MR.Context))) {
@@ -1358,6 +1358,82 @@ namespace checker {
 											std::cout << (*(res.first)).as_a_string1() << " \n\n";
 										}
 									}
+								}
+								if (ICIEX) {
+
+									const auto FD = field;
+									const auto EX = ICIEX;
+									if (EX) {
+										auto CXXThisExpr_range = get_contained_elements_of_type_CXXThisExpr(*EX);
+										for (const auto CXXTE : CXXThisExpr_range) {
+											assert(CXXTE);
+											const auto ME = get_immediately_containing_MemberExpr_from_CXXThisExpr_if_any(*CXXTE, *(MR.Context));
+											if (ME) {
+												const auto FD2 = get_FieldDecl_from_MemberExpr_if_any(*ME);
+												if (FD2) {
+													bool res = first_is_contained_in_scope_of_second(FD, FD2, *(MR.Context));
+													if ((!res) || (FD == FD2)) {
+														auto MESR = nice_source_range(ME->getSourceRange(), Rewrite);
+														if (!MESR.isValid()) {
+															MESR = SR;
+														}
+
+														const std::string error_desc = std::string("The field '") + FD2->getNameAsString()
+															+ "' may be being referenced before it has been constructed.";
+														auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, MESR.getBegin(), error_desc));
+														if (res.second) {
+															std::cout << (*(res.first)).as_a_string1() << " \n\n";
+														}
+													}
+												} else {
+													const auto CXXMD = dyn_cast<const CXXMethodDecl>(ME->getMemberDecl());
+													if (CXXMD) {
+														/* error: Unable to verify that the member function used here can't access part of
+														the object that hasn't been constructed yet. */
+														const std::string error_desc = std::string("Calling non-static member functions ")
+														+ "(such as '" + CXXMD->getQualifiedNameAsString() + "') of an object is not supported in "
+														+ "constructor initializers or direct field initializers of the object. Consider "
+														+ "using a static member or free function instead. ";
+														auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+														if (res.second) {
+															std::cout << (*(res.first)).as_a_string1() << " \n\n";
+														}
+													} else {
+														/* Since this MemberExpr was obtained from a CXXThisExpr, if it doesn't refer to
+														a field, then presumably it refers to a (non-static) member function.
+														So arriving here would be unexpected. */
+														int q = 5;
+													}
+												}
+											} else {
+												const std::string error_desc = std::string("Unable to verify that the 'this' pointer ")
+												+ "used here can't be used to access part of the object that hasn't been constructed yet.";
+												auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+												if (res.second) {
+													std::cout << (*(res.first)).as_a_string1() << " \n\n";
+												}
+											}
+										}
+										if (FD->getType()->isPointerType()
+											&& (!(*this).m_state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(FD->getType()))
+											&& (!m_state1.m_suppress_check_region_set.contains(instantiation_source_range(FD->getSourceRange(), Rewrite)))
+											) {
+											if (is_nullptr_literal(EX, *(MR.Context))) {
+												auto CISR = nice_source_range(EX->getSourceRange(), Rewrite);
+												if (!CISR.isValid()) {
+													CISR = SR;
+												}
+												const std::string error_desc = std::string("Null initialization of ")
+													+ "native pointer field '" + FD->getNameAsString()
+													+ "' is not supported.";
+												auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, CISR.getBegin(), error_desc));
+												if (res.second) {
+													std::cout << (*(res.first)).as_a_string1() << " \n\n";
+												}
+											}
+										}
+									}
+
 								}
 							}
 							if (1 <= unverified_pointer_fields.size()) {
@@ -3860,9 +3936,14 @@ namespace checker {
 							if (FD2) {
 								bool res = first_is_contained_in_scope_of_second(FD, FD2, *(MR.Context));
 								if ((!res) || (FD == FD2)) {
+									auto MESR = nice_source_range(ME->getSourceRange(), Rewrite);
+									if (!MESR.isValid()) {
+										MESR = SR;
+									}
+
 									const std::string error_desc = std::string("The field '") + FD2->getNameAsString()
 										+ "' may be being referenced before it has been constructed.";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, MESR.getBegin(), error_desc));
 									if (res.second) {
 										std::cout << (*(res.first)).as_a_string1() << " \n\n";
 									}
