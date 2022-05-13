@@ -338,9 +338,20 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 			return false;
 		}
 	};
+	struct CPossessionLifetimeInfo1 {
+		/* Here we use "possession" to refer to an item whose lifetime is determined (or bounded) by
+		(but slightly different from) the lifetime of its "owner". These might include (struct/class)
+		member fields or container elements. And also pointer targets, even if the pointer is not
+		responsible for deallocation. By requiring that its target outlives it, a pointer can, in some
+		sense, be considered to have (shared) "ownership" of its target. */
+		std::optional<COrderedSourceRange> m_maybe_field_source_range;
+		enum class is_element_in_a_multi_element_container_t : bool { Yes, No };
+		is_element_in_a_multi_element_container_t m_is_element_in_a_multi_element_container = is_element_in_a_multi_element_container_t::No;
+	};
 	struct CScopeLifetimeInfo1 {
 		std::optional<const clang::CompoundStmt*> m_maybe_containing_scope;
 		std::optional<COrderedSourceRange> m_maybe_source_range;
+		std::vector<CPossessionLifetimeInfo1> m_possession_lifetime_info_chain;
 		std::optional<CAbstractLifetime> m_maybe_abstract_lifetime;
 		enum class ECategory { None, Automatic, ThisExpression, Immortal, Literal, AbstractLifetime };
 		ECategory m_category = ECategory::None;

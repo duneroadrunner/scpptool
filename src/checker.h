@@ -1688,8 +1688,15 @@ namespace checker {
 	template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 	template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>; // not needed as of C++20
 
-	CScopeLifetimeInfo1 scope_lifetime_info_from_lifetime_owner(const CStaticLifetimeOwner& slov, ASTContext& Ctx) {
+	struct CStaticLifetimeOwnerInfo1 : CStaticLifetimeOwner {
+		using CStaticLifetimeOwner::CStaticLifetimeOwner;
+		std::vector<CPossessionLifetimeInfo1> m_possession_lifetime_info_chain;
+	};
+
+	CScopeLifetimeInfo1 scope_lifetime_info_from_lifetime_owner(const CStaticLifetimeOwnerInfo1& sloiv, ASTContext& Ctx) {
+		const CStaticLifetimeOwner& slov = sloiv;
 		CScopeLifetimeInfo1 lifetime_info_result;
+		lifetime_info_result.m_possession_lifetime_info_chain = sloiv.m_possession_lifetime_info_chain;
 
 		auto visitor1 = overloaded {
 			[](auto slov) {
@@ -1781,8 +1788,8 @@ namespace checker {
 				return true;
 			} else if (CScopeLifetimeInfo1::ECategory::ThisExpression == sli1.m_category) {
 				if (CScopeLifetimeInfo1::ECategory::ThisExpression == sli2.m_category) {
-					/* Both items are "this" expressions.
-					todo: handle this */
+					/* Both items are "this" expressions. */
+					/* todo: handle this */
 				} else {
 					return false;
 				}
@@ -1800,6 +1807,71 @@ namespace checker {
 								if (SR2.getEnd() < SR1.getBegin()) {
 									/* The second item occurs before the first item. */
 									retval = true;
+								} else if ( (SR1.getBegin() == SR2.getBegin()) && (SR1.getEnd() == SR2.getEnd()) ) {
+									/* The second item and first item seem to have the same "scope lifetime owner". */
+									auto possession_lifetime_info_chain1 = sli1.m_possession_lifetime_info_chain;
+									std::reverse(possession_lifetime_info_chain1.begin(), possession_lifetime_info_chain1.end());
+									auto possession_lifetime_info_chain2 = sli2.m_possession_lifetime_info_chain;
+									std::reverse(possession_lifetime_info_chain2.begin(), possession_lifetime_info_chain2.end());
+
+									auto max_possession_chain_size = std::max(possession_lifetime_info_chain1.size(), possession_lifetime_info_chain2.size());
+									retval = true;
+									for (size_t i = 0; i < max_possession_chain_size; i += 1) {
+										if (i >= possession_lifetime_info_chain1.size()) {
+											/* The second item seems to be a "possession" of the first and, in general, possessions outlive
+											their owners (if only barely). */
+											retval = true;
+											break;
+										} else if (i >= possession_lifetime_info_chain2.size()) {
+											/* The second item seems to be an "owner" of the first and, in general, owners do not outlive
+											their possessions (if only barely). */
+											retval = false;
+											break;
+										} else {
+											retval = false;
+											auto& info1 = possession_lifetime_info_chain1.at(i);
+											auto& info2 = possession_lifetime_info_chain2.at(i);
+											if ((CPossessionLifetimeInfo1::is_element_in_a_multi_element_container_t::Yes == info1.m_is_element_in_a_multi_element_container)
+												|| (CPossessionLifetimeInfo1::is_element_in_a_multi_element_container_t::Yes == info2.m_is_element_in_a_multi_element_container)) {
+												if (info1.m_is_element_in_a_multi_element_container != info2.m_is_element_in_a_multi_element_container) {
+													/* This never happens. Because if the (common) immediate owner of both elements is a
+													multi-element container, then (generally) the only type of possession it would have would be a
+													contained element (as opposed to a field member or a dereference target). Right? */
+													int q = 3;
+												}
+												/* At the moment, different elements in "multi-element" containers are considered to have
+												potentially meaningfully different lifetimes. */
+												retval = false;
+												break;
+											} else if (info2.m_maybe_field_source_range.has_value()) {
+												/* info2 refers to a member field. */
+												if (info1.m_maybe_field_source_range.has_value()) {
+													/* The result for two member fields should be the same as if the member fields were instead
+													variables declared in the same relative positions. So we'll construct two CScopeLifetimeInfo1s
+													corresponding to those two hypothetical variables and apply this function to them. */
+													CScopeLifetimeInfo1 l_functionally_equivalent_sli1{ sli1.m_maybe_containing_scope, info1.m_maybe_field_source_range.value() };
+													CScopeLifetimeInfo1 l_functionally_equivalent_sli2{ sli2.m_maybe_containing_scope, info2.m_maybe_field_source_range.value() };
+													retval = first_is_known_to_be_contained_in_scope_of_second(l_functionally_equivalent_sli1, l_functionally_equivalent_sli2, context, tu_state_cref);
+													if (false == retval) {
+														break;
+													}
+												} else {
+													/* The second item is a member field and the first item isn't (so it's presumably a dereference
+													target). */
+													retval = false;
+													break;
+												}
+											} else if (info1.m_maybe_field_source_range.has_value()) {
+												assert(!(info2.m_maybe_field_source_range.has_value()));
+												/* The first item is a member field and the second item isn't (so it's presumably a dereference
+												target). */
+												retval = true;
+											} else {
+												retval = false;
+												break;
+											}
+										}
+									}
 								} else if ( ((SR1.getBegin() < SR2.getBegin()) || (SR1.getBegin() == SR2.getBegin()))
 									&& ((SR2.getEnd() < SR1.getEnd()) || (SR1.getEnd() == SR2.getEnd())) ) {
 									/* The second item and first item are the same item, or the second item is a member
@@ -1846,8 +1918,8 @@ namespace checker {
 	}
 
 	/* Given a pair of "lifetime owner" elements, it returns the one with the "shorter" lifetime. */
-	std::optional<CStaticLifetimeOwner> lower_bound_lifetime_owner(const std::optional<CStaticLifetimeOwner>& lifetime_owner1,const std::optional<CStaticLifetimeOwner>& lifetime_owner2, ASTContext& Ctx, const CTUState& tu_state_cref) {
-		std::optional<CStaticLifetimeOwner> retval;
+	std::optional<CStaticLifetimeOwnerInfo1> lower_bound_lifetime_owner(const std::optional<CStaticLifetimeOwnerInfo1>& lifetime_owner1,const std::optional<CStaticLifetimeOwnerInfo1>& lifetime_owner2, ASTContext& Ctx, const CTUState& tu_state_cref) {
+		std::optional<CStaticLifetimeOwnerInfo1> retval;
 
 		auto lhs_slo = lifetime_owner1;
 		auto rhs_slo = lifetime_owner2;
@@ -1869,8 +1941,8 @@ namespace checker {
 	}
 
 	/* Given a set of "lifetime owner" elements, it returns the one with the "shortest" lifetime. */
-	std::optional<CStaticLifetimeOwner> lower_bound_lifetime_owner(const std::vector<std::optional<CStaticLifetimeOwner> >& lifetime_owners, ASTContext& Ctx, const CTUState& tu_state_cref) {
-		std::optional<CStaticLifetimeOwner> retval;
+	std::optional<CStaticLifetimeOwnerInfo1> lower_bound_lifetime_owner(const std::vector<std::optional<CStaticLifetimeOwnerInfo1> >& lifetime_owners, ASTContext& Ctx, const CTUState& tu_state_cref) {
+		std::optional<CStaticLifetimeOwnerInfo1> retval;
 		if (1 <= lifetime_owners.size()) {
 			retval = lifetime_owners.front();
 			for (const auto& lifetime_owner : lifetime_owners) {
@@ -1881,8 +1953,8 @@ namespace checker {
 	}
 
 	/* Given a pair of "lifetime owner" elements, it returns the one with the "longer" lifetime. */
-	std::optional<CStaticLifetimeOwner> upper_bound_lifetime_owner(const std::optional<CStaticLifetimeOwner>& lifetime_owner1, const std::optional<CStaticLifetimeOwner>& lifetime_owner2, ASTContext& Ctx, const CTUState& tu_state_cref) {
-		std::optional<CStaticLifetimeOwner> retval;
+	std::optional<CStaticLifetimeOwnerInfo1> upper_bound_lifetime_owner(const std::optional<CStaticLifetimeOwnerInfo1>& lifetime_owner1, const std::optional<CStaticLifetimeOwnerInfo1>& lifetime_owner2, ASTContext& Ctx, const CTUState& tu_state_cref) {
+		std::optional<CStaticLifetimeOwnerInfo1> retval;
 		const auto lblo = lower_bound_lifetime_owner(lifetime_owner1, lifetime_owner2, Ctx, tu_state_cref);
 		/* Just return the opposite choice of the lower_bound_lifetime_owner() function. */
 		retval = (lblo == lifetime_owner1) ? lifetime_owner2 : lifetime_owner1;
@@ -1890,8 +1962,8 @@ namespace checker {
 	}
 
 	/* Given a set of "lifetime owner" elements, it returns the one with the "longest" lifetime. */
-	std::optional<CStaticLifetimeOwner> upper_bound_lifetime_owner(const std::vector<std::optional<CStaticLifetimeOwner> >& lifetime_owners, ASTContext& Ctx, const CTUState& tu_state_cref) {
-		std::optional<CStaticLifetimeOwner> retval;
+	std::optional<CStaticLifetimeOwnerInfo1> upper_bound_lifetime_owner(const std::vector<std::optional<CStaticLifetimeOwnerInfo1> >& lifetime_owners, ASTContext& Ctx, const CTUState& tu_state_cref) {
+		std::optional<CStaticLifetimeOwnerInfo1> retval;
 		if (1 <= lifetime_owners.size()) {
 			retval = lifetime_owners.front();
 			for (const auto& lifetime_owner : lifetime_owners) {
@@ -1902,8 +1974,8 @@ namespace checker {
 	}
 
 
-	struct CMaybeStaticLifetimeOwnerWithHints : public std::optional<CStaticLifetimeOwner> {
-		typedef std::optional<CStaticLifetimeOwner> base_class;
+	struct CMaybeStaticLifetimeOwnerWithHints : public std::optional<CStaticLifetimeOwnerInfo1> {
+		typedef std::optional<CStaticLifetimeOwnerInfo1> base_class;
 		using base_class::base_class;
 		CMaybeStaticLifetimeOwnerWithHints(const CMaybeStaticLifetimeOwnerWithHints& src) = default;
 		CMaybeStaticLifetimeOwnerWithHints(CMaybeStaticLifetimeOwnerWithHints&& src) = default;
@@ -1925,7 +1997,7 @@ namespace checker {
 		std::vector<std::string> m_hints;
 	};
 
-	std::optional<CStaticLifetimeOwner> lower_bound_lifetime_owner_of_returned_reference_object_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref);
+	std::optional<CStaticLifetimeOwnerInfo1> lower_bound_lifetime_owner_of_returned_reference_object_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref);
 
 	/* This function is meant to return the part of a given expression that directly refers to the declared
 	object (i.e. the `DeclRefExpr`) of interest, if it is present in the expression. The object of interest
@@ -2057,7 +2129,7 @@ namespace checker {
 					sli1.m_maybe_containing_scope = CS;
 				}
 				sli1.m_maybe_source_range = CXXTE->getSourceRange();
-				retval = CStaticLifetimeOwner{ sli1 };
+				retval = CStaticLifetimeOwnerInfo1{ sli1 };
 			}
 		} else if (SL) {
 			retval = SL;
@@ -2070,6 +2142,10 @@ namespace checker {
 				if (FD && !(ME->isBoundMemberFunction(Ctx))) {
 					auto containing_EX = containing_object_expr_from_member_expr(ME);
 					retval = lower_bound_lifetime_owner_if_available(containing_EX, Ctx, tu_state_ref);
+					if (retval.has_value()) {
+						/* Here we're noting that the returned lifetime is of the "owner" of the item, not exactly the item itself. */
+						retval.value().m_possession_lifetime_info_chain.push_back({ FD->getSourceRange() });
+					}
 					return retval;
 				} else if (VD) {
 					retval = VD; /* static member */
@@ -2094,6 +2170,10 @@ namespace checker {
 								satisfies_checks = true;
 								//retval = dyn_cast<const clang::Expr>(UOSE);
 								retval = lower_bound_lifetime_owner_if_available(UOSE, Ctx, tu_state_ref);
+								if (retval.has_value()) {
+									/* Here we're noting that the returned lifetime is of the "owner" of the item, not exactly the item itself. */
+									retval.value().m_possession_lifetime_info_chain.push_back({});
+								}
 							}
 						}
 					} else if (clang::UnaryOperator::Opcode::UO_AddrOf == opcode) {
@@ -2134,6 +2214,10 @@ namespace checker {
 								assert(arg_EX);
 
 								retval = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref);
+								if (retval.has_value()) {
+									/* Here we're noting that the returned lifetime is of the "owner" of the item, not exactly the item itself. */
+									retval.value().m_possession_lifetime_info_chain.push_back({});
+								}
 							}
 						}
 					} else if (CO) {
@@ -2275,6 +2359,10 @@ namespace checker {
 												if (!retval.has_value()) {
 													retval = dyn_cast<const clang::Expr>(arg_EX);
 												}
+												if (retval.has_value()) {
+													/* Here we're noting that the returned lifetime is of the "owner" of the item, not exactly the item itself. */
+													retval.value().m_possession_lifetime_info_chain.push_back({});
+												}
 												return retval;
 											} else if (unique_ptr_str == qname) {
 												if (arg_EX_qtype.isConstQualified()) {
@@ -2284,6 +2372,10 @@ namespace checker {
 														retval = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref);
 														if (!retval.has_value()) {
 															retval = dyn_cast<const clang::Expr>(arg_EX);
+														}
+														if (retval.has_value()) {
+															/* Here we're noting that the returned lifetime is of the "owner" of the item, not exactly the item itself. */
+															retval.value().m_possession_lifetime_info_chain.push_back({});
 														}
 														return retval;
 													}
@@ -2385,18 +2477,27 @@ namespace checker {
 									DECLARE_CACHED_CONST_STRING(xscope_borrowing_fixed_any_str, mse_namespace_str() + "::xscope_borrowing_fixed_any");
 
 									auto qname = CXXRD->getQualifiedNameAsString();
-									if ((xscope_owner_ptr_str == qname) || (xscope_tuple_str == qname)
-
-										//|| (std_unique_ptr_str == qname)
+									if ((xscope_owner_ptr_str == qname)
+										|| (fixed_optional_str == qname) || (xscope_fixed_optional_str == qname) || (xscope_borrowing_fixed_optional_str == qname)
+										|| (fixed_any_str == qname) || (xscope_fixed_any_str == qname) || (xscope_borrowing_fixed_any_str == qname)
+										) {
+										retval = lower_bound_lifetime_owner_if_available(potential_owner_EX_ii, Ctx, tu_state_ref);
+										if (retval.has_value()) {
+											/* Here we're noting that the returned lifetime is of the "owner" of the item, not exactly the item itself. */
+											retval.value().m_possession_lifetime_info_chain.push_back({});
+										}
+									} else if ((xscope_tuple_str == qname)
 										|| (std_tuple_str == qname) || (std_pair_str == qname) || (std_array_str == qname)
 
 										|| (mstd_tuple_str == qname) || (nii_array_str == qname) || (mstd_array_str == qname) || (xscope_nii_array_str == qname)
 										|| (fixed_nii_vector_str == qname) || (xscope_fixed_nii_vector_str == qname) || (xscope_borrowing_fixed_nii_vector_str == qname)
 										|| (fixed_nii_basic_string_str == qname) || (xscope_fixed_nii_basic_string_str == qname) || (xscope_borrowing_fixed_nii_basic_string_str == qname)
-										|| (fixed_optional_str == qname) || (xscope_fixed_optional_str == qname) || (xscope_borrowing_fixed_optional_str == qname)
-										|| (fixed_any_str == qname) || (xscope_fixed_any_str == qname) || (xscope_borrowing_fixed_any_str == qname)
 										) {
 										retval = lower_bound_lifetime_owner_if_available(potential_owner_EX_ii, Ctx, tu_state_ref);
+										if (retval.has_value()) {
+											/* Here we're noting that the returned lifetime is of the "owner" of the item, not exactly the item itself. */
+											retval.value().m_possession_lifetime_info_chain.push_back({ {}, CPossessionLifetimeInfo1::is_element_in_a_multi_element_container_t::Yes });
+										}
 									}
 								} else if (potential_owner_EX_ii->getType()->isReferenceType()) {
 									int q = 5;
@@ -2411,8 +2512,8 @@ namespace checker {
 		return retval;
 	}
 
-	std::optional<CStaticLifetimeOwner> lower_bound_lifetime_owner_of_returned_reference_object_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref) {
-		std::optional<CStaticLifetimeOwner> retval;
+	std::optional<CStaticLifetimeOwnerInfo1> lower_bound_lifetime_owner_of_returned_reference_object_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref) {
+		std::optional<CStaticLifetimeOwnerInfo1> retval;
 		if (!EX1) {
 			return retval;
 		}
@@ -2432,7 +2533,7 @@ namespace checker {
 			object live at least as long as the shortest-lived of the scope pointer/reference objects
 			passed as an argument to the function or the object itself. */
 
-			std::vector<std::optional<CStaticLifetimeOwner> > lifetime_owners;
+			std::vector<std::optional<CStaticLifetimeOwnerInfo1> > lifetime_owners;
 			for (size_t i = 0; i < CXXMCE->getNumArgs(); i+=1) {
 				const auto arg_EX_ii = IgnoreParenImpNoopCasts(CXXMCE->getArg(i), Ctx);
 				const auto arg_EX_ii_qtype = arg_EX_ii->getType();
@@ -2452,7 +2553,7 @@ namespace checker {
 			returned scope pointer/reference object live at least as long as the shortest-lived scope
 			pointer/reference object passed as an argument to the function. */
 
-			std::vector<std::optional<CStaticLifetimeOwner> > lifetime_owners;
+			std::vector<std::optional<CStaticLifetimeOwnerInfo1> > lifetime_owners;
 			for (size_t i = 0; i < CE->getNumArgs(); i+=1) {
 				const auto arg_EX_ii = IgnoreParenImpNoopCasts(CE->getArg(i), Ctx);
 				const auto arg_EX_ii_qtype = arg_EX_ii->getType();
@@ -2603,6 +2704,10 @@ namespace checker {
 				if (FD && !(ME->isBoundMemberFunction(Ctx))) {
 					auto containing_EX = containing_object_expr_from_member_expr(ME);
 					retval = upper_bound_lifetime_owner_if_available(containing_EX, Ctx, tu_state_ref);
+					if (retval.has_value()) {
+						/* Here we're noting that the returned lifetime is of the "owner" of the item, not exactly the item itself. */
+						retval.value().m_possession_lifetime_info_chain.push_back({ FD->getSourceRange() });
+					}
 				} else if (VD) {
 					retval = VD; /* static member */
 				} else {
@@ -2726,26 +2831,42 @@ namespace checker {
 									*/
 
 									auto qname = CXXRD->getQualifiedNameAsString();
-									if ((xscope_owner_ptr_str == qname) || (xscope_optional_str == qname) || (xscope_tuple_str == qname)
+									if ((xscope_owner_ptr_str == qname) || (xscope_optional_str == qname)
 
 										|| (std_unique_ptr_str == qname) || (std_shared_ptr_str == qname) || (std_optional_str == qname)
+										|| (xscope_fixed_optional_str == qname) || (xscope_borrowing_fixed_optional_str == qname)
+										|| (xscope_fixed_any_str == qname) || (xscope_borrowing_fixed_any_str == qname)
+
+										/*
+										|| (mstd_optional_str == qname)
+										*/
+										) {
+										retval = upper_bound_lifetime_owner_if_available(potential_owner_EX_ii, Ctx, tu_state_ref);
+										if (retval.has_value()) {
+											/* Here we're noting that the returned lifetime is of the "owner" of the item, not exactly the item itself. */
+											retval.value().m_possession_lifetime_info_chain.push_back({});
+										}
+									} else if ((xscope_tuple_str == qname)
+
 										|| (std_tuple_str == qname) || (std_pair_str == qname)
 										|| (std_array_str == qname) || (std_vector_str == qname) || (std_list_str == qname)
 										|| (std_map_str == qname) || (std_set_str == qname) || (std_multimap_str == qname) || (std_multiset_str == qname)
 										|| (std_unordered_map_str == qname) || (std_unordered_set_str == qname) || (std_unordered_multimap_str == qname) || (std_unordered_multiset_str == qname)
 										|| (xscope_nii_array_str == qname) || (xscope_fixed_nii_vector_str == qname) || (xscope_borrowing_fixed_nii_vector_str == qname)
 										|| (xscope_fixed_nii_basic_string_str == qname) || (xscope_borrowing_fixed_nii_basic_string_str == qname)
-										|| (xscope_fixed_optional_str == qname) || (xscope_borrowing_fixed_optional_str == qname)
-										|| (xscope_fixed_any_str == qname) || (xscope_borrowing_fixed_any_str == qname)
 
 										/*
-										|| (mstd_optional_str == qname) || (mstd_tuple_str == qname)
+										|| (mstd_tuple_str == qname)
 										|| (nii_array_str == qname) || (mstd_array_str == qname)
 										|| (nii_vector_str == qname) || (stnii_vector_str == qname) || (mtnii_vector_str == qname)
 										|| (mstd_vector_str == qname)
 										*/
 										) {
 										retval = upper_bound_lifetime_owner_if_available(potential_owner_EX_ii, Ctx, tu_state_ref);
+										if (retval.has_value()) {
+											/* Here we're noting that the returned lifetime is of the "owner" of the item, not exactly the item itself. */
+											retval.value().m_possession_lifetime_info_chain.push_back({ {}, CPossessionLifetimeInfo1::is_element_in_a_multi_element_container_t::Yes });
+										}
 									}
 								} else if (potential_owner_EX_ii->getType()->isReferenceType()) {
 									int q = 5;
