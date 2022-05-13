@@ -113,6 +113,54 @@ namespace checker {
 	int CErrorRecord::m_next_available_id = 0;
 	class CErrorRecords : public std::set<CErrorRecord> {};
 
+	clang::FunctionDecl const * enclosing_function_if_any(clang::CXXThisExpr const * CXXTE, clang::ASTContext& context) {
+		clang::FunctionDecl const * retval = nullptr;
+		if (CXXTE) {
+			/* Since we don't know the proper way to obtain the CXXMethodDecl associated with a
+			CXXThisExpr, we're just gonna kind of use a brute force method. First we obtain the
+			enclosing elements of type CXXMethodDecl, CXXConstructorDecl, and CXXDestructorDecl,
+			(if any). */
+			auto CXXMD = Tget_containing_element_of_type<clang::CXXMethodDecl>(CXXTE, context);
+			auto CXXCD = Tget_containing_element_of_type<clang::CXXConstructorDecl>(CXXTE, context);
+			auto CXXDD = Tget_containing_element_of_type<clang::CXXDestructorDecl>(CXXTE, context);
+			/* Then we check to see which of the (up to) three elements is not contained in inside
+			any of the others. */
+			std::optional<clang::SourceRange> maybe_SR;
+			if (CXXMD) {
+				maybe_SR = CXXMD->getSourceRange();
+				retval = dyn_cast<const clang::FunctionDecl>(CXXMD);
+			}
+			if (CXXCD) {
+				auto CXXCD_SR = CXXCD->getSourceRange();
+				if (maybe_SR.has_value()) {
+					if (first_is_contained_in_scope_of_second(CXXCD_SR, maybe_SR.value(), context)) {
+						maybe_SR = CXXCD_SR;
+						retval = dyn_cast<const clang::FunctionDecl>(CXXCD);
+					}
+				} else {
+					maybe_SR = CXXCD_SR;
+					retval = dyn_cast<const clang::FunctionDecl>(CXXCD);
+				}
+			}
+			if (CXXDD) {
+				auto CXXDD_SR = CXXDD->getSourceRange();
+				if (maybe_SR.has_value()) {
+					if (first_is_contained_in_scope_of_second(CXXDD_SR, maybe_SR.value(), context)) {
+						maybe_SR = CXXDD_SR;
+						retval = dyn_cast<const clang::FunctionDecl>(CXXDD);
+					}
+				} else {
+					maybe_SR = CXXDD_SR;
+					retval = dyn_cast<const clang::FunctionDecl>(CXXDD);
+				}
+			}
+			if (retval) {
+				IF_DEBUG(std::string function_name = retval->getNameAsString();)
+				int q = 5;
+			}
+		}
+		return retval;
+	}
 	clang::FunctionDecl const * enclosing_function_if_any(clang::VarDecl const * VD) {
 		clang::FunctionDecl const * retval = nullptr;
 		if (VD) {
@@ -1718,6 +1766,22 @@ namespace checker {
 
 			[&](const clang::CXXThisExpr* slov) { /* the "static lifetime owner" is a 'this' pointer expression' */
 				lifetime_info_result.m_category = CScopeLifetimeInfo1::ECategory::ThisExpression;
+				auto FD = enclosing_function_if_any(slov, Ctx);
+				if (FD) {
+					lifetime_info_result.m_maybe_containing_scope = get_containing_scope(FD, Ctx);
+					auto FDSL = FD->getLocation();
+					if (FDSL.isValid()) {
+						/* A `this` pointer can be thought of as an implicit parameter of the associated (member) function
+						or operator. So we're just going to report the source range of its declaration as being at the
+						location of the funcion/operator name in the declaration, while assuming that's close enough to
+						where an equivalent explicitly declared `this` parameter would be. */
+						lifetime_info_result.m_maybe_source_range = clang::SourceRange{ FDSL, FDSL };
+					} else {
+						int q = 3;
+					}
+				} else {
+					int q = 3;
+				}
 				},
 
 			[&](const clang::Expr* slov) { /* the "static lifetime owner" is an expression */
@@ -1789,7 +1853,17 @@ namespace checker {
 			} else if (CScopeLifetimeInfo1::ECategory::ThisExpression == sli1.m_category) {
 				if (CScopeLifetimeInfo1::ECategory::ThisExpression == sli2.m_category) {
 					/* Both items are "this" expressions. */
-					/* todo: handle this */
+
+					/* A `this` pointer can be thought of as an implicit parameter of the associated (member) function
+					or operator. In this case the given source range fields have been populated with (an approximation
+					of) the location of where an equivalent explicitly declared `this` parameter would be. So we'll
+					construct two CScopeLifetimeInfo1s as if their "scope lifetime owner" is such a hypothetical
+					parameter variable and apply this function to them. */
+					CScopeLifetimeInfo1 l_equivalent_for_our_purposes_sli1 = sli1;
+					l_equivalent_for_our_purposes_sli1.m_category = CScopeLifetimeInfo1::ECategory::Automatic;
+					CScopeLifetimeInfo1 l_equivalent_for_our_purposes_sli2 = sli2;
+					l_equivalent_for_our_purposes_sli2.m_category = CScopeLifetimeInfo1::ECategory::Automatic;
+					retval = first_is_known_to_be_contained_in_scope_of_second(l_equivalent_for_our_purposes_sli1, l_equivalent_for_our_purposes_sli2, context, tu_state_cref);
 				} else {
 					return false;
 				}
@@ -1849,9 +1923,9 @@ namespace checker {
 													/* The result for two member fields should be the same as if the member fields were instead
 													variables declared in the same relative positions. So we'll construct two CScopeLifetimeInfo1s
 													corresponding to those two hypothetical variables and apply this function to them. */
-													CScopeLifetimeInfo1 l_functionally_equivalent_sli1{ sli1.m_maybe_containing_scope, info1.m_maybe_field_source_range.value() };
-													CScopeLifetimeInfo1 l_functionally_equivalent_sli2{ sli2.m_maybe_containing_scope, info2.m_maybe_field_source_range.value() };
-													retval = first_is_known_to_be_contained_in_scope_of_second(l_functionally_equivalent_sli1, l_functionally_equivalent_sli2, context, tu_state_cref);
+													CScopeLifetimeInfo1 l_equivalent_for_our_purposes_sli1{ sli1.m_maybe_containing_scope, info1.m_maybe_field_source_range.value() };
+													CScopeLifetimeInfo1 l_equivalent_for_our_purposes_sli2{ sli2.m_maybe_containing_scope, info2.m_maybe_field_source_range.value() };
+													retval = first_is_known_to_be_contained_in_scope_of_second(l_equivalent_for_our_purposes_sli1, l_equivalent_for_our_purposes_sli2, context, tu_state_cref);
 													if (false == retval) {
 														break;
 													}
