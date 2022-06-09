@@ -403,7 +403,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		std::optional<const clang::CompoundStmt*> m_maybe_containing_scope;
 		std::optional<COrderedSourceRange> m_maybe_source_range;
 		std::vector<CPossessionLifetimeInfo1> m_possession_lifetime_info_chain;
-		std::optional<CAbstractLifetimeSet> m_maybe_abstract_lifetime;
+		std::optional<CAbstractLifetimeSet> m_maybe_abstract_lifetime_set;
 		enum class ECategory { None, Automatic, ThisExpression, Immortal, Literal, AbstractLifetime };
 		ECategory m_category = ECategory::None;
 	};
@@ -416,6 +416,31 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 	inline bool operator!=(const CScopeLifetimeInfo1 &LHS, const CScopeLifetimeInfo1 &RHS) {
 		return !(LHS == RHS);
 	}
+	struct CScopeLifetimeInfo1Set {
+		CScopeLifetimeInfo1Set() {}
+		CScopeLifetimeInfo1Set(const CScopeLifetimeInfo1& lifetime_info) : m_primary_lifetime_infos({ lifetime_info }) {}
+		CScopeLifetimeInfo1Set(const CScopeLifetimeInfo1Set&) = default;
+		//CScopeLifetimeInfo1Set(CScopeLifetimeInfo1Set&&) = default;
+		const CScopeLifetimeInfo1& first_lifetime_info() const {
+			return m_primary_lifetime_infos.at(0);
+		}
+		CScopeLifetimeInfo1& first_lifetime_info() {
+			return m_primary_lifetime_infos.at(0);
+		}
+		//operator const CScopeLifetimeInfo1& () const { return first_lifetime_info(); }
+		//operator CScopeLifetimeInfo1& () { return first_lifetime_info(); }
+		bool operator==(const CScopeLifetimeInfo1Set& rhs) const {
+			return (rhs.m_primary_lifetime_infos == m_primary_lifetime_infos)
+				&& (rhs.m_sublifetime_info_vlptrs == m_sublifetime_info_vlptrs)
+				&& (rhs.m_template_arg_sublifetime_info_vlptrs == m_template_arg_sublifetime_info_vlptrs);
+		}
+		bool operator!=(const CScopeLifetimeInfo1Set& rhs) const {
+			return !((*this) == rhs);
+		}
+		std::vector<CScopeLifetimeInfo1> m_primary_lifetime_infos;
+		std::vector<value_ptr1_t<CScopeLifetimeInfo1Set> > m_sublifetime_info_vlptrs;
+		std::vector<value_ptr1_t<CScopeLifetimeInfo1Set> > m_template_arg_sublifetime_info_vlptrs;
+	};
 
 	inline bool first_is_contained_in_scope_of_second(const clang::SourceRange& SR1, const clang::SourceRange& SR2, clang::ASTContext& context) {
 		bool retval = true;

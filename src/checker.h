@@ -113,10 +113,10 @@ namespace checker {
 	int CErrorRecord::m_next_available_id = 0;
 	class CErrorRecords : public std::set<CErrorRecord> {};
 
-	clang::FunctionDecl const * enclosing_function_if_any(clang::CXXThisExpr const * CXXTE, clang::ASTContext& context) {
+	clang::FunctionDecl const * enclosing_function_if_any(clang::Expr const * E, clang::ASTContext& context) {
 		clang::FunctionDecl const * retval = nullptr;
-		if (CXXTE) {
-			retval = Tget_containing_element_of_type<clang::FunctionDecl>(CXXTE, context);
+		if (E) {
+			retval = Tget_containing_element_of_type<clang::FunctionDecl>(E, context);
 		}
 		return retval;
 	}
@@ -175,7 +175,7 @@ namespace checker {
 	public:
 		std::map<param_ordinal_t, CAbstractLifetimeSet> m_param_lifetime_map;
 		std::vector<std::shared_ptr<CPairwiseLifetimeConstraint> > m_lifetime_constraint_shptrs;
-		std::optional<CAbstractLifetimeSet> m_maybe_return_value_lifetime;
+		std::optional<CAbstractLifetimeSet> m_maybe_return_value_lifetime_set;
 		bool m_parse_errors_noted = false;
 	};
 
@@ -193,7 +193,7 @@ namespace checker {
 
 		std::map<clang::FunctionDecl const *, CFunctionLifetimeAnnotations> m_function_lifetime_annotations_map;
 
-		std::map<clang::Decl const *, CTypeLifetimeAnnotations> m_type_lifetime_annotations_map;
+		std::map<const clang::Type *, CTypeLifetimeAnnotations> m_type_lifetime_annotations_map;
 
 		std::multimap<CAbstractLifetime, std::shared_ptr<CPairwiseLifetimeConstraint> > m_lifetime_constraint_shptr_mmap;
 
@@ -231,14 +231,14 @@ namespace checker {
 			}
 			return retval;
 		}
-		std::optional<CAbstractLifetimeSet> corresponding_abstract_lifetimes_if_any(clang::VarDecl const * VD) const {
+		std::optional<CAbstractLifetimeSet> corresponding_abstract_lifetime_set_if_any(clang::VarDecl const * VD) const {
 			auto iter = m_vardecl_to_abstract_lifetime_map.find(VD);
 			if (m_vardecl_to_abstract_lifetime_map.end() != iter) {
 				return iter->second;
 			}
 			return {};
 		}
-		std::optional<CAbstractLifetimeSet> corresponding_abstract_lifetimes_if_any(clang::CXXThisExpr const * CXXTE, clang::ASTContext& context) const {
+		std::optional<CAbstractLifetimeSet> corresponding_abstract_lifetime_set_if_any(clang::CXXThisExpr const * CXXTE, clang::ASTContext& context) const {
 			const auto FD = Tget_containing_element_of_type<clang::FunctionDecl>(CXXTE, context);
 			if (FD) {
 				auto flta_iter = m_function_lifetime_annotations_map.find(FD);
@@ -562,6 +562,32 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
+	template<typename TCallExpr>
+	auto arg_from_param_ordinal(TCallExpr const * CE, checker::param_ordinal_t param_ordinal) {
+		clang::Expr const * retval = nullptr;
+		if (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal) {
+			auto CXXMCE = dyn_cast<CXXMemberCallExpr>(CE);
+			if (CXXMCE) {
+				retval = CXXMCE->getImplicitObjectArgument();
+			} else {
+				//assert(false);?
+				//todo: report error?
+			}
+		} else {
+			if (!(1 <= param_ordinal)) {
+				assert(false);
+				//continue;
+			}
+			if (CE->getNumArgs() < param_ordinal) {
+				/* If this happens then either an error should be reported elsewhere
+				or there should be a compile error. */
+				//continue;
+			} else {
+				retval = CE->getArg(int(param_ordinal - 1));
+			}
+		}
+		return retval;
+	};
 
 	void process_function_lifetime_annotations(const clang::FunctionDecl& func_decl, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
 		auto iter = state1.m_function_lifetime_annotations_map.find(&func_decl);
@@ -659,7 +685,7 @@ namespace checker {
 								;
 							}
 							if (maybe_return_value_lifetime.has_value()) {
-								flta.m_maybe_return_value_lifetime = maybe_return_value_lifetime;
+								flta.m_maybe_return_value_lifetime_set = maybe_return_value_lifetime;
 							}
 
 							int q = 5;
@@ -798,7 +824,7 @@ namespace checker {
 					if (false && (decltype(pretty_str)::npos != index2)) {
 						/* A [[clang::lifetimebound]] attribute on the function will be interpreted as an
 						MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value<1>; this<1> }") attribute. */
-						flta.m_maybe_return_value_lifetime = CAbstractLifetime{ lifetime_id_t("1"), &func_decl };
+						flta.m_maybe_return_value_lifetime_set = CAbstractLifetime{ lifetime_id_t("1"), &func_decl };
 						param_lifetime_map.insert_or_assign(IMPLICIT_THIS_PARAM_ORDINAL, CAbstractLifetime{ lifetime_id_t("1"), &func_decl });
 					} else {
 						continue;
@@ -856,7 +882,7 @@ namespace checker {
 							/* A [[clang::lifetimebound]] attribute on the parameter will be interpreted as an
 							MSE_ATTR_PARAM_STR("mse::lifetime_label<1>") attribute on the parameter and an
 							MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value<1> }") attribute on the function. */
-							flta.m_maybe_return_value_lifetime = CAbstractLifetime{ lifetime_id_t("1"), &func_decl };
+							flta.m_maybe_return_value_lifetime_set = CAbstractLifetime{ lifetime_id_t("1"), &func_decl };
 							param_lifetime_map.insert_or_assign(param_ordinal, CAbstractLifetime{ lifetime_id_t("1"), &func_decl });
 						} else {
 							continue;
@@ -1081,7 +1107,7 @@ namespace checker {
 								;
 							}
 							if (maybe_return_value_lifetime.has_value()) {
-								flta.m_maybe_return_value_lifetime = maybe_return_value_lifetime;
+								flta.m_maybe_return_value_lifetime_set = maybe_return_value_lifetime;
 							}
 
 							int q = 5;
@@ -1252,7 +1278,7 @@ namespace checker {
 	}
 
 	void process_type_lifetime_annotations(const clang::TypeDecl& type_decl, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
-		auto iter = state1.m_type_lifetime_annotations_map.find(&type_decl);
+		auto iter = state1.m_type_lifetime_annotations_map.find(type_decl.getTypeForDecl());
 		if (state1.m_type_lifetime_annotations_map.end() != iter) {
 			if (iter->second.m_parse_errors_noted) {
 				/* already processed */
@@ -1391,7 +1417,7 @@ namespace checker {
 			}
 		}
 
-		state1.m_type_lifetime_annotations_map.insert_or_assign(&type_decl, tlta);
+		state1.m_type_lifetime_annotations_map.insert_or_assign(type_decl.getTypeForDecl(), tlta);
 
 		auto type_decl_Type_ptr = type_decl.getTypeForDecl();
 		clang::RecordDecl const * RD = type_decl_Type_ptr ? type_decl_Type_ptr->getAsRecordDecl() : (decltype(RD))(nullptr);
@@ -1952,9 +1978,55 @@ namespace checker {
 	template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 	template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>; // not needed as of C++20
 
+	struct CStaticLifetimeOwnerInfo1Set;
+
 	struct CStaticLifetimeOwnerInfo1 : CStaticLifetimeOwner {
 		using CStaticLifetimeOwner::CStaticLifetimeOwner;
 		std::vector<CPossessionLifetimeInfo1> m_possession_lifetime_info_chain;
+		std::optional<value_ptr1_t<CStaticLifetimeOwnerInfo1Set> > m_maybe_sublifetime_owners_vlptr;
+	};
+	struct CStaticLifetimeOwnerInfo1Set {
+		CStaticLifetimeOwnerInfo1Set() {}
+		CStaticLifetimeOwnerInfo1Set(const CTUState& state1, const clang::Type * Type_ptr) {
+			auto found_iter = state1.m_type_lifetime_annotations_map.find(Type_ptr);
+			if (state1.m_type_lifetime_annotations_map.end() != found_iter) {
+				auto& tlta = found_iter->second;
+				m_maybe_primary_lifetime_owner_infos.resize(tlta.m_lifetime_set.m_primary_lifetimes.size());
+			}
+		}
+		CStaticLifetimeOwnerInfo1Set(const CAbstractLifetimeSet& alts) {
+			set_structure_to_match(alts);
+		}
+		void set_structure_to_match(const CAbstractLifetimeSet& alts) {
+			m_maybe_primary_lifetime_owner_infos.resize(alts.m_primary_lifetimes.size());
+			m_maybe_sublifetime_owner_info_vlptrs.resize(alts.m_sublifetime_vlptrs.size());
+			auto maybe_sublifetime_owner_info_vlptr_iter = m_maybe_sublifetime_owner_info_vlptrs.begin();
+			for (auto& sublifetime_vlptr : alts.m_sublifetime_vlptrs) {
+				(*maybe_sublifetime_owner_info_vlptr_iter) = { *sublifetime_vlptr };
+			}
+		}
+		//CStaticLifetimeOwnerInfo1Set(const CStaticLifetimeOwnerInfo1& lifetime_owner_info) : m_maybe_primary_lifetime_owner_infos({ lifetime_owner_info }) {}
+		CStaticLifetimeOwnerInfo1Set(const CStaticLifetimeOwnerInfo1Set&) = default;
+		//CStaticLifetimeOwnerInfo1Set(CStaticLifetimeOwnerInfo1Set&&) = default;
+		const CStaticLifetimeOwnerInfo1& first_lifetime_owner_info() const {
+			return m_maybe_primary_lifetime_owner_infos.at(0).value();
+		}
+		CStaticLifetimeOwnerInfo1& first_lifetime_owner_info() {
+			return m_maybe_primary_lifetime_owner_infos.at(0).value();
+		}
+		//operator const CStaticLifetimeOwnerInfo1& () const { return first_lifetime_owner_info(); }
+		//operator CStaticLifetimeOwnerInfo1& () { return first_lifetime_owner_info(); }
+		bool operator==(const CStaticLifetimeOwnerInfo1Set& rhs) const {
+			return (rhs.m_maybe_primary_lifetime_owner_infos == m_maybe_primary_lifetime_owner_infos)
+				&& (rhs.m_maybe_sublifetime_owner_info_vlptrs == m_maybe_sublifetime_owner_info_vlptrs)
+				&& (rhs.m_maybe_template_arg_sublifetime_owner_info_vlptrs == m_maybe_template_arg_sublifetime_owner_info_vlptrs);
+		}
+		bool operator!=(const CStaticLifetimeOwnerInfo1Set& rhs) const {
+			return !((*this) == rhs);
+		}
+		std::vector<std::optional<CStaticLifetimeOwnerInfo1> > m_maybe_primary_lifetime_owner_infos;
+		std::vector<std::optional<value_ptr1_t<CStaticLifetimeOwnerInfo1Set> > > m_maybe_sublifetime_owner_info_vlptrs;
+		std::vector<std::optional<value_ptr1_t<CStaticLifetimeOwnerInfo1Set> > > m_maybe_template_arg_sublifetime_owner_info_vlptrs;
 	};
 
 	CScopeLifetimeInfo1 scope_lifetime_info_from_lifetime_owner(const CStaticLifetimeOwnerInfo1& sloiv, ASTContext& Ctx) {
@@ -2022,16 +2094,16 @@ namespace checker {
 			return false;
 		} else if (CScopeLifetimeInfo1::ECategory::Literal == sli2.m_category) {
 			return true;
-		} else if (sli1.m_maybe_abstract_lifetime.has_value() || sli2.m_maybe_abstract_lifetime.has_value()) {
-			if (sli1.m_maybe_abstract_lifetime.has_value() && sli2.m_maybe_abstract_lifetime.has_value()) {
+		} else if (sli1.m_maybe_abstract_lifetime_set.has_value() || sli2.m_maybe_abstract_lifetime_set.has_value()) {
+			if (sli1.m_maybe_abstract_lifetime_set.has_value() && sli2.m_maybe_abstract_lifetime_set.has_value()) {
 				assert((CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli1.m_category) && (CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli2.m_category));
 
-				if (sli1.m_maybe_abstract_lifetime.value().m_primary_lifetimes.size() > sli2.m_maybe_abstract_lifetime.value().m_primary_lifetimes.size()) {
+				if (sli1.m_maybe_abstract_lifetime_set.value().m_primary_lifetimes.size() > sli2.m_maybe_abstract_lifetime_set.value().m_primary_lifetimes.size()) {
 					return false;
 				} else {
-					auto pl_iter1 = sli1.m_maybe_abstract_lifetime.value().m_primary_lifetimes.begin();
-					auto pl_iter2 = sli2.m_maybe_abstract_lifetime.value().m_primary_lifetimes.begin();
-					for ( ; sli1.m_maybe_abstract_lifetime.value().m_primary_lifetimes.end() != pl_iter1; ++pl_iter1, ++pl_iter2) {
+					auto pl_iter1 = sli1.m_maybe_abstract_lifetime_set.value().m_primary_lifetimes.begin();
+					auto pl_iter2 = sli2.m_maybe_abstract_lifetime_set.value().m_primary_lifetimes.begin();
+					for ( ; sli1.m_maybe_abstract_lifetime_set.value().m_primary_lifetimes.end() != pl_iter1; ++pl_iter1, ++pl_iter2) {
 						auto pl_res1 = tu_state_cref.second_can_be_assigned_to_first(*pl_iter1, *pl_iter2);
 						if (CTUState::EYesNoDontKnow::Yes == pl_res1) {
 						} else {
@@ -2039,34 +2111,34 @@ namespace checker {
 						}
 					}
 
-					if (sli1.m_maybe_abstract_lifetime.value().m_sublifetime_vlptrs.size() > sli2.m_maybe_abstract_lifetime.value().m_sublifetime_vlptrs.size()) {
+					if (sli1.m_maybe_abstract_lifetime_set.value().m_sublifetime_vlptrs.size() > sli2.m_maybe_abstract_lifetime_set.value().m_sublifetime_vlptrs.size()) {
 						return false;
 					} else {
-						auto sl_iter1 = sli1.m_maybe_abstract_lifetime.value().m_sublifetime_vlptrs.begin();
-						auto sl_iter2 = sli2.m_maybe_abstract_lifetime.value().m_sublifetime_vlptrs.begin();
-						for ( ; sli1.m_maybe_abstract_lifetime.value().m_sublifetime_vlptrs.end() != sl_iter1; ++sl_iter1, ++sl_iter2) {
+						auto sl_iter1 = sli1.m_maybe_abstract_lifetime_set.value().m_sublifetime_vlptrs.begin();
+						auto sl_iter2 = sli2.m_maybe_abstract_lifetime_set.value().m_sublifetime_vlptrs.begin();
+						for ( ; sli1.m_maybe_abstract_lifetime_set.value().m_sublifetime_vlptrs.end() != sl_iter1; ++sl_iter1, ++sl_iter2) {
 
 							CScopeLifetimeInfo1 sublifetime_sli1 = sli1;
-							sublifetime_sli1.m_maybe_abstract_lifetime = *(*sl_iter1);
+							sublifetime_sli1.m_maybe_abstract_lifetime_set = *(*sl_iter1);
 							CScopeLifetimeInfo1 sublifetime_sli2 = sli2;
-							sublifetime_sli2.m_maybe_abstract_lifetime = *(*sl_iter2);
+							sublifetime_sli2.m_maybe_abstract_lifetime_set = *(*sl_iter2);
 							retval = first_is_known_to_be_contained_in_scope_of_second(sublifetime_sli1, sublifetime_sli2, context, tu_state_cref);
 							if (false == retval) {
 								return false;
 							}
 						}
 
-						if (sli1.m_maybe_abstract_lifetime.value().m_template_arg_sublifetime_vlptrs.size() > sli2.m_maybe_abstract_lifetime.value().m_template_arg_sublifetime_vlptrs.size()) {
+						if (sli1.m_maybe_abstract_lifetime_set.value().m_template_arg_sublifetime_vlptrs.size() > sli2.m_maybe_abstract_lifetime_set.value().m_template_arg_sublifetime_vlptrs.size()) {
 							return false;
 						} else {
-							auto tasl_iter1 = sli1.m_maybe_abstract_lifetime.value().m_template_arg_sublifetime_vlptrs.begin();
-							auto tasl_iter2 = sli2.m_maybe_abstract_lifetime.value().m_template_arg_sublifetime_vlptrs.begin();
-							for ( ; sli1.m_maybe_abstract_lifetime.value().m_template_arg_sublifetime_vlptrs.end() != tasl_iter1; ++tasl_iter1, ++tasl_iter2) {
+							auto tasl_iter1 = sli1.m_maybe_abstract_lifetime_set.value().m_template_arg_sublifetime_vlptrs.begin();
+							auto tasl_iter2 = sli2.m_maybe_abstract_lifetime_set.value().m_template_arg_sublifetime_vlptrs.begin();
+							for ( ; sli1.m_maybe_abstract_lifetime_set.value().m_template_arg_sublifetime_vlptrs.end() != tasl_iter1; ++tasl_iter1, ++tasl_iter2) {
 
 								CScopeLifetimeInfo1 template_arg_sublifetime_sli1 = sli1;
-								template_arg_sublifetime_sli1.m_maybe_abstract_lifetime = *(*tasl_iter1);
+								template_arg_sublifetime_sli1.m_maybe_abstract_lifetime_set = *(*tasl_iter1);
 								CScopeLifetimeInfo1 template_arg_sublifetime_sli2 = sli2;
-								template_arg_sublifetime_sli2.m_maybe_abstract_lifetime = *(*tasl_iter2);
+								template_arg_sublifetime_sli2.m_maybe_abstract_lifetime_set = *(*tasl_iter2);
 								retval = first_is_known_to_be_contained_in_scope_of_second(template_arg_sublifetime_sli1, template_arg_sublifetime_sli2, context, tu_state_cref);
 								if (false == retval) {
 									return false;
@@ -2076,7 +2148,7 @@ namespace checker {
 					}
 				}
 				return retval;
-			} else if (sli2.m_maybe_abstract_lifetime.has_value()) {
+			} else if (sli2.m_maybe_abstract_lifetime_set.has_value()) {
 				if (CScopeLifetimeInfo1::ECategory::Automatic == sli1.m_category) {
 					/* We're assuming that sli2 corresponds to a pointer/reference parameter with lifetime
 					annotation. And that sli1 does not correspond to a reference parameter or reassignable
@@ -2333,6 +2405,7 @@ namespace checker {
 	};
 
 	std::optional<CStaticLifetimeOwnerInfo1> lower_bound_lifetime_owner_of_returned_reference_object_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref);
+	CMaybeStaticLifetimeOwnerWithHints lower_bound_lifetime_owner_of_pointer_target_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref);
 
 	/* This function is meant to return the part of a given expression that directly refers to the declared
 	object (i.e. the `DeclRefExpr`) of interest, if it is present in the expression. The object of interest
@@ -2389,10 +2462,10 @@ namespace checker {
 						auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
 						if (PVD) {
 							process_function_lifetime_annotations(*PVD, tu_state_ref);
-							auto maybe_abstract_lifetime = tu_state_ref.corresponding_abstract_lifetimes_if_any(PVD);
-							if (maybe_abstract_lifetime.has_value()) {
+							auto maybe_abstract_lifetime_set = tu_state_ref.corresponding_abstract_lifetime_set_if_any(PVD);
+							if (maybe_abstract_lifetime_set.has_value()) {
 								CScopeLifetimeInfo1 scope_lifetime_info1;
-								scope_lifetime_info1.m_maybe_abstract_lifetime = maybe_abstract_lifetime.value();
+								scope_lifetime_info1.m_maybe_abstract_lifetime_set = maybe_abstract_lifetime_set.value();
 								scope_lifetime_info1.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
 
 								scope_lifetime_info1.m_maybe_containing_scope = get_containing_scope(PVD, Ctx);
@@ -2408,8 +2481,118 @@ namespace checker {
 							}
 						}
 					} else {
-						satisfies_checks = true;
 						retval = VD;
+
+						if (VD->getType()->isPointerType()) {
+							if (VD->hasInit()) {
+								auto maybe_res1 = lower_bound_lifetime_owner_if_available(VD->getInit(), Ctx, tu_state_ref);
+								if (maybe_res1.has_value()) {
+									if (maybe_res1.value().m_maybe_sublifetime_owners_vlptr.has_value()) {
+										retval.value().m_maybe_sublifetime_owners_vlptr = maybe_res1.value().m_maybe_sublifetime_owners_vlptr;
+										return retval;
+									}
+								}
+								auto maybe_res2 = lower_bound_lifetime_owner_of_pointer_target_if_available(VD->getInit(), Ctx, tu_state_ref);
+								if (maybe_res2.has_value()) {
+									CStaticLifetimeOwnerInfo1Set sloi1_set;
+									sloi1_set.m_maybe_primary_lifetime_owner_infos.push_back(maybe_res2.value());
+									retval.value().m_maybe_sublifetime_owners_vlptr = { sloi1_set };
+								}
+								return retval;
+							}
+						}
+
+						auto RD = VD->getType().getTypePtr()->getAsRecordDecl();
+						if (RD) {
+							auto found_iter = tu_state_ref.m_type_lifetime_annotations_map.find(RD->getTypeForDecl());
+							if (tu_state_ref.m_type_lifetime_annotations_map.end() != found_iter) {
+								auto& tlta = found_iter->second;
+								if (VD->hasInit()) {
+									auto maybe_res1 = lower_bound_lifetime_owner_if_available(VD->getInit(), Ctx, tu_state_ref);
+									if (maybe_res1.has_value()) {
+										if (maybe_res1.value().m_maybe_sublifetime_owners_vlptr.has_value()) {
+											retval.value().m_maybe_sublifetime_owners_vlptr = maybe_res1.value().m_maybe_sublifetime_owners_vlptr;
+											return retval;
+										}
+									}
+									auto CXXCE = dyn_cast<const clang::CXXConstructExpr>(VD->getInit());
+									auto CXXTOE = dyn_cast<const clang::CXXTemporaryObjectExpr>(VD->getInit());
+									if (CXXCE) {
+										auto CD = CXXCE->getConstructor();
+										if (CD) {
+											if (CD->isCopyOrMoveConstructor()) {
+												if (1 == CXXCE->getNumArgs()) {
+													auto arg_EX = CXXCE->getArg(0);
+													auto maybe_res1 = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref);
+													if (maybe_res1.has_value()) {
+														if (maybe_res1.value().m_maybe_sublifetime_owners_vlptr.has_value()) {
+															retval.value().m_maybe_sublifetime_owners_vlptr = maybe_res1.value().m_maybe_sublifetime_owners_vlptr;
+															return retval;
+														}
+													}
+												} else { assert(false); }
+											} else {
+												process_function_lifetime_annotations(*CD, tu_state_ref);
+												auto found_iter2 = tu_state_ref.m_function_lifetime_annotations_map.find(CD);
+												if (tu_state_ref.m_function_lifetime_annotations_map.end() != found_iter2) {
+													auto& flta = found_iter2->second;
+													auto sublifetime_owners = CStaticLifetimeOwnerInfo1Set(tlta.m_lifetime_set);
+
+													auto& CE = CXXCE;
+													auto lifetime_owner_info_iter1 = sublifetime_owners.m_maybe_primary_lifetime_owner_infos.begin();
+													for (const auto& type_lifetime : tlta.m_lifetime_set.m_primary_lifetimes) {
+														for (const auto& param_lifetime1 : flta.m_param_lifetime_map) {
+															auto& param_lifetime_set = param_lifetime1.second;
+															if (1 == param_lifetime_set.m_primary_lifetimes.size()) {
+																if (param_lifetime_set.first_lifetime() == type_lifetime) {
+																	clang::Expr const * arg1_EX = arg_from_param_ordinal(CE, param_lifetime1.first);
+																	if (!arg1_EX) {
+																		continue;
+																	} else {
+																		auto maybe_res1 = lower_bound_lifetime_owner_if_available(arg1_EX, Ctx, tu_state_ref);
+																		if (maybe_res1.has_value()) {
+																			auto param_index = int(param_lifetime1.first) - 1;
+																			if ((0 <= param_index) && (CD->getNumParams() > param_index)) {
+																				auto PVD = CD->getParamDecl(param_index);
+																				if (PVD) {
+																					if (PVD->getType()->isReferenceType()) {
+																						if (maybe_res1.value().m_maybe_sublifetime_owners_vlptr.has_value()) {
+																							auto& sublifetime_owners_vlptr = maybe_res1.value().m_maybe_sublifetime_owners_vlptr.value();
+																							if (1 == (*sublifetime_owners_vlptr).m_maybe_primary_lifetime_owner_infos.size()) {
+																								auto maybe_primary_lifetime_owner_info = (*sublifetime_owners_vlptr).m_maybe_primary_lifetime_owner_infos.front();
+																								if (maybe_primary_lifetime_owner_info.has_value()) {
+																									(*lifetime_owner_info_iter1) = maybe_primary_lifetime_owner_info.value();
+																									//sublifetime_owners = maybe_res1.value().m_maybe_sublifetime_owners_vlptr;
+																								}
+																							}
+																						}
+																					} else {
+																						(*lifetime_owner_info_iter1) = maybe_res1.value();
+																					}
+																				}
+																			}
+																		}
+
+																	}
+																}
+															}
+														}
+													}
+
+												}
+											}
+										}
+									}
+									/*
+									auto maybe_res2 = lower_bound_lifetime_owner_of_pointer_target_if_available(VD->getInit(), Ctx, tu_state_ref);
+									if (maybe_res2.has_value()) {
+										retval.value().m_maybe_sublifetime_owners_vlptr = { maybe_res2.value() };
+									}
+									*/
+									return retval;
+								}
+							}
+						}
 					}
 					return retval;
 				} else if ((clang::StorageDuration::SD_Static == storage_duration)) {
@@ -2454,10 +2637,10 @@ namespace checker {
 		}
 		if (CXXTE) {
 			retval = CXXTE;
-			auto maybe_abstract_lifetime = tu_state_ref.corresponding_abstract_lifetimes_if_any(CXXTE, Ctx);
-			if (maybe_abstract_lifetime) {
+			auto maybe_abstract_lifetime_set = tu_state_ref.corresponding_abstract_lifetime_set_if_any(CXXTE, Ctx);
+			if (maybe_abstract_lifetime_set) {
 				CScopeLifetimeInfo1 sli1;
-				sli1.m_maybe_abstract_lifetime = maybe_abstract_lifetime.value();
+				sli1.m_maybe_abstract_lifetime_set = maybe_abstract_lifetime_set.value();
 				sli1.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
 				const auto CS = Tget_containing_element_of_type<clang::CompoundStmt>(CXXTE, Ctx);
 				if (CS) {
@@ -2475,6 +2658,29 @@ namespace checker {
 				auto FD = dyn_cast<const clang::FieldDecl>(VLD);
 				auto VD = dyn_cast<const clang::VarDecl>(VLD); /* for static members */
 				if (FD && !(ME->isBoundMemberFunction(Ctx))) {
+					auto parent_RD = FD->getParent();
+					auto found_iter = tu_state_ref.m_fielddecl_to_abstract_lifetime_map.find(FD);
+					if (tu_state_ref.m_fielddecl_to_abstract_lifetime_map.end() != found_iter) {
+						if (FD->getType()->isReferenceType()) {
+							if (1 <= (*found_iter).second.m_primary_lifetimes.size()) {
+								CScopeLifetimeInfo1 sli1;
+								auto abstract_lifetime = (*found_iter).second.first_lifetime();
+
+								/*
+								sli1.m_maybe_abstract_lifetime_set = (*found_iter).second;
+								sli1.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
+								const auto CS = Tget_containing_element_of_type<clang::CompoundStmt>(ME, Ctx);
+								if (CS) {
+									sli1.m_maybe_containing_scope = CS;
+								}
+								sli1.m_maybe_source_range = ME->getSourceRange();
+								retval = CStaticLifetimeOwnerInfo1{ sli1 };
+								return retval;
+								*/
+							}
+						}
+					}
+
 					auto containing_EX = containing_object_expr_from_member_expr(ME);
 					retval = lower_bound_lifetime_owner_if_available(containing_EX, Ctx, tu_state_ref);
 					if (retval.has_value()) {
@@ -2581,8 +2787,8 @@ namespace checker {
 								auto flta_iter = tu_state_ref.m_function_lifetime_annotations_map.find(FD);
 								if (tu_state_ref.m_function_lifetime_annotations_map.end() != flta_iter) {
 									auto flta = flta_iter->second;
-									if (flta.m_maybe_return_value_lifetime.has_value()) {
-										const auto rv_lifetime = flta.m_maybe_return_value_lifetime.value();
+									if (flta.m_maybe_return_value_lifetime_set.has_value()) {
+										const auto rv_lifetime = flta.m_maybe_return_value_lifetime_set.value();
 										/* A list of function call arguments that correspond to the parameters that are
 										specified (via annotations) to have the same lifetime as the return value. */
 										std::vector<clang::Expr const *> potential_rv_source_args;
@@ -2594,9 +2800,9 @@ namespace checker {
 											if (arg1_end == arg1_iter) {
 												break;
 											}
-											auto maybe_abstract_lifetime1 = tu_state_ref.corresponding_abstract_lifetimes_if_any(param1);
-											if (maybe_abstract_lifetime1.has_value()) {
-												const auto abstract_lifetime1 = maybe_abstract_lifetime1.value();
+											auto maybe_abstract_lifetime_set1 = tu_state_ref.corresponding_abstract_lifetime_set_if_any(param1);
+											if (maybe_abstract_lifetime_set1.has_value()) {
+												const auto abstract_lifetime1 = maybe_abstract_lifetime_set1.value();
 												if (abstract_lifetime1 == rv_lifetime) {
 													potential_rv_source_args.push_back(*arg1_iter);
 												}
@@ -2967,10 +3173,10 @@ namespace checker {
 						auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
 						if (PVD) {
 							process_function_lifetime_annotations(*PVD, tu_state_ref);
-							auto maybe_abstract_lifetime = tu_state_ref.corresponding_abstract_lifetimes_if_any(PVD);
-							if (maybe_abstract_lifetime.has_value()) {
+							auto maybe_abstract_lifetime_set = tu_state_ref.corresponding_abstract_lifetime_set_if_any(PVD);
+							if (maybe_abstract_lifetime_set.has_value()) {
 								CScopeLifetimeInfo1 scope_lifetime_info1;
-								scope_lifetime_info1.m_maybe_abstract_lifetime = maybe_abstract_lifetime.value();
+								scope_lifetime_info1.m_maybe_abstract_lifetime_set = maybe_abstract_lifetime_set.value();
 								scope_lifetime_info1.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
 
 								scope_lifetime_info1.m_maybe_containing_scope = get_containing_scope(PVD, Ctx);
@@ -3030,6 +3236,25 @@ namespace checker {
 			}
 		} else if (CXXTE) {
 			retval = CXXTE;
+			auto maybe_abstract_lifetime_set = tu_state_ref.corresponding_abstract_lifetime_set_if_any(CXXTE, Ctx);
+			if (maybe_abstract_lifetime_set) {
+				CScopeLifetimeInfo1 sli1;
+				sli1.m_maybe_abstract_lifetime_set = maybe_abstract_lifetime_set.value();
+				sli1.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
+
+				auto FND = enclosing_function_if_any(CXXTE, Ctx);
+				if (FND) {
+					auto FNST = FND->getBody();
+					if (FNST) {
+						sli1.m_maybe_containing_scope = get_containing_scope(FNST, Ctx);
+						sli1.m_maybe_source_range = FNST->getSourceRange();
+					} else {
+						sli1.m_maybe_containing_scope = get_containing_scope(CXXTE, Ctx);
+						sli1.m_maybe_source_range = CXXTE->getSourceRange();
+					}
+				}
+				retval = CStaticLifetimeOwnerInfo1{ sli1 };
+			}
 		} else {
 			auto ME = dyn_cast<const clang::MemberExpr>(EX);
 			if (ME) {
@@ -3598,21 +3823,21 @@ namespace checker {
 								process_function_lifetime_annotations(*FD, m_state1, &MR, &Rewrite);
 								auto flta_iter = m_state1.m_function_lifetime_annotations_map.find(FD);
 								if (m_state1.m_function_lifetime_annotations_map.end() != flta_iter) {
-									if (flta_iter->second.m_maybe_return_value_lifetime.has_value()) {
+									if (flta_iter->second.m_maybe_return_value_lifetime_set.has_value()) {
 										rv_lifetime_annotation_is_present = true;
-										auto rv_lifetime = flta_iter->second.m_maybe_return_value_lifetime.value();
+										auto rv_lifetime = flta_iter->second.m_maybe_return_value_lifetime_set.value();
 										auto maybe_lblo = lower_bound_lifetime_owner_if_available(E, *(MR.Context), m_state1);
 										bool satisfies_checks = false;
 										if (maybe_lblo.has_value()) {
 											auto lblo = maybe_lblo.value();
 											auto lbsli = scope_lifetime_info_from_lifetime_owner(lblo, *(MR.Context));
 											CScopeLifetimeInfo1 rvsli;
-											rvsli.m_maybe_abstract_lifetime = rv_lifetime;
+											rvsli.m_maybe_abstract_lifetime_set = rv_lifetime;
 											rvsli.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
 											satisfies_checks = first_is_known_to_be_contained_in_scope_of_second(rvsli, lbsli, *(MR.Context), m_state1);
 											if (!satisfies_checks) {
-												if (lbsli.m_maybe_abstract_lifetime.has_value()) {
-													if (lbsli.m_maybe_abstract_lifetime.value() == rv_lifetime) {
+												if (lbsli.m_maybe_abstract_lifetime_set.has_value()) {
+													if (lbsli.m_maybe_abstract_lifetime_set.value() == rv_lifetime) {
 														satisfies_checks = true;
 													}
 												}
@@ -3660,8 +3885,17 @@ namespace checker {
 							}
 						}
 						if (!xscope_return_value_wrapper_present) {
-							const std::string error_desc = std::string("Return values of xscope type (such as '")
-							+ ST->getRetValue()->getType().getAsString() + "') need to be wrapped in the mse::return_value() function wrapper.";
+							std::string error_desc = std::string("Return values of xscope type (such as '")
+							+ ST->getRetValue()->getType().getAsString() + "') need to be wrapped in the mse::return_value() function wrapper"
+							+ ", or have their lifetime specified with the 'return_value<>' function lifetime annotation.";
+
+							auto FND = enclosing_function_if_any(ST->getRetValue(), *(MR.Context));
+							if (FND) {
+								if (FND->isDefaulted()) {
+									error_desc += " (This return statement is contained in the (possibly implicit/default member) function '" + FND->getNameAsString() + "' .)";
+								}
+							}
+
 							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
 								std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -4212,34 +4446,8 @@ namespace checker {
 					if (state1.m_function_lifetime_annotations_map.end() != flta_iter) {
 						auto flta = flta_iter->second;
 
-						auto arg_from_param_ordinal = [&CE](auto param_ordinal) {
-							clang::Expr const * retval = nullptr;
-							if (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal) {
-								auto CXXMCE = dyn_cast<CXXMemberCallExpr>(CE);
-								if (CXXMCE) {
-									retval = CXXMCE->getImplicitObjectArgument();
-								} else {
-									//assert(false);?
-									//todo: report error?
-								}
-							} else {
-								if (!(1 <= param_ordinal)) {
-									assert(false);
-									//continue;
-								}
-								if (CE->getNumArgs() < param_ordinal) {
-									/* If this happens then either an error should be reported elsewhere
-									or there should be a compile error. */
-									//continue;
-								} else {
-									retval = CE->getArg(int(param_ordinal - 1));
-								}
-							}
-							return retval;
-						};
-
 						for (const auto& param_lifetime1 : flta.m_param_lifetime_map) {
-							clang::Expr const * arg1_EX = arg_from_param_ordinal(param_lifetime1.first);
+							clang::Expr const * arg1_EX = arg_from_param_ordinal(CE, param_lifetime1.first);
 							if (!arg1_EX) {
 								continue;
 							} else {
@@ -4253,7 +4461,7 @@ namespace checker {
 								}
 
 								for (const auto& param_lifetime2 : flta.m_param_lifetime_map) {
-									clang::Expr const * arg2_EX = arg_from_param_ordinal(param_lifetime2.first);
+									clang::Expr const * arg2_EX = arg_from_param_ordinal(CE, param_lifetime2.first);
 									if (!arg2_EX) {
 										continue;
 									} else {
@@ -4619,6 +4827,14 @@ namespace checker {
 							error_desc += " (Possibly due to being unable to verify that the new target object outlives the (scope) pointer.)";
 						}
 					}
+
+					auto FND = enclosing_function_if_any(LHSEX, *(MR.Context));
+					if (FND) {
+						if (FND->isDefaulted()) {
+							error_desc += " (This pointer assignment is contained in the (possibly implicit/default member) function '" + FND->getNameAsString() + "' .)";
+						}
+					}
+
 					auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 					if (res.second) {
 						std::cout << (*(res.first)).as_a_string1() << " \n\n";
