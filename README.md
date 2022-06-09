@@ -244,7 +244,7 @@ void main(int argc, char* argv[]) {
 }
 ```
 
-To be clear, the parameter lifetime label annotations refer to the lifetime of the object refered to directly by the (native) reference parameter, not any object referenced by that object. So for example in the parameter declaration:
+To be clear, the parameter lifetime label annotations refer to the lifetime of the object referred to directly by the (native) reference parameter, not any object referenced by that object. So for example in the parameter declaration:
 
 ```cpp
 int*& i_ptr1 MSE_ATTR_PARAM_STR("mse::lifetime_label<42>")
