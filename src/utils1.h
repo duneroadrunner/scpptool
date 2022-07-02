@@ -370,10 +370,16 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		CAbstractLifetimeSet(const CAbstractLifetimeSet&) = default;
 		//CAbstractLifetimeSet(CAbstractLifetimeSet&&) = default;
 		const CAbstractLifetime& first_lifetime() const {
-			return m_primary_lifetimes.at(0);
+			if (1 <= m_primary_lifetimes.size()) {
+				return m_primary_lifetimes.at(0);
+			}
+			return m_sublifetime_vlptrs.at(0)->first_lifetime();
 		}
 		CAbstractLifetime& first_lifetime() {
-			return m_primary_lifetimes.at(0);
+			if (1 <= m_primary_lifetimes.size()) {
+				return m_primary_lifetimes.at(0);
+			}
+			return m_sublifetime_vlptrs.at(0)->first_lifetime();
 		}
 		//operator const CAbstractLifetime& () const { return first_lifetime(); }
 		//operator CAbstractLifetime& () { return first_lifetime(); }
@@ -384,6 +390,24 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 		}
 		bool operator!=(const CAbstractLifetimeSet& rhs) const {
 			return !((*this) == rhs);
+		}
+		bool is_empty() const { return ((0 == m_primary_lifetimes.size()) && (0 == m_sublifetime_vlptrs.size())); }
+		auto lifetime_from_label_id_if_present(std::string_view label_id) const -> std::optional<CAbstractLifetime> {
+			std::optional<CAbstractLifetime> retval;
+			for (const auto& lifetime : m_primary_lifetimes) {
+				if (lifetime.m_id == label_id) {
+					return lifetime;
+				};
+			}
+			for (const auto& alts_vlptr : m_sublifetime_vlptrs) {
+				if (alts_vlptr) {
+					auto maybe_lifetime1 = (*alts_vlptr).lifetime_from_label_id_if_present(label_id);
+					if (maybe_lifetime1.has_value()) {
+						return maybe_lifetime1;
+					}
+				}
+			}
+			return retval;
 		}
 		std::vector<CAbstractLifetime> m_primary_lifetimes;
 		std::vector<value_ptr1_t<CAbstractLifetimeSet> > m_sublifetime_vlptrs;
