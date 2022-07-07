@@ -205,6 +205,9 @@ namespace checker {
 
 		EYesNoDontKnow second_can_be_assigned_to_first(const CAbstractLifetime& first, const CAbstractLifetime& second) const {
 			EYesNoDontKnow retval = EYesNoDontKnow::DontKnow;
+			if (first == second) {
+				return EYesNoDontKnow::Yes;
+			}
 			{
 				auto range = m_lifetime_constraint_shptr_mmap.equal_range(second);
 				for (auto it = range.first; range.second != it; ++it) {
@@ -239,14 +242,23 @@ namespace checker {
 			return {};
 		}
 		std::optional<CAbstractLifetimeSet> corresponding_abstract_lifetime_set_if_any(clang::CXXThisExpr const * CXXTE, clang::ASTContext& context) const {
-			const auto FD = Tget_containing_element_of_type<clang::FunctionDecl>(CXXTE, context);
-			if (FD) {
-				auto flta_iter = m_function_lifetime_annotations_map.find(FD);
+			const auto FND = Tget_containing_element_of_type<clang::FunctionDecl>(CXXTE, context);
+			if (FND) {
+				auto flta_iter = m_function_lifetime_annotations_map.find(FND);
 				if (m_function_lifetime_annotations_map.end() != flta_iter) {
 					auto pl_iter = flta_iter->second.m_param_lifetime_map.find(IMPLICIT_THIS_PARAM_ORDINAL);
 					if (flta_iter->second.m_param_lifetime_map.end() != pl_iter) {
 						return pl_iter->second;
 					}
+				}
+			}
+			return {};
+		}
+		std::optional<CAbstractLifetimeSet> corresponding_abstract_lifetime_set_if_any(clang::FieldDecl const * FD) const {
+			if (FD) {
+				auto iter1 = m_fielddecl_to_abstract_lifetime_map.find(FD);
+				if (m_fielddecl_to_abstract_lifetime_map.end() != iter1) {
+					return iter1->second;
 				}
 			}
 			return {};
@@ -2233,7 +2245,9 @@ namespace checker {
 			return true;
 		} else if (sli1.m_maybe_abstract_lifetime_set.has_value() || sli2.m_maybe_abstract_lifetime_set.has_value()) {
 			if (sli1.m_maybe_abstract_lifetime_set.has_value() && sli2.m_maybe_abstract_lifetime_set.has_value()) {
-				assert((CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli1.m_category) && (CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli2.m_category));
+				if (!((CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli1.m_category) && (CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli2.m_category))) {
+					int q = 3;
+				}
 
 				if (sli1.m_maybe_abstract_lifetime_set.value().m_primary_lifetimes.size() > sli2.m_maybe_abstract_lifetime_set.value().m_primary_lifetimes.size()) {
 					return false;
@@ -2609,6 +2623,12 @@ namespace checker {
 								scope_lifetime_info1.m_maybe_source_range = PVD->getSourceRange();
 
 								retval = scope_lifetime_info1;
+
+								if (PVD->hasInit()) {
+									/* todo: error: we currently do not support default initializers on parameters with lifetime
+									annotations. */
+									int q = 3;
+								}
 							}
 							return retval;
 						} else {
@@ -2619,6 +2639,34 @@ namespace checker {
 						}
 					} else {
 						retval = VD;
+
+						auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
+						if (PVD) {
+							process_function_lifetime_annotations(*PVD, tu_state_ref);
+							auto maybe_abstract_lifetime_set = tu_state_ref.corresponding_abstract_lifetime_set_if_any(PVD);
+							if (maybe_abstract_lifetime_set.has_value()) {
+								CScopeLifetimeInfo1 scope_lifetime_info1;
+								scope_lifetime_info1.m_maybe_abstract_lifetime_set = maybe_abstract_lifetime_set.value();
+								if (clang::StorageDuration::SD_Thread == storage_duration) {
+									scope_lifetime_info1.m_category = CScopeLifetimeInfo1::ECategory::Immortal;
+								} else {
+									assert(clang::StorageDuration::SD_Automatic == storage_duration);
+									scope_lifetime_info1.m_category = CScopeLifetimeInfo1::ECategory::Automatic;
+								}
+
+								scope_lifetime_info1.m_maybe_containing_scope = get_containing_scope(PVD, Ctx);
+								scope_lifetime_info1.m_maybe_source_range = PVD->getSourceRange();
+
+								retval = scope_lifetime_info1;
+
+								if (PVD->hasInit()) {
+									/* todo: error: we currently do not support default initializers on parameters with lifetime
+									annotations. */
+									int q = 3;
+								}
+							}
+							return retval;
+						}
 
 						if (VD->getType()->isPointerType()) {
 							if (VD->hasInit()) {
@@ -3396,15 +3444,55 @@ namespace checker {
 			auto ME = dyn_cast<const clang::MemberExpr>(EX);
 			if (ME) {
 				const auto VLD = ME->getMemberDecl();
+				auto VLD_qtype = VLD->getType();
+				IF_DEBUG(auto VLD_qtype_str = VLD_qtype.getAsString();)
 				auto FD = dyn_cast<const clang::FieldDecl>(VLD);
 				auto VD = dyn_cast<const clang::VarDecl>(VLD); /* for static members */
 				if (FD && !(ME->isBoundMemberFunction(Ctx))) {
 					auto containing_EX = containing_object_expr_from_member_expr(ME);
 					retval = upper_bound_lifetime_owner_if_available(containing_EX, Ctx, tu_state_ref);
 					if (retval.has_value()) {
+						auto& retval_slo_ref = retval.value();
+
 						/* Here we're noting that the returned lifetime is of the "owner" of the item, not exactly the item itself. */
-						retval.value().m_possession_lifetime_info_chain.push_back({ FD->getSourceRange() });
+						retval_slo_ref.m_possession_lifetime_info_chain.push_back({ FD->getSourceRange() });
+
+						process_type_lifetime_annotations(*FD, tu_state_ref);
+						auto maybe_abstract_lifetime_set = tu_state_ref.corresponding_abstract_lifetime_set_if_any(FD);
+						if (maybe_abstract_lifetime_set.has_value()) {
+							auto& abstract_lifetime_set1 = maybe_abstract_lifetime_set.value();
+							auto lhs_lifetime_info = scope_lifetime_info_from_lifetime_owner(retval_slo_ref, Ctx);
+							if (VLD_qtype->isReferenceType()) {
+								/* unsupported */
+								int q = 3;
+							} else {
+								if (CScopeLifetimeInfo1::ECategory::AbstractLifetime == lhs_lifetime_info.m_category) {
+									if (lhs_lifetime_info.m_maybe_abstract_lifetime_set.has_value()) {
+										auto& abstract_lifetime_set2 = lhs_lifetime_info.m_maybe_abstract_lifetime_set.value();
+										if (0 == abstract_lifetime_set2.m_sublifetime_vlptrs.size()) {
+											/* If the (non-reference) object's lifetime is abstract and the object's type is declared with
+											lifetime labels, then the "type lifetime(s)" should be the first object's first "sublifetime". */
+											abstract_lifetime_set2.m_sublifetime_vlptrs.push_back(abstract_lifetime_set1);
+										} else {
+											/* unexpected */
+											int q = 3;
+										}
+									} else {
+										/* unexpected */
+										int q = 3;
+									}
+								} else {
+									/* If the object's lifetime is not abstract, then the associated abstract lifetime should refer to
+									the object's "type lifetime(s)". */
+									lhs_lifetime_info.m_maybe_abstract_lifetime_set = abstract_lifetime_set1;
+								}
+								retval = lhs_lifetime_info;
+							}
+
+						}
 					}
+
+
 				} else if (VD) {
 					retval = VD; /* static member */
 				} else {
@@ -3644,7 +3732,38 @@ namespace checker {
 		} else {
 			/* The lifetime owner of the pointer target directly is not available. But the lifetime of
 			the pointer itself serves as a lower bound for the lifetime of its target. */
-			return lower_bound_lifetime_owner_if_available(EX1, Ctx, tu_state_ref);
+			auto retval = lower_bound_lifetime_owner_if_available(EX1, Ctx, tu_state_ref);
+			if (retval.has_value()) {
+				if (std::holds_alternative<CScopeLifetimeInfo1>(retval.value())) {
+					auto& sli1 = std::get<CScopeLifetimeInfo1>(retval.value());
+					if (sli1.m_maybe_abstract_lifetime_set.has_value()) {
+						auto& sli1_abstract_lifetime_set_ref = sli1.m_maybe_abstract_lifetime_set.value();
+						/* If the pointer has an "abstract_lifetime_set" associated with it, then that value (or its first
+						"sublifetime" in the case that the pointer's lifetime is itself abstract) represents the (abstract)
+						lifetime of the pointer target, so we'll just return that value. */
+						CScopeLifetimeInfo1 sli2;
+						sli2.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
+						if (CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli1.m_category) {
+							if (1 <= sli1_abstract_lifetime_set_ref.m_sublifetime_vlptrs.size()) {
+								/* If the pointer's lifetime is abstract and the lifetime of its target object is also abstract,
+								then the pointer target's lifetime should be the first pointer's first "sublifetime". */
+								sli2.m_maybe_abstract_lifetime_set = *(sli1_abstract_lifetime_set_ref.m_sublifetime_vlptrs.front());
+							} else {
+								/* If the abstract lifetime of the target object is not available then we'll just return the
+								(abstract) lifetime of the pointer, which should serve as a lower bound for the lifetime of its
+								target object. */
+								sli2 = sli1;
+							}
+						} else {
+							/* If the pointer's lifetime is not abstract, then the associated abstract lifetime should refer to
+							the lifetime of the target object. */
+							sli2.m_maybe_abstract_lifetime_set = sli1.m_maybe_abstract_lifetime_set;
+						}
+						retval = sli2;
+					}
+				}
+			}
+			return retval;
 		}
 	}
 
@@ -4590,11 +4709,17 @@ namespace checker {
 								auto abstract_lifetime1 = param_lifetime1.second.first_lifetime();
 
 								std::vector<std::shared_ptr<CPairwiseLifetimeConstraint> > arg1_constraint_shptrs;
+								auto range1 = state1.m_lifetime_constraint_shptr_mmap.equal_range(abstract_lifetime1);
+								for (auto iter1 = range1.first; range1.second != iter1; ++iter1) {
+									arg1_constraint_shptrs.push_back(iter1->second);
+								}
+								/*
 								for (const auto& constraint_shptr : flta.m_lifetime_constraint_shptrs) {
 									if (constraint_shptr->m_first == abstract_lifetime1) {
 										arg1_constraint_shptrs.push_back(constraint_shptr);
 									}
 								}
+								*/
 
 								for (const auto& param_lifetime2 : flta.m_param_lifetime_map) {
 									clang::Expr const * arg2_EX = arg_from_param_ordinal(CE, param_lifetime2.first);
@@ -4909,13 +5034,13 @@ namespace checker {
 
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
 #ifndef NDEBUG
 				if (std::string::npos != debug_source_location_str.find("test1_1proj.cpp:309:")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
-
-				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 				auto suppress_check_flag = (BO != nullptr) ? m_state1.m_suppress_check_region_set.contains(BO, Rewrite, *(MR.Context))
 					: m_state1.m_suppress_check_region_set.contains(CXXOCE, Rewrite, *(MR.Context));
@@ -4972,6 +5097,11 @@ namespace checker {
 
 				bool satisfies_checks = false;
 
+				auto FD = enclosing_function_if_any(LHSEX, *(MR.Context));
+				if (FD) {
+					process_function_lifetime_annotations(*FD, m_state1, &MR, &Rewrite);
+				}
+
 				/* Obtaining the declaration (location) of the pointer to be modified (or its owner) (and
 				therefore its scope lifetime) can be challenging. We are not always going to be able to
 				do so. */
@@ -4985,17 +5115,47 @@ namespace checker {
 					satisfies_checks = false;
 				} else {
 					auto lhs_lifetime_info = scope_lifetime_info_from_lifetime_owner(lhs_slo.value(), *(MR.Context));
-					auto rhs_lifetime_info = scope_lifetime_info_from_lifetime_owner(rhs_slo.value(), *(MR.Context));
-
-					auto lhs_VD_ptr = std::get_if<const clang::VarDecl*>(&(lhs_slo.value()));
-					if (lhs_VD_ptr) {
-						auto lhs_PVD = dyn_cast<const clang::ParmVarDecl>(*lhs_VD_ptr);
-						if (lhs_PVD && lhs_PVD->getType()->isReferenceType()) {
-							int q = 5;
+					if (lhs_lifetime_info.m_maybe_abstract_lifetime_set.has_value()) {
+						auto& sli1_abstract_lifetime_set_ref = lhs_lifetime_info.m_maybe_abstract_lifetime_set.value();
+						/* By default, we're just ensuring that the lifetime of the newly assigned target object outlives the
+						pointer. But if the pointer has been declared with a lifetime label, then the target object must
+						outlive that (abstract) lifetime as well (/instead).
+						If the pointer has an "abstract_lifetime_set" associated with it, then that value (or its first
+						"sublifetime" in the case that the pointer's lifetime is itself abstract) represents the (abstract)
+						lifetime of the pointer target, so we need to use that lifetime value instead. */
+						CScopeLifetimeInfo1 sli2;
+						sli2.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
+						if (CScopeLifetimeInfo1::ECategory::AbstractLifetime == lhs_lifetime_info.m_category) {
+							if (1 <= sli1_abstract_lifetime_set_ref.m_sublifetime_vlptrs.size()) {
+								/* If the pointer's lifetime is abstract and the lifetime of its target object is also abstract,
+								then the pointer target's lifetime should be the first pointer's first "sublifetime". */
+								sli2.m_maybe_abstract_lifetime_set = *(sli1_abstract_lifetime_set_ref.m_sublifetime_vlptrs.front());
+							} else {
+								/* It appears that the lieftime of the pointer itself is abstract, but the lifetime of its target
+								object does not seem to be. So we revert to the original requirement that the newly assigned
+								target object outlives the pointer. */
+								sli2 = lhs_lifetime_info;
+							}
+						} else {
+							/* If the pointer's lifetime is not abstract, then the associated abstract lifetime should refer to
+							the lifetime of the target object. */
+							sli2.m_maybe_abstract_lifetime_set = lhs_lifetime_info.m_maybe_abstract_lifetime_set;
 						}
+						lhs_lifetime_info = sli2;
 					}
+					{
+						auto rhs_lifetime_info = scope_lifetime_info_from_lifetime_owner(rhs_slo.value(), *(MR.Context));
 
-					satisfies_checks = first_is_known_to_be_contained_in_scope_of_second(lhs_lifetime_info, rhs_lifetime_info, *(MR.Context), m_state1);
+						auto lhs_VD_ptr = std::get_if<const clang::VarDecl*>(&(lhs_slo.value()));
+						if (lhs_VD_ptr) {
+							auto lhs_PVD = dyn_cast<const clang::ParmVarDecl>(*lhs_VD_ptr);
+							if (lhs_PVD && lhs_PVD->getType()->isReferenceType()) {
+								int q = 5;
+							}
+						}
+
+						satisfies_checks = first_is_known_to_be_contained_in_scope_of_second(lhs_lifetime_info, rhs_lifetime_info, *(MR.Context), m_state1);
+					}
 				}
 
 				if (!satisfies_checks) {
