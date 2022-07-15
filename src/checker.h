@@ -1596,6 +1596,39 @@ namespace checker {
 			flta.m_param_lifetime_map = param_lifetime_map;
 		}
 
+		if (CXXMD) {
+			IF_DEBUG(const std::string qtype_str = CXXMD->getThisType()->getPointeeType().getAsString();)
+			auto Type_ptr = CXXMD->getThisType()->getPointeeType().getTypePtr();
+			auto containing_RD = Type_ptr->getAsRecordDecl();
+			if (containing_RD) {
+				auto pl_iter = flta.m_param_lifetime_map.find(IMPLICIT_THIS_PARAM_ORDINAL);
+				if (flta.m_param_lifetime_map.end() != pl_iter) {
+					if (1 == pl_iter->second.m_primary_lifetimes.size()) {
+						/* This is a member function whose implicit `this` parameter has an "abstract" lifetime. */
+						auto& lifetime_of_this = pl_iter->second.m_primary_lifetimes.front();
+
+						for (auto FD : containing_RD->fields()) {
+							auto iter1 = state1.m_fielddecl_to_abstract_lifetime_map.find(FD);
+							if (state1.m_fielddecl_to_abstract_lifetime_map.end() != iter1) {
+								for (auto& field_primary_lifetime : iter1->second.m_primary_lifetimes) {
+									/* Here we (automatically) add the (implicit) constraint that the "abstract" "primary" lifetime
+									of the member field must outlive the "abstract" lifetime of the the implicit `this`. */
+
+									flta.m_lifetime_constraint_shptrs.push_back(std::make_shared<CEncompasses>(
+										CEncompasses{ field_primary_lifetime, lifetime_of_this }));
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		if (maybe_containing_type_alts.has_value()) {
+			auto& containing_type_alts = maybe_containing_type_alts.value();
+			containing_type_alts;
+		}
+
+
 		state1.m_function_lifetime_annotations_map.insert_or_assign(&func_decl, flta);
 
 		for (const auto& param_lifetime : flta.m_param_lifetime_map) {
