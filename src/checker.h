@@ -4507,9 +4507,56 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
-	inline std::optional<CVariableLifetimeValues> evaluate_declaration_lower_bound_lifetimes(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+	struct CMaybeVariableLifetimeValuesWithHints : public std::optional<CVariableLifetimeValues> {
+		typedef std::optional<CVariableLifetimeValues> base_class;
+		using base_class::base_class;
+		CMaybeVariableLifetimeValuesWithHints(const CMaybeVariableLifetimeValuesWithHints& src) = default;
+		CMaybeVariableLifetimeValuesWithHints(CMaybeVariableLifetimeValuesWithHints&& src) = default;
+		CMaybeVariableLifetimeValuesWithHints(const base_class& src) : base_class(src) {}
+		CMaybeVariableLifetimeValuesWithHints(base_class&& src) : base_class(std::forward<decltype(src)>(src)) {}
+		CMaybeVariableLifetimeValuesWithHints& operator=(const CMaybeVariableLifetimeValuesWithHints& src) = default;
+		CMaybeVariableLifetimeValuesWithHints& operator=(CMaybeVariableLifetimeValuesWithHints&& src) = default;
+		std::string hints_str() const {
+			std::string retval;
+			for (const auto& str : m_hints) {
+				retval += str + " ";
+			}
+			if (!retval.empty()) {
+				retval = retval.substr(0, retval.size() - 1);
+			}
+			return retval;
+		}
+
+		std::vector<std::string> m_hints;
+		bool m_failure_due_to_dependent_type_flag = false;
+	};
+	struct CMaybeExpressionLifetimeValuesWithHints : public std::optional<CExpressionLifetimeValues> {
+		typedef std::optional<CExpressionLifetimeValues> base_class;
+		using base_class::base_class;
+		CMaybeExpressionLifetimeValuesWithHints(const CMaybeExpressionLifetimeValuesWithHints& src) = default;
+		CMaybeExpressionLifetimeValuesWithHints(CMaybeExpressionLifetimeValuesWithHints&& src) = default;
+		CMaybeExpressionLifetimeValuesWithHints(const base_class& src) : base_class(src) {}
+		CMaybeExpressionLifetimeValuesWithHints(base_class&& src) : base_class(std::forward<decltype(src)>(src)) {}
+		CMaybeExpressionLifetimeValuesWithHints& operator=(const CMaybeExpressionLifetimeValuesWithHints& src) = default;
+		CMaybeExpressionLifetimeValuesWithHints& operator=(CMaybeExpressionLifetimeValuesWithHints&& src) = default;
+		std::string hints_str() const {
+			std::string retval;
+			for (const auto& str : m_hints) {
+				retval += str + " ";
+			}
+			if (!retval.empty()) {
+				retval = retval.substr(0, retval.size() - 1);
+			}
+			return retval;
+		}
+
+		std::vector<std::string> m_hints;
+		bool m_failure_due_to_dependent_type_flag = false;
+	};
+
+	inline CMaybeVariableLifetimeValuesWithHints evaluate_declaration_lower_bound_lifetimes(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
 			, const clang::DeclaratorDecl* DD);
-	inline std::optional<CExpressionLifetimeValues> evaluate_expression_lower_bound_lifetimes(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+	inline CMaybeExpressionLifetimeValuesWithHints evaluate_expression_lower_bound_lifetimes(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
 			, const clang::Expr* E);
 
 	class MCSSSReturnStmt : public MatchFinder::MatchCallback
@@ -4561,7 +4608,12 @@ namespace checker {
 									if (flta_iter->second.m_maybe_return_value_lifetime.has_value()) {
 										rv_lifetime_annotation_is_present = true;
 										auto rv_lifetime = flta_iter->second.m_maybe_return_value_lifetime.value();
-										evaluate_expression_lower_bound_lifetimes(MR, Rewrite, m_state1, E);
+										auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, m_state1, E);
+										if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+											/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+											occur in any instantiation of the template. */
+											return;
+										}
 										auto maybe_lblo = lower_bound_lifetime_owner_if_available(E, *(MR.Context), m_state1);
 										bool satisfies_checks = false;
 										if (maybe_lblo.has_value()) {
@@ -5224,6 +5276,11 @@ namespace checker {
 					if (CXXCE && CXXCE->getConstructor() && CXXCE->getConstructor()->isCopyOrMoveConstructor()) {
 						if (1 == CE->getNumArgs()) {
 							auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, state1, CE->getArg(0));
+							if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+								/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+								occur in any instantiation of the template. */
+								return;
+							}
 							if (maybe_expr_lifetime_value.has_value()) {
 								CScopeLifetimeInfo1& arg_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
 								expr_scope_sublifetimes = *(arg_slti.m_sublifetimes_vlptr);
@@ -5317,6 +5374,11 @@ namespace checker {
 										/* Now we try to evaluate the "concrete" lifetime of the corresponding argument in the contructor expression. */
 
 										auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, state1, arg1_EX);
+										if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+											/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+											occur in any instantiation of the template. */
+											return;
+										}
 										if (maybe_expr_lifetime_value.has_value()) {
 											CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
 											auto sloi1 = expr_slti;
@@ -5351,6 +5413,11 @@ namespace checker {
 										CScopeLifetimeInfo1 sloi1;
 
 										auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, state1, arg1_EX);
+										if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+											/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+											occur in any instantiation of the template. */
+											return;
+										}
 										if (maybe_expr_lifetime_value.has_value()) {
 											CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
 											sloi1 = expr_slti;
@@ -5747,6 +5814,11 @@ namespace checker {
 					if (constructor_decl->isCopyOrMoveConstructor()) {
 						if (1 == CE->getNumArgs()) {
 							auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, state1, CE->getArg(0));
+							if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+								/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+								occur in any instantiation of the template. */
+								return;
+							}
 							if (maybe_expr_lifetime_value.has_value()) {
 								CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
 								expr_scope_sublifetimes = *(expr_slti.m_sublifetimes_vlptr);
@@ -5827,7 +5899,12 @@ namespace checker {
 									if (!arg1_EX) {
 									} else {
 										/* Now we try to evaluate the "concrete" lifetime of the corresponding argument in the contructor expression. */
-										evaluate_expression_lower_bound_lifetimes(MR, Rewrite, state1, arg1_EX);
+										auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, state1, arg1_EX);
+										if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+											/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+											occur in any instantiation of the template. */
+											return;
+										}
 										auto maybe_arg_owner = lower_bound_lifetime_owner_if_available(arg1_EX, *(MR.Context), state1);
 										if (maybe_arg_owner.has_value()) {
 											auto& arg_owner = maybe_arg_owner.value();
@@ -5860,7 +5937,12 @@ namespace checker {
 									if (!arg1_EX) {
 									} else {
 										/* Now we try to evaluate the "concrete" lifetime of the corresponding argument in the contructor expression. */
-										evaluate_expression_lower_bound_lifetimes(MR, Rewrite, state1, arg1_EX);
+										auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, state1, arg1_EX);
+										if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+											/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+											occur in any instantiation of the template. */
+											return;
+										}
 										auto maybe_arg_owner = lower_bound_lifetime_owner_if_available(arg1_EX, *(MR.Context), state1);
 										if (maybe_arg_owner.has_value()) {
 											auto& arg_owner = maybe_arg_owner.value();
@@ -6117,9 +6199,9 @@ namespace checker {
 		return retval;
 	}
 
-	inline std::optional<CExpressionLifetimeValues> evaluate_expression_lower_bound_lifetimes(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+	inline CMaybeExpressionLifetimeValuesWithHints evaluate_expression_lower_bound_lifetimes(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
 			, const clang::Expr* E) {
-		std::optional<CExpressionLifetimeValues> retval;
+		CMaybeExpressionLifetimeValuesWithHints retval;
 		if (!E) {
 			return retval;
 		}
@@ -6150,6 +6232,7 @@ namespace checker {
 		} else {
 			std::optional<CScopeLifetimeInfo1Set> maybe_sublifetimes;
 
+			auto DSDRE = dyn_cast<const clang::DeclRefExpr>(E_ii);
 			auto DRE = dyn_cast<const clang::DeclRefExpr>(E_ii);
 			if (DRE) {
 				auto value_decl = DRE->getDecl();
@@ -6157,6 +6240,12 @@ namespace checker {
 					auto VD = dyn_cast<const clang::VarDecl>(value_decl);
 					if (VD) {
 						auto maybe_decl_lifetime_value = evaluate_declaration_lower_bound_lifetimes(MR, Rewrite, state1, VD);
+						if (maybe_decl_lifetime_value.m_failure_due_to_dependent_type_flag) {
+							/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+							occur in any instantiation of the template. */
+							retval.m_failure_due_to_dependent_type_flag = true;
+							return retval;
+						}
 						if (maybe_decl_lifetime_value.has_value()) {
 							CScopeLifetimeInfo1& decl_slti = maybe_decl_lifetime_value.value().m_scope_lifetime_info;
 
@@ -6165,7 +6254,11 @@ namespace checker {
 						}
 					}
 				}
+			} else if (DSDRE) {
+				retval.m_failure_due_to_dependent_type_flag = true;
+				return retval;
 			} else {
+				auto CXXDSME = dyn_cast<const clang::CXXDependentScopeMemberExpr>(E_ii);
 				auto ME = dyn_cast<const clang::MemberExpr>(E_ii);
 				if (ME) {
 					const auto VLD = ME->getMemberDecl();
@@ -6211,6 +6304,12 @@ namespace checker {
 								/* We're going to see if we can determine "concrete" values that correspond to the abstract
 								lifetimes. If so, we will replace the default abstract values with the "concrete" ones. */
 								auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, state1, containing_ref_EX);
+								if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+									/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+									occur in any instantiation of the template. */
+									retval.m_failure_due_to_dependent_type_flag = true;
+									return retval;
+								}
 								if (maybe_expr_lifetime_value.has_value()) {
 									CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
 
@@ -6256,6 +6355,12 @@ namespace checker {
 						}
 					} else if (VD) {
 						auto maybe_decl_lifetime_value = evaluate_declaration_lower_bound_lifetimes(MR, Rewrite, state1, VD);
+						if (maybe_decl_lifetime_value.m_failure_due_to_dependent_type_flag) {
+							/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+							occur in any instantiation of the template. */
+							retval.m_failure_due_to_dependent_type_flag = true;
+							return retval;
+						}
 						if (maybe_decl_lifetime_value.has_value()) {
 							CScopeLifetimeInfo1& decl_slti = maybe_decl_lifetime_value.value().m_scope_lifetime_info;
 
@@ -6264,9 +6369,18 @@ namespace checker {
 					} else {
 						int q = 5;
 					}
+				} else if (CXXDSME) {
+					retval.m_failure_due_to_dependent_type_flag = true;
+					return retval;
 				} else if (qtype->isPointerType()) {
 					auto target_EX = raw_pointer_target_expression_if_available(E_ii, *(MR.Context), state1);
 					auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, state1, target_EX);
+					if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+						/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+						occur in any instantiation of the template. */
+						retval.m_failure_due_to_dependent_type_flag = true;
+						return retval;
+					}
 					if (maybe_expr_lifetime_value.has_value()) {
 						CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
 						maybe_sublifetimes = { expr_slti };
@@ -6282,7 +6396,13 @@ namespace checker {
 				auto& expr_owner = maybe_expr_owner.value();
 				if (std::holds_alternative<const VarDecl*>(expr_owner)) {
 					auto VD = std::get<const VarDecl*>(expr_owner);
-					evaluate_declaration_lower_bound_lifetimes(MR, Rewrite, state1, VD);
+					auto maybe_decl_lifetime_value = evaluate_declaration_lower_bound_lifetimes(MR, Rewrite, state1, VD);
+					if (maybe_decl_lifetime_value.m_failure_due_to_dependent_type_flag) {
+						/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+						occur in any instantiation of the template. */
+						retval.m_failure_due_to_dependent_type_flag = true;
+						return retval;
+					}
 				}
 
 				auto sloi1 = scope_lifetime_info_from_lifetime_owner(maybe_expr_owner.value(), *(MR.Context), state1);
@@ -6303,9 +6423,9 @@ namespace checker {
 		return retval;
 	}
 
-	inline std::optional<CVariableLifetimeValues> evaluate_declaration_lower_bound_lifetimes(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+	inline CMaybeVariableLifetimeValuesWithHints evaluate_declaration_lower_bound_lifetimes(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
 			, const clang::DeclaratorDecl* DD) {
-		std::optional<CVariableLifetimeValues> retval;
+		CMaybeVariableLifetimeValuesWithHints retval;
 		if (!DD) {
 			return retval;
 		}
@@ -6410,6 +6530,12 @@ namespace checker {
 							}
 
 							auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, state1, init_E);
+							if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+								/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+								occur in any instantiation of the template. */
+								retval.m_failure_due_to_dependent_type_flag = true;
+								return retval;
+							}
 							if (maybe_expr_lifetime_value.has_value()) {
 								CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
 
@@ -7103,11 +7229,21 @@ namespace checker {
 				CScopeLifetimeInfo1 rhs_lifetime_value;
 				auto adj_RHSEX = remove_cast_from_TPointerForLegacy_to_raw_pointer(RHSEX, *(MR.Context));
 				auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, m_state1, adj_RHSEX);
+				if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+					/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+					occur in any instantiation of the template. */
+					return;
+				}
 				if (maybe_expr_lifetime_value.has_value()) {
 					CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
 					rhs_lifetime_value = expr_slti;
 				} else {
-					evaluate_expression_lower_bound_lifetimes(MR, Rewrite, m_state1, adj_RHSEX);
+					auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, m_state1, adj_RHSEX);
+					if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+						/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+						occur in any instantiation of the template. */
+						return;
+					}
 					auto rhs_slo = lower_bound_lifetime_owner_of_pointer_target_if_available(
 						adj_RHSEX, *(MR.Context), m_state1);
 					if (!(rhs_slo.has_value())) {
@@ -7129,6 +7265,11 @@ namespace checker {
 						/* The lhs pointer seems to have an (implied) lifetime annotation. We will attempt to determine the
 						corresponding (required minimum) lifetime value (of the pointer target) that was set at initialization. */
 						auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, m_state1, LHSEX);
+						if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+							/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+							occur in any instantiation of the template. */
+							return;
+						}
 						if (maybe_expr_lifetime_value.has_value()) {
 							CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
 							auto& lhs_lifetime_value_ref = expr_slti;
@@ -7353,10 +7494,20 @@ namespace checker {
 				}
 
 				auto maybe_lhs_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, m_state1, LHSEX);
+				if (maybe_lhs_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+					/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+					occur in any instantiation of the template. */
+					return;
+				}
 				if (maybe_lhs_expr_lifetime_value.has_value()) {
 					CScopeLifetimeInfo1& lhs_expr_slti = maybe_lhs_expr_lifetime_value.value().m_scope_lifetime_info;
 					lhs_lifetime_values_evaluated = true;
 					auto maybe_rhs_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, m_state1, RHSEX);
+					if (maybe_rhs_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+						/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+						occur in any instantiation of the template. */
+						return;
+					}
 					if (maybe_rhs_expr_lifetime_value.has_value()) {
 						CScopeLifetimeInfo1& rhs_expr_slti = maybe_rhs_expr_lifetime_value.value().m_scope_lifetime_info;
 						rhs_lifetime_values_evaluated = true;
@@ -7771,6 +7922,11 @@ namespace checker {
 					const auto TST = DD->getType()->getAs<clang::TemplateSpecializationType>();
 
 					auto maybe_decl_lifetime_value = evaluate_declaration_lower_bound_lifetimes(MR, Rewrite, m_state1, DD);
+					if (maybe_decl_lifetime_value.m_failure_due_to_dependent_type_flag) {
+						/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+						occur in any instantiation of the template. */
+						return;
+					}
 					if (maybe_decl_lifetime_value.has_value()) {
 						CScopeLifetimeInfo1& decl_slti = maybe_decl_lifetime_value.value().m_scope_lifetime_info;
 					}
@@ -7869,6 +8025,11 @@ namespace checker {
 										}
 
 										auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, m_state1, init_E);
+										if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+											/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+											occur in any instantiation of the template. */
+											return;
+										}
 										if (maybe_expr_lifetime_value.has_value()) {
 											CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
 
