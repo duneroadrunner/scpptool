@@ -2654,9 +2654,11 @@ namespace checker {
 													contained element (as opposed to a field member or a dereference target). Right? */
 													int q = 3;
 												}
-												/* At the moment, different elements in "multi-element" containers are considered to have
-												potentially meaningfully different lifetimes. */
-												retval = false;
+												/* At the moment, for practical purposes, different elements in "multi-element" containers are
+												considered here to have the "same" lifetime. This might theoretically be an issue if, for
+												example, one element, with a mischievous destructor, points/refers to another element in the
+												same container. When/if that case is supported, it will need to be addressed elsewhere. */
+												retval = true;
 												break;
 											} else if (info2.m_maybe_field_source_range.has_value()) {
 												/* info2 refers to a member field. */
@@ -6412,6 +6414,19 @@ namespace checker {
 				/* Here we set the evaluated expression sublifetimes. */
 				*(expr_scope_lifetime_info.m_sublifetimes_vlptr) = maybe_sublifetimes.value();
 			}
+			if (qtype->isReferenceType()) {
+				/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
+				same as the object it refers to (without an added level of indirection). */
+				/* So we will attempt to remove one level of indirection from the expression lifetime. */
+				auto& sublifetimes = expr_scope_lifetime_info.m_sublifetimes_vlptr->m_primary_lifetime_infos;
+				if (1 == sublifetimes.size()) {
+					expr_scope_lifetime_info = sublifetimes.at(0);
+				} else {
+					/* unexpected */
+					int q = 3;
+					expr_scope_lifetime_info = CScopeLifetimeInfo1{};
+				}
+			}
 			/* Here we put the evaluated expression lifetimes in "persistent" storage. */
 			state1.m_expr_lifetime_values_map.insert_or_assign( E, CExpressionLifetimeValues{ expr_scope_lifetime_info } );
 			if (E_ii != E) {
@@ -6537,19 +6552,25 @@ namespace checker {
 								return retval;
 							}
 							if (maybe_expr_lifetime_value.has_value()) {
-								CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+								if (qtype->isReferenceType()) {
+									/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
+									same as the object it refers to (without an added level of indirection). */
+									retval = CVariableLifetimeValues{ maybe_expr_lifetime_value.value().m_scope_lifetime_info };
+								} else {
+									CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
 
-								CScopeLifetimeInfo1 sli2;
+									CScopeLifetimeInfo1 sli2;
 
-								const auto sl_storage_duration = VD->getStorageDuration();
-								const auto sl_is_immortal = ((clang::StorageDuration::SD_Static == sl_storage_duration) || (clang::StorageDuration::SD_Thread == sl_storage_duration)) ? true : false;
-								sli2.m_category = sl_is_immortal ? CScopeLifetimeInfo1::ECategory::Immortal : CScopeLifetimeInfo1::ECategory::Automatic;
-								sli2.m_maybe_containing_scope = get_containing_scope(VD, *(MR.Context));
-								sli2.m_maybe_source_range = VD->getSourceRange();
-								*(sli2.m_sublifetimes_vlptr) = *(expr_slti.m_sublifetimes_vlptr);
+									const auto sl_storage_duration = VD->getStorageDuration();
+									const auto sl_is_immortal = ((clang::StorageDuration::SD_Static == sl_storage_duration) || (clang::StorageDuration::SD_Thread == sl_storage_duration)) ? true : false;
+									sli2.m_category = sl_is_immortal ? CScopeLifetimeInfo1::ECategory::Immortal : CScopeLifetimeInfo1::ECategory::Automatic;
+									sli2.m_maybe_containing_scope = get_containing_scope(VD, *(MR.Context));
+									sli2.m_maybe_source_range = VD->getSourceRange();
+									*(sli2.m_sublifetimes_vlptr) = *(expr_slti.m_sublifetimes_vlptr);
 
-								auto res1 = state1.m_vardecl_lifetime_values_map.insert_or_assign(VD, CVariableLifetimeValues{ sli2 });
-								retval = res1.first->second;
+									auto res1 = state1.m_vardecl_lifetime_values_map.insert_or_assign(VD, CVariableLifetimeValues{ sli2 });
+									retval = res1.first->second;
+								}
 							} else {
 								int q = 5;
 							}
@@ -7290,30 +7311,6 @@ namespace checker {
 							satisfies_checks = first_is_known_to_be_contained_in_scope_of_second_shallow(lhs_sublifetime_value_ref, rhs_sublifetime_value_ref, *(MR.Context), m_state1);
 
 							int q =5;
-
-							if (false) {
-								if ((lhs_lifetime_value_ref.m_maybe_abstract_lifetime.has_value())
-									&& (rhs_lifetime_value.m_maybe_abstract_lifetime.has_value())) {
-
-									satisfies_checks = first_is_known_to_be_contained_in_scope_of_second_shallow(lhs_lifetime_value_ref, rhs_lifetime_value, *(MR.Context), m_state1);
-								} else if (1 == lhs_sublifetimes_ref.m_primary_lifetime_infos.size()) {
-									auto& lhs_sublifetime_ref = lhs_sublifetimes_ref.m_primary_lifetime_infos.front();
-									if (1 == rhs_sublifetimes_ref.m_primary_lifetime_infos.size()) {
-										/* The (required minimum) lifetime value (of the pointer target) is available for both the lhs and rhs. */
-										auto& rhs_sublifetime_ref = rhs_sublifetimes_ref.m_primary_lifetime_infos.front();
-										satisfies_checks = first_is_known_to_be_contained_in_scope_of_second_shallow(lhs_sublifetime_ref, rhs_sublifetime_ref, *(MR.Context), m_state1);
-									} else {
-										/* A (required minimum) lifetime value (of the pointer target) of the rhs pointer is not specified or
-										not available. So in place we'll just use the lifetime of the (rhs) pointer itself, which serves as
-										a lower bound for the lifetime of its target. */
-										satisfies_checks = first_is_known_to_be_contained_in_scope_of_second_shallow(lhs_sublifetime_ref, rhs_lifetime_value, *(MR.Context), m_state1);
-									}
-								} else {
-									/* For some reason the lifetime value corresponding to the lifetime annotation
-									of the lhs pointer is not present. */
-									satisfies_checks = false;
-								}
-							}
 						} else {
 							/* We are apparently unable to determine the lifetime value corresponding to the lifetime annotation
 							of the lhs pointer. */
@@ -7514,50 +7511,6 @@ namespace checker {
 						satisfies_checks = first_is_known_to_be_contained_in_scope_of_second_shallow(lhs_expr_slti, rhs_expr_slti, *(MR.Context), m_state1);
 					}
 				}
-
-
-#if 0
-				auto FD = enclosing_function_if_any(LHSEX, *(MR.Context));
-				if (FD) {
-					process_function_lifetime_annotations(*FD, m_state1, &MR, &Rewrite);
-				}
-
-				/* Obtaining the declaration (location) of the pointer to be modified (or its owner) (and
-				therefore its scope lifetime) can be challenging. We are not always going to be able to
-				do so. */
-
-				auto lhs_slo = upper_bound_lifetime_owner_if_available(LHSEX, *(MR.Context), m_state1);
-				auto rhs_slo = lower_bound_lifetime_owner_of_pointer_target_if_available(
-					remove_cast_from_TPointerForLegacy_to_raw_pointer(RHSEX, *(MR.Context)), *(MR.Context), m_state1);
-				if (!(lhs_slo.has_value())) {
-					satisfies_checks = false;
-				} else if (!(rhs_slo.has_value())) {
-					satisfies_checks = false;
-				} else {
-					auto lhs_lifetime_info = scope_lifetime_info_from_lifetime_owner(lhs_slo.value(), *(MR.Context), m_state1);
-					if (1 == lhs_lifetime_info.m_sublifetimes_vlptr->m_primary_lifetime_infos.size()) {
-						/* The presence of the a pointee lifetime indicates the constraint that the pointee must live at least
-						as long as the indicated lifetime. */
-						auto& lhs_pointee_lifetime_info = lhs_lifetime_info.m_sublifetimes_vlptr->m_primary_lifetime_infos.front();
-						lhs_lifetime_info = scope_lifetime_info_from_lifetime_owner(lhs_pointee_lifetime_info, *(MR.Context), m_state1);
-					}
-
-					{
-						auto rhs_lifetime_info = scope_lifetime_info_from_lifetime_owner(rhs_slo.value(), *(MR.Context), m_state1);
-
-						auto lhs_VD_ptr = std::get_if<const clang::VarDecl*>(&(lhs_slo.value()));
-						if (lhs_VD_ptr) {
-							auto lhs_PVD = dyn_cast<const clang::ParmVarDecl>(*lhs_VD_ptr);
-							if (lhs_PVD && lhs_PVD->getType()->isReferenceType()) {
-								int q = 5;
-							}
-						}
-
-						satisfies_checks = first_is_known_to_be_contained_in_scope_of_second_shallow(lhs_lifetime_info, rhs_lifetime_info, *(MR.Context), m_state1);
-					}
-				}
-#endif /*0*/
-
 
 				if (!satisfies_checks) {
 					std::string error_desc = std::string("Unable to verify that this assignment (of type '")
