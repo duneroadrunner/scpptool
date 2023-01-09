@@ -607,6 +607,9 @@ struct CPossessionLifetimeInfo1 {
 struct CScopeLifetimeInfo1Set;
 inline void set_CScopeLifetimeInfo1Set_from_CAbstractLifetime(CScopeLifetimeInfo1Set& dst, const CAbstractLifetime& src);
 
+typedef std::variant<const clang::VarDecl*, const clang::CXXThisExpr*, const clang::Expr*
+	, const clang::StringLiteral*> CCPPElement1;
+
 struct CScopeLifetimeInfo1 {
 	CScopeLifetimeInfo1() {}
 	CScopeLifetimeInfo1(const CScopeLifetimeInfo1& src) = default;
@@ -621,6 +624,7 @@ struct CScopeLifetimeInfo1 {
 	std::vector<CPossessionLifetimeInfo1> m_possession_lifetime_info_chain;
 	bool m_has_potentially_concerning_destructor = true; /* not used yet */
 	std::optional<CAbstractLifetime> m_maybe_abstract_lifetime;
+	std::optional<CCPPElement1> m_maybe_corresponding_cpp_element;
 	value_ptr1_t<CScopeLifetimeInfo1Set> m_sublifetimes_vlptr;
 	enum class ECategory { None, Automatic, ThisExpression, Immortal, Literal, AbstractLifetime, TemporaryExpression };
 	ECategory m_category = ECategory::None;
