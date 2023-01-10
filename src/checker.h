@@ -3249,7 +3249,12 @@ namespace checker {
 									return retval;
 								}
 								if (false) {
-									retval = CE;
+									auto expr_ltv_iter1 = tu_state_ref.m_expr_lifetime_values_map.find(CE);
+									if (tu_state_ref.m_expr_lifetime_values_map.end() != expr_ltv_iter1) {
+										retval = expr_ltv_iter1->second.m_scope_lifetime_info;
+									} else {
+										retval = CE;
+									}
 								} else {
 									process_function_lifetime_annotations(*FD, tu_state_ref);
 									auto flta_iter = tu_state_ref.m_function_lifetime_annotations_map.find(FD);
@@ -5341,6 +5346,9 @@ namespace checker {
 
 					if (CXXCE && CXXCE->getConstructor() && CXXCE->getConstructor()->isCopyOrMoveConstructor()) {
 						if (1 == CE->getNumArgs()) {
+							auto expr_scope_lifetime_info = CScopeLifetimeInfo1{};
+							expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
+
 							auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, state1, CE->getArg(0));
 							if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
 								/* Cannot properly evaluate because this is a template definition. Proper evaluation should
@@ -5348,24 +5356,20 @@ namespace checker {
 								return;
 							}
 							if (maybe_expr_lifetime_value.has_value()) {
-								CScopeLifetimeInfo1& arg_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
-								expr_scope_sublifetimes = *(arg_slti.m_sublifetimes_vlptr);
-							}
-							{
-								auto expr_scope_lifetime_info = CScopeLifetimeInfo1{};
-								expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
-								/* Here we try to evaluate the direct lifetime of the expression. */
-								auto maybe_expr_owner = lower_bound_lifetime_owner_if_available(CE, *(MR.Context), state1);
-								if (maybe_expr_owner.has_value()) {
-									auto sloi1 = scope_lifetime_info_from_lifetime_owner(maybe_expr_owner.value(), *(MR.Context), state1);
-									expr_scope_lifetime_info = sloi1;
-								}
-								{
+								auto& expr_lifetime_value_ref = maybe_expr_lifetime_value.value();
+								if (CE->getType()->isReferenceType()) {
+									/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
+									same as the object it refers to (without an added level of indirection). */
+									expr_scope_lifetime_info = expr_lifetime_value_ref.m_scope_lifetime_info;
+								} else {
+									CScopeLifetimeInfo1& arg_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+									//expr_scope_sublifetimes = *(arg_slti.m_sublifetimes_vlptr);
 									/* Here we set the evaluated expression sublifetimes. */
-									*(expr_scope_lifetime_info.m_sublifetimes_vlptr) = expr_scope_sublifetimes;
+									*(expr_scope_lifetime_info.m_sublifetimes_vlptr) = *(arg_slti.m_sublifetimes_vlptr);
 								}
 								/* Here we put the evaluated expression lifetimes in "persistent" storage. */
 								state1.m_expr_lifetime_values_map.insert_or_assign( CE, CExpressionLifetimeValues{ expr_scope_lifetime_info } );
+								return;
 							}
 						} else {
 							int q = 3;
@@ -5375,10 +5379,6 @@ namespace checker {
 						auto flta_iter = state1.m_function_lifetime_annotations_map.find(function_decl);
 						if (state1.m_function_lifetime_annotations_map.end() != flta_iter) {
 							auto flta = flta_iter->second;
-
-							if (!flta.m_return_value_lifetimes.is_empty()) {
-								;
-							}
 
 							std::unordered_map<CAbstractLifetime, CScopeLifetimeInfo1> initialized_lifetime_value_map = CE_type_lifetime_value_map;
 							std::unordered_map<CAbstractLifetime, CScopeLifetimeInfo1> present_lifetime_value_map = CE_type_lifetime_value_map;
@@ -5616,14 +5616,24 @@ namespace checker {
 							auto expr_scope_lifetime_info = CScopeLifetimeInfo1{};
 							expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
 							expr_scope_lifetime_info.m_maybe_corresponding_cpp_element = CE;
-							/* Here we try to evaluate the direct lifetime of the call expression. */
-							auto maybe_expr_owner = lower_bound_lifetime_owner_if_available(CE, *(MR.Context), state1);
-							if (maybe_expr_owner.has_value()) {
-								auto sloi1 = scope_lifetime_info_from_lifetime_owner(maybe_expr_owner.value(), *(MR.Context), state1);
-								expr_scope_lifetime_info = sloi1;
-							}
+
 							/* Here we set the previously evaluated expression sublifetimes. */
 							*(expr_scope_lifetime_info.m_sublifetimes_vlptr) = expr_scope_sublifetimes;
+
+							if (CE->getType()->isReferenceType()) {
+								/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
+								same as the object it refers to (without an added level of indirection). */
+								/* So we will attempt to remove one level of indirection from the expression lifetime. */
+								auto& sublifetimes = expr_scope_lifetime_info.m_sublifetimes_vlptr->m_primary_lifetime_infos;
+								if (1 == sublifetimes.size()) {
+									expr_scope_lifetime_info = sublifetimes.at(0);
+								} else {
+									/* unexpected */
+									int q = 3;
+									expr_scope_lifetime_info = CScopeLifetimeInfo1{};
+								}
+							}
+
 							/* Here we put the evaluated expression lifetimes in "persistent" storage. */
 							state1.m_expr_lifetime_values_map.insert_or_assign( CE, CExpressionLifetimeValues{expr_scope_lifetime_info} );
 						}
