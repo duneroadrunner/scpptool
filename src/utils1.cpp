@@ -261,8 +261,14 @@ bool filtered_out_by_location(const SourceManager &SM, SourceLocation SL) {
 	return retval;
 }
 
+bool filtered_out_by_location(ASTContext const& Ctx, SourceLocation SL) {
+  const SourceManager &SM = Ctx.getSourceManager();
+  return filtered_out_by_location(SM, SL);
+}
+
 bool filtered_out_by_location(const ast_matchers::MatchFinder::MatchResult &MR, SourceLocation SL) {
   ASTContext *const ASTC = MR.Context;
+  assert(MR.Context);
   const SourceManager &SM = ASTC->getSourceManager();
   return filtered_out_by_location(SM, SL);
 }

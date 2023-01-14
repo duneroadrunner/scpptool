@@ -478,6 +478,13 @@ namespace std
 
 typedef std::string lifetime_id_t;
 struct CAbstractLifetimeSet;
+/* Although "abstract" lifetimes are used in place of ("concrete") "scope" lifetimes, an abstract
+lifetime does not exactly represent a scope lifetime. It represents (a lower bound of) a (scope)
+"lifetime tree". That is, the "primary" scope lifetime of an object and all its sublifetime
+descendants (that is, the (scope) lifetimes of all objects referenced (through any level of
+indirection) by the "root/ancestor" object").
+Abstract lifetimes can have abstract sublifetimes, but an abstract sublifetime simply represents
+a branch of the tree represented by the parent abstract lifetime. */
 struct CAbstractLifetime {
 	lifetime_id_t m_id;
 	//std::variant<clang::FunctionDecl const *, clang::Decl const *> m_context;
