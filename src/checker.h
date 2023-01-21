@@ -813,7 +813,7 @@ namespace checker {
 		if (type_decl.hasAttrs()) {
 			DECLARE_CACHED_CONST_STRING(mse_lifetime_notes_str, mse_namespace_str() + "::lifetime_notes");
 			DECLARE_CACHED_CONST_STRING(mse_lifetime_label, mse_namespace_str() + "::lifetime_label");
-			clang::AttrVec vec = type_decl.getAttrs();
+			auto& vec = type_decl.getAttrs();
 			for (const auto& attr : vec) {
 				auto attr_SR = attr->getRange();
 				std::string pretty_str;
@@ -994,7 +994,7 @@ namespace checker {
 					DECLARE_CACHED_CONST_STRING(mse_lifetime_label, mse_namespace_str() + "::lifetime_label");
 					DECLARE_CACHED_CONST_STRING(mse_lifetime_labels, mse_namespace_str() + "::lifetime_labels");
 					CAbstractLifetimeSet abstract_lifetime_set;
-					clang::AttrVec vec = FD->getAttrs();
+					auto& vec = FD->getAttrs();
 					for (const auto& attr : vec) {
 						auto attr_SR = attr->getRange();
 						std::string pretty_str;
@@ -1143,8 +1143,6 @@ namespace checker {
 										return_value_lifetimes = parse_lifetime_ids(sv2, &func_decl, attr_SR, state1, MR_ptr);
 									}
 								}
-							} else {
-								;
 							}
 							flta.m_return_value_lifetimes = return_value_lifetimes;
 
@@ -1203,8 +1201,6 @@ namespace checker {
 										}
 									}
 								}
-							} else {
-								;
 							}
 							if (maybe_this_lifetime.has_value()) {
 								param_lifetime_map.insert_or_assign(IMPLICIT_THIS_PARAM_ORDINAL, maybe_this_lifetime.value());
@@ -1326,7 +1322,7 @@ namespace checker {
 						CAbstractLifetimeSet alts1 = parse_lifetime_ids(sv1, &func_decl, attr_SR, state1, MR_ptr);
 
 						if (!(alts1.is_empty())) {
-							int num_declared_primary_lifetimes = 0;
+							size_t num_declared_primary_lifetimes = 0;
 
 							auto found_iter2 = state1.m_type_lifetime_annotations_map.find(param->getType().getTypePtr());
 							if (state1.m_type_lifetime_annotations_map.end() != found_iter2) {
@@ -1433,7 +1429,7 @@ namespace checker {
 												if ((std::string::npos != rangle_bracket_index) && (comma_index + 1 < rangle_bracket_index)) {
 													std::string param_ordinal_str = qtype_str.substr(langle_bracket_index + 1, int(comma_index) - int(langle_bracket_index) - 1);
 													auto param_ordinal = atoi(param_ordinal_str.c_str());
-													if (func_decl.getNumParams() < param_ordinal) {
+													if (int(func_decl.getNumParams()) < param_ordinal) {
 														if (MR_ptr) {
 															std::string error_desc = std::string("The specified parameter ordinal ('") + std::to_string(param_ordinal)
 																+ "') is greater than the number of parameters (" + std::to_string(func_decl.getNumParams()) + ").";
@@ -1582,8 +1578,6 @@ namespace checker {
 										}
 									}
 								}
-							} else {
-								;
 							}
 							if (maybe_return_value_lifetime.has_value()) {
 								flta.m_return_value_lifetimes = maybe_return_value_lifetime.value();
@@ -1727,7 +1721,6 @@ namespace checker {
 		}
 		if (maybe_containing_type_alts.has_value()) {
 			auto& containing_type_alts = maybe_containing_type_alts.value();
-			containing_type_alts;
 		}
 
 
@@ -1914,321 +1907,340 @@ namespace checker {
 #endif /*!NDEBUG*/
 
 				IF_DEBUG(const auto record_name = RD->getName();)
-				RD->getTypeForDecl();
-				auto CXXRD = RD->getTypeForDecl()->getAsCXXRecordDecl();
-				if (RD->isThisDeclarationADefinition()) {
-					bool is_lambda = false;
+				if (!(MR.Context)) {
+					int q = 3;
+					return;
+				}
+				auto qtype = MR.Context->getTypeDeclType(RD);
+				auto Type_ptr = qtype.getTypePtr();
+				//auto Type_ptr = RD->getTypeForDecl();
+				if (Type_ptr) {
+					auto CXXRD = Type_ptr->getAsCXXRecordDecl();
+					if (RD->isThisDeclarationADefinition()) {
+						bool is_lambda = false;
 
-					bool has_xscope_tag_base = false;
-					bool has_ContainsNonOwningScopeReference_tag_base = false;
-					bool has_ReferenceableByScopePointer_tag_base = false;
+						bool has_xscope_tag_base = false;
+						bool has_ContainsNonOwningScopeReference_tag_base = false;
+						bool has_ReferenceableByScopePointer_tag_base = false;
 
-					if (CXXRD) {
-						if (CXXRD->isLambda()) {
-							is_lambda = true;
+						if (CXXRD) {
+							if (CXXRD->isLambda()) {
+								is_lambda = true;
 
-							auto& context = *MR.Context;
-							const auto* LE = Tget_immediately_containing_element_of_type<clang::LambdaExpr>(CXXRD, *MR.Context);
-							if (LE) {
-								auto* MTE = Tget_immediately_containing_element_of_type<clang::MaterializeTemporaryExpr>(LE, *MR.Context);
-								if (!MTE) {
-									const clang::ImplicitCastExpr* ICE2 = Tget_immediately_containing_element_of_type<clang::ImplicitCastExpr>(LE, *MR.Context);
-									const clang::ImplicitCastExpr* ICE1 = ICE2;
-									do {
-										ICE1 = ICE2;
-										ICE2 = Tget_immediately_containing_element_of_type<clang::ImplicitCastExpr>(ICE1, *MR.Context);
-									} while (ICE2);
-									MTE = Tget_immediately_containing_element_of_type<clang::MaterializeTemporaryExpr>(ICE1, *MR.Context);
-								}
-								if (MTE) {
-									const auto* CE = Tget_immediately_containing_element_of_type<clang::CallExpr>(
-										MTE->IgnoreImpCasts(), *MR.Context);
-									if (CE) {
-										const auto qname = CE->getDirectCallee()->getQualifiedNameAsString();
-										DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_reference_or_pointer_capture_lambda");
-										DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_non_reference_or_pointer_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_non_reference_or_pointer_capture_lambda");
-										DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_capture_lambda");
-										if ((mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str == qname)
-											|| (mse_rsv_make_xscope_non_reference_or_pointer_capture_lambda_str == qname)
-											|| (mse_rsv_make_xscope_capture_lambda_str == qname)) {
-											/* This CXXRecordDecl is a lambda expression being supplied as an argument
-											to an 'mse::rsv::make_xscope_*_capture_lambda()' function. Being a lambda, it
-											cannot inherit from 'mse::us::impl::XScopeTagBase' (or anything else for that
-											matter), but here we'll treat it as if it satisfies that (potential)
-											requirement as it should be safe (and is kind of necessary) here. */
-											has_xscope_tag_base = true;
+								auto& context = *MR.Context;
+								const auto* LE = Tget_immediately_containing_element_of_type<clang::LambdaExpr>(CXXRD, *MR.Context);
+								if (LE) {
+									auto* MTE = Tget_immediately_containing_element_of_type<clang::MaterializeTemporaryExpr>(LE, *MR.Context);
+									if (!MTE) {
+										const clang::ImplicitCastExpr* ICE2 = Tget_immediately_containing_element_of_type<clang::ImplicitCastExpr>(LE, *MR.Context);
+										const clang::ImplicitCastExpr* ICE1 = ICE2;
+										do {
+											ICE1 = ICE2;
+											ICE2 = Tget_immediately_containing_element_of_type<clang::ImplicitCastExpr>(ICE1, *MR.Context);
+										} while (ICE2);
+										MTE = Tget_immediately_containing_element_of_type<clang::MaterializeTemporaryExpr>(ICE1, *MR.Context);
+									}
+									if (MTE) {
+										const auto* CE = Tget_immediately_containing_element_of_type<clang::CallExpr>(
+											MTE->IgnoreImpCasts(), *MR.Context);
+										if (CE) {
+											const auto qname = CE->getDirectCallee()->getQualifiedNameAsString();
+											DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_reference_or_pointer_capture_lambda");
+											DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_non_reference_or_pointer_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_non_reference_or_pointer_capture_lambda");
+											DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_capture_lambda");
+											if ((mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str == qname)
+												|| (mse_rsv_make_xscope_non_reference_or_pointer_capture_lambda_str == qname)
+												|| (mse_rsv_make_xscope_capture_lambda_str == qname)) {
+												/* This CXXRecordDecl is a lambda expression being supplied as an argument
+												to an 'mse::rsv::make_xscope_*_capture_lambda()' function. Being a lambda, it
+												cannot inherit from 'mse::us::impl::XScopeTagBase' (or anything else for that
+												matter), but here we'll treat it as if it satisfies that (potential)
+												requirement as it should be safe (and is kind of necessary) here. */
+												has_xscope_tag_base = true;
 
-											/* The safety of the following is premised on the assumption that captured lambda
-											variables(/fields) are not addressable (by scope pointer) from outside the lambda. */
-											has_ReferenceableByScopePointer_tag_base = true;
+												/* The safety of the following is premised on the assumption that captured lambda
+												variables(/fields) are not addressable (by scope pointer) from outside the lambda. */
+												has_ReferenceableByScopePointer_tag_base = true;
 
-											if (mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str == qname) {
-												has_ContainsNonOwningScopeReference_tag_base = true;
+												if (mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str == qname) {
+													has_ContainsNonOwningScopeReference_tag_base = true;
+												}
 											}
 										}
 									}
+								} else {
+									int q = 5; /* unexpected*/
 								}
 							} else {
-								int q = 5; /* unexpected*/
-							}
-						} else {
-							std::vector<const FieldDecl*> unverified_pointer_fields;
-							for (const auto& field : RD->fields()) {
-								const auto field_qtype = field->getType();
-								IF_DEBUG(auto field_qtype_str = field_qtype.getAsString();)
-								const auto ICIEX = field->getInClassInitializer();
-								if (field_qtype.getTypePtr()->isPointerType()
-									&& (!state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(field_qtype))
-									&& (!state1.m_suppress_check_region_set.contains(instantiation_source_range(field->getSourceRange(), Rewrite)))
-									) {
-									if (!ICIEX) {
-										unverified_pointer_fields.push_back(field);
-									} else if (is_nullptr_literal(ICIEX, *(MR.Context))) {
-										auto ICISR = nice_source_range(ICIEX->getSourceRange(), Rewrite);
-										if (!ICISR.isValid()) {
-											ICISR = SR;
-										}
-										const std::string error_desc = std::string("Null initialization of ")
-											+ "native pointer fields (such as '" + field->getNameAsString()
-											+ "') is not supported.";
-										auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, ICISR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
+								std::vector<const FieldDecl*> unverified_pointer_fields;
+								for (const auto& field : RD->fields()) {
+									const auto field_qtype = field->getType();
+									IF_DEBUG(auto field_qtype_str = field_qtype.getAsString();)
+									const auto ICIEX = field->getInClassInitializer();
+									if (field_qtype.getTypePtr()->isPointerType()
+										&& (!state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(field_qtype))
+										&& (!state1.m_suppress_check_region_set.contains(instantiation_source_range(field->getSourceRange(), Rewrite)))
+										) {
+										if (!ICIEX) {
+											unverified_pointer_fields.push_back(field);
+										} else if (is_nullptr_literal(ICIEX, *(MR.Context))) {
+											auto ICISR = nice_source_range(ICIEX->getSourceRange(), Rewrite);
+											if (!ICISR.isValid()) {
+												ICISR = SR;
+											}
+											const std::string error_desc = std::string("Null initialization of ")
+												+ "native pointer fields (such as '" + field->getNameAsString()
+												+ "') is not supported.";
+											auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, ICISR.getBegin(), error_desc));
+											if (res.second) {
+												std::cout << (*(res.first)).as_a_string1() << " \n\n";
+											}
 										}
 									}
-								}
-								if (ICIEX) {
+									if (ICIEX) {
 
-									const auto FD = field;
-									const auto EX = ICIEX;
-									if (EX) {
-										auto CXXThisExpr_range = get_contained_elements_of_type_CXXThisExpr(*EX);
-										for (const auto CXXTE : CXXThisExpr_range) {
-											assert(CXXTE);
-											const auto ME = get_immediately_containing_MemberExpr_from_CXXThisExpr_if_any(*CXXTE, *(MR.Context));
-											if (ME) {
-												const auto FD2 = get_FieldDecl_from_MemberExpr_if_any(*ME);
-												if (FD2) {
-													bool res = first_is_contained_in_scope_of_second(FD, FD2, *(MR.Context));
-													if ((!res) || (FD == FD2)) {
-														auto MESR = nice_source_range(ME->getSourceRange(), Rewrite);
-														if (!MESR.isValid()) {
-															MESR = SR;
-														}
+										const auto FD = field;
+										const auto EX = ICIEX;
+										if (EX) {
+											auto CXXThisExpr_range = get_contained_elements_of_type_CXXThisExpr(*EX);
+											for (const auto CXXTE : CXXThisExpr_range) {
+												assert(CXXTE);
+												const auto ME = get_immediately_containing_MemberExpr_from_CXXThisExpr_if_any(*CXXTE, *(MR.Context));
+												if (ME) {
+													const auto FD2 = get_FieldDecl_from_MemberExpr_if_any(*ME);
+													if (FD2) {
+														bool res = first_is_contained_in_scope_of_second(FD, FD2, *(MR.Context));
+														if ((!res) || (FD == FD2)) {
+															auto MESR = nice_source_range(ME->getSourceRange(), Rewrite);
+															if (!MESR.isValid()) {
+																MESR = SR;
+															}
 
-														const std::string error_desc = std::string("The field '") + FD2->getNameAsString()
-															+ "' may be being referenced before it has been constructed.";
-														auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, MESR.getBegin(), error_desc));
-														if (res.second) {
-															std::cout << (*(res.first)).as_a_string1() << " \n\n";
-														}
-													}
-												} else {
-													const auto CXXMD = dyn_cast<const CXXMethodDecl>(ME->getMemberDecl());
-													if (CXXMD) {
-														/* error: Unable to verify that the member function used here can't access part of
-														the object that hasn't been constructed yet. */
-														const std::string error_desc = std::string("Calling non-static member functions ")
-														+ "(such as '" + CXXMD->getQualifiedNameAsString() + "') of an object is not supported in "
-														+ "constructor initializers or direct field initializers of the object. Consider "
-														+ "using a static member or free function instead. ";
-														auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-														if (res.second) {
-															std::cout << (*(res.first)).as_a_string1() << " \n\n";
+															const std::string error_desc = std::string("The field '") + FD2->getNameAsString()
+																+ "' may be being referenced before it has been constructed.";
+															auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, MESR.getBegin(), error_desc));
+															if (res.second) {
+																std::cout << (*(res.first)).as_a_string1() << " \n\n";
+															}
 														}
 													} else {
-														/* Since this MemberExpr was obtained from a CXXThisExpr, if it doesn't refer to
-														a field, then presumably it refers to a (non-static) member function.
-														So arriving here would be unexpected. */
-														int q = 5;
+														const auto CXXMD = dyn_cast<const CXXMethodDecl>(ME->getMemberDecl());
+														if (CXXMD) {
+															/* error: Unable to verify that the member function used here can't access part of
+															the object that hasn't been constructed yet. */
+															const std::string error_desc = std::string("Calling non-static member functions ")
+															+ "(such as '" + CXXMD->getQualifiedNameAsString() + "') of an object is not supported in "
+															+ "constructor initializers or direct field initializers of the object. Consider "
+															+ "using a static member or free function instead. ";
+															auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+															if (res.second) {
+																std::cout << (*(res.first)).as_a_string1() << " \n\n";
+															}
+														} else {
+															/* Since this MemberExpr was obtained from a CXXThisExpr, if it doesn't refer to
+															a field, then presumably it refers to a (non-static) member function.
+															So arriving here would be unexpected. */
+															int q = 5;
+														}
 													}
-												}
-											} else {
-												const std::string error_desc = std::string("Unable to verify that the 'this' pointer ")
-												+ "used here can't be used to access part of the object that hasn't been constructed yet.";
-												auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-												if (res.second) {
-													std::cout << (*(res.first)).as_a_string1() << " \n\n";
-												}
-											}
-										}
-										if (FD->getType()->isPointerType()
-											&& (!state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(FD->getType()))
-											&& (!state1.m_suppress_check_region_set.contains(instantiation_source_range(FD->getSourceRange(), Rewrite)))
-											) {
-											if (is_nullptr_literal(EX, *(MR.Context))) {
-												auto CISR = nice_source_range(EX->getSourceRange(), Rewrite);
-												if (!CISR.isValid()) {
-													CISR = SR;
-												}
-												const std::string error_desc = std::string("Null initialization of ")
-													+ "native pointer field '" + FD->getNameAsString()
-													+ "' is not supported.";
-												auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, CISR.getBegin(), error_desc));
-												if (res.second) {
-													std::cout << (*(res.first)).as_a_string1() << " \n\n";
-												}
-											}
-										}
-									}
-
-								}
-							}
-							if (1 <= unverified_pointer_fields.size()) {
-								if (CXXRD->ctors().end() == CXXRD->ctors().begin()) {
-									/* There don't seem to be any constructors. */
-									auto field_SR = nice_source_range(unverified_pointer_fields.front()->getSourceRange(), Rewrite);
-									if (!field_SR.isValid()) {
-										field_SR = SR;
-									}
-									const std::string error_desc = std::string("Missing constructor initializer (or ")
-									+ "direct initializer) required for '" + unverified_pointer_fields.front()->getNameAsString()
-									+ "' (raw) pointer field.";
-									auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, field_SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-								}
-								for (const auto& constructor : CXXRD->ctors()) {
-									if (constructor->isCopyOrMoveConstructor()) {
-										if (constructor->isDefaulted()) {
-											continue;
-										}
-									}
-									auto l_unverified_pointer_fields = unverified_pointer_fields;
-									int num_pointer_constructor_initializers = 0;
-									for (const auto& constructor_initializer : constructor->inits()) {
-										const auto FD = constructor_initializer->getMember();
-										for (auto iter = l_unverified_pointer_fields.begin(); l_unverified_pointer_fields.end() != iter; iter++) {
-											if (FD == *iter) {
-												l_unverified_pointer_fields.erase(iter);
-
-												const auto CIEX = constructor_initializer->getInit();
-												if (!CIEX) {
-													/* unexpected*/
-													int q = 3;
 												} else {
-													if (false && is_nullptr_literal(CIEX, *(MR.Context))) {
-														/* This case is handled in the MCSSSConstructionInitializer handler. */
+													const std::string error_desc = std::string("Unable to verify that the 'this' pointer ")
+													+ "used here can't be used to access part of the object that hasn't been constructed yet.";
+													auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+													if (res.second) {
+														std::cout << (*(res.first)).as_a_string1() << " \n\n";
 													}
 												}
-
-												break;
+											}
+											if (FD->getType()->isPointerType()
+												&& (!state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(FD->getType()))
+												&& (!state1.m_suppress_check_region_set.contains(instantiation_source_range(FD->getSourceRange(), Rewrite)))
+												) {
+												if (is_nullptr_literal(EX, *(MR.Context))) {
+													auto CISR = nice_source_range(EX->getSourceRange(), Rewrite);
+													if (!CISR.isValid()) {
+														CISR = SR;
+													}
+													const std::string error_desc = std::string("Null initialization of ")
+														+ "native pointer field '" + FD->getNameAsString()
+														+ "' is not supported.";
+													auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, CISR.getBegin(), error_desc));
+													if (res.second) {
+														std::cout << (*(res.first)).as_a_string1() << " \n\n";
+													}
+												}
 											}
 										}
+
 									}
-									if (1 <= l_unverified_pointer_fields.size()) {
-										auto constructor_SR = nice_source_range(constructor->getSourceRange(), Rewrite);
-										if (!constructor_SR.isValid()) {
-											constructor_SR = SR;
+								}
+								if (1 <= unverified_pointer_fields.size()) {
+									if (CXXRD->ctors().end() == CXXRD->ctors().begin()) {
+										/* There don't seem to be any constructors. */
+										auto field_SR = nice_source_range(unverified_pointer_fields.front()->getSourceRange(), Rewrite);
+										if (!field_SR.isValid()) {
+											field_SR = SR;
 										}
 										const std::string error_desc = std::string("Missing constructor initializer (or ")
-										+ "direct initializer) required for '" + l_unverified_pointer_fields.front()->getNameAsString()
+										+ "direct initializer) required for '" + unverified_pointer_fields.front()->getNameAsString()
 										+ "' (raw) pointer field.";
-										auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, constructor_SR.getBegin(), error_desc));
+										auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, field_SR.getBegin(), error_desc));
 										if (res.second) {
 											std::cout << (*(res.first)).as_a_string1() << " \n\n";
 										}
 									}
+									for (const auto& constructor : CXXRD->ctors()) {
+										if (constructor->isCopyOrMoveConstructor()) {
+											if (constructor->isDefaulted()) {
+												continue;
+											}
+										}
+										auto l_unverified_pointer_fields = unverified_pointer_fields;
+										int num_pointer_constructor_initializers = 0;
+										for (const auto& constructor_initializer : constructor->inits()) {
+											if (constructor_initializer->isMemberInitializer()) {
+												const auto FD = constructor_initializer->getMember();
+												if (FD) {
+													for (auto iter = l_unverified_pointer_fields.begin(); l_unverified_pointer_fields.end() != iter; iter++) {
+														if (FD == *iter) {
+															l_unverified_pointer_fields.erase(iter);
+
+															const auto CIEX = constructor_initializer->getInit();
+															if (!CIEX) {
+																/* unexpected*/
+																int q = 3;
+															} else {
+																if (false && is_nullptr_literal(CIEX, *(MR.Context))) {
+																	/* This case is handled in the MCSSSConstructionInitializer handler. */
+																}
+															}
+
+															break;
+														}
+													}
+												}
+											} else if (constructor_initializer->isBaseInitializer()) {
+												/* todo */
+												int q = 5;
+											} else {
+												int q = 5;
+											}
+										}
+										if (1 <= l_unverified_pointer_fields.size()) {
+											auto constructor_SR = nice_source_range(constructor->getSourceRange(), Rewrite);
+											if (!constructor_SR.isValid()) {
+												constructor_SR = SR;
+											}
+											const std::string error_desc = std::string("Missing constructor initializer (or ")
+											+ "direct initializer) required for '" + l_unverified_pointer_fields.front()->getNameAsString()
+											+ "' (raw) pointer field.";
+											auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, constructor_SR.getBegin(), error_desc));
+											if (res.second) {
+												std::cout << (*(res.first)).as_a_string1() << " \n\n";
+											}
+										}
+									}
 								}
 							}
+							if (is_xscope_type(*(CXXRD->getTypeForDecl()), state1)) {
+								has_xscope_tag_base = true;
+							}
+							if (contains_non_owning_scope_reference(*(CXXRD->getTypeForDecl()), state1)) {
+								has_ContainsNonOwningScopeReference_tag_base = true;
+							}
+							if (referenceable_by_scope_pointer(*(CXXRD->getTypeForDecl()), state1)) {
+								has_ReferenceableByScopePointer_tag_base = true;
+							}
 						}
-						if (is_xscope_type(*(CXXRD->getTypeForDecl()), state1)) {
-							has_xscope_tag_base = true;
-						}
-						if (contains_non_owning_scope_reference(*(CXXRD->getTypeForDecl()), state1)) {
-							has_ContainsNonOwningScopeReference_tag_base = true;
-						}
-						if (referenceable_by_scope_pointer(*(CXXRD->getTypeForDecl()), state1)) {
-							has_ReferenceableByScopePointer_tag_base = true;
-						}
-					}
 
-					for (const auto& field : RD->fields()) {
-						const auto field_qtype = field->getType();
-						auto field_qtype_str = field_qtype.getAsString();
+						for (const auto& field : RD->fields()) {
+							const auto field_qtype = field->getType();
+							auto field_qtype_str = field_qtype.getAsString();
 
-						std::string error_desc;
-						if (field_qtype.getTypePtr()->isPointerType()) {
-							if (!state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(field_qtype)
-								&& (!state1.m_suppress_check_region_set.contains(instantiation_source_range(field->getSourceRange(), Rewrite)))
-								) {
+							std::string error_desc;
+							if (field_qtype.getTypePtr()->isPointerType()) {
+								if (!state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(field_qtype)
+									&& (!state1.m_suppress_check_region_set.contains(instantiation_source_range(field->getSourceRange(), Rewrite)))
+									) {
+									if (has_xscope_tag_base) {
+										/*
+										error_desc = std::string("Native pointers are not (yet) supported as fields of xscope ")
+											+ "structs or classes.";
+										*/
+									} else {
+										if (is_lambda) {
+											error_desc = std::string("Native pointers (such as those of type '") + field_qtype.getAsString()
+												+ "') are not supported as captures of (non-xscope) lambdas. ";
+										} else {
+											error_desc = std::string("Native pointers (such as those of type '") + field_qtype.getAsString()
+												+"') are not supported as fields of (non-xscope) structs or classes.";
+										}
+									}
+								}
+							} else if (field_qtype.getTypePtr()->isReferenceType()) {
 								if (has_xscope_tag_base) {
 									/*
-									error_desc = std::string("Native pointers are not (yet) supported as fields of xscope ")
+									error_desc = std::string("Native references are not (yet) supported as fields of xscope ")
 										+ "structs or classes.";
 									*/
 								} else {
 									if (is_lambda) {
-										error_desc = std::string("Native pointers (such as those of type '") + field_qtype.getAsString()
+										error_desc = std::string("Native references (such as those of type '") + field_qtype.getAsString()
 											+ "') are not supported as captures of (non-xscope) lambdas. ";
 									} else {
-										error_desc = std::string("Native pointers (such as those of type '") + field_qtype.getAsString()
+										error_desc = std::string("Native references (such as those of type '") + field_qtype.getAsString()
 											+"') are not supported as fields of (non-xscope) structs or classes.";
 									}
 								}
 							}
-						} else if (field_qtype.getTypePtr()->isReferenceType()) {
-							if (has_xscope_tag_base) {
-								/*
-								error_desc = std::string("Native references are not (yet) supported as fields of xscope ")
-									+ "structs or classes.";
-								*/
-							} else {
+
+							if ((!has_xscope_tag_base) && is_xscope_type(field_qtype, state1)) {
 								if (is_lambda) {
-									error_desc = std::string("Native references (such as those of type '") + field_qtype.getAsString()
-										+ "') are not supported as captures of (non-xscope) lambdas. ";
+									error_desc = std::string("Lambdas that capture variables of xscope type (such as '")
+										+ field_qtype_str + "') must be scope lambdas (usually created via an "
+										+  "'mse::rsv::make_xscope_*_lambda()' wrapper function).";
 								} else {
-									error_desc = std::string("Native references (such as those of type '") + field_qtype.getAsString()
-										+"') are not supported as fields of (non-xscope) structs or classes.";
+									error_desc = std::string("Structs or classes containing fields of xscope type (such as '")
+										+ field_qtype_str + "') must inherit from mse::rsv::XScopeTagBase.";
+								}
+							}
+							if ((!has_ContainsNonOwningScopeReference_tag_base)
+								&& contains_non_owning_scope_reference(field_qtype, state1)) {
+								if (is_lambda) {
+									error_desc = std::string("Lambdas that capture items (such as those of type '")
+										+ field_qtype_str + "') that are, or contain, non-owning scope references must be "
+										+ "scope 'reference or pointer capture' lambdas (created via the "
+										+ "'mse::rsv::make_xscope_reference_or_pointer_capture_lambda()' "
+										+ "wrapper function).";
+								} else {
+									error_desc = std::string("Structs or classes containing fields (such as those of type '")
+										+ field_qtype_str + "') that are, or contain, non-owning scope references must inherit from "
+										+ "mse::rsv::ContainsNonOwningScopeReferenceTagBase.";
+								}
+							}
+							if ((!has_ReferenceableByScopePointer_tag_base)
+								&& referenceable_by_scope_pointer(field_qtype, state1)) {
+								if (is_lambda) {
+									/* The assumption is that we don't have to worry about scope pointers targeting
+									lambda capture variables(/fields) from outside the lambda, because they're not 
+									directly accessible from outside? */
+								} else {
+									error_desc = std::string("Structs or classes containing fields (such as '") + field_qtype_str
+										+ "') that yield scope pointers (from their overloaded 'operator&'), or contain an element "
+										+ "that does, must inherit from mse::rsv::ReferenceableByScopePointerTagBase.";
+								}
+							}
+							if ("" != error_desc) {
+								auto FDISR = instantiation_source_range(field->getSourceRange(), Rewrite);
+								auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
+								if (res.second) {
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
 								}
 							}
 						}
-
-						if ((!has_xscope_tag_base) && is_xscope_type(field_qtype, state1)) {
-							if (is_lambda) {
-								error_desc = std::string("Lambdas that capture variables of xscope type (such as '")
-									+ field_qtype_str + "') must be scope lambdas (usually created via an "
-									+  "'mse::rsv::make_xscope_*_lambda()' wrapper function).";
-							} else {
-								error_desc = std::string("Structs or classes containing fields of xscope type (such as '")
-									+ field_qtype_str + "') must inherit from mse::rsv::XScopeTagBase.";
-							}
-						}
-						if ((!has_ContainsNonOwningScopeReference_tag_base)
-							&& contains_non_owning_scope_reference(field_qtype, state1)) {
-							if (is_lambda) {
-								error_desc = std::string("Lambdas that capture items (such as those of type '")
-									+ field_qtype_str + "') that are, or contain, non-owning scope references must be "
-									+ "scope 'reference or pointer capture' lambdas (created via the "
-									+ "'mse::rsv::make_xscope_reference_or_pointer_capture_lambda()' "
-									+ "wrapper function).";
-							} else {
-								error_desc = std::string("Structs or classes containing fields (such as those of type '")
-									+ field_qtype_str + "') that are, or contain, non-owning scope references must inherit from "
-									+ "mse::rsv::ContainsNonOwningScopeReferenceTagBase.";
-							}
-						}
-						if ((!has_ReferenceableByScopePointer_tag_base)
-							&& referenceable_by_scope_pointer(field_qtype, state1)) {
-							if (is_lambda) {
-								/* The assumption is that we don't have to worry about scope pointers targeting
-								lambda capture variables(/fields) from outside the lambda, because they're not 
-								directly accessible from outside? */
-							} else {
-								error_desc = std::string("Structs or classes containing fields (such as '") + field_qtype_str
-									+ "') that yield scope pointers (from their overloaded 'operator&'), or contain an element "
-									+ "that does, must inherit from mse::rsv::ReferenceableByScopePointerTagBase.";
-							}
-						}
-						if ("" != error_desc) {
-							auto FDISR = instantiation_source_range(field->getSourceRange(), Rewrite);
-							auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
-						}
 					}
+				} else {
+					int q = 3;
 				}
 			}
 		}
@@ -2540,6 +2552,71 @@ namespace checker {
 		return retval;
 	}
 
+	bool is_raw_pointer_or_equivalent(const clang::QualType& qtype) {
+		bool is_pointer_or_equivalent = true;
+		if (!qtype->isPointerType()) {
+			const auto RD = qtype->getAsRecordDecl();
+			if (!RD) {
+				is_pointer_or_equivalent = false;
+			} else {
+				/* `mse::us::impl::TPointerForLegacy<>` is sometimes used as (a functionally
+				equivalent) substitute for native pointers that can act as a base class. */
+				const auto CXXCE_rw_qtype_str = RD->getQualifiedNameAsString();
+				DECLARE_CACHED_CONST_STRING(TPointerForLegacy_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
+				if (TPointerForLegacy_str != CXXCE_rw_qtype_str) {
+					is_pointer_or_equivalent = false;
+				}
+			}
+		}
+		return is_pointer_or_equivalent;
+	}
+
+	inline std::optional<clang::QualType> pointee_type_if_any(clang::QualType const& qtype) {
+		std::optional<clang::QualType> retval;
+		auto peeled_qtype = remove_mse_transparent_wrappers(qtype);
+		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
+		if (is_raw_pointer_or_equivalent(peeled_qtype)) {
+			if (peeled_qtype->isPointerType()) {
+				retval = peeled_qtype->getPointeeType();
+			} else {
+				auto RD = peeled_qtype->getAsRecordDecl();
+				if (RD) {
+					const auto RD_qtype_str = RD->getQualifiedNameAsString();
+					DECLARE_CACHED_CONST_STRING(TPointerForLegacy_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
+					if (TPointerForLegacy_str == RD_qtype_str) {
+						auto maybe_qtype2 = get_first_template_parameter_if_any(peeled_qtype);
+						if (maybe_qtype2.has_value()) {
+							retval = maybe_qtype2.value();
+						}
+					}
+				}
+			}
+		} else if (peeled_qtype->isReferenceType()) {
+			retval = peeled_qtype->getPointeeType();
+		}
+		return retval;
+	}
+
+	inline void slti_set_default_lower_bound_lifetimes_where_needed(CScopeLifetimeInfo1& slti, clang::QualType const& qtype) {
+		auto peeled_qtype = remove_mse_transparent_wrappers(qtype);
+		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
+		if (is_raw_pointer_or_equivalent(peeled_qtype)) {
+			if (0 == (*(slti.m_sublifetimes_vlptr)).m_primary_lifetime_infos.size()) {
+				/* If a pointer doesn't already have a sublifetime, we'll use the primary lifetime of the
+				pointer itself as a lower bound for its sublifetime. */
+				auto shallow_slti = slti;
+				shallow_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
+				(*(slti.m_sublifetimes_vlptr)).m_primary_lifetime_infos = { CScopeLifetimeInfo1(shallow_slti) };
+			}
+
+			auto maybe_pointee_type = pointee_type_if_any(peeled_qtype);
+			if (maybe_pointee_type.has_value()) {
+				auto pointee_qtype = maybe_pointee_type.value();
+				slti_set_default_lower_bound_lifetimes_where_needed((*(slti.m_sublifetimes_vlptr)).m_primary_lifetime_infos.front(), pointee_qtype);
+			}
+		}
+	}
+
 	CScopeLifetimeInfo1 scope_lifetime_info_from_lifetime_owner(const CStaticLifetimeOwnerInfo1& sloiv, ASTContext& Ctx, const CTUState& state1) {
 		const CStaticLifetimeOwner& slov = sloiv;
 		CScopeLifetimeInfo1 lifetime_info_result;
@@ -2574,15 +2651,7 @@ namespace checker {
 						auto& alts = maybe_alts.value();
 						*(lifetime_info_result.m_sublifetimes_vlptr) = { CScopeLifetimeInfo1Set { alts } };
 					}
-
-					auto qtype = slov->getType();
-					if (qtype->isPointerType()) {
-						if (0 == (*(lifetime_info_result.m_sublifetimes_vlptr)).m_primary_lifetime_infos.size()) {
-							/* If a pointer doesn't already have a sublifetime, we'll use the primary lifetime of the
-							pointer itself as a lower bound for its sublifetime. */
-							(*(lifetime_info_result.m_sublifetimes_vlptr)).m_primary_lifetime_infos.push_back(CScopeLifetimeInfo1(lifetime_info_result));
-						}
-					}
+					slti_set_default_lower_bound_lifetimes_where_needed(lifetime_info_result, slov->getType());
 				}
 				},
 
@@ -2590,18 +2659,9 @@ namespace checker {
 				/* Ok, first we're going to construct a lifetime value for the target object of the "this"
 				pointer/expression. */
 				CScopeLifetimeInfo1 pointer_target_lifetime_info;
-				auto maybe_alt = state1.corresponding_abstract_lifetime_if_any(slov, Ctx);
-				if (maybe_alt.has_value()) {
-					/* This "this" expression is associated with an abstract lifetime. So we'll set the lifetime
-					value of the target object to the abstract lifetime. */
-					auto& alt = maybe_alt.value();
-					pointer_target_lifetime_info.m_maybe_abstract_lifetime = alt;
-					pointer_target_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
-				} else {
-					/* A `this` pointer can be thought of as an implicit parameter of the associated (member) function
-					or operator. */
-					pointer_target_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::Automatic;
-				}
+				pointer_target_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::ThisExpression;
+				pointer_target_lifetime_info.m_maybe_abstract_lifetime = state1.corresponding_abstract_lifetime_if_any(slov, Ctx);
+
 				auto FD = enclosing_function_if_any(slov, Ctx);
 				if (FD) {
 					pointer_target_lifetime_info.m_maybe_containing_scope = get_containing_scope(FD, Ctx);
@@ -2618,19 +2678,8 @@ namespace checker {
 				} else {
 					int q = 3;
 				}
-				//pointer_target_lifetime_info.m_maybe_corresponding_cpp_element = slov;
-				/*
-				if (slov->getType()->isPointerType()) {
-					auto target_obj_qtype = slov->getType()->getPointeeType();
-
-					auto tlta_iter1 = state1.m_type_lifetime_annotations_map.find(target_obj_qtype.getTypePtr());
-					if (state1.m_type_lifetime_annotations_map.end() != tlta_iter1) {
-						*(pointer_target_lifetime_info.m_sublifetimes_vlptr) = CScopeLifetimeInfo1Set{ tlta_iter1->second.m_lifetime_set };
-					}
-				} else {
-					int q = 3;
-				}
-				*/
+				pointer_target_lifetime_info.m_maybe_corresponding_cpp_element = slov;
+				slti_set_default_lower_bound_lifetimes_where_needed(pointer_target_lifetime_info, slov->getType());
 
 				/* Ok, now we set the values for the lifetime of the "this" expression itself. */
 				lifetime_info_result.m_category = CScopeLifetimeInfo1::ECategory::ThisExpression;
@@ -2723,7 +2772,11 @@ namespace checker {
 			return true;
 		} else if (sli1.m_maybe_abstract_lifetime.has_value() || sli2.m_maybe_abstract_lifetime.has_value()) {
 			if (sli1.m_maybe_abstract_lifetime.has_value() && sli2.m_maybe_abstract_lifetime.has_value()) {
-				if (!((CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli1.m_category) && (CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli2.m_category))) {
+				bool b1a = (CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli1.m_category);
+				bool b2a = (CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli2.m_category);
+				bool b1b = (CScopeLifetimeInfo1::ECategory::ThisExpression == sli1.m_category);
+				bool b2b = (CScopeLifetimeInfo1::ECategory::ThisExpression == sli2.m_category);
+				if (!((b1a || b1b) && (b2a || b2b))) {
 					int q = 3;
 				}
 
@@ -2818,69 +2871,77 @@ namespace checker {
 									/* The second item occurs before the first item. */
 									retval = true;
 								} else if ( (SR1.getBegin() == SR2.getBegin()) && (SR1.getEnd() == SR2.getEnd()) ) {
-									/* The second item and first item seem to have the same "scope lifetime owner". */
-									auto possession_lifetime_info_chain1 = sli1.m_possession_lifetime_info_chain;
-									std::reverse(possession_lifetime_info_chain1.begin(), possession_lifetime_info_chain1.end());
-									auto possession_lifetime_info_chain2 = sli2.m_possession_lifetime_info_chain;
-									std::reverse(possession_lifetime_info_chain2.begin(), possession_lifetime_info_chain2.end());
+									if (true) {
+										/* We used to distinguish between the lifetime of, say, an object and a member field of that
+										object, or between a container object and an element in that container. But since the
+										introduced lifetime annotations are not (yet) specific enough to make the distinction, we
+										will suspend making the distiction here (for now). */
+										retval = true;
+									} else {
+										/* The second item and first item seem to have the same "scope lifetime owner". */
+										auto possession_lifetime_info_chain1 = sli1.m_possession_lifetime_info_chain;
+										std::reverse(possession_lifetime_info_chain1.begin(), possession_lifetime_info_chain1.end());
+										auto possession_lifetime_info_chain2 = sli2.m_possession_lifetime_info_chain;
+										std::reverse(possession_lifetime_info_chain2.begin(), possession_lifetime_info_chain2.end());
 
-									auto max_possession_chain_size = std::max(possession_lifetime_info_chain1.size(), possession_lifetime_info_chain2.size());
-									retval = true;
-									for (size_t i = 0; i < max_possession_chain_size; i += 1) {
-										if (i >= possession_lifetime_info_chain1.size()) {
-											/* The second item seems to be a "possession" of the first and, in general, possessions outlive
-											their owners (if only barely). */
-											retval = true;
-											break;
-										} else if (i >= possession_lifetime_info_chain2.size()) {
-											/* The second item seems to be an "owner" of the first and, in general, owners do not outlive
-											their possessions (if only barely). */
-											retval = false;
-											break;
-										} else {
-											retval = false;
-											auto& info1 = possession_lifetime_info_chain1.at(i);
-											auto& info2 = possession_lifetime_info_chain2.at(i);
-											if ((CPossessionLifetimeInfo1::is_element_in_a_multi_element_container_t::Yes == info1.m_is_element_in_a_multi_element_container)
-												|| (CPossessionLifetimeInfo1::is_element_in_a_multi_element_container_t::Yes == info2.m_is_element_in_a_multi_element_container)) {
-												if (info1.m_is_element_in_a_multi_element_container != info2.m_is_element_in_a_multi_element_container) {
-													/* This never happens. Because if the (common) immediate owner of both elements is a
-													multi-element container, then (generally) the only type of possession it would have would be a
-													contained element (as opposed to a field member or a dereference target). Right? */
-													int q = 3;
-												}
-												/* At the moment, for practical purposes, different elements in "multi-element" containers are
-												considered here to have the "same" lifetime. This might theoretically be an issue if, for
-												example, one element, with a mischievous destructor, points/refers to another element in the
-												same container. When/if that case is supported, it will need to be addressed elsewhere. */
+										auto max_possession_chain_size = std::max(possession_lifetime_info_chain1.size(), possession_lifetime_info_chain2.size());
+										retval = true;
+										for (size_t i = 0; i < max_possession_chain_size; i += 1) {
+											if (i >= possession_lifetime_info_chain1.size()) {
+												/* The second item seems to be a "possession" of the first and, in general, possessions outlive
+												their owners (if only barely). */
 												retval = true;
 												break;
-											} else if (info2.m_maybe_field_source_range.has_value()) {
-												/* info2 refers to a member field. */
-												if (info1.m_maybe_field_source_range.has_value()) {
-													/* The result for two member fields should be the same as if the member fields were instead
-													variables declared in the same relative positions. So we'll construct two CScopeLifetimeInfo1s
-													corresponding to those two hypothetical variables and apply this function to them. */
-													CScopeLifetimeInfo1 equivalent_for_our_purposes_sli1{ sli1.m_maybe_containing_scope, info1.m_maybe_field_source_range.value() };
-													CScopeLifetimeInfo1 equivalent_for_our_purposes_sli2{ sli2.m_maybe_containing_scope, info2.m_maybe_field_source_range.value() };
-													retval = first_is_known_to_be_contained_in_scope_of_second_shallow(equivalent_for_our_purposes_sli1, equivalent_for_our_purposes_sli2, context, tu_state_cref);
-													if (false == retval) {
+											} else if (i >= possession_lifetime_info_chain2.size()) {
+												/* The second item seems to be an "owner" of the first and, in general, owners do not outlive
+												their possessions (if only barely). */
+												retval = false;
+												break;
+											} else {
+												retval = false;
+												auto& info1 = possession_lifetime_info_chain1.at(i);
+												auto& info2 = possession_lifetime_info_chain2.at(i);
+												if ((CPossessionLifetimeInfo1::is_element_in_a_multi_element_container_t::Yes == info1.m_is_element_in_a_multi_element_container)
+													|| (CPossessionLifetimeInfo1::is_element_in_a_multi_element_container_t::Yes == info2.m_is_element_in_a_multi_element_container)) {
+													if (info1.m_is_element_in_a_multi_element_container != info2.m_is_element_in_a_multi_element_container) {
+														/* This never happens. Because if the (common) immediate owner of both elements is a
+														multi-element container, then (generally) the only type of possession it would have would be a
+														contained element (as opposed to a field member or a dereference target). Right? */
+														int q = 3;
+													}
+													/* At the moment, for practical purposes, different elements in "multi-element" containers are
+													considered here to have the "same" lifetime. This might theoretically be an issue if, for
+													example, one element, with a mischievous destructor, points/refers to another element in the
+													same container. When/if that case is supported, it will need to be addressed elsewhere. */
+													retval = true;
+													break;
+												} else if (info2.m_maybe_field_source_range.has_value()) {
+													/* info2 refers to a member field. */
+													if (info1.m_maybe_field_source_range.has_value()) {
+														/* The result for two member fields should be the same as if the member fields were instead
+														variables declared in the same relative positions. So we'll construct two CScopeLifetimeInfo1s
+														corresponding to those two hypothetical variables and apply this function to them. */
+														CScopeLifetimeInfo1 equivalent_for_our_purposes_sli1{ sli1.m_maybe_containing_scope, info1.m_maybe_field_source_range.value() };
+														CScopeLifetimeInfo1 equivalent_for_our_purposes_sli2{ sli2.m_maybe_containing_scope, info2.m_maybe_field_source_range.value() };
+														retval = first_is_known_to_be_contained_in_scope_of_second_shallow(equivalent_for_our_purposes_sli1, equivalent_for_our_purposes_sli2, context, tu_state_cref);
+														if (false == retval) {
+															break;
+														}
+													} else {
+														/* The second item is a member field and the first item isn't (so it's presumably a dereference
+														target). */
+														retval = false;
 														break;
 													}
-												} else {
-													/* The second item is a member field and the first item isn't (so it's presumably a dereference
+												} else if (info1.m_maybe_field_source_range.has_value()) {
+													assert(!(info2.m_maybe_field_source_range.has_value()));
+													/* The first item is a member field and the second item isn't (so it's presumably a dereference
 													target). */
+													retval = true;
+												} else {
 													retval = false;
 													break;
 												}
-											} else if (info1.m_maybe_field_source_range.has_value()) {
-												assert(!(info2.m_maybe_field_source_range.has_value()));
-												/* The first item is a member field and the second item isn't (so it's presumably a dereference
-												target). */
-												retval = true;
-											} else {
-												retval = false;
-												break;
 											}
 										}
 									}
@@ -2929,7 +2990,7 @@ namespace checker {
 		return retval;
 	}
 
-	inline bool sli_second_can_be_assigned_to_first(const CScopeLifetimeInfo1& sli1, const CScopeLifetimeInfo1& sli2, clang::ASTContext& context, const CTUState& tu_state_cref) {
+	inline bool slti_second_can_be_assigned_to_first(const CScopeLifetimeInfo1& sli1, const CScopeLifetimeInfo1& sli2, clang::ASTContext& context, const CTUState& tu_state_cref) {
 		bool retval = true;
 		if ((CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli1.m_category) && (CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli2.m_category)) {
 			if (!(sli1.m_maybe_abstract_lifetime.has_value() && sli2.m_maybe_abstract_lifetime.has_value())) {
@@ -2982,7 +3043,7 @@ namespace checker {
 			if (!retval) {
 				return retval;
 			}
-			retval &= sli_second_can_be_assigned_to_first(*sli1_sub_iter1, *sli2_sub_iter1, context, tu_state_cref);
+			retval &= slti_second_can_be_assigned_to_first(*sli1_sub_iter1, *sli2_sub_iter1, context, tu_state_cref);
 			if (!retval) {
 				return retval;
 			}
@@ -3069,7 +3130,7 @@ namespace checker {
 			}
 
 			/* First we determine the "shallow" lower bound (without sublifetimes). */
-			if (sli_second_can_be_assigned_to_first(shallow_lhs_lifetime_info, shallow_rhs_lifetime_info, Ctx, tu_state_cref)) {
+			if (slti_second_can_be_assigned_to_first(shallow_lhs_lifetime_info, shallow_rhs_lifetime_info, Ctx, tu_state_cref)) {
 				lbl = shallow_lhs_lifetime_info;
 			} else {
 				lbl = shallow_rhs_lifetime_info;
@@ -3078,7 +3139,7 @@ namespace checker {
 			/* Next we determine the lower bound of each pair of corresponding sublifetimes. */
 			auto lhs_sublt_iter1 = lhs_lifetime_info.m_sublifetimes_vlptr->m_primary_lifetime_infos.begin();
 			auto rhs_sublt_iter1 = rhs_lifetime_info.m_sublifetimes_vlptr->m_primary_lifetime_infos.begin();
-			for (; lhs_lifetime_info.m_sublifetimes_vlptr->m_primary_lifetime_infos.end() != lhs_sublt_iter1; lhs_sublt_iter1++, rhs_sublt_iter1) {
+			for (; lhs_lifetime_info.m_sublifetimes_vlptr->m_primary_lifetime_infos.end() != lhs_sublt_iter1; lhs_sublt_iter1++, rhs_sublt_iter1++) {
 				lbl.m_sublifetimes_vlptr->m_primary_lifetime_infos.push_back(lower_bound_lifetime_sli(*lhs_sublt_iter1, *rhs_sublt_iter1, Ctx, tu_state_cref));
 			}
 		}
@@ -3155,7 +3216,7 @@ namespace checker {
 	inline CMaybeExpressionLifetimeValuesWithHints evaluate_expression_lower_bound_lifetimes(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
 			, const clang::Expr* E);
 	template<typename TCallOrConstuctorExpr>
-	inline void function_call_handler2(CTUState& state1, const clang::FunctionDecl* function_decl
+	inline std::string function_call_handler2(CTUState& state1, const clang::FunctionDecl* function_decl
 		, const TCallOrConstuctorExpr* CE, ASTContext& Ctx, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr);
 
 	struct CMaybeStaticLifetimeOwnerWithHints : public std::optional<CStaticLifetimeOwnerInfo1> {
@@ -3181,8 +3242,8 @@ namespace checker {
 		std::vector<std::string> m_hints;
 	};
 
-	std::optional<CStaticLifetimeOwnerInfo1> lower_bound_lifetime_owner_of_returned_reference_object_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref);
-	CMaybeStaticLifetimeOwnerWithHints lower_bound_lifetime_owner_of_pointer_target_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref);
+	std::optional<CStaticLifetimeOwnerInfo1> lower_bound_lifetime_owner_of_returned_reference_object_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr);
+	CMaybeStaticLifetimeOwnerWithHints lower_bound_lifetime_owner_of_pointer_target_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr);
 
 	/* This function is meant to return the part of a given expression that directly refers to the declared
 	object (i.e. the `DeclRefExpr`) of interest, if it is present in the expression. The object of interest
@@ -3266,7 +3327,7 @@ namespace checker {
 							return retval;
 						} else {
 							if (VD->hasInit()) {
-								retval = lower_bound_lifetime_owner_if_available(VD->getInit(), Ctx, tu_state_ref);
+								retval = lower_bound_lifetime_owner_if_available(VD->getInit(), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 								return retval;
 							}
 						}
@@ -3303,7 +3364,7 @@ namespace checker {
 
 						if (VD->getType()->isPointerType()) {
 							if (VD->hasInit()) {
-								auto maybe_res1 = lower_bound_lifetime_owner_if_available(VD->getInit(), Ctx, tu_state_ref);
+								auto maybe_res1 = lower_bound_lifetime_owner_if_available(VD->getInit(), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 								if (maybe_res1.has_value()) {
 									if (maybe_res1.value().m_maybe_sublifetime_owners_vlptr.has_value()) {
 										retval.value().m_maybe_sublifetime_owners_vlptr = maybe_res1.value().m_maybe_sublifetime_owners_vlptr;
@@ -3326,7 +3387,7 @@ namespace checker {
 							if (tu_state_ref.m_type_lifetime_annotations_map.end() != found_iter) {
 								auto& tlta = found_iter->second;
 								if (VD->hasInit()) {
-									auto maybe_res1 = lower_bound_lifetime_owner_if_available(VD->getInit(), Ctx, tu_state_ref);
+									auto maybe_res1 = lower_bound_lifetime_owner_if_available(VD->getInit(), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 									if (maybe_res1.has_value()) {
 										if (maybe_res1.value().m_maybe_sublifetime_owners_vlptr.has_value()) {
 											retval.value().m_maybe_sublifetime_owners_vlptr = maybe_res1.value().m_maybe_sublifetime_owners_vlptr;
@@ -3341,7 +3402,7 @@ namespace checker {
 											if (CD->isCopyOrMoveConstructor()) {
 												if (1 == CXXCE->getNumArgs()) {
 													auto arg_EX = CXXCE->getArg(0);
-													auto maybe_res1 = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref);
+													auto maybe_res1 = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 													if (maybe_res1.has_value()) {
 														if (maybe_res1.value().m_maybe_sublifetime_owners_vlptr.has_value()) {
 															retval.value().m_maybe_sublifetime_owners_vlptr = maybe_res1.value().m_maybe_sublifetime_owners_vlptr;
@@ -3367,10 +3428,10 @@ namespace checker {
 																	if (!arg1_EX) {
 																		continue;
 																	} else {
-																		auto maybe_res1 = lower_bound_lifetime_owner_if_available(arg1_EX, Ctx, tu_state_ref);
+																		auto maybe_res1 = lower_bound_lifetime_owner_if_available(arg1_EX, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 																		if (maybe_res1.has_value()) {
 																			auto param_index = int(param_lifetime1.first) - 1;
-																			if ((0 <= param_index) && (CD->getNumParams() > param_index)) {
+																			if ((0 <= param_index) && (int(CD->getNumParams()) > param_index)) {
 																				auto PVD = CD->getParamDecl(param_index);
 																				if (PVD) {
 																					if (PVD->getType()->isReferenceType()) {
@@ -3426,8 +3487,8 @@ namespace checker {
 					} else {
 						const auto VD_qtype = VD->getType();
 						IF_DEBUG(const auto VD_qtype_str = VD_qtype.getAsString();)
-						if (VD_qtype.getTypePtr()->isPointerType()) {
-							const auto pointee_VD_qtype = VD_qtype.getTypePtr()->getPointeeType();
+						if (is_raw_pointer_or_equivalent(VD_qtype)) {
+							const auto pointee_VD_qtype = pointee_type_if_any(VD_qtype).value();
 							IF_DEBUG(const auto pointee_VD_qtype_str = pointee_VD_qtype.getAsString();)
 							if (pointee_VD_qtype.isConstQualified() && is_async_shareable(pointee_VD_qtype)) {
 								/* This case includes "C"-string literals. */
@@ -3502,7 +3563,7 @@ namespace checker {
 					}
 
 					auto containing_ref_EX = containing_object_ref_expr_from_member_expr(ME);
-					retval = lower_bound_lifetime_owner_if_available(containing_ref_EX, Ctx, tu_state_ref);
+					retval = lower_bound_lifetime_owner_if_available(containing_ref_EX, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 					if (retval.has_value()) {
 						/* Here we're noting that the returned lifetime is of the "owner" of the item, not exactly the item itself. */
 						retval.value().m_possession_lifetime_info_chain.push_back({ FD->getSourceRange() });
@@ -3528,7 +3589,7 @@ namespace checker {
 
 							if (UOSE->getType()->isPointerType()) {
 								/* The declrefexpression is a direct dereference of a native pointer. */
-								auto maybe_slo1 = lower_bound_lifetime_owner_if_available(UOSE, Ctx, tu_state_ref);
+								auto maybe_slo1 = lower_bound_lifetime_owner_if_available(UOSE, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 								if (maybe_slo1.has_value()) {
 									auto sloi1 = scope_lifetime_info_from_lifetime_owner(maybe_slo1.value(), Ctx, tu_state_ref);
 									auto& sublifetimes = sloi1.m_sublifetimes_vlptr->m_primary_lifetime_infos;
@@ -3548,7 +3609,7 @@ namespace checker {
 							const auto UOSE_qtype = UOSE->getType();
 							IF_DEBUG(const auto UOSE_qtype_str = UOSE_qtype.getAsString();)
 
-							auto maybe_slo1 = lower_bound_lifetime_owner_if_available(UOSE, Ctx, tu_state_ref);
+							auto maybe_slo1 = lower_bound_lifetime_owner_if_available(UOSE, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 							if (maybe_slo1.has_value()) {
 								auto sloi1 = scope_lifetime_info_from_lifetime_owner(maybe_slo1.value(), Ctx, tu_state_ref);
 
@@ -3568,28 +3629,13 @@ namespace checker {
 					if (CXXCE) {
 						const auto qtype = CXXCE->getType();
 						const auto CXXCE_rw_type_ptr = remove_mse_transparent_wrappers(CXXCE->getType()).getTypePtr();
-						bool is_pointer_or_equivalent = true;
-						if (!CXXCE_rw_type_ptr->isPointerType()) {
-							const auto RD = CXXCE_rw_type_ptr->getAsRecordDecl();
-							if (!RD) {
-								is_pointer_or_equivalent = false;
-							} else {
-								/* `mse::us::impl::TPointerForLegacy<>` is sometimes used as (a functionally
-								equivalent) substitute for native pointers that can act as a base class. */
-								const auto CXXCE_rw_qtype_str = RD->getQualifiedNameAsString();
-								DECLARE_CACHED_CONST_STRING(TPointerForLegacy_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
-								if (TPointerForLegacy_str != CXXCE_rw_qtype_str) {
-									is_pointer_or_equivalent = false;
-								}
-							}
-						}
-						if (is_pointer_or_equivalent) {
+						if (is_raw_pointer_or_equivalent(qtype)) {
 							const auto numArgs = CXXCE->getNumArgs();
 							if (1 == CXXCE->getNumArgs()) {
 								const auto arg_EX = CXXCE->getArg(0);
 								assert(arg_EX);
 
-								retval = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref);
+								retval = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 								if (retval.has_value()) {
 									/* Here we're noting that the returned lifetime is of the "owner" of the item, not exactly the item itself. */
 									retval.value().m_possession_lifetime_info_chain.push_back({});
@@ -3597,8 +3643,8 @@ namespace checker {
 							}
 						}
 					} else if (CO) {
-						auto res1 = lower_bound_lifetime_owner_if_available(CO->getTrueExpr(), Ctx, tu_state_ref);
-						auto res2 = lower_bound_lifetime_owner_if_available(CO->getFalseExpr(), Ctx, tu_state_ref);
+						auto res1 = lower_bound_lifetime_owner_if_available(CO->getTrueExpr(), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
+						auto res2 = lower_bound_lifetime_owner_if_available(CO->getFalseExpr(), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 						return lower_bound_lifetime_owner(res1, res2, Ctx, tu_state_ref);
 					} else {
 						const clang::Expr* potential_owner_EX = nullptr;
@@ -3614,24 +3660,62 @@ namespace checker {
 
 								static const std::string std_addressof_str = "std::addressof";
 								if ((std_addressof_str == function_qname) && (1 == CE->getNumArgs())) {
-									retval = lower_bound_lifetime_owner_if_available(CE->getArg(0), Ctx, tu_state_ref);
+									retval = lower_bound_lifetime_owner_if_available(CE->getArg(0), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 									return retval;
 								}
-								if (false) {
+								if (true) {
 									const clang::FunctionDecl* function_decl = CE->getDirectCallee();
 									if (function_decl) {
 										function_call_handler2(tu_state_ref, function_decl, CE, Ctx, MR_ptr, Rewrite_ptr);
 										auto eltv_iter = tu_state_ref.m_expr_lifetime_values_map.find(CE);
 										if (tu_state_ref.m_expr_lifetime_values_map.end() != eltv_iter) {
+											auto const& esli = eltv_iter->second.m_scope_lifetime_info;
 											retval = eltv_iter->second.m_scope_lifetime_info;
-											return retval;
+
+											auto sli_of_hypothetical_variable = [](CTUState& state1, clang::CallExpr const * CE, ASTContext& Ctx, MatchFinder::MatchResult const * MR_ptr/* = nullptr*/, Rewriter* Rewrite_ptr/* = nullptr*/) {
+												CScopeLifetimeInfo1 retval;
+												CScopeLifetimeInfo1 scope_lifetime_info1;
+												//*(scope_lifetime_info1.m_sublifetimes_vlptr) = maybe_abstract_lifetime_set.value();
+												scope_lifetime_info1.m_category = CScopeLifetimeInfo1::ECategory::Automatic;
+												scope_lifetime_info1.m_maybe_containing_scope = get_containing_scope(CE, Ctx);
+												scope_lifetime_info1.m_maybe_source_range = CE->getSourceRange();
+												retval = scope_lifetime_info1;
+
+												auto maybe_tlta_ptr = type_lifetime_annotations_if_available(*CE, state1, MR_ptr, Rewrite_ptr);
+												if (maybe_tlta_ptr.has_value()) {
+													auto& tlta = *(maybe_tlta_ptr.value());
+													auto& alts = tlta.m_lifetime_set;
+													auto slis = CScopeLifetimeInfo1Set { alts };
+													auto replace_lifetime = [& scope_lifetime_info1](CScopeLifetimeInfo1& sli) {
+														sli = scope_lifetime_info1;
+													};
+													slis.apply_to_all_lifetimes(replace_lifetime);
+													*(retval.m_sublifetimes_vlptr) = slis;
+												}
+												auto CE_qtype = remove_mse_transparent_wrappers(CE->getType());
+												IF_DEBUG(auto CE_qtype_str = CE_qtype.getAsString();)
+												slti_set_default_lower_bound_lifetimes_where_needed(retval, CE_qtype);
+
+												return retval;
+											};
+
+											auto sli_hv = sli_of_hypothetical_variable(tu_state_ref, CE, Ctx, MR_ptr, Rewrite_ptr);
+											if (slti_second_can_be_assigned_to_first(sli_hv, esli, Ctx, tu_state_ref)) {
+												return retval;
+											} else {
+												/* It seems that we got kind of a "disappointing" lifetime lower bound. So we'll give the
+												"older" code a chance to come up with a better one, as it may identify certain "special cases"
+												that the "newer" code doesn't. */
+											}
 										} else {
 											retval = CE;
 										}
 									} else {
 										retval = CE;
 									}
-								} else {
+
+								//} else {
+
 									process_function_lifetime_annotations(*FD, tu_state_ref);
 									auto flta_iter = tu_state_ref.m_function_lifetime_annotations_map.find(FD);
 									if (tu_state_ref.m_function_lifetime_annotations_map.end() != flta_iter) {
@@ -3670,9 +3754,9 @@ namespace checker {
 											}
 
 											if (1 <= potential_rv_source_args.size()) {
-												CMaybeStaticLifetimeOwnerWithHints maybe_lblo = lower_bound_lifetime_owner_if_available(potential_rv_source_args.front(), Ctx, tu_state_ref);
+												CMaybeStaticLifetimeOwnerWithHints maybe_lblo = lower_bound_lifetime_owner_if_available(potential_rv_source_args.front(), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 												for (auto arg_EX : potential_rv_source_args) {
-													auto maybe_lblo2 = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref);
+													auto maybe_lblo2 = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 													/* We assign to maybe_lblo the "lesser" of itself and maybe_lblo2 */
 													maybe_lblo = lower_bound_lifetime_owner(maybe_lblo, maybe_lblo2, Ctx, tu_state_ref);
 												}
@@ -3746,7 +3830,7 @@ namespace checker {
 												|| (norad_proxy_ptr_str == qname) || (norad_proxy_const_ptr_str == qname)
 												/*|| ((xscope_owner_ptr_str == qname) && ())*/) {
 												satisfies_checks = true;
-												retval = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref);
+												retval = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 												if (!retval.has_value()) {
 													retval = dyn_cast<const clang::Expr>(arg_EX);
 												}
@@ -3760,7 +3844,7 @@ namespace checker {
 													/* We're treating `const std::unique_ptr<>`s as similar to mse::TXScopeOwnerPointer<>s. */
 													if (arg_EX->isLValue()) {
 														satisfies_checks = true;
-														retval = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref);
+														retval = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 														if (!retval.has_value()) {
 															retval = dyn_cast<const clang::Expr>(arg_EX);
 														}
@@ -3816,7 +3900,7 @@ namespace checker {
 
 								static const std::string std_move_str = "std::move";
 								if ((std_move_str == function_qname) && (1 == CE->getNumArgs())) {
-									return lower_bound_lifetime_owner_if_available(CE->getArg(0), Ctx, tu_state_ref);
+									return lower_bound_lifetime_owner_if_available(CE->getArg(0), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 								}
 
 								static const std::string function_get_str = "std::get";
@@ -3872,7 +3956,7 @@ namespace checker {
 										|| (fixed_optional_str == qname) || (xscope_fixed_optional_str == qname) || (xscope_borrowing_fixed_optional_str == qname)
 										|| (fixed_any_str == qname) || (xscope_fixed_any_str == qname) || (xscope_borrowing_fixed_any_str == qname)
 										) {
-										retval = lower_bound_lifetime_owner_if_available(potential_owner_EX_ii, Ctx, tu_state_ref);
+										retval = lower_bound_lifetime_owner_if_available(potential_owner_EX_ii, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 										if (retval.has_value()) {
 											/* Here we're noting that the returned lifetime is of the "owner" of the item, not exactly the item itself. */
 											retval.value().m_possession_lifetime_info_chain.push_back({});
@@ -3884,7 +3968,7 @@ namespace checker {
 										|| (fixed_nii_vector_str == qname) || (xscope_fixed_nii_vector_str == qname) || (xscope_borrowing_fixed_nii_vector_str == qname)
 										|| (fixed_nii_basic_string_str == qname) || (xscope_fixed_nii_basic_string_str == qname) || (xscope_borrowing_fixed_nii_basic_string_str == qname)
 										) {
-										retval = lower_bound_lifetime_owner_if_available(potential_owner_EX_ii, Ctx, tu_state_ref);
+										retval = lower_bound_lifetime_owner_if_available(potential_owner_EX_ii, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 										if (retval.has_value()) {
 											/* Here we're noting that the returned lifetime is of the "owner" of the item, not exactly the item itself. */
 											retval.value().m_possession_lifetime_info_chain.push_back({ {}, CPossessionLifetimeInfo1::is_element_in_a_multi_element_container_t::Yes });
@@ -3902,9 +3986,8 @@ namespace checker {
 
 		return retval;
 	}
-	//CMaybeStaticLifetimeOwnerWithHints lower_bound_lifetime_owner_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref)
 
-	std::optional<CStaticLifetimeOwnerInfo1> lower_bound_lifetime_owner_of_returned_reference_object_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref) {
+	std::optional<CStaticLifetimeOwnerInfo1> lower_bound_lifetime_owner_of_returned_reference_object_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref, MatchFinder::MatchResult const * MR_ptr/* = nullptr*/, Rewriter* Rewrite_ptr/* = nullptr*/) {
 		std::optional<CStaticLifetimeOwnerInfo1> retval;
 		if (!EX1) {
 			return retval;
@@ -3930,10 +4013,10 @@ namespace checker {
 				const auto arg_EX_ii = IgnoreParenImpNoopCasts(CXXMCE->getArg(i), Ctx);
 				const auto arg_EX_ii_qtype = arg_EX_ii->getType();
 				if (contains_non_owning_scope_reference(arg_EX_ii_qtype, tu_state_ref)) {
-					lifetime_owners.push_back(lower_bound_lifetime_owner_if_available(CXXMCE->getArg(i), Ctx, tu_state_ref));
+					lifetime_owners.push_back(lower_bound_lifetime_owner_if_available(CXXMCE->getArg(i), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr));
 				}
 			}
-			lifetime_owners.push_back(lower_bound_lifetime_owner_if_available(CXXMCE->getImplicitObjectArgument(), Ctx, tu_state_ref));
+			lifetime_owners.push_back(lower_bound_lifetime_owner_if_available(CXXMCE->getImplicitObjectArgument(), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr));
 			retval = lower_bound_lifetime_owner(lifetime_owners, Ctx, tu_state_ref);
 		} else if (CE) {
 			IF_DEBUG(auto function_qname = CE->getDirectCallee()->getQualifiedNameAsString();)
@@ -3950,7 +4033,7 @@ namespace checker {
 				const auto arg_EX_ii = IgnoreParenImpNoopCasts(CE->getArg(i), Ctx);
 				const auto arg_EX_ii_qtype = arg_EX_ii->getType();
 				if (contains_non_owning_scope_reference(arg_EX_ii_qtype, tu_state_ref)) {
-					lifetime_owners.push_back(lower_bound_lifetime_owner_if_available(CE->getArg(i), Ctx, tu_state_ref));
+					lifetime_owners.push_back(lower_bound_lifetime_owner_if_available(CE->getArg(i), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr));
 				}
 			}
 			if (0 == lifetime_owners.size()) {
@@ -3977,7 +4060,7 @@ namespace checker {
 	lifetime) of the reference object to be retargeted. If the indicated reference object is itself a declared
 	object (as opposed to, for example, a member of another object, or an element in a container), then it
 	itself would be the object of interest. */
-	CMaybeStaticLifetimeOwnerWithHints upper_bound_lifetime_owner_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref) {
+	CMaybeStaticLifetimeOwnerWithHints upper_bound_lifetime_owner_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
 		CMaybeStaticLifetimeOwnerWithHints retval;
 		if (!EX1) {
 			return retval;
@@ -4098,7 +4181,7 @@ namespace checker {
 
 						if (VD->getType()->isPointerType()) {
 							if (VD->hasInit()) {
-								auto maybe_res1 = lower_bound_lifetime_owner_if_available(VD->getInit(), Ctx, tu_state_ref);
+								auto maybe_res1 = lower_bound_lifetime_owner_if_available(VD->getInit(), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 								if (maybe_res1.has_value()) {
 									if (maybe_res1.value().m_maybe_sublifetime_owners_vlptr.has_value()) {
 										retval.value().m_maybe_sublifetime_owners_vlptr = maybe_res1.value().m_maybe_sublifetime_owners_vlptr;
@@ -4121,7 +4204,7 @@ namespace checker {
 							if (tu_state_ref.m_type_lifetime_annotations_map.end() != found_iter) {
 								auto& tlta = found_iter->second;
 								if (VD->hasInit()) {
-									auto maybe_res1 = lower_bound_lifetime_owner_if_available(VD->getInit(), Ctx, tu_state_ref);
+									auto maybe_res1 = lower_bound_lifetime_owner_if_available(VD->getInit(), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 									if (maybe_res1.has_value()) {
 										if (maybe_res1.value().m_maybe_sublifetime_owners_vlptr.has_value()) {
 											retval.value().m_maybe_sublifetime_owners_vlptr = maybe_res1.value().m_maybe_sublifetime_owners_vlptr;
@@ -4136,7 +4219,7 @@ namespace checker {
 											if (CD->isCopyOrMoveConstructor()) {
 												if (1 == CXXCE->getNumArgs()) {
 													auto arg_EX = CXXCE->getArg(0);
-													auto maybe_res1 = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref);
+													auto maybe_res1 = lower_bound_lifetime_owner_if_available(arg_EX, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 													if (maybe_res1.has_value()) {
 														if (maybe_res1.value().m_maybe_sublifetime_owners_vlptr.has_value()) {
 															retval.value().m_maybe_sublifetime_owners_vlptr = maybe_res1.value().m_maybe_sublifetime_owners_vlptr;
@@ -4162,10 +4245,10 @@ namespace checker {
 																	if (!arg1_EX) {
 																		continue;
 																	} else {
-																		auto maybe_res1 = lower_bound_lifetime_owner_if_available(arg1_EX, Ctx, tu_state_ref);
+																		auto maybe_res1 = lower_bound_lifetime_owner_if_available(arg1_EX, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 																		if (maybe_res1.has_value()) {
 																			auto param_index = int(param_lifetime1.first) - 1;
-																			if ((0 <= param_index) && (CD->getNumParams() > param_index)) {
+																			if ((0 <= param_index) && (int(CD->getNumParams()) > param_index)) {
 																				auto PVD = CD->getParamDecl(param_index);
 																				if (PVD) {
 																					if (PVD->getType()->isReferenceType()) {
@@ -4221,8 +4304,8 @@ namespace checker {
 					} else {
 						const auto VD_qtype = VD->getType();
 						IF_DEBUG(const auto VD_qtype_str = VD_qtype.getAsString();)
-						if (VD_qtype.getTypePtr()->isPointerType()) {
-							const auto pointee_VD_qtype = VD_qtype.getTypePtr()->getPointeeType();
+						if (is_raw_pointer_or_equivalent(VD_qtype)) {
+							const auto pointee_VD_qtype = pointee_type_if_any(VD_qtype).value();
 							IF_DEBUG(const auto pointee_VD_qtype_str = pointee_VD_qtype.getAsString();)
 							if (pointee_VD_qtype.isConstQualified() && is_async_shareable(pointee_VD_qtype)) {
 								/* This case includes "C"-string literals. */
@@ -4512,8 +4595,8 @@ namespace checker {
 		bool m_value = false;
 	};
 
-	CBoolWithHints can_be_safely_targeted_with_an_xscope_reference(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref) {
-		auto res1 = lower_bound_lifetime_owner_if_available(EX1, Ctx, tu_state_ref);
+	CBoolWithHints can_be_safely_targeted_with_an_xscope_reference(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
+		auto res1 = lower_bound_lifetime_owner_if_available(EX1, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 		CBoolWithHints retval = res1.has_value();
 		if (true && res1.has_value()) {
 			auto& lblo = res1.value();
@@ -4565,14 +4648,14 @@ namespace checker {
 		return retval;
 	}
 
-	CMaybeStaticLifetimeOwnerWithHints lower_bound_lifetime_owner_of_pointer_target_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref) {
-		auto res1 = lower_bound_lifetime_owner_if_available(raw_pointer_target_expression_if_available(EX1, Ctx, tu_state_ref), Ctx, tu_state_ref);
+	CMaybeStaticLifetimeOwnerWithHints lower_bound_lifetime_owner_of_pointer_target_if_available(const clang::Expr* EX1, ASTContext& Ctx, CTUState& tu_state_ref, MatchFinder::MatchResult const * MR_ptr/* = nullptr*/, Rewriter* Rewrite_ptr/* = nullptr*/) {
+		auto res1 = lower_bound_lifetime_owner_if_available(raw_pointer_target_expression_if_available(EX1, Ctx, tu_state_ref), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 		if (res1.has_value()) {
 			return res1;
 		} else {
 			/* The lifetime owner of the pointer target directly is not available. But the lifetime of
 			the pointer itself serves as a lower bound for the lifetime of its target. */
-			auto retval = lower_bound_lifetime_owner_if_available(EX1, Ctx, tu_state_ref);
+			auto retval = lower_bound_lifetime_owner_if_available(EX1, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 			if (retval.has_value()) {
 				if (std::holds_alternative<CScopeLifetimeInfo1>(retval.value())) {
 					auto& sli1 = std::get<CScopeLifetimeInfo1>(retval.value());
@@ -4933,7 +5016,7 @@ namespace checker {
 													rvsli.m_maybe_abstract_lifetime = rv_abstract_lifetimes.m_primary_lifetimes.front();
 													rvsli.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
 												} else {
-													/* Unexpected. Native references with abstart lifetimes should have exactly one primary abstract
+													/* Unexpected. Native references with abstract lifetimes should have exactly one primary abstract
 													lifetime. */
 													int q = 3;
 												}
@@ -4945,7 +5028,7 @@ namespace checker {
 												the expression can be assigned to a (hypothetical) abstract return value in this case. */
 												*(rvsli.m_sublifetimes_vlptr) = rv_abstract_lifetimes;
 											}
-											satisfies_checks = sli_second_can_be_assigned_to_first(rvsli, lbsli, *(MR.Context), m_state1);
+											satisfies_checks = slti_second_can_be_assigned_to_first(rvsli, lbsli, *(MR.Context), m_state1);
 										}
 										if (!satisfies_checks) {
 											const std::string error_desc = std::string("Unable to verify that the return value conforms to the lifetime specified.");
@@ -5511,31 +5594,235 @@ namespace checker {
 		CTUState& m_state1;
 	};
 
+	inline bool is_known_to_be_const_declared_variable(clang::VarDecl const * VD) {
+		bool retval = false;
+		if (!VD) {
+			return false;
+		}
+		retval = VD->getType().isConstQualified();
+		return retval;
+	}
+	inline bool is_known_to_be_const_declared_variable(clang::Expr const * E) {
+		bool retval = false;
+		if (!E) {
+			return false;
+		}
+		const auto E_ii = IgnoreParenImpCasts(E)/*IgnoreParenImpNoopCasts(E, Ctx)*/;
+		auto DRE = dyn_cast<const clang::DeclRefExpr>(E_ii);
+		if (DRE) {
+			auto value_decl = DRE->getDecl();
+			if (value_decl) {
+				auto VD = dyn_cast<const clang::VarDecl>(value_decl);
+				if (VD) {
+					retval = is_known_to_be_const_declared_variable(VD);
+				}
+			}
+		}
+
+		return retval;
+	}
+
+	inline bool is_recognized_dynamic_container(clang::QualType const& qtype) {
+		auto const peeled_qtype = remove_mse_transparent_wrappers(qtype);
+		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
+		bool retval = false;
+
+		thread_local std::vector<std::string> known_dynamic_container_names;
+		thread_local std::unordered_set<std::string_view> known_dynamic_container_name_svs;
+		thread_local std::unordered_set<std::string_view> known_dynamic_container_truncated_name_svs;
+		thread_local size_t length_of_shortest_container_name = 0;
+		if (0 == known_dynamic_container_name_svs.size()) {
+			known_dynamic_container_names.push_back("std::unique_ptr");
+			known_dynamic_container_names.push_back("std::shared_ptr");
+			known_dynamic_container_names.push_back("std::optional");
+			known_dynamic_container_names.push_back("std::vector");
+			known_dynamic_container_names.push_back("std::basic_string");
+			known_dynamic_container_names.push_back("std::string");
+			known_dynamic_container_names.push_back("std::basic_string_view");
+			known_dynamic_container_names.push_back("std::string_view");
+			known_dynamic_container_names.push_back("std::span");
+			known_dynamic_container_names.push_back("std::list");
+			known_dynamic_container_names.push_back("std::map");
+			known_dynamic_container_names.push_back("std::set");
+			known_dynamic_container_names.push_back("std::multimap");
+			known_dynamic_container_names.push_back("std::multiset");
+			known_dynamic_container_names.push_back("std::unordered_map");
+			known_dynamic_container_names.push_back("std::unordered_set");
+			known_dynamic_container_names.push_back("std::unordered_multimap");
+			known_dynamic_container_names.push_back("std::unordered_multiset");
+			known_dynamic_container_names.push_back("std::dequeue");
+
+			known_dynamic_container_names.push_back("__gnu_cxx::__normal_iterator");
+			//__gnu_cxx::__normal_iterator<int *, std::vector<int>>
+			//std::vector<int>::iterator
+			//known_dynamic_container_names.push_back("const char *");
+
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::us::impl::ns_optional::optional_base2");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::xscope_optional");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::optional");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::mstd::optional");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::optional");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TOptionalElementFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TOptionalElementFixedConstPointer");
+
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::us::impl::gnii_vector");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::nii_vector");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::stnii_vector");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::mtnii_vector");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::mstd::vector");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::impl::ns_gnii_vector::Tgnii_vector_ss_iterator_type");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::impl::ns_gnii_vector::Tgnii_vector_ss_const_iterator_type");
+
+			//mse::mstd::vector<int>::iterator
+
+			//mse::us::impl::gnii_vector
+			//mse::impl::ns_gnii_vector::Tgnii_vector_xscope_cslsstrong_iterator_type
+			//mse::impl::ns_gnii_vector::Tgnii_vector_ss_iterator_type
+			//mse::us::impl::ns_ra_iter::TRAIteratorBase<mse::TNDRegisteredNotNullPointer<mse::us::impl::gnii_vector<int>>>::reference
+
+			//mse::TOptionalElementFixedPointer
+			//mse::us::impl::ns_optional::optional_base2
+
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingNotNullPointer");
+			//known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingNotNullConstPointer");
+			//known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingFixedConstPointer");
+
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredNotNullPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredNotNullConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredFixedConstPointer");
+
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredNotNullPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredNotNullConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredFixedConstPointer");
+
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradNotNullPointer");
+			//known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradNotNullConstPointer");
+			//known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradFixedConstPointer");
+
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyNotNullPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyNotNullConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyFixedConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyNotNullPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyNotNullConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyFixedConstPointer");
+
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyNotNullPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyNotNullConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyFixedConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyNotNullPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyNotNullConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyFixedConstPointer");
+
+			if (known_dynamic_container_names.size() > 0) {
+				length_of_shortest_container_name = known_dynamic_container_names.front().length();
+			}
+
+			for (auto& name : known_dynamic_container_names) {
+				known_dynamic_container_name_svs.insert(name);
+				if (name.length() < length_of_shortest_container_name) {
+					length_of_shortest_container_name = name.length();
+				}
+			}
+			for (auto name_sv : known_dynamic_container_name_svs) {
+				known_dynamic_container_truncated_name_svs.insert(name_sv.substr(0, length_of_shortest_container_name));
+			}
+		}
+
+		const auto CXXRD = peeled_qtype.getTypePtr()->getAsCXXRecordDecl();
+		if (CXXRD) {
+			auto qname = CXXRD->getQualifiedNameAsString();
+			std::string_view qname_sv{ qname };
+
+			if (string_begins_with(qname_sv, mse_namespace_str()) || (string_begins_with(qname_sv, "std"))
+				|| (string_begins_with(qname_sv, "__gnu_cxx"))) {
+
+				auto truncated_qname_sv = qname_sv.substr(0, length_of_shortest_container_name);
+				auto found_it = known_dynamic_container_truncated_name_svs.find(truncated_qname_sv);
+				if (known_dynamic_container_truncated_name_svs.end() != found_it) {
+					for (auto const & name : known_dynamic_container_names) {
+						if (string_begins_with(qname_sv, name)) {
+							return true;
+						}
+					}
+				}
+				if (string_begins_with(qname_sv, "::us::impl::ns_ra_iter::TRAIteratorBase") || string_begins_with(qname_sv, "::us::impl::ns_ra_iter::TRAConstIteratorBase")) {
+					auto maybe_qtype2 = get_first_template_parameter_if_any(peeled_qtype);
+					if (maybe_qtype2.has_value()) {
+						auto maybe_qtype3 = get_first_template_parameter_if_any(remove_mse_transparent_wrappers(maybe_qtype2.value()));
+						if (maybe_qtype3.has_value()) {
+							retval |= is_recognized_dynamic_container(remove_mse_transparent_wrappers(maybe_qtype3.value()));
+						} else {
+							return true;
+						}
+					} else {
+						return true;
+					}
+				}
+			}
+		}
+
+		return retval;
+	}
+
 	template<typename TCallOrConstuctorExpr>
-	inline void function_call_handler2(CTUState& state1, const clang::FunctionDecl* function_decl
+	inline std::string function_call_handler2(CTUState& state1, const clang::FunctionDecl* function_decl
 		, const TCallOrConstuctorExpr* CE, ASTContext& Ctx, MatchFinder::MatchResult const * MR_ptr/* = nullptr*/, Rewriter* Rewrite_ptr/* = nullptr*/) {
 
 		if (CE != nullptr)
 		{
+			IF_DEBUG(std::string debug_source_location_str2;)
+			IF_DEBUG(std::string debug_source_text2;)
 			if (MR_ptr && Rewrite_ptr) {
 				auto& MR = *MR_ptr;
 				auto& Rewrite = *Rewrite_ptr;
 
 				auto raw_SR = CE->getSourceRange();
 				auto SR = nice_source_range(raw_SR, Rewrite);
-				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+				//RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+				if (SR.isValid()) {
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+					DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+					//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+					if ((!SR.isValid()) || filtered_out_by_location(MR, SR.getBegin())) {
+						return {};
+					}
 
-#ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
-					int q = 5;
+					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+	#ifndef NDEBUG
+					if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+						int q = 5;
+					}
+					debug_source_location_str2 = debug_source_location_str;
+					debug_source_text2 = debug_source_text;
+	#endif /*!NDEBUG*/
 				}
-#endif /*!NDEBUG*/
 			}
 			{
 				auto eltv_iter = state1.m_expr_lifetime_values_map.find(CE);
@@ -5544,7 +5831,7 @@ namespace checker {
 				needs_processing = (needs_processing || ((!(eltv_iter->second.m_errors_noted)) && bool(MR_ptr)));
 				if (!needs_processing) {
 					/* Already processed (and any errors noted). */
-					return;
+					return {};
 				}
 			}
 
@@ -5552,7 +5839,7 @@ namespace checker {
 			auto SR = Rewrite_ptr ? nice_source_range(raw_SR, *Rewrite_ptr) : raw_SR;
 
 			if (function_decl) {
-				const std::string function_name = function_decl->getNameAsString();
+				IF_DEBUG(const std::string function_name = function_decl->getNameAsString();)
 				const std::string qfunction_name = function_decl->getQualifiedNameAsString();
 
 				auto function_declSR = Rewrite_ptr ? nice_source_range(function_decl->getSourceRange(), *Rewrite_ptr)
@@ -5613,7 +5900,7 @@ namespace checker {
 						if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
 							/* Cannot properly evaluate because this is a template definition. Proper evaluation should
 							occur in any instantiation of the template. */
-							return;
+							return {};
 						}
 						if (maybe_expr_lifetime_value.has_value()) {
 							auto& expr_lifetime_value_ref = maybe_expr_lifetime_value.value();
@@ -5629,7 +5916,7 @@ namespace checker {
 							}
 							/* Here we put the evaluated expression lifetimes in "persistent" storage. */
 							state1.m_expr_lifetime_values_map.insert_or_assign( CE, CExpressionLifetimeValues{ expr_scope_lifetime_info, bool(MR_ptr) } );
-							return;
+							return {};
 						}
 					} else {
 						int q = 3;
@@ -5662,10 +5949,17 @@ namespace checker {
 						if (CXXMCE) {
 							/* This is a member function call. */
 							auto IOA_E = CXXMCE->getImplicitObjectArgument();
-							auto found_it = state1.m_expr_lifetime_values_map.find(IOA_E);
-							if (state1.m_expr_lifetime_values_map.end() != found_it) {
+							auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(state1, IOA_E, Ctx, MR_ptr, Rewrite_ptr);
+							if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+								/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+								occur in any instantiation of the template. */
+								return {};
+							}
+							if (maybe_expr_lifetime_value.has_value()) {
+								auto &this_sli = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+
 								/* The actual lifetime values for this object are available. */
-								auto& sublifetime_values_ref = found_it->second.m_scope_lifetime_info.m_sublifetimes_vlptr->m_primary_lifetime_infos;
+								auto& sublifetime_values_ref = this_sli.m_sublifetimes_vlptr->m_primary_lifetime_infos;
 
 								IF_DEBUG(const auto IOA_qtype_str = IOA_E->getType().getAsString();)
 								const auto IOA_TypePtr1 = IOA_E->getType().getTypePtr();
@@ -5721,12 +6015,12 @@ namespace checker {
 									if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
 										/* Cannot properly evaluate because this is a template definition. Proper evaluation should
 										occur in any instantiation of the template. */
-										return;
+										return {};
 									}
 									if (maybe_expr_lifetime_value.has_value()) {
 										CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
 										auto sloi1 = expr_slti;
-										if (!sli_second_can_be_assigned_to_first(corresponding_present_scope_lifetime, sloi1, Ctx, state1)) {
+										if (!slti_second_can_be_assigned_to_first(corresponding_present_scope_lifetime, sloi1, Ctx, state1)) {
 											/* The current stored value of the lifetime (is abstract or) doesn't seem to be shorter than the lifetime
 											of the argument we just evaluated, so we will replace the stored one with the one we just evaluated. (It's
 											possible that the already stored one could be shorter in the case, for example, where multiple constructor
@@ -5766,7 +6060,7 @@ namespace checker {
 									if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
 										/* Cannot properly evaluate because this is a template definition. Proper evaluation should
 										occur in any instantiation of the template. */
-										return;
+										return {};
 									}
 									if (maybe_expr_lifetime_value.has_value()) {
 										CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
@@ -5785,7 +6079,7 @@ namespace checker {
 											corresponding_initialized_scope_lifetime = sloi1;
 											int q = 3;
 										}
-										if (!sli_second_can_be_assigned_to_first(corresponding_initialized_scope_lifetime, sloi1, Ctx, state1)) {
+										if (!slti_second_can_be_assigned_to_first(corresponding_initialized_scope_lifetime, sloi1, Ctx, state1)) {
 											std::string implicit_or_explicit_str;
 
 											auto CXXMD = dyn_cast<const clang::CXXMethodDecl>(function_decl);
@@ -5812,7 +6106,7 @@ namespace checker {
 										/* The annotated lifetime of the parameter is not an annotated lifetime of the object type, if any. */
 										bool replace_corresponding_present_scope_lifetime = (CScopeLifetimeInfo1::ECategory::AbstractLifetime == corresponding_present_scope_lifetime.m_category);
 										if (!replace_corresponding_present_scope_lifetime) {
-											replace_corresponding_present_scope_lifetime |= (!sli_second_can_be_assigned_to_first(corresponding_present_scope_lifetime, sloi1, Ctx, state1));
+											replace_corresponding_present_scope_lifetime |= (!slti_second_can_be_assigned_to_first(corresponding_present_scope_lifetime, sloi1, Ctx, state1));
 										}
 										if (replace_corresponding_present_scope_lifetime) {
 											/* The current stored value of the lifetime (is abstract or) doesn't seem to be shorter than the lifetime
@@ -5858,7 +6152,7 @@ namespace checker {
 
 											bool satisfies_checks = false;
 
-											satisfies_checks = sli_second_can_be_assigned_to_first(*lhs_lifetime_value_ptr, *rhs_lifetime_value_ptr, Ctx, state1);
+											satisfies_checks = slti_second_can_be_assigned_to_first(*lhs_lifetime_value_ptr, *rhs_lifetime_value_ptr, Ctx, state1);
 
 											if (!satisfies_checks) {
 												std::string implicit_or_explicit_str;
@@ -5898,6 +6192,126 @@ namespace checker {
 							expr_scope_sublifetimes.m_primary_lifetime_infos.push_back(CE_type_lifetime_value_mapping.second);
 						}
 
+						bool could_be_a_dynamic_container_accessor = false;
+						{
+							clang::Expr const * IOA_E = nullptr;
+							if (CXXMCE) {
+								IOA_E = CXXMCE->getImplicitObjectArgument();
+							} else if (CXXOCE) {
+								if (1 <= CXXOCE->getNumArgs()) {
+									IOA_E = CXXOCE->getArg(0);
+								} else {
+									int q = 3;
+								}
+							}
+							if (IOA_E) {
+								if (!is_known_to_be_const_declared_variable(IOA_E)) {
+									could_be_a_dynamic_container_accessor |= is_recognized_dynamic_container(IOA_E->getType());
+								}
+							}
+						}
+
+						if (!could_be_a_dynamic_container_accessor) {
+							/* Any object referenced by a return value must outlive the call expression itself, or
+							similarly, a hypothetical local variable declared just before the call expression. */
+							CScopeLifetimeInfo1 hard_lower_bound_shallow_lifetime;
+							hard_lower_bound_shallow_lifetime.m_category = CScopeLifetimeInfo1::ECategory::Automatic;
+							hard_lower_bound_shallow_lifetime.m_maybe_containing_scope = get_containing_scope(CE, Ctx);
+							hard_lower_bound_shallow_lifetime.m_maybe_source_range = CE->getSourceRange();
+
+							if (is_raw_pointer_or_equivalent(function_decl->getReturnType())
+								|| function_decl->getReturnType()->isReferenceType()) {
+								if (1 > expr_scope_sublifetimes.m_primary_lifetime_infos.size()) {
+									/* If we have not determined a lifetime for this pointer return value, then we will just use
+									the minimum (allowable) value (for now). */
+									expr_scope_sublifetimes.m_primary_lifetime_infos.push_back(hard_lower_bound_shallow_lifetime);
+								}
+							}
+
+							std::vector<CScopeLifetimeInfo1> arg_lifetimes;
+							for (size_t i = 0; i < CE->getNumArgs(); i += 1) {
+								auto arg_E = CE->getArg(i);
+								auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(state1, arg_E, Ctx, MR_ptr, Rewrite_ptr);
+								if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+									/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+									occur in any instantiation of the template. */
+									return {};
+								}
+								if (maybe_expr_lifetime_value.has_value()) {
+									auto &arg_sli = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+									arg_lifetimes.push_back(arg_sli);
+								}
+							}
+							if (CXXMCE) {
+								auto IOA_E = CXXMCE->getImplicitObjectArgument();
+								auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(state1, IOA_E, Ctx, MR_ptr, Rewrite_ptr);
+								if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+									/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+									occur in any instantiation of the template. */
+									return {};
+								}
+								if (maybe_expr_lifetime_value.has_value()) {
+									auto &IOA_sli = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+									arg_lifetimes.push_back(IOA_sli);
+								}
+							}
+
+							CScopeLifetimeInfo1 args_lower_bound_shallow_lifetime;
+							args_lower_bound_shallow_lifetime.m_category = CScopeLifetimeInfo1::ECategory::Immortal;
+							args_lower_bound_shallow_lifetime.m_maybe_containing_scope = get_containing_scope(CE, Ctx);
+							args_lower_bound_shallow_lifetime.m_maybe_source_range = CE->getSourceRange();
+
+							for (auto& arg_lifetime : arg_lifetimes) {
+								auto sli_shallow = arg_lifetime;
+								sli_shallow.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
+								if (first_is_known_to_be_contained_in_scope_of_second_shallow(hard_lower_bound_shallow_lifetime, sli_shallow, Ctx, state1)) {
+									if (!first_is_known_to_be_contained_in_scope_of_second_shallow(args_lower_bound_shallow_lifetime, sli_shallow, Ctx, state1)) {
+										if (!first_is_known_to_be_contained_in_scope_of_second_shallow(sli_shallow, args_lower_bound_shallow_lifetime, Ctx, state1)) {
+											/* We don't seem to be able to unambiguously determine which argument lifetime is the
+											shortest. So we'll just use the hard_lower_bound_shallow_lifetime. */
+											args_lower_bound_shallow_lifetime = hard_lower_bound_shallow_lifetime;
+											break;
+										}
+										/* The shallow part of the given lifetime is not known to outlive the current value of
+										args_lower_bound_shallow_lifetime, so we will consider it to be the new
+										args_lower_bound_shallow_lifetime value. */
+										args_lower_bound_shallow_lifetime = sli_shallow;
+
+									}
+								}
+							}
+							/* Ok, we've determined a (but not necessarily "the") lower bound lifetime of all the (implicit
+							or explicit) arguments (that live at least as long as the call expression).
+							Presumably, any object referenced by a return value must have live at least that long. If any
+							of the return value's (sub)lifetimes have not (yet) been determined to live that long, then
+							we'll just set their value to the lower bound. */
+
+							auto make_lifetime_at_least_args_lower_bound_shallow_lifetime = [&args_lower_bound_shallow_lifetime, &hard_lower_bound_shallow_lifetime, &Ctx, &state1](CScopeLifetimeInfo1& sli_ref) {
+								auto sli_shallow = sli_ref;
+								sli_shallow.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
+								if (!first_is_known_to_be_contained_in_scope_of_second_shallow(args_lower_bound_shallow_lifetime, sli_shallow, Ctx, state1)) {
+									if (!first_is_known_to_be_contained_in_scope_of_second_shallow(sli_shallow, args_lower_bound_shallow_lifetime, Ctx, state1)) {
+										/* We don't seem to be able to unambiguously determine which lifetime is shorter. So we'll just
+										ensure that the lifetime is at least as long as the hard_lower_bound_shallow_lifetime. */
+										if (!first_is_known_to_be_contained_in_scope_of_second_shallow(hard_lower_bound_shallow_lifetime, sli_shallow, Ctx, state1)) {
+											sli_shallow = hard_lower_bound_shallow_lifetime;
+										}
+									} else {
+										/* The shallow part of the given lifetime does not outlive args_lower_bound_shallow_lifetime,
+										so we will make the value of the shallow part of the given lifetime be
+										args_lower_bound_shallow_lifetime. */
+										sli_shallow = args_lower_bound_shallow_lifetime;
+									}
+									*(sli_shallow.m_sublifetimes_vlptr) = *(sli_ref.m_sublifetimes_vlptr);
+									sli_ref = sli_shallow;
+								}
+							};
+
+							expr_scope_sublifetimes.apply_to_all_lifetimes(make_lifetime_at_least_args_lower_bound_shallow_lifetime);
+						} else {
+							int q = 5;
+						}
+
 						/* set the expression lifetime values */
 						auto expr_scope_lifetime_info = CScopeLifetimeInfo1{};
 						expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
@@ -5929,6 +6343,8 @@ namespace checker {
 				}
 			}
 		}
+		int q = 5;
+		return {};
 	}
 
 	class MCSSSFunctionCall : public MatchFinder::MatchCallback
@@ -5964,361 +6380,7 @@ namespace checker {
 					return;
 				}
 
-				if (true) {
-					function_call_handler2(state1, function_decl, CE, *(MR.Context), &MR, &Rewrite);
-				} else {
-					if (function_decl) {
-						const std::string function_name = function_decl->getNameAsString();
-						const std::string qfunction_name = function_decl->getQualifiedNameAsString();
-
-						auto function_declSR = nice_source_range(function_decl->getSourceRange(), Rewrite);
-						SourceLocation function_declSL = function_declSR.getBegin();
-
-						auto CXXMCE = dyn_cast<clang::CXXMemberCallExpr>(CE);
-						auto CXXCE = dyn_cast<clang::CXXConstructExpr>(CE);
-
-						auto CXXOCE = dyn_cast<clang::CXXOperatorCallExpr>(CE);
-						auto CXXMD = dyn_cast<const clang::CXXMethodDecl>(function_decl);
-
-						/* Here we're going to try to evaluate and store the lifetimes of (the resulting value of)
-						this (call) expression. We're presuming that the direct lifetime of any expression is a
-						"temporary lifetime". But the expression may have other associated lifetimes defined by
-						lifetime annotations on the type of the expression. */
-
-						{
-							auto eltv_iter = state1.m_expr_lifetime_values_map.find(CE);
-							bool needs_processing = (state1.m_expr_lifetime_values_map.end() == eltv_iter);
-							/* If errors could not be noted during the previous processing (if any) and can be now, then we will process again. */
-							needs_processing = (needs_processing || (!(eltv_iter->second.m_errors_noted)));
-							if (!needs_processing) {
-								/* Already processed (and any errors noted). */
-								return;
-							}
-						}
-						IF_DEBUG(const auto CE_qtype_str = CE->getType().getAsString();)
-						const auto CE_TypePtr1 = CE->getType().getTypePtr();
-						auto maybe_tla_ptr = type_lifetime_annotations_if_available(CE_TypePtr1, state1, &MR, &Rewrite);
-
-						if (!(maybe_tla_ptr.has_value())) {
-							if (CE_TypePtr1) {
-								auto TD = CE_TypePtr1->getAsTagDecl();
-								if (TD) {
-									process_type_lifetime_annotations(*TD, state1, &MR, &Rewrite);
-								}
-							}
-							maybe_tla_ptr = type_lifetime_annotations_if_available(CE_TypePtr1, state1, &MR, &Rewrite);
-						}
-
-						std::unordered_map<CAbstractLifetime, CScopeLifetimeInfo1> CE_type_lifetime_value_map;
-						CScopeLifetimeInfo1Set expr_scope_sublifetimes;
-						if (maybe_tla_ptr.has_value()) {
-							auto& tla_ref = *(maybe_tla_ptr.value());
-							/* We initialize the expression "sublifetimes" with the abstract lifetimes of the expression's
-							type. Where we can, we will subsequently replace each of these abstract lifetimes with the
-							corresponding concrete lifetime inferred from the (call) expression. */
-							expr_scope_sublifetimes = CScopeLifetimeInfo1Set(tla_ref.m_lifetime_set);
-
-							for (auto& abstract_lifetime : tla_ref.m_lifetime_set.m_primary_lifetimes) {
-								CE_type_lifetime_value_map.insert_or_assign( abstract_lifetime, abstract_lifetime );
-							}
-						}
-
-						if (CXXCE && CXXCE->getConstructor() && CXXCE->getConstructor()->isCopyOrMoveConstructor()) {
-							if (1 == CE->getNumArgs()) {
-								auto expr_scope_lifetime_info = CScopeLifetimeInfo1{};
-								expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
-
-								auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, state1, CE->getArg(0));
-								if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
-									/* Cannot properly evaluate because this is a template definition. Proper evaluation should
-									occur in any instantiation of the template. */
-									return;
-								}
-								if (maybe_expr_lifetime_value.has_value()) {
-									auto& expr_lifetime_value_ref = maybe_expr_lifetime_value.value();
-									if (CE->getType()->isReferenceType()) {
-										/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
-										same as the object it refers to (without an added level of indirection). */
-										expr_scope_lifetime_info = expr_lifetime_value_ref.m_scope_lifetime_info;
-									} else {
-										CScopeLifetimeInfo1& arg_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
-										//expr_scope_sublifetimes = *(arg_slti.m_sublifetimes_vlptr);
-										/* Here we set the evaluated expression sublifetimes. */
-										*(expr_scope_lifetime_info.m_sublifetimes_vlptr) = *(arg_slti.m_sublifetimes_vlptr);
-									}
-									/* Here we put the evaluated expression lifetimes in "persistent" storage. */
-									state1.m_expr_lifetime_values_map.insert_or_assign( CE, CExpressionLifetimeValues{ expr_scope_lifetime_info, true } );
-									return;
-								}
-							} else {
-								int q = 3;
-							}
-						} else {
-							process_function_lifetime_annotations(*function_decl, state1, &MR, &Rewrite);
-							auto flta_iter = state1.m_function_lifetime_annotations_map.find(function_decl);
-							if (state1.m_function_lifetime_annotations_map.end() != flta_iter) {
-								auto flta = flta_iter->second;
-
-								std::unordered_map<CAbstractLifetime, CScopeLifetimeInfo1> initialized_lifetime_value_map = CE_type_lifetime_value_map;
-								std::unordered_map<CAbstractLifetime, CScopeLifetimeInfo1> present_lifetime_value_map = CE_type_lifetime_value_map;
-
-								std::unordered_map<CAbstractLifetime, CScopeLifetimeInfo1> IOA_type_lifetime_value_map;
-
-								if (CXXMCE) {
-									/* This is a member function call. */
-									auto IOA_E = CXXMCE->getImplicitObjectArgument();
-									auto found_it = state1.m_expr_lifetime_values_map.find(IOA_E);
-									if (state1.m_expr_lifetime_values_map.end() != found_it) {
-										/* The actual lifetime values for this object are available. */
-										auto& sublifetime_values_ref = found_it->second.m_scope_lifetime_info.m_sublifetimes_vlptr->m_primary_lifetime_infos;
-
-										IF_DEBUG(const auto IOA_qtype_str = IOA_E->getType().getAsString();)
-										const auto IOA_TypePtr1 = IOA_E->getType().getTypePtr();
-										auto IOA_tlta_iter = state1.m_type_lifetime_annotations_map.find(IOA_TypePtr1);
-										if (state1.m_type_lifetime_annotations_map.end() == IOA_tlta_iter) {
-											if (IOA_TypePtr1) {
-												auto TD = IOA_TypePtr1->getAsTagDecl();
-												if (TD) {
-													process_type_lifetime_annotations(*TD, state1, &MR, &Rewrite);
-												}
-											}
-											IOA_tlta_iter = state1.m_type_lifetime_annotations_map.find(IOA_TypePtr1);
-										}
-										if (state1.m_type_lifetime_annotations_map.end() != IOA_tlta_iter) {
-											auto& IOA_type_lifetime_set_cref = IOA_tlta_iter->second.m_lifetime_set;
-											const auto IOA_type_abstract_lifetime_end_iter = IOA_type_lifetime_set_cref.m_primary_lifetimes.cend();
-											auto IOA_type_abstract_lifetime_iter1 = IOA_type_lifetime_set_cref.m_primary_lifetimes.cbegin();
-											const auto IOA_lifetime_values_end_iter = sublifetime_values_ref.end();
-											auto IOA_lifetime_values_iter1 = sublifetime_values_ref.begin();
-											/* Here we are iterating over each of the object type's (annotated) abstract lifetimes. */
-											for (; (IOA_type_abstract_lifetime_end_iter != IOA_type_abstract_lifetime_iter1) && (IOA_lifetime_values_end_iter != IOA_lifetime_values_iter1)
-												; IOA_type_abstract_lifetime_iter1++, IOA_lifetime_values_iter1++) {
-
-												/* Here we're adding a mapping between each abstract lifetime (of the object's type) and the actual lifetime
-												value (assigned at object initialization) associated with it. */
-												IOA_type_lifetime_value_map.insert_or_assign( *IOA_type_abstract_lifetime_iter1, *IOA_lifetime_values_iter1 );
-											}
-										} else {
-											int q = 3;
-										}
-									}
-								}
-								initialized_lifetime_value_map.merge(IOA_type_lifetime_value_map);
-								present_lifetime_value_map.merge(IOA_type_lifetime_value_map);
-
-								if (CXXCE) {
-									/* Here we iterate over each constructor parameter with an associated abstract lifetime (annotation). */
-									for (const auto& param_lifetime1 : flta.m_param_lifetime_map) {
-										const auto abstract_lifetime1 = param_lifetime1.second.first_lifetime();
-										CScopeLifetimeInfo1 corresponding_present_scope_lifetime = abstract_lifetime1;
-										auto found_it = initialized_lifetime_value_map.find(abstract_lifetime1);
-										if (initialized_lifetime_value_map.end() != found_it) {
-											corresponding_present_scope_lifetime = found_it->second;
-										}
-
-										CScopeLifetimeInfo1 corresponding_initialized_scope_lifetime = corresponding_present_scope_lifetime;
-										clang::Expr const * arg1_EX = arg_from_param_ordinal(CE, param_lifetime1.first);
-										if (!arg1_EX) {
-										} else {
-											/* Now we try to evaluate the "concrete" lifetime of the corresponding argument in the contructor expression. */
-
-											auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, state1, arg1_EX);
-											if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
-												/* Cannot properly evaluate because this is a template definition. Proper evaluation should
-												occur in any instantiation of the template. */
-												return;
-											}
-											if (maybe_expr_lifetime_value.has_value()) {
-												CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
-												auto sloi1 = expr_slti;
-												if (!sli_second_can_be_assigned_to_first(corresponding_present_scope_lifetime, sloi1, *(MR.Context), state1)) {
-													/* The current stored value of the lifetime (is abstract or) doesn't seem to be shorter than the lifetime
-													of the argument we just evaluated, so we will replace the stored one with the one we just evaluated. (It's
-													possible that the already stored one could be shorter in the case, for example, where multiple constructor
-													parameters are annotated with the same lifetime.) */
-													corresponding_present_scope_lifetime = sloi1;
-												}
-											}
-										}
-										CE_type_lifetime_value_map.insert_or_assign( abstract_lifetime1, corresponding_present_scope_lifetime );
-										initialized_lifetime_value_map.insert_or_assign( abstract_lifetime1, corresponding_present_scope_lifetime );
-										present_lifetime_value_map.insert_or_assign( abstract_lifetime1, corresponding_present_scope_lifetime );
-									}
-								} else {
-									/* Here we iterate over each function parameter with an associated abstract lifetime (annotation). */
-									for (const auto& param_lifetime1 : flta.m_param_lifetime_map) {
-										const auto abstract_lifetime1 = param_lifetime1.second.first_lifetime();
-										CScopeLifetimeInfo1 corresponding_initialized_scope_lifetime = abstract_lifetime1;
-										auto found_it = initialized_lifetime_value_map.find(abstract_lifetime1);
-										if (initialized_lifetime_value_map.end() != found_it) {
-											corresponding_initialized_scope_lifetime = found_it->second;
-										}
-
-										CScopeLifetimeInfo1 corresponding_present_scope_lifetime = corresponding_initialized_scope_lifetime;
-										clang::Expr const * arg1_EX = arg_from_param_ordinal(CE, param_lifetime1.first);
-										if (!arg1_EX) {
-											int q = 5;
-										} else {
-											/* The annotated lifetime of the parameter is an annotated lifetime of the object type. */
-											CScopeLifetimeInfo1 sloi1;
-
-											auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, state1, arg1_EX);
-											if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
-												/* Cannot properly evaluate because this is a template definition. Proper evaluation should
-												occur in any instantiation of the template. */
-												return;
-											}
-											if (maybe_expr_lifetime_value.has_value()) {
-												CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
-												sloi1 = expr_slti;
-											} else {
-												/* We generally don't expect to get here, but if for some reason a lower bound for the argument
-												lifetime isn't available, we'll just use the shortest viable lifetime. */
-												sloi1.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
-												sloi1.m_maybe_source_range = arg1_EX->getSourceRange();
-											}
-
-											auto found_it2 = CE_type_lifetime_value_map.find(abstract_lifetime1);
-											if (CE_type_lifetime_value_map.end() != found_it2) {
-												if (CScopeLifetimeInfo1::ECategory::AbstractLifetime == corresponding_present_scope_lifetime.m_category) {
-													corresponding_initialized_scope_lifetime = sloi1;
-													int q = 3;
-												}
-												if (!sli_second_can_be_assigned_to_first(corresponding_initialized_scope_lifetime, sloi1, *(MR.Context), state1)) {
-													std::string implicit_or_explicit_str;
-
-													auto CXXMD = dyn_cast<const clang::CXXMethodDecl>(function_decl);
-													if (CXXMD) {
-														implicit_or_explicit_str = "(implicit or explicit) member ";
-													}
-													std::string function_or_constructor_str = "function ";
-													if (std::is_same_v<clang::CXXConstructExpr, TCallOrConstuctorExpr>) {
-														function_or_constructor_str = "constructor ";
-														implicit_or_explicit_str = "";
-													}
-													std::string error_desc = std::string("Unable to verify that in the '") + function_decl->getQualifiedNameAsString()
-														+ "' member function call expression, the argument corresponding to a parameter with lifetime label id '"
-														+ abstract_lifetime1.m_id + "' has a lifetime that is strictly greater than the (minimum required) lifetime set when the object was initialized.";
-													auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-													if (res.second) {
-														std::cout << (*(res.first)).as_a_string1() << " \n\n";
-													}
-												}
-												corresponding_present_scope_lifetime = sloi1;
-											} else {
-												/* The annotated lifetime of the parameter is not an annotated lifetime of the object type, if any. */
-												if (!sli_second_can_be_assigned_to_first(corresponding_present_scope_lifetime, sloi1, *(MR.Context), state1)) {
-													/* The current stored value of the lifetime (is abstract or) doesn't seem to be shorter than the lifetime
-													of the argument we just evaluated, so we will replace the stored one with the one we just evaluated. (It's
-													possible that the already stored one could be shorter in the case, for example, where multiple constructor
-													parameters are annotated with the same lifetime.) */
-													corresponding_present_scope_lifetime = sloi1;
-													corresponding_initialized_scope_lifetime = sloi1;
-												}
-											}
-										}
-										initialized_lifetime_value_map.insert_or_assign( abstract_lifetime1, corresponding_initialized_scope_lifetime );
-										present_lifetime_value_map.insert_or_assign( abstract_lifetime1, corresponding_present_scope_lifetime );
-									}
-								}
-
-								for (const auto& present_lifetime_value_mapping1 : present_lifetime_value_map) {
-									const auto& abstract_lifetime1 = present_lifetime_value_mapping1.first;
-									const auto& lifetime_value1 = present_lifetime_value_mapping1.second;
-
-									std::vector<std::shared_ptr<CPairwiseLifetimeConstraint> > lt1_constraint_shptrs;
-									auto range1 = state1.m_lhs_to_lifetime_constraint_shptr_mmap.equal_range(abstract_lifetime1);
-									for (auto iter1 = range1.first; range1.second != iter1; ++iter1) {
-										lt1_constraint_shptrs.push_back(iter1->second);
-									}
-
-									for (const auto& initialized_lifetime_value_mapping2 : initialized_lifetime_value_map) {
-										const auto& abstract_lifetime2 = initialized_lifetime_value_mapping2.first;
-										const auto& lifetime_value2 = initialized_lifetime_value_mapping2.second;
-
-										for (const auto& constraint_shptr : lt1_constraint_shptrs) {
-											if (constraint_shptr->m_second == abstract_lifetime2) {
-												decltype(initialized_lifetime_value_mapping2.second) const * lhs_lifetime_value_ptr = nullptr;
-												decltype(initialized_lifetime_value_mapping2.second) const * rhs_lifetime_value_ptr = nullptr;
-												if (CPairwiseLifetimeConstraint::EYesNoDontKnow::Yes == constraint_shptr->second_can_be_assigned_to_first(abstract_lifetime1, abstract_lifetime2)) {
-													lhs_lifetime_value_ptr = &lifetime_value1;
-													rhs_lifetime_value_ptr = &lifetime_value2;
-												} else if (CPairwiseLifetimeConstraint::EYesNoDontKnow::Yes == constraint_shptr->second_can_be_assigned_to_first(abstract_lifetime2, abstract_lifetime1)) {
-													lhs_lifetime_value_ptr = &lifetime_value2;
-													rhs_lifetime_value_ptr = &lifetime_value1;
-												}
-												if (lhs_lifetime_value_ptr && rhs_lifetime_value_ptr) {
-
-													bool satisfies_checks = false;
-
-													satisfies_checks = sli_second_can_be_assigned_to_first(*lhs_lifetime_value_ptr, *rhs_lifetime_value_ptr, *(MR.Context), state1);
-
-													if (!satisfies_checks) {
-														std::string implicit_or_explicit_str;
-														auto CXXMD = dyn_cast<const clang::CXXMethodDecl>(function_decl);
-														if (CXXMD) {
-															implicit_or_explicit_str = "(implicit or explicit) member ";
-														}
-														std::string function_or_constructor_str = "function ";
-														if (std::is_same_v<clang::CXXConstructExpr, TCallOrConstuctorExpr>) {
-															function_or_constructor_str = "constructor ";
-														}
-														std::string error_desc = std::string("Unable to verify that in the '") + function_decl->getQualifiedNameAsString()
-															+ "' " + implicit_or_explicit_str + function_or_constructor_str + "call expression, the specified '" + constraint_shptr->species_str()
-															+ "' lifetime constraint (applied to lifetime label ids '"
-															+ abstract_lifetime1.m_id + "' and '" + abstract_lifetime2.m_id + "') is satisfied.";
-														auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-														if (res.second) {
-															std::cout << (*(res.first)).as_a_string1() << " \n\n";
-														}
-													}
-
-													int q = 5;
-												}
-											}
-										}
-									}
-								}
-
-								for (auto& expr_scope_sublifetime_ref : expr_scope_sublifetimes.m_primary_lifetime_infos) {
-									if (expr_scope_sublifetime_ref.m_maybe_abstract_lifetime.has_value()) {
-										auto found_it = CE_type_lifetime_value_map.find(expr_scope_sublifetime_ref.m_maybe_abstract_lifetime.value());
-										if (CE_type_lifetime_value_map.end() != found_it) {
-											expr_scope_sublifetime_ref = found_it->second;
-										}
-									} else {
-										int q = 3;
-									}
-								}
-
-								/* set the expression lifetime values */
-								auto expr_scope_lifetime_info = CScopeLifetimeInfo1{};
-								expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
-								expr_scope_lifetime_info.m_maybe_corresponding_cpp_element = CE;
-
-								/* Here we set the previously evaluated expression sublifetimes. */
-								*(expr_scope_lifetime_info.m_sublifetimes_vlptr) = expr_scope_sublifetimes;
-
-								if (CE->getType()->isReferenceType()) {
-									/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
-									same as the object it refers to (without an added level of indirection). */
-									/* So we will attempt to remove one level of indirection from the expression lifetime. */
-									auto& sublifetimes = expr_scope_lifetime_info.m_sublifetimes_vlptr->m_primary_lifetime_infos;
-									if (1 == sublifetimes.size()) {
-										expr_scope_lifetime_info = sublifetimes.at(0);
-									} else {
-										/* unexpected */
-										int q = 3;
-										expr_scope_lifetime_info = CScopeLifetimeInfo1{};
-									}
-								}
-
-								/* Here we put the evaluated expression lifetimes in "persistent" storage. */
-								state1.m_expr_lifetime_values_map.insert_or_assign( CE, CExpressionLifetimeValues{ expr_scope_lifetime_info, true } );
-							}
-						}
-					}
-				}
+				function_call_handler2(state1, function_decl, CE, *(MR.Context), &MR, &Rewrite);
 			}
 		}
 
@@ -6350,7 +6412,7 @@ namespace checker {
 
 			if (CXXCE != nullptr)
 			{
-				const clang::FunctionDecl* function_decl = function_decl = CXXCE->getConstructor();
+				const clang::FunctionDecl* function_decl = CXXCE->getConstructor();
 				if (function_decl) {
 					auto CXXCD = CXXCE->getConstructor();
 					if (CXXCD) {
@@ -6483,7 +6545,7 @@ namespace checker {
 								auto expr_scope_lifetime_info = CScopeLifetimeInfo1{};
 								expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
 								/* Here we try to evaluate the direct lifetime of the expression. */
-								auto maybe_expr_owner = lower_bound_lifetime_owner_if_available(CE, *(MR.Context), state1);
+								auto maybe_expr_owner = lower_bound_lifetime_owner_if_available(CE, *(MR.Context), state1, &MR, &Rewrite);
 								if (maybe_expr_owner.has_value()) {
 									auto sloi1 = scope_lifetime_info_from_lifetime_owner(maybe_expr_owner.value(), *(MR.Context), state1);
 									expr_scope_lifetime_info = sloi1;
@@ -6560,11 +6622,11 @@ namespace checker {
 											occur in any instantiation of the template. */
 											return;
 										}
-										auto maybe_arg_owner = lower_bound_lifetime_owner_if_available(arg1_EX, *(MR.Context), state1);
+										auto maybe_arg_owner = lower_bound_lifetime_owner_if_available(arg1_EX, *(MR.Context), state1, &MR, &Rewrite);
 										if (maybe_arg_owner.has_value()) {
 											auto& arg_owner = maybe_arg_owner.value();
 											auto sloi1 = scope_lifetime_info_from_lifetime_owner(arg_owner, *(MR.Context), state1);
-											if (!sli_second_can_be_assigned_to_first(corresponding_present_scope_lifetime, sloi1, *(MR.Context), state1)) {
+											if (!slti_second_can_be_assigned_to_first(corresponding_present_scope_lifetime, sloi1, *(MR.Context), state1)) {
 												/* The current stored value of the lifetime (is abstract or) doesn't seem to be shorter than the lifetime
 												of the argument we just evaluated, so we will replace the stored one with the one we just evaluated. (It's
 												possible that the already stored one could be shorter in the case, for example, where multiple constructor
@@ -6598,7 +6660,7 @@ namespace checker {
 											occur in any instantiation of the template. */
 											return;
 										}
-										auto maybe_arg_owner = lower_bound_lifetime_owner_if_available(arg1_EX, *(MR.Context), state1);
+										auto maybe_arg_owner = lower_bound_lifetime_owner_if_available(arg1_EX, *(MR.Context), state1, &MR, &Rewrite);
 										if (maybe_arg_owner.has_value()) {
 											auto& arg_owner = maybe_arg_owner.value();
 											auto sloi1 = scope_lifetime_info_from_lifetime_owner(arg_owner, *(MR.Context), state1);
@@ -6610,7 +6672,7 @@ namespace checker {
 													corresponding_initialized_scope_lifetime = sloi1;
 													int q = 3;
 												}
-												if (!sli_second_can_be_assigned_to_first(corresponding_initialized_scope_lifetime, sloi1, *(MR.Context), state1)) {
+												if (!slti_second_can_be_assigned_to_first(corresponding_initialized_scope_lifetime, sloi1, *(MR.Context), state1)) {
 													std::string implicit_or_explicit_str;
 
 													auto CXXMD = dyn_cast<const clang::CXXMethodDecl>(&func_decl);
@@ -6633,7 +6695,7 @@ namespace checker {
 												corresponding_present_scope_lifetime = sloi1;
 											} else {
 												/* The annotated lifetime of the parameter is not an annotated lifetime of the object type, if any. */
-												if (!sli_second_can_be_assigned_to_first(corresponding_present_scope_lifetime, sloi1, *(MR.Context), state1)) {
+												if (!slti_second_can_be_assigned_to_first(corresponding_present_scope_lifetime, sloi1, *(MR.Context), state1)) {
 													/* The current stored value of the lifetime (is abstract or) doesn't seem to be shorter than the lifetime
 													of the argument we just evaluated, so we will replace the stored one with the one we just evaluated. (It's
 													possible that the already stored one could be shorter in the case, for example, where multiple constructor
@@ -6678,7 +6740,7 @@ namespace checker {
 
 												bool satisfies_checks = false;
 
-												satisfies_checks = sli_second_can_be_assigned_to_first(*lhs_lifetime_value_ptr, *rhs_lifetime_value_ptr, *(MR.Context), state1);
+												satisfies_checks = slti_second_can_be_assigned_to_first(*lhs_lifetime_value_ptr, *rhs_lifetime_value_ptr, *(MR.Context), state1);
 
 												if (!satisfies_checks) {
 													std::string implicit_or_explicit_str;
@@ -6722,7 +6784,7 @@ namespace checker {
 							auto expr_scope_lifetime_info = CScopeLifetimeInfo1{};
 							expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
 							/* Here we try to evaluate the direct lifetime of the (constructor) expression. */
-							auto maybe_expr_owner = lower_bound_lifetime_owner_if_available(CE, *(MR.Context), state1);
+							auto maybe_expr_owner = lower_bound_lifetime_owner_if_available(CE, *(MR.Context), state1, &MR, &Rewrite);
 							if (maybe_expr_owner.has_value()) {
 								auto sloi1 = scope_lifetime_info_from_lifetime_owner(maybe_expr_owner.value(), *(MR.Context), state1);
 								expr_scope_lifetime_info = sloi1;
@@ -6770,6 +6832,8 @@ namespace checker {
 			return retval;
 		}
 
+		IF_DEBUG(std::string debug_source_location_str2;)
+		IF_DEBUG(std::string debug_source_text2;)
 		if (MR_ptr && Rewrite_ptr) {
 			auto& MR = *MR_ptr;
 			auto& Rewrite = *Rewrite_ptr;
@@ -6783,6 +6847,8 @@ namespace checker {
 				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
+				debug_source_location_str2 = debug_source_location_str;
+				debug_source_text2 = debug_source_text;
 #endif /*!NDEBUG*/
 			}
 		}
@@ -6806,7 +6872,7 @@ namespace checker {
 		if (CXXCE) {
 			auto elv_iter1 = state1.m_expr_lifetime_values_map.find(CXXCE);
 			if (state1.m_expr_lifetime_values_map.end() == elv_iter1) {
-				const clang::FunctionDecl* function_decl = function_decl = CXXCE->getConstructor();
+				const clang::FunctionDecl* function_decl = CXXCE->getConstructor();
 				if (function_decl) {
 					function_call_handler2(state1, function_decl, CXXCE, Ctx, MR_ptr, Rewrite_ptr);
 				}
@@ -6861,8 +6927,8 @@ namespace checker {
 						auto containing_qtype = containing_ref_EX->getType();
 						IF_DEBUG(const auto containing_ref_qtype_str = containing_qtype.getAsString();)
 						if (ME->isArrow()) {
-							if (containing_qtype->isPointerType()) {
-								containing_qtype = containing_qtype->getPointeeType();
+							if (is_raw_pointer_or_equivalent(containing_qtype)) {
+								containing_qtype = pointee_type_if_any(containing_qtype).value();
 							} else {
 								int q = 3;
 							}
@@ -6882,14 +6948,14 @@ namespace checker {
 						if (maybe_expr_lifetime_value.has_value()) {
 							CScopeLifetimeInfo1 owner_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
 
-							if (containing_ref_EX->getType()->isPointerType()) {
+							if (is_raw_pointer_or_equivalent(containing_ref_EX->getType())) {
 								/* In this case, containing_ref_EX does not evaluate to the parent/containing object, it
 								evaluates to a pointer to the parent/containing object. So in this case there's a level of
 								indirection in front of the (parent/containing) object we're interested in. So ideally, we
 								will remove this extra level of indirection by replacing the lifetime value with its (sole)
 								sublifetime value, if available. If the sublifetime value (i.e. the lifetime value of the
 								pointer target) is not available, then the lifetime value of the pointer itself will serve
-								as a lower bound for the lifetime (lower bound) value we're interested in.*/
+								as a lower bound for the lifetime (lower bound) value we're interested in. */
 								auto& containing_ref_lv_sublifetimes = owner_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos;
 								if (1 == containing_ref_lv_sublifetimes.size()) {
 									auto adj_owner_slti = containing_ref_lv_sublifetimes.front();
@@ -6904,9 +6970,6 @@ namespace checker {
 
 							CPossessionLifetimeInfo1 pli;
 							pli.m_maybe_field_source_range = FD->getSourceRange();
-							if (Rewrite_ptr) {
-								pli.m_maybe_field_source_range = nice_source_range(FD->getSourceRange(), *Rewrite_ptr);
-							}
 							/* Here we're adding info about the field's relationship to the parent from which its lifetime
 							value is based. */
 							expr_slti.m_possession_lifetime_info_chain.push_back(pli);
@@ -6974,93 +7037,6 @@ namespace checker {
 							retval = CExpressionLifetimeValues{ expr_slti, bool(MR_ptr) };
 							return retval;
 						}
-
-						if (false) {
-							auto maybe_tlta = type_lifetime_annotations_if_available(containing_qtype.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
-							if (maybe_tlta.has_value()) {
-								CScopeLifetimeInfo1 sli1;
-								CScopeLifetimeInfo1Set slis1;
-
-								bool sublifetimes_already_determined = false;
-								auto CXXTE = dyn_cast<const clang::CXXThisExpr>(containing_ref_EX);
-								if (CXXTE) {
-									/* If this member expression is "owned" by a "this expression" then we
-									set the (sub)lifetime values of the field to the abstract lifetime they
-									were declared as. */
-									sli1 = scope_lifetime_info_from_lifetime_owner(lifetime_owner_shallow_ii(CXXTE, Ctx, state1), Ctx, state1);
-
-
-
-									auto maybe_this_alt = state1.corresponding_abstract_lifetime_if_any(CXXTE, Ctx);
-									if (maybe_this_alt.has_value()) {
-										sli1.m_maybe_abstract_lifetime = maybe_this_alt;
-										sli1.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
-									} else {
-										sli1.m_category = CScopeLifetimeInfo1::ECategory::ThisExpression;
-									}
-
-									auto falts_iter1 = state1.m_fielddecl_to_abstract_lifetime_map.find(FD);
-									if (state1.m_fielddecl_to_abstract_lifetime_map.end() != falts_iter1) {
-										for (auto const& field_abstract_lifetime1 : falts_iter1->second.m_primary_lifetimes) {
-											slis1.m_primary_lifetime_infos.push_back(field_abstract_lifetime1);
-											sublifetimes_already_determined = true;
-										}
-									}
-								}
-								if (!sublifetimes_already_determined) {
-									/* We're going to see if we can determine "concrete" values that correspond to the abstract
-									lifetimes. If so, we will replace the default abstract values with the "concrete" ones. */
-									auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(state1, containing_ref_EX, Ctx, MR_ptr, Rewrite_ptr);
-									if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
-										/* Cannot properly evaluate because this is a template definition. Proper evaluation should
-										occur in any instantiation of the template. */
-										retval.m_failure_due_to_dependent_type_flag = true;
-										return retval;
-									}
-									if (maybe_expr_lifetime_value.has_value()) {
-										CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
-
-										auto owner_type_lifetime_values_ptr = &(expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos);
-										if (containing_ref_EX->getType()->isPointerType()) {
-											/* In this case, containing_ref_EX does not evaluate to the parent/containing object, it evaluates to
-											a pointer to the parent/containing object. So in this case there's a level of indirection
-											in front of the (parent/containing) object we're interested in. So ideally rather than the sublifetimes
-											of the expession, we'd want the sublifetimes of the (sole) sublifetime, if available. If they're not
-											available, then the sublifetime of the pointer will serve as a lower bound for the
-											lifetime (lower bounds) we're interested in.*/
-											auto& containing_ref_lv_sublifetimes = *(owner_type_lifetime_values_ptr);
-											if (1 == containing_ref_lv_sublifetimes.size()) {
-												owner_type_lifetime_values_ptr = &(containing_ref_lv_sublifetimes.front().m_sublifetimes_vlptr->m_primary_lifetime_infos);
-											}
-										}
-
-										auto& owner_type_lifetime_values = *(owner_type_lifetime_values_ptr);
-
-										auto& owner_type_abstract_lifetimes = maybe_tlta.value()->m_lifetime_set.m_primary_lifetimes;
-
-										auto sz1 = owner_type_abstract_lifetimes.size();
-										auto sz2 = owner_type_lifetime_values.size();
-
-										auto falts_iter1 = state1.m_fielddecl_to_abstract_lifetime_map.find(FD);
-										if (state1.m_fielddecl_to_abstract_lifetime_map.end() != falts_iter1) {
-											for (auto const& field_abstract_lifetime1 : falts_iter1->second.m_primary_lifetimes) {
-												auto owner_tlv_iter1 = owner_type_lifetime_values.begin();
-												auto owner_talt_iter1 = owner_type_abstract_lifetimes.begin();
-												for (; (owner_type_abstract_lifetimes.end() != owner_talt_iter1) && (owner_type_lifetime_values.end() != owner_tlv_iter1)
-													; ++owner_talt_iter1, ++owner_tlv_iter1) {
-
-													if (field_abstract_lifetime1 == (*owner_talt_iter1)) {
-														slis1.m_primary_lifetime_infos.push_back(*owner_tlv_iter1);
-													}
-												}
-											}
-										}
-										int q = 5;
-									}
-								}
-								maybe_sublifetimes = slis1;
-							}
-						}
 					} else if (VD) {
 						auto maybe_decl_lifetime_value = evaluate_declaration_lower_bound_lifetimes(state1, VD, Ctx, MR_ptr, Rewrite_ptr);
 						if (maybe_decl_lifetime_value.m_failure_due_to_dependent_type_flag) {
@@ -7093,7 +7069,7 @@ namespace checker {
 							all_the_same_type = sf_ILE->getType()->isArrayType();
 						} else {
 							const auto first_qtype = first_init_E->getType();
-							for (int i = 1; sf_ILE->getNumInits() > i; i += 1) {
+							for (size_t i = 1; sf_ILE->getNumInits() > i; i += 1) {
 								auto l_qtype = sf_ILE->getInit(i)->getType();
 								if (first_qtype != l_qtype) {
 									all_the_same_type = false;
@@ -7103,7 +7079,7 @@ namespace checker {
 						}
 						if (all_the_same_type) {
 							std::vector<CScopeLifetimeInfo1> element_slis;
-							for (int i = 0; i < sf_ILE->getNumInits(); i += 1) {
+							for (size_t i = 0; i < sf_ILE->getNumInits(); i += 1) {
 								auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(state1, sf_ILE->getInit(i), Ctx, MR_ptr, Rewrite_ptr);
 								if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
 									/* Cannot properly evaluate because this is a template definition. Proper evaluation should
@@ -7149,7 +7125,7 @@ namespace checker {
 			auto expr_scope_lifetime_info = CScopeLifetimeInfo1{};
 			expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
 			/* Here we try to evaluate the direct lifetime of the expression. */
-			auto maybe_expr_owner = lower_bound_lifetime_owner_if_available(E_ii, Ctx, state1);
+			auto maybe_expr_owner = lower_bound_lifetime_owner_if_available(E_ii, Ctx, state1, MR_ptr, Rewrite_ptr);
 			if (maybe_expr_owner.has_value()) {
 				auto& expr_owner = maybe_expr_owner.value();
 				if (std::holds_alternative<const VarDecl*>(expr_owner)) {
@@ -7204,6 +7180,36 @@ namespace checker {
 		if (!DD) {
 			return retval;
 		}
+
+		IF_DEBUG(std::string debug_source_location_str2;)
+		IF_DEBUG(std::string debug_source_text2;)
+		bool suppress_check_flag = false;
+		if (MR_ptr && Rewrite_ptr) {
+			auto& MR = *MR_ptr;
+			auto& Rewrite = *Rewrite_ptr;
+
+			auto raw_SR = DD->getSourceRange();
+			auto SR = nice_source_range(raw_SR, Rewrite);
+			if (SR.isValid()) {
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+					int q = 5;
+				}
+				debug_source_location_str2 = debug_source_location_str;
+				debug_source_text2 = debug_source_text;
+#endif /*!NDEBUG*/
+			}
+
+			//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+			if ((!SR.isValid()) || filtered_out_by_location(MR, SR.getBegin())) {
+				suppress_check_flag |= true;
+			}
+
+			suppress_check_flag |= state1.m_suppress_check_region_set.contains(DD, Rewrite, *(MR.Context));
+		}
+
 		auto SR = Rewrite_ptr ? nice_source_range(DD->getSourceRange(), *Rewrite_ptr) : DD->getSourceRange();
 
 		const auto qtype = DD->getType();
@@ -7223,10 +7229,13 @@ namespace checker {
 
 			const auto var_qualified_name = VD->getQualifiedNameAsString();
 
+			process_function_lifetime_annotations(*VD, state1, MR_ptr, Rewrite_ptr);
+
 			auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
 			if (PVD) {
 				auto FD = function_from_param(PVD);
 				if (FD) {
+					process_function_lifetime_annotations(*FD, state1, MR_ptr, Rewrite_ptr);
 					auto flta_iter1 = state1.m_function_lifetime_annotations_map.find(FD);
 					if (state1.m_function_lifetime_annotations_map.end() != flta_iter1) {
 						auto& param_lifetime_map_ref = flta_iter1->second.m_param_lifetime_map;
@@ -7279,6 +7288,7 @@ namespace checker {
 									}
 									auto res1 = state1.m_vardecl_lifetime_values_map.insert_or_assign(VD, CVariableLifetimeValues{ sli2, bool(MR_ptr) });
 									retval = res1.first->second;
+									//return retval;
 								} else {
 									int q = 5;
 								}
@@ -7302,7 +7312,7 @@ namespace checker {
 							auto ILE = dyn_cast<const clang::InitListExpr>(init_E);
 							if (ILE && VD->getType()->isAggregateType()) {
 								if (!(VD->getType()->isPointerType() || VD->getType()->isReferenceType())) {
-									if (MR_ptr) {
+									if (MR_ptr && (!suppress_check_flag)) {
 										const std::string error_desc = std::string("Aggregate initialization (of '") + var_qualified_name
 											+ "') is not (currently) supported for types (like '" + qtype_str + "') that have (explicit or "
 											+ "implicit) lifetime annotations.";
@@ -7319,7 +7329,7 @@ namespace checker {
 								/* Cannot properly evaluate because this is a template definition. Proper evaluation should
 								occur in any instantiation of the template. */
 								retval.m_failure_due_to_dependent_type_flag = true;
-								return retval;
+								//return retval;
 							}
 							if (maybe_expr_lifetime_value.has_value()) {
 								if (qtype->isReferenceType()) {
@@ -7340,12 +7350,13 @@ namespace checker {
 
 									auto res1 = state1.m_vardecl_lifetime_values_map.insert_or_assign(VD, CVariableLifetimeValues{ sli2, bool(MR_ptr) });
 									retval = res1.first->second;
+									//return retval;
 								}
 							} else {
 								int q = 5;
 							}
 						} else {
-							if (MR_ptr) {
+							if (MR_ptr && (!suppress_check_flag)) {
 								const std::string error_desc = std::string("(Non-parameter) variable '")
 									+ var_qualified_name + "' of type '" + qtype_str + "' has as an associated lifetime label which "
 									+ "requires that the decalaration have an initialization value (that doesn't seem to be present).";
@@ -7360,6 +7371,7 @@ namespace checker {
 					auto sli1 = scope_lifetime_info_from_lifetime_owner(VD, Ctx, state1);
 					auto res1 = state1.m_vardecl_lifetime_values_map.insert_or_assign(VD, CVariableLifetimeValues{ sli1, bool(MR_ptr) });
 					retval = res1.first->second;
+					//return retval;
 				}
 			}
 
@@ -7406,7 +7418,7 @@ namespace checker {
 							let it go. */
 							satisfies_checks = true;
 						} else {
-							if (MR_ptr) {
+							if (MR_ptr && (!suppress_check_flag)) {
 								const std::string error_desc = std::string("Unable to verify the safety of variable '")
 									+ var_qualified_name + "' of type '" + qtype_str + "' with 'static storage duration'. "
 									+ "'static storage duration' is supported for eligible types wrapped in the "
@@ -7426,7 +7438,7 @@ namespace checker {
 						if (true || is_async_shareable(qtype)) {
 							satisfies_checks = true;
 						} else {
-							if (MR_ptr) {
+							if (MR_ptr && (!suppress_check_flag)) {
 								const std::string error_desc = std::string("Unable to verify the safety of variable '")
 									+ var_qualified_name + "' of type '" + qtype_str + "' with 'thread local storage duration'. "
 									+ "'thread local storage duration' is supported for eligible types wrapped in the "
@@ -7454,7 +7466,7 @@ namespace checker {
 
 				if (type_name1 == mse_rsv_static_immutable_obj_str1) {
 					if (clang::StorageDuration::SD_Static != storage_duration) {
-						if (MR_ptr) {
+						if (MR_ptr && (!suppress_check_flag)) {
 							const std::string error_desc = std::string("Variable '") + var_qualified_name + "' of type '"
 								+ mse_rsv_static_immutable_obj_str1 + "' must be declared to have 'static' storage duration.";
 							auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
@@ -7465,7 +7477,7 @@ namespace checker {
 					}
 				} else if (type_name1 == mse_rsv_ThreadLocalObj_str) {
 					if (clang::StorageDuration::SD_Thread != storage_duration) {
-						if (MR_ptr) {
+						if (MR_ptr && (!suppress_check_flag)) {
 							const std::string error_desc = std::string("Variable '") + var_qualified_name + "' of type '"
 								+ mse_rsv_ThreadLocalObj_str + "' must be declared to have 'thread_local' storage duration.";
 							auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
@@ -7483,7 +7495,7 @@ namespace checker {
 					auto PVD = dyn_cast<const ParmVarDecl>(VD);
 					if (!PVD) {
 						if (!VD->isExternallyDeclarable()) {
-							if (MR_ptr) {
+							if (MR_ptr && (!suppress_check_flag)) {
 								const std::string error_desc = std::string("Uninitialized ")
 									+ "scalar variable '" + VD->getNameAsString() + "' (of type '"
 									+ qtype.getAsString() + "') ";
@@ -7504,7 +7516,7 @@ namespace checker {
 			if (init_EX) {
 				auto res = statement_makes_reference_to_decl(*VD, *init_EX);
 				if (res) {
-					if (MR_ptr) {
+					if (MR_ptr && (!suppress_check_flag)) {
 						const std::string error_desc = std::string("Reference to variable '")
 							+ VD->getNameAsString() + "' before the completion of its "
 							+ "construction/initialization is not supported.";
@@ -7515,7 +7527,7 @@ namespace checker {
 					}
 				}
 			} else if (false && VD->isExternallyDeclarable()) {
-				if (MR_ptr) {
+				if (MR_ptr && (!suppress_check_flag)) {
 					const std::string error_desc = std::string("\"External\"/inline ")
 						+ "variable declarations (such as the declaration of "
 						+ VD->getNameAsString() + "' of type '" + qtype.getAsString()
@@ -7527,7 +7539,40 @@ namespace checker {
 				}
 			}
 
-			process_function_lifetime_annotations(*VD, state1, MR_ptr, Rewrite_ptr);
+			if (!(retval.has_value())) {
+				/* set the expression lifetime values */
+				auto vardecl_scope_lifetime_info = CScopeLifetimeInfo1{};
+				vardecl_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::Automatic;
+				vardecl_scope_lifetime_info.m_maybe_containing_scope = get_containing_scope(VD, Ctx);
+				vardecl_scope_lifetime_info.m_maybe_source_range = VD->getSourceRange();
+				vardecl_scope_lifetime_info.m_maybe_corresponding_cpp_element = VD;
+
+				auto reference_removed_qtype = VD->getType();
+				if (VD->getType()->isReferenceType()) {
+					/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
+					same as the object it refers to (without an added level of indirection). */
+					/* So we will attempt to remove one level of indirection from the expression lifetime. */
+					auto& sublifetimes = vardecl_scope_lifetime_info.m_sublifetimes_vlptr->m_primary_lifetime_infos;
+					if (1 == sublifetimes.size()) {
+						vardecl_scope_lifetime_info = sublifetimes.at(0);
+						reference_removed_qtype = VD->getType()->getPointeeType();
+					} else {
+						if (0 != sublifetimes.size()) {
+							/* unexpected */
+							int q = 3;
+						} else {
+							/* The lifetime of the target object is not availiable. */
+						}
+					}
+				}
+				slti_set_default_lower_bound_lifetimes_where_needed(vardecl_scope_lifetime_info, reference_removed_qtype);
+
+				auto vltvs = CVariableLifetimeValues{ vardecl_scope_lifetime_info, bool(MR_ptr) };
+				/* Here we put the evaluated expression lifetimes in "persistent" storage. */
+				state1.m_vardecl_lifetime_values_map.insert_or_assign(VD, vltvs );
+				retval = vltvs;
+				//return retval;
+			}
 		} else {
 			auto FD = dyn_cast<const clang::FieldDecl>(DD);
 			if (FD) {
@@ -7549,7 +7594,7 @@ namespace checker {
 						if (!is_lambda_capture_field) {
 							if (qtype.getTypePtr()->isPointerType()) {
 							} else {
-								if (MR_ptr) {
+								if (MR_ptr && (!suppress_check_flag)) {
 									const std::string error_desc = std::string("(Non-pointer) scalar fields (such those of type '")
 										+ qtype.getAsString() + "') require direct initializers.";
 									auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
@@ -7584,7 +7629,7 @@ namespace checker {
 					const auto base_qtype = base.getType();
 					const auto base_qtype_str = base_qtype.getAsString();
 					if (!is_async_shareable(base_qtype)) {
-						if (MR_ptr) {
+						if (MR_ptr && (!suppress_check_flag)) {
 							const std::string error_desc = std::string("Unable to verify that the ")
 								+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableObj<> template, '"
 								+ base_qtype_str + "', is eligible to be safely shared (among threads). "
@@ -7605,7 +7650,7 @@ namespace checker {
 					const auto base_qtype = base.getType();
 					const auto base_qtype_str = base_qtype.getAsString();
 					if (!is_async_passable(base_qtype)) {
-						if (MR_ptr) {
+						if (MR_ptr && (!suppress_check_flag)) {
 							const std::string error_desc = std::string("Unable to verify that the ")
 								+ "given (adjusted) parameter of the mse::rsv::TAsyncPassableObj<> template, '"
 								+ base_qtype_str + "', is eligible to be safely passed (between threads). "
@@ -7626,7 +7671,7 @@ namespace checker {
 					const auto base_qtype = base.getType();
 					const auto base_qtype_str = base_qtype.getAsString();
 					if ((!is_async_shareable(base_qtype)) || (!is_async_passable(base_qtype))) {
-						if (MR_ptr) {
+						if (MR_ptr && (!suppress_check_flag)) {
 							const std::string error_desc = std::string("Unable to verify that the ")
 								+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableAndPassableObj<> template, '"
 								+ base_qtype_str + "', is eligible to be safely shared and passed (among threads). "
@@ -7669,7 +7714,7 @@ namespace checker {
 					}
 				}
 				if (!satisfies_checks) {
-					if (MR_ptr) {
+					if (MR_ptr && (!suppress_check_flag)) {
 						const std::string error_desc = std::string("Unsupported use of ")
 							+ "mse::rsv::TFParam<> (in type '" + name + "'). ";
 						auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
@@ -7679,7 +7724,7 @@ namespace checker {
 					}
 				}
 			} else if (qtype.getTypePtr()->isUnionType()) {
-				if (MR_ptr) {
+				if (MR_ptr && (!suppress_check_flag)) {
 					const std::string error_desc = std::string("Native unions (such as '" + qtype.getAsString() + "') are not ")
 						+ "supported. ";
 					auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
@@ -7689,7 +7734,7 @@ namespace checker {
 				}
 			} else if (true && (std_unique_ptr_str == name)) {
 				if (!qtype.isConstQualified()) {
-					if (MR_ptr) {
+					if (MR_ptr && (!suppress_check_flag)) {
 						const std::string error_desc = std::string("std::unique_ptr<>s that are not const qualified are not supported. ")
 							+ "Consider using a reference counting pointer from the SaferCPlusPlus library. ";
 						auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
@@ -7715,7 +7760,7 @@ namespace checker {
 						}
 					}
 					if (null_initialization) {
-						if (MR_ptr) {
+						if (MR_ptr && (!suppress_check_flag)) {
 							const std::string error_desc = std::string("Null/default initialization of ")
 								+ "std::unique_ptr<>s (such as those of type '" + qtype.getAsString()
 								+ "') is not supported.";
@@ -7727,7 +7772,7 @@ namespace checker {
 					}
 				}
 			} else {
-				auto check_for_and_handle_unsupported_element = [MR_ptr, &SR](const clang::QualType& qtype, CTUState& state1) {
+				auto check_for_and_handle_unsupported_element = [MR_ptr, suppress_check_flag, &SR](const clang::QualType& qtype, CTUState& state1) {
 					std::string element_name;
 					const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 					if (l_CXXRD) {
@@ -7740,7 +7785,7 @@ namespace checker {
 						auto uei_ptr = unsupported_element_info_ptr(element_name);
 						if (uei_ptr) {
 							const auto& unsupported_element_info = *uei_ptr;
-							if (MR_ptr) {
+							if (MR_ptr && (!suppress_check_flag)) {
 								std::string error_desc = std::string("'") + element_name + std::string("' is not ")
 									+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
 								if ("" != unsupported_element_info.m_recommended_alternative) {
@@ -7757,7 +7802,7 @@ namespace checker {
 				//check_for_and_handle_unsupported_element(qtype, state1);
 				//apply_to_component_types_if_any(qtype, check_for_and_handle_unsupported_element, state1);
 
-				auto check_for_and_handle_unsupported_element2 = [MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+				auto check_for_and_handle_unsupported_element2 = [MR_ptr, suppress_check_flag](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
 					auto qtype = typeLoc.getType();
 					std::string element_name;
 					const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
@@ -7771,7 +7816,7 @@ namespace checker {
 						auto uei_ptr = unsupported_element_info_ptr(element_name);
 						if (uei_ptr) {
 							const auto& unsupported_element_info = *uei_ptr;
-							if (MR_ptr) {
+							if (MR_ptr && (!suppress_check_flag)) {
 								std::string error_desc = std::string("'") + element_name + std::string("' is not ")
 									+ "supported (in type '" + qtype.getAsString() + "' used in this declaration). ";
 								if ("" != unsupported_element_info.m_recommended_alternative) {
@@ -7799,7 +7844,7 @@ namespace checker {
 				unsupported_type_str = "Native union";
 			}
 			if ("" != unsupported_type_str) {
-				if (MR_ptr) {
+				if (MR_ptr && (!suppress_check_flag)) {
 					const std::string error_desc = unsupported_type_str + std::string("s are not ")
 						+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
 					auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
@@ -8085,21 +8130,11 @@ namespace checker {
 				if (!(lhs_slo.has_value())) {
 					satisfies_checks = false;
 				} else {
-					auto l_rhs_lifetime_value = rhs_lifetime_value;
-					if (rhs_lifetime_value.m_sublifetimes_vlptr->is_empty()) {
-						/* If a sublifetime value is not available for the pointer, then we'll just use the lifetime
-						of the pointer itself as a lower bound for the sublifetime. */
-						l_rhs_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos = { { rhs_lifetime_value } };
-					}
+					slti_set_default_lower_bound_lifetimes_where_needed(rhs_lifetime_value, adj_RHSEX->getType());
 
-					auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, m_state1, LHSEX);
-					if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
-						/* Cannot properly evaluate because this is a template definition. Proper evaluation should
-						occur in any instantiation of the template. */
-						return;
-					}
-					if (maybe_expr_lifetime_value.has_value()) {
-						CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+					auto lhs_slti = scope_lifetime_info_from_lifetime_owner(lhs_slo.value(), *(MR.Context), m_state1);
+					{
+						CScopeLifetimeInfo1& expr_slti = lhs_slti;
 						auto lhs_lifetime_value = expr_slti;
 
 						auto maybe_tlta = type_lifetime_annotations_if_available(*LHSEX, m_state1, &MR, &Rewrite);
@@ -8111,16 +8146,12 @@ namespace checker {
 							is the equivalent of its sublifetime (lowerbound) just being the lifetime of the pointer
 							itself. */
 
-							lhs_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos = { { expr_slti } };
+							lhs_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos = { expr_slti };
 						}
 
-						satisfies_checks = sli_second_can_be_assigned_to_first(lhs_lifetime_value, l_rhs_lifetime_value, *(MR.Context), m_state1);
+						satisfies_checks = slti_second_can_be_assigned_to_first(lhs_lifetime_value, rhs_lifetime_value, *(MR.Context), m_state1);
 
 						int q =5;
-					} else {
-						/* We are apparently unable to determine the lifetime value corresponding to the lifetime annotation
-						of the lhs pointer. */
-						satisfies_checks = false;
 					}
 				}
 
@@ -8293,7 +8324,7 @@ namespace checker {
 					if (maybe_rhs_expr_lifetime_value.has_value()) {
 						CScopeLifetimeInfo1& rhs_expr_slti = maybe_rhs_expr_lifetime_value.value().m_scope_lifetime_info;
 						rhs_lifetime_values_evaluated = true;
-						satisfies_checks = sli_second_can_be_assigned_to_first(lhs_expr_slti, rhs_expr_slti, *(MR.Context), m_state1);
+						satisfies_checks = slti_second_can_be_assigned_to_first(lhs_expr_slti, rhs_expr_slti, *(MR.Context), m_state1);
 					}
 				}
 
@@ -9700,7 +9731,13 @@ namespace checker {
 		StringRef file_name,
 		bool is_angled,
 		CharSourceRange filename_range,
+	#if MU_LLVM_MAJOR < 15
 		const FileEntry *file,
+	#elif MU_LLVM_MAJOR < 16
+		Optional<FileEntryRef> File,
+	#else /*MU_LLVM_MAJOR*/
+		OptionalFileEntryRef File,
+	#endif /*MU_LLVM_MAJOR*/
 		StringRef search_path,
 		StringRef relative_path,
 		const clang::Module *imported
@@ -9933,7 +9970,6 @@ namespace checker {
 	};
 
 	auto buildASTs_and_run(ClangTool& Tool, Options options = Options()) {
-
         CheckSystemHeader = options.CheckSystemHeader;
         MainFileOnly = options.MainFileOnly;
         CTUAnalysis = options.CTUAnalysis;
@@ -9941,7 +9977,6 @@ namespace checker {
         SuppressPrompts = options.SuppressPrompts;
 
 		int Status = Tool.buildASTs(Misc1::s_multi_tu_state_ref().ast_units);
-
 		int ASTStatus = 0;
 		if (Status == 1) {
 			// Building ASTs failed.

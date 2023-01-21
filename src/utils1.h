@@ -62,6 +62,7 @@
 #endif /*LLVM_VERSION_MAJOR*/
 #endif /*MU_UTIL_LLVM_MAJOR*/
 
+
 #define PP_CONCAT(a, b) a##b
 #define DECLARE_CACHED_CONST_STRING(name, init_value) \
 							thread_local std::string PP_CONCAT(s_, name); \
@@ -914,6 +915,9 @@ inline std::optional<clang::QualType> get_first_template_parameter_if_any(const 
 			/*unexpected*/
 			int q = 5;
 		}
+	} else if (qtype->isPointerType() || qtype->isReferenceType()) {
+		/* raw pointers and references are essentially templates, right? */
+		retval = qtype->getPointeeType();
 	}
 	return retval;
 }
@@ -954,8 +958,44 @@ inline clang::QualType remove_fparam_wrappers(const clang::QualType& qtype) {
 	return qtype;
 }
 
+inline clang::QualType remove_return_value_wrappers(const clang::QualType& qtype) {
+	const auto CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+	if (CXXRD) {
+		auto qname = CXXRD->getQualifiedNameAsString();
+		//DECLARE_CACHED_CONST_STRING(treturnablefparam_str, mse_namespace_str() + "::rsv::TReturnableFParam");
+		//DECLARE_CACHED_CONST_STRING(tfparam_str, mse_namespace_str() + "::rsv::TFParam");
+		//DECLARE_CACHED_CONST_STRING(txsifcfparam_str, mse_namespace_str() + "::rsv::TXScopeItemFixedConstPointerFParam");
+		//DECLARE_CACHED_CONST_STRING(txsiffparam_str, mse_namespace_str() + "::rsv::TXScopeItemFixedPointerFParam");
+
+		DECLARE_CACHED_CONST_STRING(prefix_str, mse_namespace_str() + "::rsv::");
+		static const std::string suffix_str = "ReturnValue";
+		if (!(string_begins_with(qname, prefix_str) && string_ends_with(qname, suffix_str))) {
+			return qtype;
+		}
+
+		auto CTSD = clang::dyn_cast<const clang::ClassTemplateSpecializationDecl>(CXXRD);
+		if (CTSD) {
+			const auto& template_args = CTSD->getTemplateInstantiationArgs();
+			const auto num_args = template_args.size();
+			for (int i = 0; i < int(num_args); i += 1) {
+				const auto template_arg = template_args[i];
+				if (clang::TemplateArgument::Type == template_arg.getKind()) {
+					const auto ta_qtype = template_arg.getAsType();
+					IF_DEBUG(const auto ta_qtype_str = ta_qtype.getAsString();)
+					return remove_return_value_wrappers(ta_qtype);
+				}
+				/*unexpected*/
+				int q = 5;
+			}
+			/*unexpected*/
+			int q = 5;
+		}
+	}
+	return qtype;
+}
+
 inline clang::QualType remove_mse_transparent_wrappers(const clang::QualType& qtype) {
-	clang::QualType retval = remove_fparam_wrappers(qtype);
+	clang::QualType retval = remove_return_value_wrappers(remove_fparam_wrappers(qtype));
 	const auto CXXRD = retval.getTypePtr()->getAsCXXRecordDecl();
 	if (CXXRD) {
 		auto qname = CXXRD->getQualifiedNameAsString();
@@ -2006,7 +2046,7 @@ struct Parse {
 			bool rejected_candidate_flag = false;
 			for (const auto& target_token : token_sequence) {
 				auto candidate_token_span = Parse::find_potential_noncomment_token_v1(sv1, sequence_token_pos);
-				if (candidate_token_span.first >= int(sv1.length())) {
+				if (int(candidate_token_span.first) >= int(sv1.length())) {
 					return retval;
 				}
 				auto candidate_token_sv = Parse::substring_view(sv1, candidate_token_span);

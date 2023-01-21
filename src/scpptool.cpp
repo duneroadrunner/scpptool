@@ -105,6 +105,17 @@ class MyDiagConsumer : public DiagnosticConsumer {
 /*Main*/
 int main(int argc, const char **argv) 
 {
+  int retval = -1;
+
+  if (false) {
+    /* This is just here for use in creatng a "baseline" for address sanitizer errors. */
+    std::string code = "struct A{public: int i;}; void f(A & a}{}";   
+    std::unique_ptr<clang::ASTUnit> ast(clang::tooling::buildASTFromCode(code));
+    // now you have the AST for the code snippet
+    //clang::ASTContext * pctx = &(ast->getASTContext());
+    //clang::TranslationUnitDecl * decl = pctx->getTranslationUnitDecl();
+  }
+
 #if MU_LLVM_MAJOR <= 12
   CommonOptionsParser op(argc, argv, MatcherSampleCategory);
 #elif MU_LLVM_MAJOR > 12
@@ -119,8 +130,6 @@ int main(int argc, const char **argv)
 
   std::shared_ptr<DiagnosticConsumer> diag_consumer_shptr(new MyDiagConsumer());
   //Tool.setDiagnosticConsumer(diag_consumer_shptr.get());
-
-  int retval = -1;
 
   int num_exclusive_options = 0;
   if (ConvertToSCPP) {
