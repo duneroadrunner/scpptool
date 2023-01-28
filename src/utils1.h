@@ -504,6 +504,7 @@ struct CAbstractLifetime {
 		}
 		return false;
 	}
+
 	value_ptr1_t<CAbstractLifetimeSet> m_sublifetimes_vlptr;
 };
 namespace std
@@ -553,6 +554,21 @@ struct CAbstractLifetimeSet {
 	}
 	std::vector<CAbstractLifetime> m_primary_lifetimes;
 };
+
+inline void apply_to_all_lifetimes(CAbstractLifetime& alt, const std::function<void(CAbstractLifetime&)>& fn1) {
+	for (auto& lifetime_ref : alt.m_sublifetimes_vlptr->m_primary_lifetimes) {
+		apply_to_all_lifetimes(lifetime_ref, fn1);
+	}
+	fn1(alt);
+}
+inline void apply_to_all_lifetimes_const(const CAbstractLifetime& alt, const std::function<void(CAbstractLifetime const &)>& fn1) {
+	for (auto& lifetime_ref : alt.m_sublifetimes_vlptr->m_primary_lifetimes) {
+		apply_to_all_lifetimes_const(lifetime_ref, fn1);
+	}
+	fn1(alt);
+}
+
+
 enum class ancestor_has_nontrivial_destructor_t : bool { Yes, No };
 inline bool has_potentially_concerning_destructor(const clang::QualType& qtype, ancestor_has_nontrivial_destructor_t ancestor_has_nontrivial_destructor/* = ancestor_has_nontrivial_destructor_t::No*/);
 inline bool has_potentially_concerning_destructor(const clang::Type& type, ancestor_has_nontrivial_destructor_t ancestor_has_nontrivial_destructor = ancestor_has_nontrivial_destructor_t::No) {
@@ -896,9 +912,12 @@ inline bool is_nullptr_literal(const clang::Expr* EX, clang::ASTContext& Ctx) {
 	return retval;
 }
 
-inline std::optional<clang::QualType> get_first_template_parameter_if_any(const clang::QualType qtype) {
-	std::optional<clang::QualType> retval;
-	const auto CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+inline std::vector<clang::QualType> get_template_parameters(const clang::Type* TypePtr) {
+	std::vector<clang::QualType> retval;
+	if (!TypePtr) {
+		return retval;
+	}
+	const auto CXXRD = TypePtr->getAsCXXRecordDecl();
 	if (CXXRD) {
 		auto qname = CXXRD->getQualifiedNameAsString();
 
@@ -910,16 +929,31 @@ inline std::optional<clang::QualType> get_first_template_parameter_if_any(const 
 				const auto template_arg = template_args[i];
 				const auto ta_qtype = template_arg.getAsType();
 				IF_DEBUG(const auto ta_qtype_str = ta_qtype.getAsString();)
-				return ta_qtype;
+				retval.push_back(ta_qtype);
 			}
-			/*unexpected*/
-			int q = 5;
 		}
-	} else if (qtype->isPointerType() || qtype->isReferenceType()) {
+	} else if (TypePtr->isPointerType() || TypePtr->isReferenceType()) {
 		/* raw pointers and references are essentially templates, right? */
-		retval = qtype->getPointeeType();
+		retval.push_back(TypePtr->getPointeeType());
 	}
 	return retval;
+}
+inline std::vector<clang::QualType> get_template_parameters(const clang::QualType qtype) {
+	return get_template_parameters(qtype.getTypePtr());
+}
+
+inline std::optional<clang::QualType> get_first_template_parameter_if_any(const clang::Type* TypePtr) {
+	std::optional<clang::QualType> retval;
+
+	auto params = get_template_parameters(TypePtr);
+	if (params.size() >= 1) {
+		retval = params.front();
+	}
+
+	return retval;
+}
+inline std::optional<clang::QualType> get_first_template_parameter_if_any(const clang::QualType qtype) {
+	return get_first_template_parameter_if_any(qtype.getTypePtr());
 }
 
 inline clang::QualType remove_fparam_wrappers(const clang::QualType& qtype) {
@@ -1829,26 +1863,41 @@ inline auto Tget_descendant_of_type(const NodeT* NodePtr, clang::ASTContext& con
 
 struct Parse {
 	typedef decltype(std::declval<std::string_view>().length()) index_t;
-	typedef std::pair<index_t, index_t> range_t;
+	//typedef std::pair<index_t, index_t> range_t;
+	struct range_t {
+		index_t begin;
+		index_t end;
+        bool operator==(const range_t& rhs) const {
+            return ((rhs.begin == begin) && (rhs.end == end));
+        }
+        bool operator!=(const range_t& rhs) const {
+            return !((*this) == rhs);
+        }
+	};
 
 	template<typename T>
 	static auto length(const T& range) {
-		return range.second - range.first;
+		return range.end - range.begin;
 	}
+
+    template<typename T>
+    static auto as_an_int(const T& src) {
+        return src.as_an_int();
+    }
 
 	template<typename T>
 	static auto substring_view(std::string_view sv1, T range) {
 		auto retval = sv1;
-		if (sv1.length() < range.second) {
-			range.second = sv1.length();
+		if (sv1.length() < range.end) {
+			range.end = sv1.length();
 		}
-		if (range.second < range.first) {
+		if (range.end < range.begin) {
 			retval.remove_prefix(retval.length());
 		}
 		else {
-			retval.remove_suffix(retval.length() - range.second);
-			assert(retval.length() >= range.first);
-			retval.remove_prefix(range.first);
+			retval.remove_suffix(retval.length() - range.end);
+			assert(retval.length() >= range.begin);
+			retval.remove_prefix(range.begin);
 		}
 
 		return retval;
@@ -1890,7 +1939,7 @@ struct Parse {
 	static auto find_non_alnumund(std::string_view sv1, size_t pos = 0) {
 		if (pos > sv1.length()) { pos = sv1.length(); }
 		auto res_iter = std::find_if(sv1.cbegin() + pos, sv1.cend(), [](auto ch) { return !is_alnum_or_underscore(ch); });
-		return res_iter - sv1.cbegin();
+		return index_t(res_iter - sv1.cbegin());
 	}
 
 	static auto find_string(std::string_view waldo_sv, std::string_view sv1, size_t pos = 0) {
@@ -1902,8 +1951,8 @@ struct Parse {
 		return target_pos;
 	}
 
-	static bool is_a_one_char_token(char ch1) {
-		std::string one_char_tokens = "(){}[],;\n";
+	static bool can_only_be_a_one_char_token(char ch1) {
+		static const std::string one_char_tokens = "(){},;\n";
 		for (const auto ch : one_char_tokens) {
 			if (ch == ch1) {
 				return true;
@@ -1912,30 +1961,60 @@ struct Parse {
 		return false;
 	}
 
-	//is_a_one_char_token_or_space_or_alpha_or_underscore
-	static bool is_a_not_part_of_an_unrecognized_token(char ch) {
-		return is_a_one_char_token(ch) || std::isspace(ch) || is_alpha_or_underscore(ch);
+	/* At this point we can recognize the format of most of the commonly used types of tokens.
+	But there are still some we don't. For example, floating point, integer and string literals.
+	This function identifies characters that we don't think are part of any such unrecognized
+	token type. */
+	static bool is_not_part_of_an_unrecognized_token(char ch) {
+		bool retval = can_only_be_a_one_char_token(ch) || std::isspace(ch)/* || is_alpha_or_underscore(ch)*/;
+		if (!retval) {
+			static const std::string other_recognized_token_chars = "<>=!+-*/|&[]\"'";
+			for (const auto ch1 : other_recognized_token_chars) {
+				if (ch == ch1) {
+					return true;
+				}
+			}
+		}
+		return retval;
 	}
 
+	/* At this point we can recognize the format of most of the commonly used types of tokens.
+	But there are still some we don't. For example, floating point, integer and string literals.
+	This function searches for the first character that we don't think is part of any such
+	unrecognized token type. */
 	static auto find_non_unrecognized_token_char(std::string_view sv1, size_t pos = 0) {
 		if (pos > sv1.length()) { pos = sv1.length(); }
-		auto res_iter = std::find_if(sv1.cbegin() + pos, sv1.cend(), [](auto ch) { return is_a_not_part_of_an_unrecognized_token(ch); });
-		return res_iter - sv1.cbegin();
+		auto res_iter = std::find_if(sv1.cbegin() + pos, sv1.cend(), [](auto ch) { return is_not_part_of_an_unrecognized_token(ch); });
+		return index_t(res_iter - sv1.cbegin());
 	}
 
 	static auto find_potential_token_v1(std::string_view sv1, size_t pos = 0) {
-		auto retval = std::pair{ sv1.length() , sv1.length() };
+		auto retval = range_t{ sv1.length() , sv1.length() };
 		auto start_pos = find_non_whitespace(sv1, pos);
 		if (start_pos >= sv1.length()) {
 			return retval;
 		}
 		auto first_ch = sv1.at(start_pos);
-		if (is_a_one_char_token(first_ch)) {
+		if (can_only_be_a_one_char_token(first_ch)) {
 			retval = { start_pos, start_pos + 1 };
 			return retval;
 		}
 		else if (is_alpha_or_underscore(first_ch)) {
 			auto end_pos = find_non_alnumund(sv1, start_pos);
+			retval = { start_pos, end_pos };
+			return retval;
+		}
+		else if ('\"' == first_ch) {
+			/* a string literal */
+			/* untested */
+			auto end_pos = find_string("\"", sv1, start_pos + 1);
+			retval = { start_pos, end_pos };
+			return retval;
+		}
+		else if ('\'' == first_ch) {
+			/* a char literal */
+			/* untested */
+			auto end_pos = find_string("\'", sv1, start_pos + 1);
 			retval = { start_pos, end_pos };
 			return retval;
 		}
@@ -1955,8 +2034,65 @@ struct Parse {
 						retval = { start_pos, end_comment_delimiter_pos + std::string("\n").length() };
 						return retval;
 					}
+				} else if (('<' == first_ch) || ('>' == first_ch) || ('=' == first_ch) || ('!' == first_ch)
+					|| ('+' == first_ch) || ('-' == first_ch) || ('*' == first_ch) || ('/' == first_ch)
+					|| ('|' == first_ch) || ('&' == first_ch)) {
+					bool is_two_char_token = false;
+					if (('=' == second_ch)) {
+						is_two_char_token = true;
+					} else {
+						/* just off the top of my head */
+						static const std::vector<std::pair<char, char> > two_char_token_table = {
+							{ '<', '<' },
+							{ '>', '>' },
+							{ '+', '+' },
+							{ '-', '-' },
+							{ '|', '|' },
+							{ '&', '&' }
+						};
+						for (auto& tt_pair : two_char_token_table) {
+							if ((tt_pair.first == first_ch) && (tt_pair.second == second_ch)) {
+								is_two_char_token = true;
+								break;
+							}
+						}
+					}
+					if (is_two_char_token) {
+						retval = { start_pos, start_pos + 2 };
+					} else {
+						/* we'll assume that in this context it is a one char token */
+						retval = { start_pos, start_pos + 1 };
+					}
+					return retval;
+				} else if ('[' == first_ch) {
+					if (('[' == second_ch)) {
+						/* open annotation delimiter, right? */
+						retval = { start_pos, start_pos + 2 };
+					} else {
+						retval = { start_pos, start_pos + 1 };
+					}
+					return retval;
+				} else if (']' == first_ch) {
+					if ((']' == second_ch)) {
+						/* close annotation delimiter, right? */
+						retval = { start_pos, start_pos + 2 };
+					} else {
+						retval = { start_pos, start_pos + 1 };
+					}
+					return retval;
+				} else if (':' == first_ch) {
+					if ((':' == second_ch)) {
+						/* namespace delimiter, right? */
+						retval = { start_pos, start_pos + 2 };
+					} else {
+						retval = { start_pos, start_pos + 1 };
+					}
+					return retval;
 				}
 			}
+			/* We seem to have potentially encountered a token type that we don't (yet) recognize. So we'll
+			look for the next char that we suspect might not be part of this part of this unrecognized
+			token type. */
 			auto end_pos = find_non_unrecognized_token_char(sv1, start_pos + 1);
 			retval = { start_pos, end_pos };
 			return retval;
@@ -1966,14 +2102,14 @@ struct Parse {
 
 	template<typename T>
 	static bool is_a_comment(std::string_view sv1, const T& range) {
-		if (range.second >= sv1.length()) {
+		if (range.end >= sv1.length()) {
 			return false;
 		}
 		/*try */{
-			if ((2 <= length(range)) && ('/' == sv1.at(range.first)) && ('/' == sv1.at(range.first + 1))) {
+			if ((2 <= length(range)) && ('/' == sv1.at(range.begin)) && ('/' == sv1.at(range.begin + 1))) {
 				return true;
 			}
-			else if ((4 <= length(range)) && ('/' == sv1.at(range.first)) && ('*' == sv1.at(range.first + 1)) && ('*' == sv1.at(range.second - 2)) && ('/' == sv1.at(range.second - 1))) {
+			else if ((4 <= length(range)) && ('/' == sv1.at(range.begin)) && ('*' == sv1.at(range.begin + 1)) && ('*' == sv1.at(range.end - 2)) && ('/' == sv1.at(range.end - 1))) {
 				return true;
 			}
 		}
@@ -1987,8 +2123,8 @@ struct Parse {
 
 	static auto find_potential_noncomment_token_v1(std::string_view sv1, size_t pos = 0) {
 		auto retval = find_potential_token_v1(sv1, pos);
-		while ((sv1.length() > retval.first) && is_a_comment(sv1, retval)) {
-			retval = find_potential_token_v1(sv1, retval.second);
+		while ((sv1.length() > retval.begin) && is_a_comment(sv1, retval)) {
+			retval = find_potential_token_v1(sv1, retval.end);
 		}
 		return retval;
 	}
@@ -1996,8 +2132,8 @@ struct Parse {
 	static auto find_uncommented_token(std::string_view waldo_sv, std::string_view sv1, size_t pos = 0) {
 		if (pos > sv1.length()) { pos = sv1.length(); }
 		auto retval = find_potential_noncomment_token_v1(sv1, pos);
-		while ((sv1.length() > retval.first) && (substring_view(sv1, retval) != waldo_sv)) {
-			retval = find_potential_noncomment_token_v1(sv1, retval.second);
+		while ((sv1.length() > retval.begin) && (substring_view(sv1, retval) != waldo_sv)) {
+			retval = find_potential_noncomment_token_v1(sv1, retval.end);
 		}
 		return retval;
 	}
@@ -2017,27 +2153,27 @@ struct Parse {
 		};
 
 		auto retval = find_potential_noncomment_token_v1(sv1, pos);
-		while ((sv1.length() > retval.first) && (!is_in_waldo_set(retval))) {
-			retval = find_potential_noncomment_token_v1(sv1, retval.second);
+		while ((sv1.length() > retval.begin) && (!is_in_waldo_set(retval))) {
+			retval = find_potential_noncomment_token_v1(sv1, retval.end);
 		}
 		return retval;
 	}
 
 	static auto find_stmt_with_semicolon(std::string_view sv1, size_t pos = 0) {
-		auto retval = std::pair{ sv1.length(), sv1.length() };
+		auto retval = range_t{ sv1.length(), sv1.length() };
 		auto first_token_range = find_potential_token_v1(sv1, pos);
-		auto semic_range = find_uncommented_token(";", sv1, first_token_range.first);
-		if (semic_range.first >= sv1.length()) {
+		auto semic_range = find_uncommented_token(";", sv1, first_token_range.begin);
+		if (semic_range.begin >= sv1.length()) {
 			return retval;
 		}
 		else {
-			retval = { first_token_range.first, semic_range.second };
+			retval = { first_token_range.begin, semic_range.end };
 			return retval;
 		}
 	}
 
 	static auto find_token_sequence(std::vector<std::string> const& token_sequence, std::string_view sv1, size_t pos = 0) {
-		auto retval = std::pair{ sv1.length(), sv1.length() };
+		auto retval = range_t{ sv1.length(), sv1.length() };
 		if (pos > sv1.length()) { pos = sv1.length(); }
 		while (pos < sv1.length()) {
 			auto candidate_sequence_start_pos = sv1.length();
@@ -2046,7 +2182,7 @@ struct Parse {
 			bool rejected_candidate_flag = false;
 			for (const auto& target_token : token_sequence) {
 				auto candidate_token_span = Parse::find_potential_noncomment_token_v1(sv1, sequence_token_pos);
-				if (int(candidate_token_span.first) >= int(sv1.length())) {
+				if (int(candidate_token_span.begin) >= int(sv1.length())) {
 					return retval;
 				}
 				auto candidate_token_sv = Parse::substring_view(sv1, candidate_token_span);
@@ -2056,15 +2192,15 @@ struct Parse {
 					break;
 				}
 				else {
-					if (candidate_token_span.first < candidate_sequence_start_pos) {
-						candidate_sequence_start_pos = candidate_token_span.first;
+					if (candidate_token_span.begin < candidate_sequence_start_pos) {
+						candidate_sequence_start_pos = candidate_token_span.begin;
 					}
-					if (candidate_token_span.second > candidate_sequence_end_pos) {
-						candidate_sequence_end_pos = candidate_token_span.second;
+					if (candidate_token_span.end > candidate_sequence_end_pos) {
+						candidate_sequence_end_pos = candidate_token_span.end;
 					}
 				}
 
-				sequence_token_pos = candidate_token_span.second;
+				sequence_token_pos = candidate_token_span.end;
 			}
 
 			if (!rejected_candidate_flag) {
@@ -2072,16 +2208,16 @@ struct Parse {
 				return retval;
 			}
 
-			pos = Parse::find_potential_noncomment_token_v1(sv1, pos).second;
+			pos = Parse::find_potential_noncomment_token_v1(sv1, pos).end;
 		}
 		return retval;
 	};
 
-	static auto find_matching_closing_delimiter(std::string_view opening_delimiter, std::string_view closing_delimiter, std::string_view str, std::string::size_type start_index) {
+	static auto find_matching_closing_delimiter(std::string_view opening_delimiter, std::string_view closing_delimiter, std::string_view str, std::string::size_type start_index = 0) {
 		int right_angle_brackets_required = 1;
 		while (true) {
 			auto next_r_range = find_uncommented_token(closing_delimiter, str, start_index);
-			auto next_r_index = next_r_range.first;
+			auto next_r_index = next_r_range.begin;
 
 			if (str.length() <= next_r_index) {
 				return next_r_index;
@@ -2089,7 +2225,7 @@ struct Parse {
 			auto substr1 = str.substr(start_index, size_t(next_r_index - start_index));
 
 			auto next_l_subrange = find_uncommented_token(opening_delimiter, substr1);
-			auto next_l_subindex = next_l_subrange.first;
+			auto next_l_subindex = next_l_subrange.begin;
 			if (substr1.length() <= next_l_subindex) {
 				right_angle_brackets_required -= 1;
 				start_index = next_r_index + 1;
@@ -2104,23 +2240,27 @@ struct Parse {
 		}
 	}
 
-	static auto find_matching_right_angle_bracket(std::string_view str, std::string::size_type start_index) {
+	static auto find_matching_right_angle_bracket(std::string_view str, std::string::size_type start_index = 0) {
 		return find_matching_closing_delimiter("<", ">", str, start_index);
 	}
 
-	static auto find_matching_right_parenthesis(std::string_view str, std::string::size_type start_index) {
+	static auto find_matching_right_bracket(std::string_view str, std::string::size_type start_index = 0) {
+		return find_matching_closing_delimiter("[", "]", str, start_index);
+	}
+
+	static auto find_matching_right_parenthesis(std::string_view str, std::string::size_type start_index = 0) {
 		return find_matching_closing_delimiter("(", ")", str, start_index);
 	}
 
-	static auto find_matching_right_brace(std::string_view str, std::string::size_type start_index) {
+	static auto find_matching_right_brace(std::string_view str, std::string::size_type start_index = 0) {
 		return find_matching_closing_delimiter("{", "}", str, start_index);
 	}
 
-	static auto find_matching_closing_delimiter(std::vector<std::string> const& opening_delimiter_set, std::string_view closing_delimiter, std::string_view str, std::string::size_type start_index) {
+	static auto find_matching_closing_delimiter(std::vector<std::string> const& opening_delimiter_set, std::string_view closing_delimiter, std::string_view str, std::string::size_type start_index = 0) {
 		int right_angle_brackets_required = 1;
 		while (true) {
 			auto next_r_range = find_uncommented_token(closing_delimiter, str, start_index);
-			auto next_r_index = next_r_range.first;
+			auto next_r_index = next_r_range.begin;
 
 			if (str.length() <= next_r_index) {
 				return next_r_index;
@@ -2130,11 +2270,11 @@ struct Parse {
 			auto next_l_subrange = Parse::range_t{ substr1.length(), substr1.length() };
 			for (auto const& opening_delimiter : opening_delimiter_set) {
 				auto next_l_subrange2 = find_uncommented_token(opening_delimiter, substr1);
-				if (next_l_subrange2.first < next_l_subrange.first) {
+				if (next_l_subrange2.begin < next_l_subrange.begin) {
 					next_l_subrange = next_l_subrange2;
 				}
 			}
-			auto next_l_subindex = next_l_subrange.first;
+			auto next_l_subindex = next_l_subrange.begin;
 			if (substr1.length() <= next_l_subindex) {
 				right_angle_brackets_required -= 1;
 				start_index = next_r_index + 1;
@@ -2147,6 +2287,42 @@ struct Parse {
 				return next_r_index;
 			}
 		}
+	}
+
+	static auto find_token_at_same_nesting_depth1(std::string_view target_token_sv, std::string_view str, std::string::size_type start_index = 0) {
+		struct CEnclosureDelimiterPair {
+			std::string open;
+			std::string close;
+		};
+		static const std::array<CEnclosureDelimiterPair, 4> enclosure_delimiters = {
+			CEnclosureDelimiterPair{ "(", ")" },
+			CEnclosureDelimiterPair{ "[", "]" },
+			CEnclosureDelimiterPair{ "<", ">" },
+			CEnclosureDelimiterPair{ "{", "}" }
+			};
+		auto next_tt_range = find_uncommented_token(target_token_sv, str, start_index);
+		while (str.length() > next_tt_range.end) {
+			auto next_opening_delimiter_range = next_tt_range;
+			size_t next_opening_delimiter_species_index = enclosure_delimiters.size();
+			for (size_t i = 0; i < enclosure_delimiters.size(); i += 1) {
+				auto& delimiter_pair = enclosure_delimiters.at(i);
+				const auto found_range = find_uncommented_token(delimiter_pair.open, str, start_index);
+				if (found_range.begin < next_opening_delimiter_range.begin) {
+					next_opening_delimiter_range = found_range;
+					next_opening_delimiter_species_index = i;
+				}
+			}
+			if (enclosure_delimiters.size() > next_opening_delimiter_species_index) {
+				auto& delimiter_pair = enclosure_delimiters.at(next_opening_delimiter_species_index);
+				const auto found_range = find_uncommented_token(delimiter_pair.close, str, start_index);
+				start_index = found_range.end;
+			} else {
+				return next_opening_delimiter_range;
+			}
+
+			next_tt_range = find_uncommented_token(target_token_sv, str, start_index);
+		}
+		return next_tt_range;
 	}
 
 	struct CCodeSession {
@@ -2170,7 +2346,7 @@ struct Parse {
 		auto line_num_from_char_index(const size_t char_index) const {
 			size_t retval = m_line_ranges.size();
 			for (auto const& mapping : m_line_ranges) {
-				if ((char_index >= mapping.second.first) && (char_index < mapping.second.second)) {
+				if ((char_index >= mapping.second.begin) && (char_index < mapping.second.end)) {
 					retval = mapping.first;
 					return retval;
 				}
@@ -2178,7 +2354,7 @@ struct Parse {
 			return retval;
 		}
 		std::string m_code_text;
-		std::map<size_t, std::pair<size_t, size_t> > m_line_ranges;
+		std::map<size_t, range_t> m_line_ranges;
 	};
 };
 
