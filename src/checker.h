@@ -915,8 +915,8 @@ namespace checker {
 			DECLARE_CACHED_CONST_STRING(lifetime_notes_str, "lifetime_notes");
 			DECLARE_CACHED_CONST_STRING(lifetime_labels, "lifetime_labels");
 			DECLARE_CACHED_CONST_STRING(lifetime_label, "lifetime_label");
-			DECLARE_CACHED_CONST_STRING(lifetime_sets_from_template_parameters, "lifetime_sets_from_template_parameters");
-			DECLARE_CACHED_CONST_STRING(lifetime_set_from_template_parameter, "lifetime_set_from_template_parameter");
+			DECLARE_CACHED_CONST_STRING(lifetime_set_aliases_from_template_parameters, "lifetime_set_aliases_from_template_parameters");
+			DECLARE_CACHED_CONST_STRING(lifetime_set_alias_from_template_parameter, "lifetime_set_alias_from_template_parameter");
 
 			DECLARE_CACHED_CONST_STRING(mse_lifetime_notes_str, mse_namespace_str() + "::lifetime_notes");
 			DECLARE_CACHED_CONST_STRING(mse_lifetime_labels, mse_namespace_str() + "::lifetime_labels");
@@ -1103,9 +1103,9 @@ namespace checker {
 							}
 						}
 					} else {
-						auto lsftp_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_sets_from_template_parameters }, pretty_str);
+						auto lsftp_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_set_aliases_from_template_parameters }, pretty_str);
 						if (pretty_str.length() <= lsftp_range.begin) {
-							lsftp_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_set_from_template_parameter }, pretty_str);
+							lsftp_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_set_alias_from_template_parameter }, pretty_str);
 						}
 						if (pretty_str.length() > lsftp_range.begin) {
 							static const std::string langle_bracket = "<";
@@ -1123,7 +1123,7 @@ namespace checker {
 							}
 							std::string_view sv1(pretty_str.data() + langle_bracket_index + 1, int(rangle_bracket_index) - int(langle_bracket_index + 1));
 							static const std::string placeholder_prefix_str = "__placeholder_primary_lifetime_";
-							std::string str1 = placeholder_prefix_str + std::string(sv1);
+							std::string str1 = placeholder_prefix_str + "[" + std::string(sv1) + "]";
 
 							CAbstractLifetimeSet alts1 = parse_lifetime_ids(str1, &type_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
 
@@ -1138,7 +1138,7 @@ namespace checker {
 										auto found_it = state1.m_lifetime_alias_map.find(alt);
 										if (state1.m_lifetime_alias_map.end() != found_it) {
 											if (MR_ptr) {
-												std::string error_desc = std::string("'lifetime set' label '") + alt.m_id + "', specified in 'lifetime_sets_from_template_parameters' annotation,";
+												std::string error_desc = std::string("'lifetime set' label '") + alt.m_id + "', specified in 'lifetime_set_aliases_from_template_parameters' annotation,";
 												error_desc += " is already being used as a 'lifetime set' label. Please choose a different one.";
 												auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
 												if (res.second) {
@@ -1158,9 +1158,9 @@ namespace checker {
 
 								if (placeholder_primary_lifetime.m_sublifetimes_vlptr->is_empty()) {
 									if (MR_ptr) {
-										std::string error_desc = std::string("No valid 'lifetime sets' specified in 'lifetime_sets_from_template_parameters' annotation.");
-										error_desc += " (A valid use of the 'lifetime_sets_from_template_parameters' annotation might look something like: ";
-										error_desc += " 'mse::lifetime_sets_from_template_parameters<[51]>' or 'mse::lifetime_sets_from_template_parameters<[51][][52[521][522]]>'.)";
+										std::string error_desc = std::string("No valid 'lifetime sets' specified in 'lifetime_set_aliases_from_template_parameters' annotation.");
+										error_desc += " (A valid use of the 'lifetime_set_aliases_from_template_parameters' annotation might look something like: ";
+										error_desc += " 'mse::lifetime_set_aliases_from_template_parameters<51>' or 'mse::lifetime_set_aliases_from_template_parameters<51,52[521,522]>'.)";
 										auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
 										if (res.second) {
 											std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -1169,9 +1169,9 @@ namespace checker {
 								} 
 								if (placeholder_prefix_str != placeholder_primary_lifetime.m_id) {
 									if (MR_ptr) {
-										std::string error_desc = std::string("Unexpected character(s) before the first opening square bracket in 'lifetime_sets_from_template_parameters' annotation.");
-										error_desc += " (A valid use of the 'lifetime_sets_from_template_parameters' annotation might look something like: ";
-										error_desc += " 'mse::lifetime_sets_from_template_parameters<[51]>' or 'mse::lifetime_sets_from_template_parameters<[51][][52[521][522]]>'.)";
+										std::string error_desc = std::string("Unexpected character(s) before the first opening square bracket in 'lifetime_set_aliases_from_template_parameters' annotation.");
+										error_desc += " (A valid use of the 'lifetime_set_aliases_from_template_parameters' annotation might look something like: ";
+										error_desc += " 'mse::lifetime_set_aliases_from_template_parameters<51>' or 'mse::lifetime_set_aliases_from_template_parameters<51,52[521,522]>'.)";
 										auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
 										if (res.second) {
 											std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -1180,9 +1180,9 @@ namespace checker {
 								}
 								if (1 < alts1.m_primary_lifetimes.size()) {
 									if (MR_ptr) {
-										std::string error_desc = std::string("Unexpected character(s) (outside of square brackets) in 'lifetime_sets_from_template_parameters' annotation.");
-										error_desc += " (A valid use of the 'lifetime_sets_from_template_parameters' annotation might look something like: ";
-										error_desc += " 'mse::lifetime_sets_from_template_parameters<[51]>' or 'mse::lifetime_sets_from_template_parameters<[51][][52[521][522]]>'.)";
+										std::string error_desc = std::string("Unexpected character(s) (outside of square brackets) in 'lifetime_set_aliases_from_template_parameters' annotation.");
+										error_desc += " (A valid use of the 'lifetime_set_aliases_from_template_parameters' annotation might look something like: ";
+										error_desc += " 'mse::lifetime_set_aliases_from_template_parameters<51>' or 'mse::lifetime_set_aliases_from_template_parameters<51,52[521,522]>'.)";
 										auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
 										if (res.second) {
 											std::cout << (*(res.first)).as_a_string1() << " \n\n";
