@@ -819,7 +819,7 @@ namespace checker {
 		-> std::optional<CTypeLifetimeAnnotations *>;
 
 
-	auto populate_lifetime_alias_map(const clang::Type * TypePtr2, const CAbstractLifetime& alt, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr)
+	auto populate_lifetime_alias_map(const clang::Type * TypePtr2, const CAbstractLifetimeSet& alts, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr)
 		-> CAbstractLifetimeSet {
 
 		auto retval = CAbstractLifetimeSet{};
@@ -830,10 +830,10 @@ namespace checker {
 		}
 
 		auto template_params = get_template_parameters(TypePtr2);
-		auto num_lt_aliases = alt.m_sublifetimes_vlptr->m_primary_lifetimes.size();
+		auto num_lt_aliases = alts.m_primary_lifetimes.size();
 		size_t count = 0;
 		for (size_t i = 0; i < num_lt_aliases; i += 1) {
-			auto& alias = alt.m_sublifetimes_vlptr->m_primary_lifetimes.at(i);
+			auto& alias = alts.m_primary_lifetimes.at(i);
 			if ("" != alias.m_id) {
 				CAbstractLifetimeSet unaliased_lifetimes;
 				if (template_params.size() > i) {
@@ -866,7 +866,7 @@ namespace checker {
 			}
 
 			if (!(alias.m_sublifetimes_vlptr->is_empty())) {
-				auto res1 = populate_lifetime_alias_map(template_params.at(i).getTypePtr(), alias, state1, MR_ptr, Rewrite_ptr);
+				auto res1 = populate_lifetime_alias_map(template_params.at(i).getTypePtr(), *(alias.m_sublifetimes_vlptr), state1, MR_ptr, Rewrite_ptr);
 
 				retval.m_primary_lifetimes.insert(retval.m_primary_lifetimes.end(), res1.m_primary_lifetimes.begin(), res1.m_primary_lifetimes.end());
 			}
@@ -1122,17 +1122,12 @@ namespace checker {
 								continue;
 							}
 							std::string_view sv1(pretty_str.data() + langle_bracket_index + 1, int(rangle_bracket_index) - int(langle_bracket_index + 1));
-							static const std::string placeholder_prefix_str = "__placeholder_primary_lifetime_";
-							std::string str1 = placeholder_prefix_str + "[" + std::string(sv1) + "]";
 
-							CAbstractLifetimeSet alts1 = parse_lifetime_ids(str1, &type_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
+							CAbstractLifetimeSet alts1 = parse_lifetime_ids(sv1, &type_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
 
 							if (alts1.is_empty()) {
-								/* unexpected */
-								int q = 3;
+								int q = 5;
 							} else {
-								auto& placeholder_primary_lifetime = alts1.m_primary_lifetimes.front();
-
 								auto check_for_illegal_label_reuse = [&state1, &attr_SR, &MR_ptr, &Rewrite_ptr](const CAbstractLifetime& alt) {
 									{
 										auto found_it = state1.m_lifetime_alias_map.find(alt);
@@ -1148,17 +1143,19 @@ namespace checker {
 										}
 									}
 								};
-								apply_to_all_lifetimes_const(placeholder_primary_lifetime, check_for_illegal_label_reuse);
+								for (auto& lifetime : alts1.m_primary_lifetimes) {
+									apply_to_all_lifetimes_const(lifetime, check_for_illegal_label_reuse);
+								}
 
 								auto TypePtr = (MR_ptr && MR_ptr->Context) ? MR_ptr->Context->getTypeDeclType(&type_decl).getTypePtr()
 									: type_decl.getTypeForDecl();
 
-								auto lifetimes_from_specified_template_params = populate_lifetime_alias_map(TypePtr, placeholder_primary_lifetime, state1, MR_ptr, Rewrite_ptr);
+								auto lifetimes_from_specified_template_params = populate_lifetime_alias_map(TypePtr, alts1, state1, MR_ptr, Rewrite_ptr);
 								tlta.m_lifetime_set.m_primary_lifetimes.insert(tlta.m_lifetime_set.m_primary_lifetimes.end(), lifetimes_from_specified_template_params.m_primary_lifetimes.begin(), lifetimes_from_specified_template_params.m_primary_lifetimes.end());
 
-								if (placeholder_primary_lifetime.m_sublifetimes_vlptr->is_empty()) {
+								if (false && alts1.is_empty()) {
 									if (MR_ptr) {
-										std::string error_desc = std::string("No valid 'lifetime sets' specified in 'lifetime_set_aliases_from_template_parameters' annotation.");
+										std::string error_desc = std::string("No valid 'lifetime set aliases' specified in 'lifetime_set_aliases_from_template_parameters' annotation.");
 										error_desc += " (A valid use of the 'lifetime_set_aliases_from_template_parameters' annotation might look something like: ";
 										error_desc += " 'mse::lifetime_set_aliases_from_template_parameters<51>' or 'mse::lifetime_set_aliases_from_template_parameters<51,52[521,522]>'.)";
 										auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
@@ -1167,28 +1164,6 @@ namespace checker {
 										}
 									}
 								} 
-								if (placeholder_prefix_str != placeholder_primary_lifetime.m_id) {
-									if (MR_ptr) {
-										std::string error_desc = std::string("Unexpected character(s) before the first opening square bracket in 'lifetime_set_aliases_from_template_parameters' annotation.");
-										error_desc += " (A valid use of the 'lifetime_set_aliases_from_template_parameters' annotation might look something like: ";
-										error_desc += " 'mse::lifetime_set_aliases_from_template_parameters<51>' or 'mse::lifetime_set_aliases_from_template_parameters<51,52[521,522]>'.)";
-										auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
-									}
-								}
-								if (1 < alts1.m_primary_lifetimes.size()) {
-									if (MR_ptr) {
-										std::string error_desc = std::string("Unexpected character(s) (outside of square brackets) in 'lifetime_set_aliases_from_template_parameters' annotation.");
-										error_desc += " (A valid use of the 'lifetime_set_aliases_from_template_parameters' annotation might look something like: ";
-										error_desc += " 'mse::lifetime_set_aliases_from_template_parameters<51>' or 'mse::lifetime_set_aliases_from_template_parameters<51,52[521,522]>'.)";
-										auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
-									}
-								}
 							}
 						}
 					}
