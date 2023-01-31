@@ -4403,6 +4403,76 @@ namespace checker {
 						}
 					}
 				}
+			} else if (clang::UnaryOperator::Opcode::UO_Deref == opcode) {
+				const auto UOSE = UO->getSubExpr();
+				if (UOSE) {
+					const auto UOSE_qtype = UOSE->getType();
+					IF_DEBUG(const auto UOSE_qtype_str = UOSE_qtype.getAsString();)
+
+					if (is_raw_pointer_or_equivalent(UOSE->getType())) {
+						/* The declrefexpression is a direct dereference of a native pointer. */
+						auto UOSE_ii = IgnoreParenImpNoopCasts(UOSE, Ctx);
+						auto DRE2 = dyn_cast<const clang::DeclRefExpr>(UOSE_ii);
+						if (DRE2) {
+							auto VLD = DRE2->getDecl();
+							auto VD = dyn_cast<const clang::VarDecl>(VLD);
+							if (VD) {
+								auto maybe_decl_lifetime_value = evaluate_declaration_lower_bound_lifetimes(tu_state_ref, VD, Ctx, MR_ptr, Rewrite_ptr);
+								if (maybe_decl_lifetime_value.m_failure_due_to_dependent_type_flag) {
+									/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+									occur in any instantiation of the template. */
+									//retval.m_failure_due_to_dependent_type_flag = true;
+									//return retval;
+								} else if (maybe_decl_lifetime_value.has_value()) {
+									CScopeLifetimeInfo1& decl_slti = maybe_decl_lifetime_value.value().m_scope_lifetime_info;
+									if (1 == decl_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.size()) {
+										auto subsli = decl_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.front();
+										if (CScopeLifetimeInfo1::ECategory::AbstractLifetime == subsli.m_category) {
+											/* If the lifetime of a pointer's target is abstract, it can be used as the ("upper bound")
+											lifetime of the lhs of a (pointer) assignment. Right? */
+											retval = subsli;
+											return retval;
+										} else if (VD->getType().isConstQualified()) {
+											/* If the pointer itself was actually declared const (as opposed to being referred to by const
+											reference), then its target never changes, so the upper bound lifetime of its target will just
+											the value of target's lifetime evaluated at any point. */
+											retval = subsli;
+											return retval;
+										}
+									}
+								} else if (VD->getType().isConstQualified()) {
+									/* If the pointer itself was actually declared const (as opposed to being referred to by const
+									reference), then its target never changes, so the upper bound lifetime of its target will just
+									the lifetime of the target it was initialized with. */
+									if (VD->hasInit()) {
+										auto init_E = VD->getInit();
+										if (init_E) {
+											retval = upper_bound_lifetime_owner_if_available(init_E, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
+											if (retval.has_value()) {
+												return retval;
+											}
+										}
+									}
+								}
+							}
+						}
+
+
+
+						auto maybe_slo1 = lower_bound_lifetime_owner_if_available(UOSE, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
+						if (maybe_slo1.has_value()) {
+							auto sloi1 = scope_lifetime_info_from_lifetime_owner(maybe_slo1.value(), Ctx, tu_state_ref);
+							auto& sublifetimes = sloi1.m_sublifetimes_vlptr->m_primary_lifetime_infos;
+							if (sublifetimes.size() == 1) {
+								retval = sublifetimes.front();
+							} else {
+								retval = maybe_slo1;
+								/* Here we're noting that the returned lifetime is of the "owner" of the item, not exactly the item itself. */
+								retval.value().m_possession_lifetime_info_chain.push_back({});
+							}
+						}
+					}
+				}
 			}
 		}
 		if (DRE1) {
@@ -4875,6 +4945,22 @@ namespace checker {
 							}
 						}
 					}
+				}
+			}
+		}
+		if (!(retval.has_value())) {
+			auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(tu_state_ref, EX, Ctx, MR_ptr, Rewrite_ptr);
+			if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+				/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+				occur in any instantiation of the template. */
+				//return {};
+			} else if (maybe_expr_lifetime_value.has_value()) {
+				CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+				if (CScopeLifetimeInfo1::ECategory::AbstractLifetime == expr_slti.m_category) {
+					/* If the lifetime of a pointer's target is abstract, it can be used as the ("upper bound")
+					lifetime of the lhs of a (pointer) assignment. Right? */
+					retval = expr_slti;
+					return retval;
 				}
 			}
 		}
