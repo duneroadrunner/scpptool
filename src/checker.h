@@ -1174,6 +1174,12 @@ namespace checker {
 		state1.m_type_lifetime_annotations_map.insert_or_assign(type_decl.getTypeForDecl(), tlta);
 
 		auto type_decl_Type_ptr = type_decl.getTypeForDecl();
+		clang::CXXRecordDecl const * CXXRD = type_decl_Type_ptr ? type_decl_Type_ptr->getAsCXXRecordDecl() : (decltype(CXXRD))(nullptr);
+		if (CXXRD) {
+			for (auto CXXBS : CXXRD->bases()) {
+			}
+		}
+
 		clang::RecordDecl const * RD = type_decl_Type_ptr ? type_decl_Type_ptr->getAsRecordDecl() : (decltype(RD))(nullptr);
 		if (RD) {
 			for (auto FD : RD->fields()) {
@@ -3301,33 +3307,10 @@ namespace checker {
 
 	inline bool slti_second_can_be_assigned_to_first(const CScopeLifetimeInfo1& sli1, const CScopeLifetimeInfo1& sli2, clang::ASTContext& context, const CTUState& tu_state_cref) {
 		bool retval = true;
-		if ((CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli1.m_category) && (CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli2.m_category)) {
-			if (!(sli1.m_maybe_abstract_lifetime.has_value() && sli2.m_maybe_abstract_lifetime.has_value())) {
-				assert(false); return false;
-			}
-			/* Generally, the "primary" (scope) lifetimes of the argument objects don't matter for
-			assignment. It's the "sublifetimes" (i.e. the lifetimes of any objects being referenced),
-			if any, that matter. But an "abstract" lifetime represents (a lower bound of) a "lifetime
-			tree". That is, a "primary" lifetime and all its sublifetime descendants. */
-			bool first_same_as_second = (sli1.m_maybe_abstract_lifetime.value() == sli2.m_maybe_abstract_lifetime.value());
-			bool first_encompasses_second = first_is_known_to_be_contained_in_scope_of_second_shallow(sli2, sli1, context, tu_state_cref);
-			if ((!first_same_as_second) && first_encompasses_second) {
-				retval = false; return retval;
-			}
-			if (false) {
-				/* While certain declared relationships between two abstract lifetimes assert/imply that the
-				value of one associated object can be safely assigned to the other, at the moment its possible
-				for declared relationships between (abstract) sublifetimes to contradict those assertions. So
-				for the moment, we don't condone the assignment until the sublifetimes are checked as well. */
-				if (first_same_as_second) {
-					retval = true; return retval;
-				}
-				bool second_encompasses_first = first_is_known_to_be_contained_in_scope_of_second_shallow(sli1, sli2, context, tu_state_cref);
-				if (second_encompasses_first) {
-					retval = true; return retval;
-				}
-			}
-		}
+
+		/* Generally, the "primary" (scope) lifetimes of the argument objects don't matter for
+		assignment. It's the "sublifetimes" (i.e. the lifetimes of any objects being referenced),
+		if any, that matter. */
 
 		auto sub_lifetime_infos1 = (sli1.m_sublifetimes_vlptr->m_primary_lifetime_infos);
 		auto sub_lifetime_infos2_ptr = &(sli2.m_sublifetimes_vlptr->m_primary_lifetime_infos);
@@ -4375,6 +4358,23 @@ namespace checker {
 			return retval;
 		}
 		const auto EX = IgnoreParenImpNoopCasts(EX1, Ctx);
+
+		if (!(retval.has_value())) {
+			auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(tu_state_ref, EX, Ctx, MR_ptr, Rewrite_ptr);
+			if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+				/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+				occur in any instantiation of the template. */
+			} else if (maybe_expr_lifetime_value.has_value()) {
+				CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+				if (CScopeLifetimeInfo1::ECategory::AbstractLifetime == expr_slti.m_category) {
+					/* If the lifetime of a pointer's target is abstract, it can be used as the ("upper bound")
+					lifetime of the lhs of a (pointer) assignment. Right? */
+					retval = expr_slti;
+					return retval;
+				}
+			}
+		}
+
 		bool satisfies_checks = false;
 		auto UO = dyn_cast<const clang::UnaryOperator>(EX);
 		auto DRE1 = dyn_cast<const clang::DeclRefExpr>(EX);
@@ -4945,22 +4945,6 @@ namespace checker {
 							}
 						}
 					}
-				}
-			}
-		}
-		if (!(retval.has_value())) {
-			auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(tu_state_ref, EX, Ctx, MR_ptr, Rewrite_ptr);
-			if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
-				/* Cannot properly evaluate because this is a template definition. Proper evaluation should
-				occur in any instantiation of the template. */
-				//return {};
-			} else if (maybe_expr_lifetime_value.has_value()) {
-				CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
-				if (CScopeLifetimeInfo1::ECategory::AbstractLifetime == expr_slti.m_category) {
-					/* If the lifetime of a pointer's target is abstract, it can be used as the ("upper bound")
-					lifetime of the lhs of a (pointer) assignment. Right? */
-					retval = expr_slti;
-					return retval;
 				}
 			}
 		}
@@ -8492,9 +8476,9 @@ namespace checker {
 				therefore its scope lifetime) can be challenging. We are not always going to be able to
 				do so. */
 
-				auto lhs_slo = upper_bound_lifetime_owner_if_available(LHSEX, *(MR.Context), m_state1);
-
 				CScopeLifetimeInfo1 rhs_lifetime_value;
+				bool rhs_lifetime_values_evaluated = false;
+				std::string rhs_hints;
 				auto adj_RHSEX = remove_cast_from_TPointerForLegacy_to_raw_pointer(RHSEX, *(MR.Context));
 				auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, m_state1, adj_RHSEX);
 				if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
@@ -8505,61 +8489,88 @@ namespace checker {
 				if (maybe_expr_lifetime_value.has_value()) {
 					CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
 					rhs_lifetime_value = expr_slti;
+					rhs_lifetime_values_evaluated = true;
 				} else {
-					auto rhs_slo = lower_bound_lifetime_owner_of_pointer_target_if_available(
+					auto maybe_rhs_slo = lower_bound_lifetime_owner_of_pointer_target_if_available(
 						adj_RHSEX, *(MR.Context), m_state1);
-					if (!(rhs_slo.has_value())) {
+					if (!(maybe_rhs_slo.has_value())) {
 						/* We were unable to determine a lifetime owner for this expression. We haven't
 						contemplated all circumstances for which this might happen, if any, but for now
 						we're just going to set the expression itself as the owner. */
-						rhs_slo = adj_RHSEX;
+						maybe_rhs_slo = adj_RHSEX;
+						rhs_hints = maybe_rhs_slo.hints_str();
+					} else {
+						rhs_lifetime_values_evaluated = true; // ?
 					}
-					rhs_lifetime_value = scope_lifetime_info_from_lifetime_owner(rhs_slo.value(), *(MR.Context), m_state1);
+					rhs_lifetime_value = scope_lifetime_info_from_lifetime_owner(maybe_rhs_slo.value(), *(MR.Context), m_state1);
 				}
 
-				if (!(lhs_slo.has_value())) {
-					satisfies_checks = false;
-				} else {
-					slti_set_default_lower_bound_lifetimes_where_needed(rhs_lifetime_value, adj_RHSEX->getType());
+				CScopeLifetimeInfo1 lhs_lifetime_value;
+				lhs_lifetime_value.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
+				lhs_lifetime_value.m_maybe_containing_scope = get_containing_scope(LHSEX, *(MR.Context));
+				lhs_lifetime_value.m_maybe_source_range = LHSEX->getSourceRange();
+				lhs_lifetime_value.m_maybe_corresponding_cpp_element = LHSEX;
+				slti_set_default_lower_bound_lifetimes_where_needed(lhs_lifetime_value, LHSEX->getType());
+				bool lhs_lifetime_values_evaluated = false;
 
-					auto lhs_slti = scope_lifetime_info_from_lifetime_owner(lhs_slo.value(), *(MR.Context), m_state1);
-					{
-						CScopeLifetimeInfo1& expr_slti = lhs_slti;
-						auto lhs_lifetime_value = expr_slti;
-
-						auto maybe_tlta = type_lifetime_annotations_if_available(*LHSEX, m_state1, &MR, &Rewrite);
-
-						if (expr_slti.m_sublifetimes_vlptr->is_empty() || (!(maybe_tlta.has_value()))) {
-							/* If a sublifetime value is not available for the pointer, then we'll just use the lifetime
-							of the pointer itself as a lower bound for the sublifetime. */
-							/* Or, if the lhs pointer doesn't (seem to) have an (implied) lifetime annotation, then it
-							is the equivalent of its sublifetime (lowerbound) just being the lifetime of the pointer
-							itself. */
-
-							lhs_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos = { expr_slti };
+				{
+					auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, m_state1, LHSEX);
+					if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+						/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+						occur in any instantiation of the template. */
+						return;
+					} else if (maybe_expr_lifetime_value.has_value()) {
+						CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+						slti_set_default_lower_bound_lifetimes_where_needed(expr_slti, LHSEX->getType());
+						if ((1 == expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.size())
+							&& (1 == lhs_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos.size())) {
+							const auto& target_slti_cref = expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.front();
+							if (CScopeLifetimeInfo1::ECategory::AbstractLifetime == target_slti_cref.m_category) {
+								/* If the lifetime of a pointer's target is abstract, it can be used as the ("upper bound")
+								lifetime of the lhs of a (pointer) assignment. Right? */
+								auto& lhs_target_slti_ref = lhs_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos.front();
+								lhs_target_slti_ref = target_slti_cref;
+								lhs_lifetime_values_evaluated = true;
+							}
+						} else {
+							/* unexpected */
+							int i = 3;
 						}
-
-						satisfies_checks = slti_second_can_be_assigned_to_first(lhs_lifetime_value, rhs_lifetime_value, *(MR.Context), m_state1);
-
-						int q =5;
 					}
 				}
+
+				std::string lhs_hints;
+
+				if (!lhs_lifetime_values_evaluated) {
+					auto maybe_lhs_slo = upper_bound_lifetime_owner_if_available(LHSEX, *(MR.Context), m_state1);
+
+					if (maybe_lhs_slo.has_value()) {
+						auto& lhs_slo = maybe_lhs_slo.value();
+
+						lhs_lifetime_value = scope_lifetime_info_from_lifetime_owner(lhs_slo, *(MR.Context), m_state1);
+						slti_set_default_lower_bound_lifetimes_where_needed(lhs_lifetime_value, LHSEX->getType());
+						lhs_lifetime_values_evaluated = true;
+					} else {
+						lhs_hints = maybe_lhs_slo.hints_str();
+					}
+				}
+
+				satisfies_checks = slti_second_can_be_assigned_to_first(lhs_lifetime_value, rhs_lifetime_value, *(MR.Context), m_state1);
 
 				if (!satisfies_checks) {
 					std::string error_desc = std::string("Unable to verify that this pointer assignment (of type '")
 						+ LHSEX->getType().getAsString() + "') is safe.";
-					//const auto hints_str = rhs_slo.hints_str();
-					const auto hints_str = std::string();
-					if (!hints_str.empty()) {
-						error_desc += " (" + hints_str + ")";
-					} else {
-						const auto hints_str = lhs_slo.hints_str();
-						if (!hints_str.empty()) {
-							error_desc += " (" + hints_str + ")";
-						} else {
-							error_desc += " (Possibly due to being unable to verify that the new target object outlives the (scope) pointer.)";
-						}
+					std::string hints;
+					if ((!lhs_lifetime_values_evaluated) && (!lhs_hints.empty())) {
+						hints += " (" + lhs_hints + ")";
 					}
+					if ((!rhs_lifetime_values_evaluated) && (!rhs_hints.empty())) {
+						hints += " (" + rhs_hints + ")";
+					}
+					if (hints.empty()) {
+						hints += " (Possibly due to being unable to verify that the new target object outlives the (scope) pointer.)";
+					}
+					error_desc += hints;
 
 					auto FND = enclosing_function_if_any(LHSEX, *(MR.Context));
 					if (FND) {
