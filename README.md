@@ -181,6 +181,8 @@ void main(int argc, char* argv[]) {
 
 #### Annotating lifetime constraints
 
+[*provisional*]
+
 By default, this tool enforces that targets of scope (raw) pointers outlive the pointer itself. But sometimes it can be useful to enforce even more stringent restrictions on the lifespan of the target objects. Consider the following example:
 
 ```cpp
@@ -423,6 +425,8 @@ MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value<422> }")
 Notice the annotation for the `foo2()` function's parameter, `mse::lifetime_labels<42 [421, 422]>`. In this case, label `42` is associated with the lifespan of the object (of type `CRefObj2`) referenced by the native reference argument, label `421` is associated with the lifespan of the first object referenced by that object (aka the object's first "sublifetime"), and label `422` is associated with the lifespan of the second object (of type `float` in this case) referenced by that object. See, in the `mse::lifetime_labels<>` annotation we can use commas and square brackets to create a tree of lifetime labels that correspond to the tree of lifespan values of the argument object.
 
 This syntax for addressing sublifetimes might be considered a little messy (and maybe error prone), but results from the fact that, in the source text, our annotations are placed after the declarations rather than the directly after the types they might correspond to. This is, in part, an artifact of a historical limitation in one of the libraries the tool uses. In the future the tool may support placing the lifetime label annotations directly after the type.
+
+(Also note, that at the time of writing, implementation of lifetime safety enforcement is not complete. Safety can be subverted through, for example, casts between compatible types with incompatible lifetime annotations, or cyclic references with user-defined destructors, etc..)
 
 ##### third party lifetime annotations
 
