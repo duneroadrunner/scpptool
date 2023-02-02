@@ -294,6 +294,11 @@ inline auto IgnoreParenImpNoopCasts(TPtr ptr, clang::ASTContext& Ctx) -> decltyp
 	return IgnoreParenImpCasts(ptr)->IgnoreParenNoopCasts(Ctx);
 }
 template<typename TPtr>
+inline auto IgnoreParenNoopCasts(TPtr ptr, clang::ASTContext& Ctx) -> decltype(IgnoreParenImpCasts(ptr)->IgnoreParenNoopCasts(Ctx)) {
+	if (!ptr) { return ptr; }
+	return ptr->IgnoreParenNoopCasts(Ctx);
+}
+template<typename TPtr>
 inline const clang::Expr* IgnoreExprWithCleanups(const TPtr ptr) {
 	if (!ptr) { return ptr; }
 	const clang::ExprWithCleanups* EWC = clang::dyn_cast<const clang::ExprWithCleanups>(ptr);

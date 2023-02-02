@@ -59,6 +59,14 @@ namespace checker {
     using namespace clang::driver;
     using namespace clang::tooling;
 
+#define MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval) \
+	if (qtype.isNull()) { \
+		/* Cannot properly evaluate (presumably) because this is a template definition. Proper \
+		evaluation should occur in any instantiation of the template. */ \
+		return retval; \
+	}
+#define MSE_RETURN_IF_TYPE_IS_NULL(qtype) MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, )
+
 	static std::string s_target_debug_location_init_val() {
 		std::string retval = "test1_1proj.cpp:539:";
 		static const std::string src_pathname = "target_debug_location.txt";
@@ -2868,6 +2876,9 @@ namespace checker {
 	}
 
 	bool is_raw_pointer_or_equivalent(const clang::QualType& qtype) {
+		IF_DEBUG(auto qtype_str = qtype.getAsString();)
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, false);
+
 		bool is_pointer_or_equivalent = true;
 		if (!qtype->isPointerType()) {
 			const auto RD = qtype->getAsRecordDecl();
@@ -2977,16 +2988,16 @@ namespace checker {
 				pointer_target_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::ThisExpression;
 				pointer_target_lifetime_info.m_maybe_abstract_lifetime = state1.corresponding_abstract_lifetime_if_any(slov, Ctx);
 
-				auto FD = enclosing_function_if_any(slov, Ctx);
-				if (FD) {
-					pointer_target_lifetime_info.m_maybe_containing_scope = get_containing_scope(FD, Ctx);
-					auto FDSL = FD->getLocation();
-					if (FDSL.isValid()) {
+				auto FND = enclosing_function_if_any(slov, Ctx);
+				if (FND) {
+					pointer_target_lifetime_info.m_maybe_containing_scope = get_containing_scope(FND, Ctx);
+					auto FNDSL = FND->getLocation();
+					if (FNDSL.isValid()) {
 						/* A `this` pointer can be thought of as an implicit parameter of the associated (member) function
 						or operator. So we're just going to report the source range of its declaration as being at the
 						location of the function/operator name in the declaration, while assuming that's close enough to
 						where an equivalent explicitly declared `this` parameter would be. */
-						pointer_target_lifetime_info.m_maybe_source_range = clang::SourceRange{ FDSL, FDSL };
+						pointer_target_lifetime_info.m_maybe_source_range = clang::SourceRange{ FNDSL, FNDSL };
 					} else {
 						int q = 3;
 					}
@@ -3015,9 +3026,9 @@ namespace checker {
 					is that it's the result of some expression. */
 					lifetime_info_result.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
 					lifetime_info_result.m_maybe_corresponding_cpp_element = slov;
-					auto FD = enclosing_function_if_any(slov, Ctx);
-					if (FD) {
-						lifetime_info_result.m_maybe_containing_scope = get_containing_scope(FD, Ctx);
+					auto FND = enclosing_function_if_any(slov, Ctx);
+					if (FND) {
+						lifetime_info_result.m_maybe_containing_scope = get_containing_scope(FND, Ctx);
 					} else {
 						int q = 3;
 					}
@@ -3475,6 +3486,14 @@ namespace checker {
 		std::vector<std::string> m_hints;
 		bool m_failure_due_to_dependent_type_flag = false;
 	};
+#define MSE_RETURN_VALUE_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(maybe_lifetime_value, retval) \
+	if (maybe_lifetime_value.m_failure_due_to_dependent_type_flag) { \
+		/* Cannot properly evaluate because this is a template definition. Proper evaluation should \
+		occur in any instantiation of the template. */ \
+		return retval; \
+	}
+#define MSE_RETURN_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(maybe_lifetime_value) MSE_RETURN_VALUE_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(maybe_lifetime_value, )
+
 	struct CMaybeExpressionLifetimeValuesWithHints : public std::optional<CExpressionLifetimeValues> {
 		typedef std::optional<CExpressionLifetimeValues> base_class;
 		using base_class::base_class;
@@ -5380,11 +5399,7 @@ namespace checker {
 										bool satisfies_checks = false;
 										auto rv_abstract_lifetimes = flta_iter->second.m_return_value_lifetimes;
 										auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, m_state1, E);
-										if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
-											/* Cannot properly evaluate because this is a template definition. Proper evaluation should
-											occur in any instantiation of the template. */
-											return;
-										}
+										MSE_RETURN_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(maybe_expr_lifetime_value);
 										if (maybe_expr_lifetime_value.has_value()) {
 											auto &lbsli = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
 											CScopeLifetimeInfo1 rvsli;
@@ -7242,12 +7257,19 @@ namespace checker {
 			}
 		}
 
-		const auto E_ii = IgnoreParenImpNoopCasts(E, Ctx);
+		//const auto E_ii = IgnoreParenImpNoopCasts(E, Ctx);
+		const auto E_ip = IgnoreParenNoopCasts(E, Ctx);
 
-		auto qtype = E_ii->getType();
+		auto qtype = E_ip->getType();
 		IF_DEBUG(auto qtype_str = qtype.getAsString();)
+		if (qtype.isNull()) {
+			/* Cannot properly evaluate (presumably) because this is a template definition. Proper
+			evaluation should occur in any instantiation of the template. */
+			retval.m_failure_due_to_dependent_type_flag = true;
+			return retval;
+		}
 
-		auto CXXCE = dyn_cast<const clang::CXXConstructExpr>(E_ii);
+		auto CXXCE = dyn_cast<const clang::CXXConstructExpr>(E_ip);
 		if (CXXCE) {
 			auto elv_iter1 = state1.m_expr_lifetime_values_map.find(CXXCE);
 			if (state1.m_expr_lifetime_values_map.end() == elv_iter1) {
@@ -7265,8 +7287,8 @@ namespace checker {
 		} else {
 			std::optional<CScopeLifetimeInfo1Set> maybe_sublifetimes;
 
-			auto DSDRE = dyn_cast<const clang::DependentScopeDeclRefExpr>(E_ii);
-			auto DRE = dyn_cast<const clang::DeclRefExpr>(E_ii);
+			auto DSDRE = dyn_cast<const clang::DependentScopeDeclRefExpr>(E_ip);
+			auto DRE = dyn_cast<const clang::DeclRefExpr>(E_ip);
 			if (DRE) {
 				auto value_decl = DRE->getDecl();
 				if (value_decl) {
@@ -7282,7 +7304,7 @@ namespace checker {
 						if (maybe_decl_lifetime_value.has_value()) {
 							CScopeLifetimeInfo1& decl_slti = maybe_decl_lifetime_value.value().m_scope_lifetime_info;
 
-							auto res1 = state1.m_expr_lifetime_values_map.insert_or_assign( E_ii, CExpressionLifetimeValues{ decl_slti, bool(MR_ptr) } );
+							auto res1 = state1.m_expr_lifetime_values_map.insert_or_assign( E_ip, CExpressionLifetimeValues{ decl_slti, bool(MR_ptr) } );
 							return (res1.first)->second;
 						}
 					}
@@ -7291,10 +7313,10 @@ namespace checker {
 				retval.m_failure_due_to_dependent_type_flag = true;
 				return retval;
 			} else {
-				auto CXXILE = dyn_cast<const clang::CXXStdInitializerListExpr>(E_ii);
-				auto ILE = dyn_cast<const clang::InitListExpr>(E_ii);
-				auto CXXDSME = dyn_cast<const clang::CXXDependentScopeMemberExpr>(E_ii);
-				auto ME = dyn_cast<const clang::MemberExpr>(E_ii);
+				auto CXXILE = dyn_cast<const clang::CXXStdInitializerListExpr>(E_ip);
+				auto ILE = dyn_cast<const clang::InitListExpr>(E_ip);
+				auto CXXDSME = dyn_cast<const clang::CXXDependentScopeMemberExpr>(E_ip);
+				auto ME = dyn_cast<const clang::MemberExpr>(E_ip);
 				if (ME) {
 					const auto VLD = ME->getMemberDecl();
 					auto VLD_qtype = VLD->getType();
@@ -7404,8 +7426,8 @@ namespace checker {
 
 							/* Here we put the evaluated expression lifetimes in "persistent" storage. */
 							state1.m_expr_lifetime_values_map.insert_or_assign( E, CExpressionLifetimeValues{ expr_slti, bool(MR_ptr) } );
-							if (E_ii != E) {
-								auto res1 = state1.m_expr_lifetime_values_map.insert_or_assign( E_ii, CExpressionLifetimeValues{ expr_slti, bool(MR_ptr) } );
+							if (E_ip != E) {
+								auto res1 = state1.m_expr_lifetime_values_map.insert_or_assign( E_ip, CExpressionLifetimeValues{ expr_slti, bool(MR_ptr) } );
 								retval = (res1.first)->second;
 							}
 							retval = CExpressionLifetimeValues{ expr_slti, bool(MR_ptr) };
@@ -7475,13 +7497,13 @@ namespace checker {
 						}
 					}
 				} else if (CXXILE) {
-					const auto sub_E_ii = IgnoreParenImpNoopCasts(CXXILE->getSubExpr(), Ctx);
-					if (sub_E_ii && (sub_E_ii != CXXILE)) {
-						/* We're expecting sub_E_ii to be a clang::InitListExpr (pointer). */
-						return evaluate_expression_lower_bound_lifetimes(state1, sub_E_ii, Ctx, MR_ptr, Rewrite_ptr);
+					const auto sub_E_ip = IgnoreParenNoopCasts(CXXILE->getSubExpr(), Ctx);
+					if (sub_E_ip && (sub_E_ip != CXXILE)) {
+						/* We're expecting sub_E_ip to be a clang::InitListExpr (pointer). */
+						return evaluate_expression_lower_bound_lifetimes(state1, sub_E_ip, Ctx, MR_ptr, Rewrite_ptr);
 					}
-				} else if (qtype->isPointerType()) {
-					auto target_EX = raw_pointer_target_expression_if_available(E_ii, Ctx, state1);
+				} else if (is_raw_pointer_or_equivalent(qtype)) {
+					auto target_EX = raw_pointer_target_expression_if_available(E_ip, Ctx, state1);
 					auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(state1, target_EX, Ctx, MR_ptr, Rewrite_ptr);
 					if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
 						/* Cannot properly evaluate because this is a template definition. Proper evaluation should
@@ -7499,7 +7521,7 @@ namespace checker {
 			auto expr_scope_lifetime_info = CScopeLifetimeInfo1{};
 			expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
 			/* Here we try to evaluate the direct lifetime of the expression. */
-			auto maybe_expr_owner = lower_bound_lifetime_owner_if_available(E_ii, Ctx, state1, MR_ptr, Rewrite_ptr);
+			auto maybe_expr_owner = lower_bound_lifetime_owner_if_available(E_ip, Ctx, state1, MR_ptr, Rewrite_ptr);
 			if (maybe_expr_owner.has_value()) {
 				auto& expr_owner = maybe_expr_owner.value();
 				if (std::holds_alternative<const VarDecl*>(expr_owner)) {
@@ -7535,8 +7557,8 @@ namespace checker {
 			}
 			/* Here we put the evaluated expression lifetimes in "persistent" storage. */
 			state1.m_expr_lifetime_values_map.insert_or_assign( E, CExpressionLifetimeValues{ expr_scope_lifetime_info, bool(MR_ptr) } );
-			if (E_ii != E) {
-				auto res1 = state1.m_expr_lifetime_values_map.insert_or_assign( E_ii, CExpressionLifetimeValues{ expr_scope_lifetime_info, bool(MR_ptr) } );
+			if (E_ip != E) {
+				auto res1 = state1.m_expr_lifetime_values_map.insert_or_assign( E_ip, CExpressionLifetimeValues{ expr_scope_lifetime_info, bool(MR_ptr) } );
 				retval = (res1.first)->second;
 			}
 			retval = CExpressionLifetimeValues{ expr_scope_lifetime_info, bool(MR_ptr) };
@@ -8070,7 +8092,7 @@ namespace checker {
 						if (PVD) {
 							satisfies_checks = true;
 						} else {
-							auto CE = dyn_cast<const clang::CallExpr>(IgnoreParenImpNoopCasts(VD->getInit(), Ctx));
+							auto CE = dyn_cast<const clang::CallExpr>(IgnoreParenNoopCasts(VD->getInit(), Ctx));
 							if (CE) {
 								auto function_decl = CE->getDirectCallee();
 								auto num_args = CE->getNumArgs();
@@ -8122,7 +8144,7 @@ namespace checker {
 					if (init_EX) {
 						null_initialization = is_nullptr_literal(init_EX, Ctx);
 						if (!null_initialization) {
-							const auto init_EX_ii = IgnoreParenImpNoopCasts(init_EX, Ctx);
+							const auto init_EX_ii = IgnoreParenNoopCasts(init_EX, Ctx);
 							const auto CXXCE = dyn_cast<const CXXConstructExpr>(init_EX_ii);
 							if (CXXCE) {
 								if (1 == CXXCE->getNumArgs()) {
@@ -8256,9 +8278,19 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
 				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CXXCI, Rewrite, *(MR.Context));
 				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CXXCIISR);
 				if (suppress_check_flag) {
+					return;
+				}
+				if (!(CXXCI->isWritten())) {
+					/* We think this construction initializer is implicit and generated by the compiler. */
 					return;
 				}
 
@@ -8268,10 +8300,16 @@ namespace checker {
 					return;
 				}
 				IF_DEBUG(const auto name = FD->getNameAsString();)
+				process_type_lifetime_annotations(*FD, m_state1, &MR, &Rewrite);
 
-				const auto EX = CXXCI->getInit();
-				if (EX) {
-					auto CXXThisExpr_range = get_contained_elements_of_type_CXXThisExpr(*EX);
+				const auto init_E = CXXCI->getInit();
+				if (init_E) {
+					auto CXXCD = Tget_containing_element_of_type<clang::CXXConstructorDecl>(init_E, *(MR.Context));
+					if (CXXCD) {
+						process_function_lifetime_annotations(*CXXCD, m_state1, &MR, &Rewrite);
+					}
+
+					auto CXXThisExpr_range = get_contained_elements_of_type_CXXThisExpr(*init_E);
 					for (const auto CXXTE : CXXThisExpr_range) {
 						assert(CXXTE);
 						const auto ME = get_immediately_containing_MemberExpr_from_CXXThisExpr_if_any(*CXXTE, *(MR.Context));
@@ -8321,12 +8359,12 @@ namespace checker {
 							}
 						}
 					}
-					if (FD->getType()->isPointerType()
+					if (is_raw_pointer_or_equivalent(FD->getType())
 						&& (!(*this).m_state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(FD->getType()))
 						&& (!m_state1.m_suppress_check_region_set.contains(instantiation_source_range(FD->getSourceRange(), Rewrite)))
 						) {
-						if (is_nullptr_literal(EX, *(MR.Context))) {
-							auto CISR = nice_source_range(EX->getSourceRange(), Rewrite);
+						if (is_nullptr_literal(init_E, *(MR.Context))) {
+							auto CISR = nice_source_range(init_E->getSourceRange(), Rewrite);
 							if (!CISR.isValid()) {
 								CISR = SR;
 							}
@@ -8338,18 +8376,85 @@ namespace checker {
 								std::cout << (*(res.first)).as_a_string1() << " \n\n";
 							}
 						}
+
+						auto maybe_alts = m_state1.corresponding_abstract_lifetime_set_if_any(FD);
+						if (maybe_alts.has_value()) {
+							auto& alts = maybe_alts.value();
+							if ((1 <= alts.m_primary_lifetimes.size())) {
+								/* The member is a pointer with a lifetime annotation. Here we're going to check that the
+								initialization value has a compatible (sub)lifetime value.
+								The thinking is that this check only needs to be done for pointers because other supported
+								member reference types will have explicitly defined constructors and the initalization value
+								will be checked when their constructor is called. */
+
+								/* Since the member pointer's sublifetime is abstract and known, the primary lifetime of the
+								pointer is not relevant in determining if the validity of the assignment/initialization. So
+								we just use a "stand in" primamry lifetime. */
+								CScopeLifetimeInfo1 lhs_lifetime_value;
+								lhs_lifetime_value.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
+								lhs_lifetime_value.m_maybe_containing_scope = get_containing_scope(CXXCI, *(MR.Context));
+								lhs_lifetime_value.m_maybe_source_range = CXXCI->getSourceRange();
+								//lhs_lifetime_value.m_maybe_corresponding_cpp_element = CXXCI;
+								//slti_set_default_lower_bound_lifetimes_where_needed(lhs_lifetime_value, FD->getType());
+								lhs_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos = { alts.m_primary_lifetimes.front() };
+
+								CScopeLifetimeInfo1 rhs_lifetime_value;
+								bool rhs_lifetime_values_evaluated = false;
+								std::string rhs_hints;
+								auto adj_RHSEX = remove_cast_from_TPointerForLegacy_to_raw_pointer(init_E, *(MR.Context));
+								auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, m_state1, adj_RHSEX);
+								MSE_RETURN_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(maybe_expr_lifetime_value);
+								if (maybe_expr_lifetime_value.has_value()) {
+									CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+									rhs_lifetime_value = expr_slti;
+									rhs_lifetime_values_evaluated = true;
+								} else {
+									auto maybe_rhs_slo = lower_bound_lifetime_owner_of_pointer_target_if_available(
+										adj_RHSEX, *(MR.Context), m_state1);
+									if (!(maybe_rhs_slo.has_value())) {
+										/* We were unable to determine a lifetime owner for this expression. We haven't
+										contemplated all circumstances for which this might happen, if any, but for now
+										we're just going to set the expression itself as the owner. */
+										maybe_rhs_slo = adj_RHSEX;
+										rhs_hints = maybe_rhs_slo.hints_str();
+									} else {
+										rhs_lifetime_values_evaluated = true; // ?
+									}
+									rhs_lifetime_value = scope_lifetime_info_from_lifetime_owner(maybe_rhs_slo.value(), *(MR.Context), m_state1);
+								}
+
+								bool satisfies_checks = slti_second_can_be_assigned_to_first(lhs_lifetime_value, rhs_lifetime_value, *(MR.Context), m_state1);
+
+								if (!satisfies_checks) {
+									std::string error_desc = std::string("Unable to verify that this pointer assignment (of type '")
+										+ FD->getType().getAsString() + "') is safe.";
+									std::string hints;
+									if ((!rhs_lifetime_values_evaluated) && (!rhs_hints.empty())) {
+										hints += " (" + rhs_hints + ")";
+									}
+									if (hints.empty()) {
+										hints += " (Possibly due to being unable to verify that the new target object outlives the (scope) pointer.)";
+									}
+									error_desc += hints;
+
+									error_desc += " (This pointer assignment occurs in the constructor initializer for member field '" + FD->getNameAsString() + "' .)";
+
+									auto res = m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									}
+								}
+
+							}
+						}
 					}
 				} else {
 					if (FD->getType()->isPointerType()) {
 						{
-							auto CISR = nice_source_range(EX->getSourceRange(), Rewrite);
-							if (!CISR.isValid()) {
-								CISR = SR;
-							}
 							const std::string error_desc = std::string("Default initialization of ")
 								+ "native pointer field '" + FD->getNameAsString()
 								+ "' is not supported.";
-							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, CISR.getBegin(), error_desc));
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 							if (res.second) {
 								std::cout << (*(res.first)).as_a_string1() << " \n\n";
 							}
@@ -8370,8 +8475,187 @@ namespace checker {
 		MCSSSPointerAssignment (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
-		virtual void run(const MatchFinder::MatchResult &MR)
-		{
+		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+			, const clang::Expr* LHSEX, const clang::Expr* RHSEX) {
+
+			if ((LHSEX != nullptr) && (RHSEX != nullptr))
+			{
+				SourceRange SR = nice_source_range(LHSEX->getSourceRange(), Rewrite);
+
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
+				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(LHSEX, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
+					return;
+				}
+
+				/* In our case, it's significantly harder to verify the safety of a pointer assignment than say,
+				a value initialization of a pointer. With initialization, we only need to verify that the target
+				object has scope lifetime, as that alone is sufficient to conclude that the target object
+				outlives the pointer. Not so with pointer assignment. There we need to obtain an "upper bound"
+				for the (scope) lifetime of the (lhs) pointer being modified and a lower bound for the (scope)
+				lifetime of the new target object. */
+
+				assert(LHSEX && RHSEX);
+				IF_DEBUG(const auto LHSEX_qtype_str = LHSEX->getType().getAsString();)
+				const auto LHSEX_rw_type_ptr = remove_mse_transparent_wrappers(LHSEX->getType()).getTypePtr();
+				assert(LHSEX_rw_type_ptr);
+				if (!LHSEX_rw_type_ptr->isPointerType()) {
+					const auto RD = LHSEX_rw_type_ptr->getAsRecordDecl();
+					if (!RD) {
+						return;
+					} else {
+						/* `mse::us::impl::TPointerForLegacy<>` is sometimes used as (a functionally
+						equivalent) substitute for native pointers that can act as a base class. */
+						const auto LHSEX_rw_qtype_str = RD->getQualifiedNameAsString();
+						DECLARE_CACHED_CONST_STRING(TPointerForLegacy_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
+						if (TPointerForLegacy_str != LHSEX_rw_qtype_str) {
+							return;
+						}
+					}
+				} else {
+					const auto qtype = clang::QualType(LHSEX_rw_type_ptr, 0/*I'm just assuming zero specifies no qualifiers*/);
+					if (state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(qtype)) {
+						return;
+					}
+				}
+
+				bool satisfies_checks = false;
+
+				auto FND = enclosing_function_if_any(LHSEX, *(MR.Context));
+				if (FND) {
+					process_function_lifetime_annotations(*FND, state1, &MR, &Rewrite);
+				}
+
+				/* Obtaining the declaration (location) of the pointer to be modified (or its owner) (and
+				therefore its scope lifetime) can be challenging. We are not always going to be able to
+				do so. */
+
+				CScopeLifetimeInfo1 rhs_lifetime_value;
+				bool rhs_lifetime_values_evaluated = false;
+				std::string rhs_hints;
+				auto adj_RHSEX = remove_cast_from_TPointerForLegacy_to_raw_pointer(RHSEX, *(MR.Context));
+				auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, state1, adj_RHSEX);
+				if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+					/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+					occur in any instantiation of the template. */
+					return;
+				}
+				if (maybe_expr_lifetime_value.has_value()) {
+					CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+					rhs_lifetime_value = expr_slti;
+					rhs_lifetime_values_evaluated = true;
+				} else {
+					auto maybe_rhs_slo = lower_bound_lifetime_owner_of_pointer_target_if_available(
+						adj_RHSEX, *(MR.Context), state1);
+					if (!(maybe_rhs_slo.has_value())) {
+						/* We were unable to determine a lifetime owner for this expression. We haven't
+						contemplated all circumstances for which this might happen, if any, but for now
+						we're just going to set the expression itself as the owner. */
+						maybe_rhs_slo = adj_RHSEX;
+						rhs_hints = maybe_rhs_slo.hints_str();
+					} else {
+						rhs_lifetime_values_evaluated = true; // ?
+					}
+					rhs_lifetime_value = scope_lifetime_info_from_lifetime_owner(maybe_rhs_slo.value(), *(MR.Context), state1);
+				}
+
+				CScopeLifetimeInfo1 lhs_lifetime_value;
+				lhs_lifetime_value.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
+				lhs_lifetime_value.m_maybe_containing_scope = get_containing_scope(LHSEX, *(MR.Context));
+				lhs_lifetime_value.m_maybe_source_range = LHSEX->getSourceRange();
+				lhs_lifetime_value.m_maybe_corresponding_cpp_element = LHSEX;
+				slti_set_default_lower_bound_lifetimes_where_needed(lhs_lifetime_value, LHSEX->getType());
+				bool lhs_lifetime_values_evaluated = false;
+
+				{
+					auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, state1, LHSEX);
+					if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+						/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+						occur in any instantiation of the template. */
+						return;
+					} else if (maybe_expr_lifetime_value.has_value()) {
+						CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+						slti_set_default_lower_bound_lifetimes_where_needed(expr_slti, LHSEX->getType());
+						if ((1 == expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.size())
+							&& (1 == lhs_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos.size())) {
+							const auto& target_slti_cref = expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.front();
+							if (CScopeLifetimeInfo1::ECategory::AbstractLifetime == target_slti_cref.m_category) {
+								/* If the lifetime of a pointer's target is abstract, it can be used as the ("upper bound")
+								lifetime of the lhs of a (pointer) assignment. Right? */
+								auto& lhs_target_slti_ref = lhs_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos.front();
+								lhs_target_slti_ref = target_slti_cref;
+								lhs_lifetime_values_evaluated = true;
+							}
+						} else {
+							/* unexpected */
+							int i = 3;
+						}
+					}
+				}
+
+				std::string lhs_hints;
+
+				if (!lhs_lifetime_values_evaluated) {
+					auto maybe_lhs_slo = upper_bound_lifetime_owner_if_available(LHSEX, *(MR.Context), state1);
+
+					if (maybe_lhs_slo.has_value()) {
+						auto& lhs_slo = maybe_lhs_slo.value();
+
+						lhs_lifetime_value = scope_lifetime_info_from_lifetime_owner(lhs_slo, *(MR.Context), state1);
+						slti_set_default_lower_bound_lifetimes_where_needed(lhs_lifetime_value, LHSEX->getType());
+						lhs_lifetime_values_evaluated = true;
+					} else {
+						lhs_hints = maybe_lhs_slo.hints_str();
+					}
+				}
+
+				satisfies_checks = slti_second_can_be_assigned_to_first(lhs_lifetime_value, rhs_lifetime_value, *(MR.Context), state1);
+
+				if (!satisfies_checks) {
+					std::string error_desc = std::string("Unable to verify that this pointer assignment (of type '")
+						+ LHSEX->getType().getAsString() + "') is safe.";
+					std::string hints;
+					if ((!lhs_lifetime_values_evaluated) && (!lhs_hints.empty())) {
+						hints += " (" + lhs_hints + ")";
+					}
+					if ((!rhs_lifetime_values_evaluated) && (!rhs_hints.empty())) {
+						hints += " (" + rhs_hints + ")";
+					}
+					if (hints.empty()) {
+						hints += " (Possibly due to being unable to verify that the new target object outlives the (scope) pointer.)";
+					}
+					error_desc += hints;
+
+					auto FND = enclosing_function_if_any(LHSEX, *(MR.Context));
+					if (FND) {
+						if (FND->isDefaulted()) {
+							error_desc += " (This pointer assignment is contained in the (possibly implicit/default member) function '" + FND->getNameAsString() + "' .)";
+						}
+					}
+
+					auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+					if (res.second) {
+						std::cout << (*(res.first)).as_a_string1() << " \n\n";
+					}
+				}
+			}
+		}
+
+		virtual void run(const MatchFinder::MatchResult &MR) {
 			const BinaryOperator* BO = MR.Nodes.getNodeAs<clang::BinaryOperator>("mcssspointerassignment1");
 			const CXXOperatorCallExpr* CXXOCE = MR.Nodes.getNodeAs<clang::CXXOperatorCallExpr>("mcssspointerassignment1");
 
@@ -8442,148 +8726,7 @@ namespace checker {
 				}
 
 				assert(LHSEX && RHSEX);
-				IF_DEBUG(const auto LHSEX_qtype_str = LHSEX->getType().getAsString();)
-				const auto LHSEX_rw_type_ptr = remove_mse_transparent_wrappers(LHSEX->getType()).getTypePtr();
-				assert(LHSEX_rw_type_ptr);
-				if (!LHSEX_rw_type_ptr->isPointerType()) {
-					const auto RD = LHSEX_rw_type_ptr->getAsRecordDecl();
-					if (!RD) {
-						return;
-					} else {
-						/* `mse::us::impl::TPointerForLegacy<>` is sometimes used as (a functionally
-						equivalent) substitute for native pointers that can act as a base class. */
-						const auto LHSEX_rw_qtype_str = RD->getQualifiedNameAsString();
-						DECLARE_CACHED_CONST_STRING(TPointerForLegacy_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
-						if (TPointerForLegacy_str != LHSEX_rw_qtype_str) {
-							return;
-						}
-					}
-				} else {
-					const auto qtype = clang::QualType(LHSEX_rw_type_ptr, 0/*I'm just assuming zero specifies no qualifiers*/);
-					if ((*this).m_state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(qtype)) {
-						return;
-					}
-				}
-
-				bool satisfies_checks = false;
-
-				auto FD = enclosing_function_if_any(LHSEX, *(MR.Context));
-				if (FD) {
-					process_function_lifetime_annotations(*FD, m_state1, &MR, &Rewrite);
-				}
-
-				/* Obtaining the declaration (location) of the pointer to be modified (or its owner) (and
-				therefore its scope lifetime) can be challenging. We are not always going to be able to
-				do so. */
-
-				CScopeLifetimeInfo1 rhs_lifetime_value;
-				bool rhs_lifetime_values_evaluated = false;
-				std::string rhs_hints;
-				auto adj_RHSEX = remove_cast_from_TPointerForLegacy_to_raw_pointer(RHSEX, *(MR.Context));
-				auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, m_state1, adj_RHSEX);
-				if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
-					/* Cannot properly evaluate because this is a template definition. Proper evaluation should
-					occur in any instantiation of the template. */
-					return;
-				}
-				if (maybe_expr_lifetime_value.has_value()) {
-					CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
-					rhs_lifetime_value = expr_slti;
-					rhs_lifetime_values_evaluated = true;
-				} else {
-					auto maybe_rhs_slo = lower_bound_lifetime_owner_of_pointer_target_if_available(
-						adj_RHSEX, *(MR.Context), m_state1);
-					if (!(maybe_rhs_slo.has_value())) {
-						/* We were unable to determine a lifetime owner for this expression. We haven't
-						contemplated all circumstances for which this might happen, if any, but for now
-						we're just going to set the expression itself as the owner. */
-						maybe_rhs_slo = adj_RHSEX;
-						rhs_hints = maybe_rhs_slo.hints_str();
-					} else {
-						rhs_lifetime_values_evaluated = true; // ?
-					}
-					rhs_lifetime_value = scope_lifetime_info_from_lifetime_owner(maybe_rhs_slo.value(), *(MR.Context), m_state1);
-				}
-
-				CScopeLifetimeInfo1 lhs_lifetime_value;
-				lhs_lifetime_value.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
-				lhs_lifetime_value.m_maybe_containing_scope = get_containing_scope(LHSEX, *(MR.Context));
-				lhs_lifetime_value.m_maybe_source_range = LHSEX->getSourceRange();
-				lhs_lifetime_value.m_maybe_corresponding_cpp_element = LHSEX;
-				slti_set_default_lower_bound_lifetimes_where_needed(lhs_lifetime_value, LHSEX->getType());
-				bool lhs_lifetime_values_evaluated = false;
-
-				{
-					auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, m_state1, LHSEX);
-					if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
-						/* Cannot properly evaluate because this is a template definition. Proper evaluation should
-						occur in any instantiation of the template. */
-						return;
-					} else if (maybe_expr_lifetime_value.has_value()) {
-						CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
-						slti_set_default_lower_bound_lifetimes_where_needed(expr_slti, LHSEX->getType());
-						if ((1 == expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.size())
-							&& (1 == lhs_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos.size())) {
-							const auto& target_slti_cref = expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.front();
-							if (CScopeLifetimeInfo1::ECategory::AbstractLifetime == target_slti_cref.m_category) {
-								/* If the lifetime of a pointer's target is abstract, it can be used as the ("upper bound")
-								lifetime of the lhs of a (pointer) assignment. Right? */
-								auto& lhs_target_slti_ref = lhs_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos.front();
-								lhs_target_slti_ref = target_slti_cref;
-								lhs_lifetime_values_evaluated = true;
-							}
-						} else {
-							/* unexpected */
-							int i = 3;
-						}
-					}
-				}
-
-				std::string lhs_hints;
-
-				if (!lhs_lifetime_values_evaluated) {
-					auto maybe_lhs_slo = upper_bound_lifetime_owner_if_available(LHSEX, *(MR.Context), m_state1);
-
-					if (maybe_lhs_slo.has_value()) {
-						auto& lhs_slo = maybe_lhs_slo.value();
-
-						lhs_lifetime_value = scope_lifetime_info_from_lifetime_owner(lhs_slo, *(MR.Context), m_state1);
-						slti_set_default_lower_bound_lifetimes_where_needed(lhs_lifetime_value, LHSEX->getType());
-						lhs_lifetime_values_evaluated = true;
-					} else {
-						lhs_hints = maybe_lhs_slo.hints_str();
-					}
-				}
-
-				satisfies_checks = slti_second_can_be_assigned_to_first(lhs_lifetime_value, rhs_lifetime_value, *(MR.Context), m_state1);
-
-				if (!satisfies_checks) {
-					std::string error_desc = std::string("Unable to verify that this pointer assignment (of type '")
-						+ LHSEX->getType().getAsString() + "') is safe.";
-					std::string hints;
-					if ((!lhs_lifetime_values_evaluated) && (!lhs_hints.empty())) {
-						hints += " (" + lhs_hints + ")";
-					}
-					if ((!rhs_lifetime_values_evaluated) && (!rhs_hints.empty())) {
-						hints += " (" + rhs_hints + ")";
-					}
-					if (hints.empty()) {
-						hints += " (Possibly due to being unable to verify that the new target object outlives the (scope) pointer.)";
-					}
-					error_desc += hints;
-
-					auto FND = enclosing_function_if_any(LHSEX, *(MR.Context));
-					if (FND) {
-						if (FND->isDefaulted()) {
-							error_desc += " (This pointer assignment is contained in the (possibly implicit/default member) function '" + FND->getNameAsString() + "' .)";
-						}
-					}
-
-					auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-					if (res.second) {
-						std::cout << (*(res.first)).as_a_string1() << " \n\n";
-					}
-				}
+				s_handler1(MR, Rewrite, m_state1, LHSEX, RHSEX);
 			}
 		}
 
