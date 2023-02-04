@@ -59,14 +59,6 @@ namespace checker {
     using namespace clang::driver;
     using namespace clang::tooling;
 
-#define MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval) \
-	if (qtype.isNull()) { \
-		/* Cannot properly evaluate (presumably) because this is a template definition. Proper \
-		evaluation should occur in any instantiation of the template. */ \
-		return retval; \
-	}
-#define MSE_RETURN_IF_TYPE_IS_NULL(qtype) MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, )
-
 	static std::string s_target_debug_location_init_val() {
 		std::string retval = "test1_1proj.cpp:539:";
 		static const std::string src_pathname = "target_debug_location.txt";
@@ -648,6 +640,55 @@ namespace checker {
 		Rewriter &Rewrite;
 		CTUState& m_state1;
 	};
+
+	bool is_raw_pointer_or_equivalent(const clang::QualType& qtype) {
+		IF_DEBUG(auto qtype_str = qtype.getAsString();)
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, false);
+
+		bool is_pointer_or_equivalent = true;
+		if (!qtype->isPointerType()) {
+			const auto RD = qtype->getAsRecordDecl();
+			if (!RD) {
+				is_pointer_or_equivalent = false;
+			} else {
+				/* `mse::us::impl::TPointerForLegacy<>` is sometimes used as (a functionally
+				equivalent) substitute for native pointers that can act as a base class. */
+				const auto CXXCE_rw_qtype_str = RD->getQualifiedNameAsString();
+				DECLARE_CACHED_CONST_STRING(TPointerForLegacy_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
+				if (TPointerForLegacy_str != CXXCE_rw_qtype_str) {
+					is_pointer_or_equivalent = false;
+				}
+			}
+		}
+		return is_pointer_or_equivalent;
+	}
+
+	inline std::optional<clang::QualType> pointee_type_if_any(clang::QualType const& qtype) {
+		std::optional<clang::QualType> retval;
+		auto peeled_qtype = remove_mse_transparent_wrappers(qtype);
+		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(peeled_qtype, retval);
+		if (is_raw_pointer_or_equivalent(peeled_qtype)) {
+			if (peeled_qtype->isPointerType()) {
+				retval = peeled_qtype->getPointeeType();
+			} else {
+				auto RD = peeled_qtype->getAsRecordDecl();
+				if (RD) {
+					const auto RD_qtype_str = RD->getQualifiedNameAsString();
+					DECLARE_CACHED_CONST_STRING(TPointerForLegacy_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
+					if (TPointerForLegacy_str == RD_qtype_str) {
+						auto maybe_qtype2 = get_first_template_parameter_if_any(peeled_qtype);
+						if (maybe_qtype2.has_value()) {
+							retval = maybe_qtype2.value();
+						}
+					}
+				}
+			}
+		} else if (peeled_qtype->isReferenceType()) {
+			retval = peeled_qtype->getPointeeType();
+		}
+		return retval;
+	}
 
 	template<typename TCallExpr>
 	auto arg_from_param_ordinal(TCallExpr const * CE, checker::param_ordinal_t param_ordinal) {
@@ -1337,8 +1378,12 @@ namespace checker {
 		std::optional<CAbstractLifetimeSet> maybe_containing_type_alts;
 		auto CXXMD = dyn_cast<const clang::CXXMethodDecl>(&func_decl);
 		if (CXXMD) {
-			IF_DEBUG(const std::string qtype_str = CXXMD->getThisType()->getPointeeType().getAsString();)
-			auto Type_ptr = CXXMD->getThisType()->getPointeeType().getTypePtr();
+			auto This_qtype = CXXMD->getThisType();
+			MSE_RETURN_IF_TYPE_IS_NULL(This_qtype);
+			auto This_pointee_qtype = This_qtype->getPointeeType();
+			MSE_RETURN_IF_TYPE_IS_NULL(This_pointee_qtype);
+			IF_DEBUG(const std::string qtype_str = This_pointee_qtype.getAsString();)
+			auto Type_ptr = This_pointee_qtype.getTypePtr();
 			auto containing_RD = Type_ptr->getAsRecordDecl();
 			if (containing_RD) {
 				process_type_lifetime_annotations(*containing_RD, state1, MR_ptr, Rewrite_ptr);
@@ -1534,8 +1579,7 @@ namespace checker {
 		param_ordinal_t param_ordinal = 1;
 		for (auto param_iter = func_decl.param_begin(); func_decl.param_end() != param_iter; ++param_iter, param_ordinal += 1) {
 			auto param = (*param_iter);
-			auto qtype = param->getType();
-			IF_DEBUG(const std::string qtype_str = qtype.getAsString();)
+			IF_DEBUG(const std::string param_qtype_str = param->getType().getAsString();)
 
 			if (param->hasAttrs()) {
 				DECLARE_CACHED_CONST_STRING(lifetime_labels, "lifetime_labels");
@@ -1689,279 +1733,46 @@ namespace checker {
 				}
 			}
 
-			/* This section is to support the old lifetime annotation format that embeds the lifetime constraints
-			in (the type of) an extra "unused" parameter. */
-			auto CXXRD = qtype->getAsCXXRecordDecl();
-			if (CXXRD) {
-				auto name = CXXRD->getQualifiedNameAsString();
-				const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
-				if (tmplt_CXXRD) {
-					name = tmplt_CXXRD->getQualifiedNameAsString();
-				}
-				DECLARE_CACHED_CONST_STRING(mse_rsv_ltn_lifetime_notes_str, mse_namespace_str() + "::rsv::ltn::lifetime_notes");
-				if (mse_rsv_ltn_lifetime_notes_str == name) {
-					auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
-						: param->getSourceRange();
+			if (!(param->getType().isNull())) {
+				/* This section is to support the old lifetime annotation format that embeds the lifetime constraints
+				in (the type of) an extra "unused" parameter. */
+				auto CXXRD = param->getType()->getAsCXXRecordDecl();
+				if (CXXRD) {
+					auto name = CXXRD->getQualifiedNameAsString();
+					const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
+					if (tmplt_CXXRD) {
+						name = tmplt_CXXRD->getQualifiedNameAsString();
+					}
+					DECLARE_CACHED_CONST_STRING(mse_rsv_ltn_lifetime_notes_str, mse_namespace_str() + "::rsv::ltn::lifetime_notes");
+					if (mse_rsv_ltn_lifetime_notes_str == name) {
+						auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
+							: param->getSourceRange();
 
-					auto process_lifetime_note = [&flta, &param, &func_decl, &MR_ptr, &Rewrite_ptr, &maybe_containing_type_alts](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
-						DECLARE_CACHED_CONST_STRING(mse_rsv_ltn_parameter_lifetime_labels_str, mse_namespace_str() + "::rsv::ltn::parameter_lifetime_labels");
-						DECLARE_CACHED_CONST_STRING(mse_rsv_ltn_pll_str, mse_namespace_str() + "::rsv::ltn::pll");
-						DECLARE_CACHED_CONST_STRING(mse_rsv_ltn_return_value_lifetime_str, mse_namespace_str() + "::rsv::ltn::return_value_lifetime");
-						DECLARE_CACHED_CONST_STRING(mse_rsv_ltn_encompasses_lifetime_str, mse_namespace_str() + "::rsv::ltn::encompasses");
+						auto process_lifetime_note = [&flta, &param, &func_decl, &MR_ptr, &Rewrite_ptr, &maybe_containing_type_alts](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+							DECLARE_CACHED_CONST_STRING(mse_rsv_ltn_parameter_lifetime_labels_str, mse_namespace_str() + "::rsv::ltn::parameter_lifetime_labels");
+							DECLARE_CACHED_CONST_STRING(mse_rsv_ltn_pll_str, mse_namespace_str() + "::rsv::ltn::pll");
+							DECLARE_CACHED_CONST_STRING(mse_rsv_ltn_return_value_lifetime_str, mse_namespace_str() + "::rsv::ltn::return_value_lifetime");
+							DECLARE_CACHED_CONST_STRING(mse_rsv_ltn_encompasses_lifetime_str, mse_namespace_str() + "::rsv::ltn::encompasses");
 
-						auto qtype = typeLoc.getType();
-						std::string element_name;
-						const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
-						if (l_CXXRD) {
-							element_name = l_CXXRD->getQualifiedNameAsString();
-						} else {
-							element_name = qtype.getAsString();
-						}
-
-						if (mse_rsv_ltn_parameter_lifetime_labels_str == element_name) {
-							auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
-								: param->getSourceRange();
-
-							std::unordered_map<param_ordinal_t, CAbstractLifetimeSet> param_lifetime_map;
-
-							auto process_parameter_lifetime = [&mse_rsv_ltn_pll_str, &param_lifetime_map, &func_decl, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
-								auto qtype = typeLoc.getType();
-								std::string element_name;
-								const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
-								if (l_CXXRD) {
-									element_name = l_CXXRD->getQualifiedNameAsString();
-								} else {
-									element_name = qtype.getAsString();
-								}
-								if (mse_rsv_ltn_pll_str == element_name) {
-									std::optional<param_ordinal_t> maybe_param_ordinal;
-									std::optional<lifetime_id_t> maybe_lifetime_label_id;
-
-									if (true) {
-										/* Here we're parsing the non-type (size_t) template parameters of 'mse::rsv::pll<>'
-										from the string representation of the type (of the instantiated template). This is
-										kind of a hacky way to do it, but when we try to obtain the non-type template
-										arguments programmatically, we seem to get a (not useful?) clang::TemplateArgument::Expression
-										instead of a desired (and more specific and more useful) clang::TemplateArgument::Integral. */
-										std::string qtype_str = qtype.getAsString();
-										auto langle_bracket_index = qtype_str.find('<');
-										if (std::string::npos != langle_bracket_index) {
-											auto comma_index = qtype_str.find(',', langle_bracket_index+1);
-											if ((std::string::npos != comma_index) && (langle_bracket_index + 1 < comma_index)) {
-												auto rangle_bracket_index = qtype_str.find('>', comma_index+1);
-												if ((std::string::npos != rangle_bracket_index) && (comma_index + 1 < rangle_bracket_index)) {
-													std::string param_ordinal_str = qtype_str.substr(langle_bracket_index + 1, int(comma_index) - int(langle_bracket_index) - 1);
-													auto param_ordinal = atoi(param_ordinal_str.c_str());
-													if (int(func_decl.getNumParams()) < param_ordinal) {
-														if (MR_ptr) {
-															std::string error_desc = std::string("The specified parameter ordinal ('") + std::to_string(param_ordinal)
-																+ "') is greater than the number of parameters (" + std::to_string(func_decl.getNumParams()) + ").";
-															auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-															if (res.second) {
-																std::cout << (*(res.first)).as_a_string1() << " \n\n";
-															}
-														}
-													} else if ((1 <= param_ordinal) || (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal)) {
-														maybe_param_ordinal = param_ordinal_t(param_ordinal);
-													} else {
-														if (MR_ptr) {
-															std::string error_desc = std::string("'") + param_ordinal_str + "' is not a valid parameter ordinal value.";
-															auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-															if (res.second) {
-																std::cout << (*(res.first)).as_a_string1() << " \n\n";
-															}
-														}
-													}
-
-													std::optional<CAbstractLifetime> maybe_return_value_lifetime;
-													std::string lifetime_label_id_str = qtype_str.substr(comma_index + 1, int(rangle_bracket_index) - int(comma_index) - 1);
-													auto lifetime_label_id = with_whitespace_removed(lifetime_label_id_str);
-													if (1 <= lifetime_label_id.length()) {
-														maybe_lifetime_label_id = lifetime_id_t(lifetime_label_id);
-													}
-												}
-											}
-										}
-									} else {
-										size_t component_index = 0;
-										auto process_parameter_lifetime_component = [&maybe_param_ordinal, &maybe_lifetime_label_id, &component_index, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
-											auto qtype = typeLoc.getType();
-											std::string element_name;
-											const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
-											if (l_CXXRD) {
-												element_name = l_CXXRD->getQualifiedNameAsString();
-											} else {
-												element_name = qtype.getAsString();
-											}
-
-											++component_index;
-
-											int q = 5;
-										};
-
-										/* We expected the "component types", i.e. non-type (size_t) template arguments,
-										in this case to be 'clang::TemplateArgument::Integral's. But instead they seem
-										to be reported as the (less specific) 'clang::TemplateArgument::Expression's, 
-										which aren't obviously useful (enough) for us. */
-										apply_to_component_types_if_any(typeLoc, process_parameter_lifetime_component, state1);
-									}
-
-									bool is_valid = true;
-									if ((!maybe_param_ordinal.has_value()) || ((1 > maybe_param_ordinal.value()) && (IMPLICIT_THIS_PARAM_ORDINAL != maybe_param_ordinal.value()))) {
-										is_valid = false;
-										if (MR_ptr) {
-											std::string error_desc = std::string("The first template argument of the 'mse::rsv::pll<parameter_ordinal_t param_ordinal, lifetime_label_t lifetime_label_id>' ")
-												+ "template must be an integer greater than zero or MSE_IMPLICIT_THIS_PARAM_ORDINAL.";
-											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-											if (res.second) {
-												std::cout << (*(res.first)).as_a_string1() << " \n\n";
-											}
-										}
-									}
-									if ((!maybe_lifetime_label_id.has_value()) || (1 > maybe_lifetime_label_id.value().length())) {
-										is_valid = false;
-										if (MR_ptr) {
-											std::string error_desc = std::string("The second template argument of the 'mse::rsv::pll<size_t param_ordinal, std::string lifetime_label_id>' ")
-												+ "template must be a valid non-empty string.";
-											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-											if (res.second) {
-												std::cout << (*(res.first)).as_a_string1() << " \n\n";
-											}
-										}
-									}
-									if (is_valid) {
-										param_lifetime_map.insert_or_assign(maybe_param_ordinal.value(), CAbstractLifetime{ maybe_lifetime_label_id.value(), &func_decl });
-									}
-								} else {
-									/* We seem to have encounterred a template argument that is not an mse::rsv::pll<>. We
-									should probably complain. */
-									int q = 5;
-								}
-								int q = 5;
-							};
-							auto tsi_ptr = param->getTypeSourceInfo();
-							if (tsi_ptr) {
-								//process_parameter_lifetime(tsi_ptr->getTypeLoc(), SR, state1);
-								apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), process_parameter_lifetime, state1);
-							}
-
-							flta.m_param_lifetime_map = param_lifetime_map;
-
-						} else if (mse_rsv_ltn_return_value_lifetime_str == element_name) {
-							auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
-								: param->getSourceRange();
-
-							std::optional<CAbstractLifetime> maybe_return_value_lifetime;
-
-							if (true) {
-								std::string qtype_str = qtype.getAsString();
-								const auto langle_bracket_index = qtype_str.find('<');
-								if (std::string::npos != langle_bracket_index) {
-									const auto rangle_bracket_index = qtype_str.find('>', langle_bracket_index+1);
-									if ((std::string::npos != rangle_bracket_index) && (langle_bracket_index + 1 < rangle_bracket_index)) {
-										auto last_delimiter_index = langle_bracket_index;
-										auto next_delimiter_index = qtype_str.find(',', last_delimiter_index+1);
-										if (std::string::npos == next_delimiter_index) {
-											next_delimiter_index = rangle_bracket_index;
-										}
-										while (true) {
-											if (!(last_delimiter_index + 1 < next_delimiter_index)) {
-												if (MR_ptr) {
-													std::string error_desc = std::string("Parse error in return value lifetime specification.");
-													auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-													if (res.second) {
-														std::cout << (*(res.first)).as_a_string1() << " \n\n";
-													}
-												}
-												break;
-											}
-											std::string lifetime_label_id_str = qtype_str.substr(last_delimiter_index + 1, int(next_delimiter_index) - int(last_delimiter_index) - 1);
-											auto lifetime_label_id = with_whitespace_removed(lifetime_label_id_str);
-
-											if (1 <= lifetime_label_id.length()) {
-												maybe_return_value_lifetime = new_or_existing_lifetime_from_label_id(lifetime_id_t(lifetime_label_id), &func_decl, maybe_containing_type_alts);
-											} else {
-												if (MR_ptr) {
-													std::string error_desc = std::string("No valid 'lifetime label id' specified.");
-													auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-													if (res.second) {
-														std::cout << (*(res.first)).as_a_string1() << " \n\n";
-													}
-												}
-											}
-
-											if (rangle_bracket_index == next_delimiter_index) {
-												break;
-											}
-											last_delimiter_index = next_delimiter_index;
-											next_delimiter_index = qtype_str.find(',', last_delimiter_index+1);
-											if (std::string::npos == next_delimiter_index) {
-												next_delimiter_index = rangle_bracket_index;
-											}
-										}
-									}
-								}
-							}
-							if (maybe_return_value_lifetime.has_value()) {
-								flta.m_return_value_lifetimes = maybe_return_value_lifetime.value();
-							}
-
-							int q = 5;
-
-						} else if (mse_rsv_ltn_encompasses_lifetime_str == element_name) {
-							auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
-								: param->getSourceRange();
-
-							std::optional<lifetime_id_t> maybe_first_lifetime_label_id;
-							std::optional<lifetime_id_t> maybe_second_lifetime_label_id;
-
-							if (true) {
-								/* Here we're parsing the non-type (size_t) template parameters of 'mse::rsv::encompasses<>'
-								from the string representation of the type (of the instantiated template). This is
-								kind of a hacky way to do it, but when we try to obtain the non-type template
-								arguments programmatically, we seem to get a (not useful?) clang::TemplateArgument::Expression
-								instead of a desired (and more specific and more useful) clang::TemplateArgument::Integral. */
-								std::string qtype_str = qtype.getAsString();
-								auto langle_bracket_index = qtype_str.find('<');
-								if (std::string::npos != langle_bracket_index) {
-									auto comma_index = qtype_str.find(',', langle_bracket_index+1);
-									if ((std::string::npos != comma_index) && (langle_bracket_index + 1 < comma_index)) {
-										auto rangle_bracket_index = qtype_str.find('>', comma_index+1);
-										if ((std::string::npos != rangle_bracket_index) && (comma_index + 1 < rangle_bracket_index)) {
-											std::string first_lifetime_label_id_str = qtype_str.substr(langle_bracket_index + 1, int(comma_index) - int(langle_bracket_index) - 1);
-											auto first_lifetime_label_id = with_whitespace_removed(first_lifetime_label_id_str);
-											maybe_first_lifetime_label_id = lifetime_id_t(first_lifetime_label_id);
-											if (1 <= first_lifetime_label_id.length()) {
-											} else {
-												if (MR_ptr) {
-													std::string error_desc = std::string("No valid 'lifetime label id' specified.");
-													auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-													if (res.second) {
-														std::cout << (*(res.first)).as_a_string1() << " \n\n";
-													}
-												}
-											}
-
-											std::string second_lifetime_label_id_str = qtype_str.substr(comma_index + 1, int(rangle_bracket_index) - int(comma_index) - 1);
-											auto second_lifetime_label_id = with_whitespace_removed(second_lifetime_label_id_str);
-											maybe_second_lifetime_label_id = lifetime_id_t(second_lifetime_label_id);
-											if (1 <= second_lifetime_label_id.length()) {
-											} else {
-												if (MR_ptr) {
-													std::string error_desc = std::string("No valid 'lifetime label id' specified.");
-													auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-													if (res.second) {
-														std::cout << (*(res.first)).as_a_string1() << " \n\n";
-													}
-												}
-											}
-										}
-									}
-								}
+							auto qtype = typeLoc.getType();
+							MSE_RETURN_IF_TYPE_IS_NULL(qtype);
+							std::string element_name;
+							const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+							if (l_CXXRD) {
+								element_name = l_CXXRD->getQualifiedNameAsString();
 							} else {
-								size_t component_index = 0;
-								auto process_parameter_lifetime_component = [&maybe_first_lifetime_label_id, &maybe_second_lifetime_label_id, &component_index, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+								element_name = qtype.getAsString();
+							}
+
+							if (mse_rsv_ltn_parameter_lifetime_labels_str == element_name) {
+								auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
+									: param->getSourceRange();
+
+								std::unordered_map<param_ordinal_t, CAbstractLifetimeSet> param_lifetime_map;
+
+								auto process_parameter_lifetime = [&mse_rsv_ltn_pll_str, &param_lifetime_map, &func_decl, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
 									auto qtype = typeLoc.getType();
+									MSE_RETURN_IF_TYPE_IS_NULL(qtype);
 									std::string element_name;
 									const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 									if (l_CXXRD) {
@@ -1969,44 +1780,283 @@ namespace checker {
 									} else {
 										element_name = qtype.getAsString();
 									}
+									if (mse_rsv_ltn_pll_str == element_name) {
+										std::optional<param_ordinal_t> maybe_param_ordinal;
+										std::optional<lifetime_id_t> maybe_lifetime_label_id;
 
-									++component_index;
+										if (true) {
+											/* Here we're parsing the non-type (size_t) template parameters of 'mse::rsv::pll<>'
+											from the string representation of the type (of the instantiated template). This is
+											kind of a hacky way to do it, but when we try to obtain the non-type template
+											arguments programmatically, we seem to get a (not useful?) clang::TemplateArgument::Expression
+											instead of a desired (and more specific and more useful) clang::TemplateArgument::Integral. */
+											std::string qtype_str = qtype.getAsString();
+											auto langle_bracket_index = qtype_str.find('<');
+											if (std::string::npos != langle_bracket_index) {
+												auto comma_index = qtype_str.find(',', langle_bracket_index+1);
+												if ((std::string::npos != comma_index) && (langle_bracket_index + 1 < comma_index)) {
+													auto rangle_bracket_index = qtype_str.find('>', comma_index+1);
+													if ((std::string::npos != rangle_bracket_index) && (comma_index + 1 < rangle_bracket_index)) {
+														std::string param_ordinal_str = qtype_str.substr(langle_bracket_index + 1, int(comma_index) - int(langle_bracket_index) - 1);
+														auto param_ordinal = atoi(param_ordinal_str.c_str());
+														if (int(func_decl.getNumParams()) < param_ordinal) {
+															if (MR_ptr) {
+																std::string error_desc = std::string("The specified parameter ordinal ('") + std::to_string(param_ordinal)
+																	+ "') is greater than the number of parameters (" + std::to_string(func_decl.getNumParams()) + ").";
+																auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+																if (res.second) {
+																	std::cout << (*(res.first)).as_a_string1() << " \n\n";
+																}
+															}
+														} else if ((1 <= param_ordinal) || (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal)) {
+															maybe_param_ordinal = param_ordinal_t(param_ordinal);
+														} else {
+															if (MR_ptr) {
+																std::string error_desc = std::string("'") + param_ordinal_str + "' is not a valid parameter ordinal value.";
+																auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+																if (res.second) {
+																	std::cout << (*(res.first)).as_a_string1() << " \n\n";
+																}
+															}
+														}
 
+														std::optional<CAbstractLifetime> maybe_return_value_lifetime;
+														std::string lifetime_label_id_str = qtype_str.substr(comma_index + 1, int(rangle_bracket_index) - int(comma_index) - 1);
+														auto lifetime_label_id = with_whitespace_removed(lifetime_label_id_str);
+														if (1 <= lifetime_label_id.length()) {
+															maybe_lifetime_label_id = lifetime_id_t(lifetime_label_id);
+														}
+													}
+												}
+											}
+										} else {
+											size_t component_index = 0;
+											auto process_parameter_lifetime_component = [&maybe_param_ordinal, &maybe_lifetime_label_id, &component_index, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+												auto qtype = typeLoc.getType();
+												MSE_RETURN_IF_TYPE_IS_NULL(qtype);
+												std::string element_name;
+												const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+												if (l_CXXRD) {
+													element_name = l_CXXRD->getQualifiedNameAsString();
+												} else {
+													element_name = qtype.getAsString();
+												}
+
+												++component_index;
+
+												int q = 5;
+											};
+
+											/* We expected the "component types", i.e. non-type (size_t) template arguments,
+											in this case to be 'clang::TemplateArgument::Integral's. But instead they seem
+											to be reported as the (less specific) 'clang::TemplateArgument::Expression's, 
+											which aren't obviously useful (enough) for us. */
+											apply_to_component_types_if_any(typeLoc, process_parameter_lifetime_component, state1);
+										}
+
+										bool is_valid = true;
+										if ((!maybe_param_ordinal.has_value()) || ((1 > maybe_param_ordinal.value()) && (IMPLICIT_THIS_PARAM_ORDINAL != maybe_param_ordinal.value()))) {
+											is_valid = false;
+											if (MR_ptr) {
+												std::string error_desc = std::string("The first template argument of the 'mse::rsv::pll<parameter_ordinal_t param_ordinal, lifetime_label_t lifetime_label_id>' ")
+													+ "template must be an integer greater than zero or MSE_IMPLICIT_THIS_PARAM_ORDINAL.";
+												auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+												if (res.second) {
+													std::cout << (*(res.first)).as_a_string1() << " \n\n";
+												}
+											}
+										}
+										if ((!maybe_lifetime_label_id.has_value()) || (1 > maybe_lifetime_label_id.value().length())) {
+											is_valid = false;
+											if (MR_ptr) {
+												std::string error_desc = std::string("The second template argument of the 'mse::rsv::pll<size_t param_ordinal, std::string lifetime_label_id>' ")
+													+ "template must be a valid non-empty string.";
+												auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+												if (res.second) {
+													std::cout << (*(res.first)).as_a_string1() << " \n\n";
+												}
+											}
+										}
+										if (is_valid) {
+											param_lifetime_map.insert_or_assign(maybe_param_ordinal.value(), CAbstractLifetime{ maybe_lifetime_label_id.value(), &func_decl });
+										}
+									} else {
+										/* We seem to have encounterred a template argument that is not an mse::rsv::pll<>. We
+										should probably complain. */
+										int q = 5;
+									}
 									int q = 5;
 								};
-
 								auto tsi_ptr = param->getTypeSourceInfo();
 								if (tsi_ptr) {
-									/* We expected the "component types", i.e. non-type (size_t) template arguments,
-									in this case to be 'clang::TemplateArgument::Integral's. But instead they seem
-									to be reported as the (less specific) 'clang::TemplateArgument::Expression's, 
-									which aren't obviously useful (enough) for us. */
-									apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), process_parameter_lifetime_component, state1);
+									//process_parameter_lifetime(tsi_ptr->getTypeLoc(), SR, state1);
+									apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), process_parameter_lifetime, state1);
 								}
-							}
 
-							if (maybe_first_lifetime_label_id.has_value() && maybe_second_lifetime_label_id.has_value()) {
-								flta.m_lifetime_constraint_shptrs.push_back(std::make_shared<CEncompasses>(
-									CEncompasses{ CAbstractLifetime{ maybe_first_lifetime_label_id.value(), &func_decl }
-										, CAbstractLifetime{ maybe_second_lifetime_label_id.value(), &func_decl } }));
-							} else {
-								if (MR_ptr) {
-									std::string error_desc = std::string("Parse error in 'encompassing' lifetime constraint specification.");
-									auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
+								flta.m_param_lifetime_map = param_lifetime_map;
+
+							} else if (mse_rsv_ltn_return_value_lifetime_str == element_name) {
+								auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
+									: param->getSourceRange();
+
+								std::optional<CAbstractLifetime> maybe_return_value_lifetime;
+
+								if (true) {
+									std::string qtype_str = qtype.getAsString();
+									const auto langle_bracket_index = qtype_str.find('<');
+									if (std::string::npos != langle_bracket_index) {
+										const auto rangle_bracket_index = qtype_str.find('>', langle_bracket_index+1);
+										if ((std::string::npos != rangle_bracket_index) && (langle_bracket_index + 1 < rangle_bracket_index)) {
+											auto last_delimiter_index = langle_bracket_index;
+											auto next_delimiter_index = qtype_str.find(',', last_delimiter_index+1);
+											if (std::string::npos == next_delimiter_index) {
+												next_delimiter_index = rangle_bracket_index;
+											}
+											while (true) {
+												if (!(last_delimiter_index + 1 < next_delimiter_index)) {
+													if (MR_ptr) {
+														std::string error_desc = std::string("Parse error in return value lifetime specification.");
+														auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+														if (res.second) {
+															std::cout << (*(res.first)).as_a_string1() << " \n\n";
+														}
+													}
+													break;
+												}
+												std::string lifetime_label_id_str = qtype_str.substr(last_delimiter_index + 1, int(next_delimiter_index) - int(last_delimiter_index) - 1);
+												auto lifetime_label_id = with_whitespace_removed(lifetime_label_id_str);
+
+												if (1 <= lifetime_label_id.length()) {
+													maybe_return_value_lifetime = new_or_existing_lifetime_from_label_id(lifetime_id_t(lifetime_label_id), &func_decl, maybe_containing_type_alts);
+												} else {
+													if (MR_ptr) {
+														std::string error_desc = std::string("No valid 'lifetime label id' specified.");
+														auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+														if (res.second) {
+															std::cout << (*(res.first)).as_a_string1() << " \n\n";
+														}
+													}
+												}
+
+												if (rangle_bracket_index == next_delimiter_index) {
+													break;
+												}
+												last_delimiter_index = next_delimiter_index;
+												next_delimiter_index = qtype_str.find(',', last_delimiter_index+1);
+												if (std::string::npos == next_delimiter_index) {
+													next_delimiter_index = rangle_bracket_index;
+												}
+											}
+										}
 									}
 								}
-							}
+								if (maybe_return_value_lifetime.has_value()) {
+									flta.m_return_value_lifetimes = maybe_return_value_lifetime.value();
+								}
 
+								int q = 5;
+
+							} else if (mse_rsv_ltn_encompasses_lifetime_str == element_name) {
+								auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
+									: param->getSourceRange();
+
+								std::optional<lifetime_id_t> maybe_first_lifetime_label_id;
+								std::optional<lifetime_id_t> maybe_second_lifetime_label_id;
+
+								if (true) {
+									/* Here we're parsing the non-type (size_t) template parameters of 'mse::rsv::encompasses<>'
+									from the string representation of the type (of the instantiated template). This is
+									kind of a hacky way to do it, but when we try to obtain the non-type template
+									arguments programmatically, we seem to get a (not useful?) clang::TemplateArgument::Expression
+									instead of a desired (and more specific and more useful) clang::TemplateArgument::Integral. */
+									std::string qtype_str = qtype.getAsString();
+									auto langle_bracket_index = qtype_str.find('<');
+									if (std::string::npos != langle_bracket_index) {
+										auto comma_index = qtype_str.find(',', langle_bracket_index+1);
+										if ((std::string::npos != comma_index) && (langle_bracket_index + 1 < comma_index)) {
+											auto rangle_bracket_index = qtype_str.find('>', comma_index+1);
+											if ((std::string::npos != rangle_bracket_index) && (comma_index + 1 < rangle_bracket_index)) {
+												std::string first_lifetime_label_id_str = qtype_str.substr(langle_bracket_index + 1, int(comma_index) - int(langle_bracket_index) - 1);
+												auto first_lifetime_label_id = with_whitespace_removed(first_lifetime_label_id_str);
+												maybe_first_lifetime_label_id = lifetime_id_t(first_lifetime_label_id);
+												if (1 <= first_lifetime_label_id.length()) {
+												} else {
+													if (MR_ptr) {
+														std::string error_desc = std::string("No valid 'lifetime label id' specified.");
+														auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+														if (res.second) {
+															std::cout << (*(res.first)).as_a_string1() << " \n\n";
+														}
+													}
+												}
+
+												std::string second_lifetime_label_id_str = qtype_str.substr(comma_index + 1, int(rangle_bracket_index) - int(comma_index) - 1);
+												auto second_lifetime_label_id = with_whitespace_removed(second_lifetime_label_id_str);
+												maybe_second_lifetime_label_id = lifetime_id_t(second_lifetime_label_id);
+												if (1 <= second_lifetime_label_id.length()) {
+												} else {
+													if (MR_ptr) {
+														std::string error_desc = std::string("No valid 'lifetime label id' specified.");
+														auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+														if (res.second) {
+															std::cout << (*(res.first)).as_a_string1() << " \n\n";
+														}
+													}
+												}
+											}
+										}
+									}
+								} else {
+									size_t component_index = 0;
+									auto process_parameter_lifetime_component = [&maybe_first_lifetime_label_id, &maybe_second_lifetime_label_id, &component_index, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+										auto qtype = typeLoc.getType();
+										MSE_RETURN_IF_TYPE_IS_NULL(qtype);
+										std::string element_name;
+										const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+										if (l_CXXRD) {
+											element_name = l_CXXRD->getQualifiedNameAsString();
+										} else {
+											element_name = qtype.getAsString();
+										}
+
+										++component_index;
+
+										int q = 5;
+									};
+
+									auto tsi_ptr = param->getTypeSourceInfo();
+									if (tsi_ptr) {
+										/* We expected the "component types", i.e. non-type (size_t) template arguments,
+										in this case to be 'clang::TemplateArgument::Integral's. But instead they seem
+										to be reported as the (less specific) 'clang::TemplateArgument::Expression's, 
+										which aren't obviously useful (enough) for us. */
+										apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), process_parameter_lifetime_component, state1);
+									}
+								}
+
+								if (maybe_first_lifetime_label_id.has_value() && maybe_second_lifetime_label_id.has_value()) {
+									flta.m_lifetime_constraint_shptrs.push_back(std::make_shared<CEncompasses>(
+										CEncompasses{ CAbstractLifetime{ maybe_first_lifetime_label_id.value(), &func_decl }
+											, CAbstractLifetime{ maybe_second_lifetime_label_id.value(), &func_decl } }));
+								} else {
+									if (MR_ptr) {
+										std::string error_desc = std::string("Parse error in 'encompassing' lifetime constraint specification.");
+										auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
+										if (res.second) {
+											std::cout << (*(res.first)).as_a_string1() << " \n\n";
+										}
+									}
+								}
+
+								int q = 5;
+							}
 							int q = 5;
+						};
+						auto tsi_ptr = param->getTypeSourceInfo();
+						if (tsi_ptr) {
+							//process_parameter_lifetime(tsi_ptr->getTypeLoc(), SR, state1);
+							apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), process_lifetime_note, state1);
 						}
-						int q = 5;
-					};
-					auto tsi_ptr = param->getTypeSourceInfo();
-					if (tsi_ptr) {
-						//process_parameter_lifetime(tsi_ptr->getTypeLoc(), SR, state1);
-						apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), process_lifetime_note, state1);
 					}
 				}
 			}
@@ -2128,8 +2178,7 @@ namespace checker {
 
 		{
 			auto param = &var_decl;
-			auto qtype = param->getType();
-			IF_DEBUG(const std::string qtype_str = qtype.getAsString();)
+			IF_DEBUG(const std::string param_qtype_str = param->getType().getAsString();)
 
 			if (param->hasAttrs()) {
 				DECLARE_CACHED_CONST_STRING(mse_lifetime_label, mse_namespace_str() + "::lifetime_label");
@@ -2159,10 +2208,12 @@ namespace checker {
 						if (true /*!(alts1.is_empty())*/) {
 							int num_declared_primary_lifetimes = 0;
 
-							auto found_iter2 = state1.m_type_lifetime_annotations_map.find(param->getType().getTypePtr());
-							if (state1.m_type_lifetime_annotations_map.end() != found_iter2) {
-								auto& tlta = found_iter2->second;
-								num_declared_primary_lifetimes = tlta.m_lifetime_set.m_primary_lifetimes.size();
+							if (!(param->getType().isNull())) {
+								auto found_iter2 = state1.m_type_lifetime_annotations_map.find(param->getType().getTypePtr());
+								if (state1.m_type_lifetime_annotations_map.end() != found_iter2) {
+									auto& tlta = found_iter2->second;
+									num_declared_primary_lifetimes = tlta.m_lifetime_set.m_primary_lifetimes.size();
+								}
 							}
 
 							CVariableLifetimeAnnotations vlta;
@@ -2296,105 +2347,105 @@ namespace checker {
 								}
 							} else {
 								std::vector<const FieldDecl*> unverified_pointer_fields;
-								for (const auto& field : RD->fields()) {
-									const auto field_qtype = field->getType();
+								for (const auto FD : RD->fields()) {
+									const auto field_qtype = FD->getType();
 									IF_DEBUG(auto field_qtype_str = field_qtype.getAsString();)
-									const auto ICIEX = field->getInClassInitializer();
-									if (field_qtype.getTypePtr()->isPointerType()
-										&& (!state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(field_qtype))
-										&& (!state1.m_suppress_check_region_set.contains(instantiation_source_range(field->getSourceRange(), Rewrite)))
-										) {
-										if (!ICIEX) {
-											unverified_pointer_fields.push_back(field);
-										} else if (is_nullptr_literal(ICIEX, *(MR.Context))) {
-											auto ICISR = nice_source_range(ICIEX->getSourceRange(), Rewrite);
-											if (!ICISR.isValid()) {
-												ICISR = SR;
-											}
-											const std::string error_desc = std::string("Null initialization of ")
-												+ "native pointer fields (such as '" + field->getNameAsString()
-												+ "') is not supported.";
-											auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, ICISR.getBegin(), error_desc));
-											if (res.second) {
-												std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									if (!(field_qtype.isNull())) {
+										const auto ICIEX = FD->getInClassInitializer();
+										if (is_raw_pointer_or_equivalent(field_qtype)
+											&& (!state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(field_qtype))
+											&& (!state1.m_suppress_check_region_set.contains(instantiation_source_range(FD->getSourceRange(), Rewrite)))
+											) {
+											if (!ICIEX) {
+												unverified_pointer_fields.push_back(FD);
+											} else if (is_nullptr_literal(ICIEX, *(MR.Context))) {
+												auto ICISR = nice_source_range(ICIEX->getSourceRange(), Rewrite);
+												if (!ICISR.isValid()) {
+													ICISR = SR;
+												}
+												const std::string error_desc = std::string("Null initialization of ")
+													+ "native pointer fields (such as '" + FD->getNameAsString()
+													+ "') is not supported.";
+												auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, ICISR.getBegin(), error_desc));
+												if (res.second) {
+													std::cout << (*(res.first)).as_a_string1() << " \n\n";
+												}
 											}
 										}
-									}
-									if (ICIEX) {
+										if (ICIEX) {
 
-										const auto FD = field;
-										const auto EX = ICIEX;
-										if (EX) {
-											auto CXXThisExpr_range = get_contained_elements_of_type_CXXThisExpr(*EX);
-											for (const auto CXXTE : CXXThisExpr_range) {
-												assert(CXXTE);
-												const auto ME = get_immediately_containing_MemberExpr_from_CXXThisExpr_if_any(*CXXTE, *(MR.Context));
-												if (ME) {
-													const auto FD2 = get_FieldDecl_from_MemberExpr_if_any(*ME);
-													if (FD2) {
-														bool res = first_is_contained_in_scope_of_second(FD, FD2, *(MR.Context));
-														if ((!res) || (FD == FD2)) {
-															auto MESR = nice_source_range(ME->getSourceRange(), Rewrite);
-															if (!MESR.isValid()) {
-																MESR = SR;
+											const auto EX = ICIEX;
+											if (EX) {
+												auto CXXThisExpr_range = get_contained_elements_of_type_CXXThisExpr(*EX);
+												for (const auto CXXTE : CXXThisExpr_range) {
+													assert(CXXTE);
+													const auto ME = get_immediately_containing_MemberExpr_from_CXXThisExpr_if_any(*CXXTE, *(MR.Context));
+													if (ME) {
+														const auto FD2 = get_FieldDecl_from_MemberExpr_if_any(*ME);
+														if (FD2) {
+															bool res = first_is_contained_in_scope_of_second(FD, FD2, *(MR.Context));
+															if ((!res) || (FD == FD2)) {
+																auto MESR = nice_source_range(ME->getSourceRange(), Rewrite);
+																if (!MESR.isValid()) {
+																	MESR = SR;
+																}
+
+																const std::string error_desc = std::string("The FD '") + FD2->getNameAsString()
+																	+ "' may be being referenced before it has been constructed.";
+																auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, MESR.getBegin(), error_desc));
+																if (res.second) {
+																	std::cout << (*(res.first)).as_a_string1() << " \n\n";
+																}
 															}
-
-															const std::string error_desc = std::string("The field '") + FD2->getNameAsString()
-																+ "' may be being referenced before it has been constructed.";
-															auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, MESR.getBegin(), error_desc));
-															if (res.second) {
-																std::cout << (*(res.first)).as_a_string1() << " \n\n";
+														} else {
+															const auto CXXMD = dyn_cast<const CXXMethodDecl>(ME->getMemberDecl());
+															if (CXXMD) {
+																/* error: Unable to verify that the member function used here can't access part of
+																the object that hasn't been constructed yet. */
+																const std::string error_desc = std::string("Calling non-static member functions ")
+																+ "(such as '" + CXXMD->getQualifiedNameAsString() + "') of an object is not supported in "
+																+ "constructor initializers or direct FD initializers of the object. Consider "
+																+ "using a static member or free function instead. ";
+																auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+																if (res.second) {
+																	std::cout << (*(res.first)).as_a_string1() << " \n\n";
+																}
+															} else {
+																/* Since this MemberExpr was obtained from a CXXThisExpr, if it doesn't refer to
+																a FD, then presumably it refers to a (non-static) member function.
+																So arriving here would be unexpected. */
+																int q = 5;
 															}
 														}
 													} else {
-														const auto CXXMD = dyn_cast<const CXXMethodDecl>(ME->getMemberDecl());
-														if (CXXMD) {
-															/* error: Unable to verify that the member function used here can't access part of
-															the object that hasn't been constructed yet. */
-															const std::string error_desc = std::string("Calling non-static member functions ")
-															+ "(such as '" + CXXMD->getQualifiedNameAsString() + "') of an object is not supported in "
-															+ "constructor initializers or direct field initializers of the object. Consider "
-															+ "using a static member or free function instead. ";
-															auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-															if (res.second) {
-																std::cout << (*(res.first)).as_a_string1() << " \n\n";
-															}
-														} else {
-															/* Since this MemberExpr was obtained from a CXXThisExpr, if it doesn't refer to
-															a field, then presumably it refers to a (non-static) member function.
-															So arriving here would be unexpected. */
-															int q = 5;
+														const std::string error_desc = std::string("Unable to verify that the 'this' pointer ")
+														+ "used here can't be used to access part of the object that hasn't been constructed yet.";
+														auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+														if (res.second) {
+															std::cout << (*(res.first)).as_a_string1() << " \n\n";
 														}
 													}
-												} else {
-													const std::string error_desc = std::string("Unable to verify that the 'this' pointer ")
-													+ "used here can't be used to access part of the object that hasn't been constructed yet.";
-													auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-													if (res.second) {
-														std::cout << (*(res.first)).as_a_string1() << " \n\n";
-													}
 												}
-											}
-											if (FD->getType()->isPointerType()
-												&& (!state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(FD->getType()))
-												&& (!state1.m_suppress_check_region_set.contains(instantiation_source_range(FD->getSourceRange(), Rewrite)))
-												) {
-												if (is_nullptr_literal(EX, *(MR.Context))) {
-													auto CISR = nice_source_range(EX->getSourceRange(), Rewrite);
-													if (!CISR.isValid()) {
-														CISR = SR;
-													}
-													const std::string error_desc = std::string("Null initialization of ")
-														+ "native pointer field '" + FD->getNameAsString()
-														+ "' is not supported.";
-													auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, CISR.getBegin(), error_desc));
-													if (res.second) {
-														std::cout << (*(res.first)).as_a_string1() << " \n\n";
+												if (field_qtype->isPointerType()
+													&& (!state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(field_qtype))
+													&& (!state1.m_suppress_check_region_set.contains(instantiation_source_range(FD->getSourceRange(), Rewrite)))
+													) {
+													if (is_nullptr_literal(EX, *(MR.Context))) {
+														auto CISR = nice_source_range(EX->getSourceRange(), Rewrite);
+														if (!CISR.isValid()) {
+															CISR = SR;
+														}
+														const std::string error_desc = std::string("Null initialization of ")
+															+ "native pointer FD '" + FD->getNameAsString()
+															+ "' is not supported.";
+														auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, CISR.getBegin(), error_desc));
+														if (res.second) {
+															std::cout << (*(res.first)).as_a_string1() << " \n\n";
+														}
 													}
 												}
 											}
 										}
-
 									}
 								}
 								if (1 <= unverified_pointer_fields.size()) {
@@ -2479,85 +2530,86 @@ namespace checker {
 						for (const auto& field : RD->fields()) {
 							const auto field_qtype = field->getType();
 							auto field_qtype_str = field_qtype.getAsString();
-
-							std::string error_desc;
-							if (field_qtype.getTypePtr()->isPointerType()) {
-								if (!state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(field_qtype)
-									&& (!state1.m_suppress_check_region_set.contains(instantiation_source_range(field->getSourceRange(), Rewrite)))
-									) {
+							if (!(field_qtype.isNull())) {
+								std::string error_desc;
+								if (field_qtype.getTypePtr()->isPointerType()) {
+									if (!state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(field_qtype)
+										&& (!state1.m_suppress_check_region_set.contains(instantiation_source_range(field->getSourceRange(), Rewrite)))
+										) {
+										if (has_xscope_tag_base) {
+											/*
+											error_desc = std::string("Native pointers are not (yet) supported as fields of xscope ")
+												+ "structs or classes.";
+											*/
+										} else {
+											if (is_lambda) {
+												error_desc = std::string("Native pointers (such as those of type '") + field_qtype.getAsString()
+													+ "') are not supported as captures of (non-xscope) lambdas. ";
+											} else {
+												error_desc = std::string("Native pointers (such as those of type '") + field_qtype.getAsString()
+													+"') are not supported as fields of (non-xscope) structs or classes.";
+											}
+										}
+									}
+								} else if (field_qtype.getTypePtr()->isReferenceType()) {
 									if (has_xscope_tag_base) {
 										/*
-										error_desc = std::string("Native pointers are not (yet) supported as fields of xscope ")
+										error_desc = std::string("Native references are not (yet) supported as fields of xscope ")
 											+ "structs or classes.";
 										*/
 									} else {
 										if (is_lambda) {
-											error_desc = std::string("Native pointers (such as those of type '") + field_qtype.getAsString()
+											error_desc = std::string("Native references (such as those of type '") + field_qtype.getAsString()
 												+ "') are not supported as captures of (non-xscope) lambdas. ";
 										} else {
-											error_desc = std::string("Native pointers (such as those of type '") + field_qtype.getAsString()
+											error_desc = std::string("Native references (such as those of type '") + field_qtype.getAsString()
 												+"') are not supported as fields of (non-xscope) structs or classes.";
 										}
 									}
 								}
-							} else if (field_qtype.getTypePtr()->isReferenceType()) {
-								if (has_xscope_tag_base) {
-									/*
-									error_desc = std::string("Native references are not (yet) supported as fields of xscope ")
-										+ "structs or classes.";
-									*/
-								} else {
+
+								if ((!has_xscope_tag_base) && is_xscope_type(field_qtype, state1)) {
 									if (is_lambda) {
-										error_desc = std::string("Native references (such as those of type '") + field_qtype.getAsString()
-											+ "') are not supported as captures of (non-xscope) lambdas. ";
+										error_desc = std::string("Lambdas that capture variables of xscope type (such as '")
+											+ field_qtype_str + "') must be scope lambdas (usually created via an "
+											+  "'mse::rsv::make_xscope_*_lambda()' wrapper function).";
 									} else {
-										error_desc = std::string("Native references (such as those of type '") + field_qtype.getAsString()
-											+"') are not supported as fields of (non-xscope) structs or classes.";
+										error_desc = std::string("Structs or classes containing fields of xscope type (such as '")
+											+ field_qtype_str + "') must inherit from mse::rsv::XScopeTagBase.";
 									}
 								}
-							}
-
-							if ((!has_xscope_tag_base) && is_xscope_type(field_qtype, state1)) {
-								if (is_lambda) {
-									error_desc = std::string("Lambdas that capture variables of xscope type (such as '")
-										+ field_qtype_str + "') must be scope lambdas (usually created via an "
-										+  "'mse::rsv::make_xscope_*_lambda()' wrapper function).";
-								} else {
-									error_desc = std::string("Structs or classes containing fields of xscope type (such as '")
-										+ field_qtype_str + "') must inherit from mse::rsv::XScopeTagBase.";
+								if ((!has_ContainsNonOwningScopeReference_tag_base)
+									&& contains_non_owning_scope_reference(field_qtype, state1)) {
+									if (is_lambda) {
+										error_desc = std::string("Lambdas that capture items (such as those of type '")
+											+ field_qtype_str + "') that are, or contain, non-owning scope references must be "
+											+ "scope 'reference or pointer capture' lambdas (created via the "
+											+ "'mse::rsv::make_xscope_reference_or_pointer_capture_lambda()' "
+											+ "wrapper function).";
+									} else {
+										error_desc = std::string("Structs or classes containing fields (such as those of type '")
+											+ field_qtype_str + "') that are, or contain, non-owning scope references must inherit from "
+											+ "mse::rsv::ContainsNonOwningScopeReferenceTagBase.";
+									}
 								}
-							}
-							if ((!has_ContainsNonOwningScopeReference_tag_base)
-								&& contains_non_owning_scope_reference(field_qtype, state1)) {
-								if (is_lambda) {
-									error_desc = std::string("Lambdas that capture items (such as those of type '")
-										+ field_qtype_str + "') that are, or contain, non-owning scope references must be "
-										+ "scope 'reference or pointer capture' lambdas (created via the "
-										+ "'mse::rsv::make_xscope_reference_or_pointer_capture_lambda()' "
-										+ "wrapper function).";
-								} else {
-									error_desc = std::string("Structs or classes containing fields (such as those of type '")
-										+ field_qtype_str + "') that are, or contain, non-owning scope references must inherit from "
-										+ "mse::rsv::ContainsNonOwningScopeReferenceTagBase.";
+								if ((!has_ReferenceableByScopePointer_tag_base)
+									&& referenceable_by_scope_pointer(field_qtype, state1)) {
+									if (is_lambda) {
+										/* The assumption is that we don't have to worry about scope pointers targeting
+										lambda capture variables(/fields) from outside the lambda, because they're not 
+										directly accessible from outside? */
+									} else {
+										error_desc = std::string("Structs or classes containing fields (such as '") + field_qtype_str
+											+ "') that yield scope pointers (from their overloaded 'operator&'), or contain an element "
+											+ "that does, must inherit from mse::rsv::ReferenceableByScopePointerTagBase.";
+									}
 								}
-							}
-							if ((!has_ReferenceableByScopePointer_tag_base)
-								&& referenceable_by_scope_pointer(field_qtype, state1)) {
-								if (is_lambda) {
-									/* The assumption is that we don't have to worry about scope pointers targeting
-									lambda capture variables(/fields) from outside the lambda, because they're not 
-									directly accessible from outside? */
-								} else {
-									error_desc = std::string("Structs or classes containing fields (such as '") + field_qtype_str
-										+ "') that yield scope pointers (from their overloaded 'operator&'), or contain an element "
-										+ "that does, must inherit from mse::rsv::ReferenceableByScopePointerTagBase.";
-								}
-							}
-							if ("" != error_desc) {
-								auto FDISR = instantiation_source_range(field->getSourceRange(), Rewrite);
-								auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
+								if ("" != error_desc) {
+									auto FDISR = instantiation_source_range(field->getSourceRange(), Rewrite);
+									auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									}
 								}
 							}
 						}
@@ -2753,6 +2805,7 @@ namespace checker {
 		std::optional<CTypeLifetimeAnnotations *> retval;
 		auto qtype = var_decl.getType();
 		IF_DEBUG(auto qtype_str = qtype.getAsString();)
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
 		if (qtype->isPointerType() || qtype->isReferenceType()) {
 			process_variable_lifetime_annotations(var_decl, state1, MR_ptr, Rewrite_ptr);
 			auto vlta_iter1 = state1.m_vardecl_lifetime_annotations_map.find(&var_decl);
@@ -2765,7 +2818,7 @@ namespace checker {
 				retval = &s_implied_pointer_tlta;
 			}
 		} else {
-			retval = type_lifetime_annotations_if_available(var_decl.getType().getTypePtr(), state1, MR_ptr, Rewrite_ptr);
+			retval = type_lifetime_annotations_if_available(qtype.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
 		}
 		return retval;
 	}
@@ -2774,6 +2827,7 @@ namespace checker {
 		std::optional<CTypeLifetimeAnnotations *> retval;
 		auto qtype = field_decl.getType();
 		IF_DEBUG(auto qtype_str = qtype.getAsString();)
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
 		if (qtype->isPointerType() || qtype->isReferenceType()) {
 			process_type_lifetime_annotations(field_decl, state1, MR_ptr, Rewrite_ptr);
 			auto fltv_iter1 = state1.m_fielddecl_to_abstract_lifetime_map.find(&field_decl);
@@ -2786,7 +2840,7 @@ namespace checker {
 				retval = &s_implied_pointer_tlta;
 			}
 		} else {
-			retval = type_lifetime_annotations_if_available(field_decl.getType().getTypePtr(), state1, MR_ptr, Rewrite_ptr);
+			retval = type_lifetime_annotations_if_available(qtype.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
 		}
 		return retval;
 	}
@@ -2799,6 +2853,7 @@ namespace checker {
 		}
 		auto qtype = E_ii->getType();
 		IF_DEBUG(auto qtype_str = qtype.getAsString();)
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
 		auto DRE = dyn_cast<const clang::DeclRefExpr>(E_ii);
 		auto ME = dyn_cast<const clang::MemberExpr>(E_ii);
 		if (DRE) {
@@ -2851,10 +2906,12 @@ namespace checker {
 					if (!sf_ILE) {
 						sf_ILE = ILE;
 					}
-					if (sf_ILE->getType()->isArrayType()) {
+					auto sf_ILE_qtype = sf_ILE->getType();
+					MSE_RETURN_VALUE_IF_TYPE_IS_NULL(sf_ILE_qtype, retval);
+					if (sf_ILE_qtype->isArrayType()) {
 						/* We're going to have homogeneous initializer lists implicitly inherit any lifetime
 						annotations of their element type. */
-						auto elem_qtype = sf_ILE->getType()->getPointeeType();
+						auto elem_qtype = sf_ILE_qtype->getPointeeType();
 						retval = type_lifetime_annotations_if_available(elem_qtype.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
 						return retval;
 					}
@@ -2875,55 +2932,8 @@ namespace checker {
 		return retval;
 	}
 
-	bool is_raw_pointer_or_equivalent(const clang::QualType& qtype) {
-		IF_DEBUG(auto qtype_str = qtype.getAsString();)
-		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, false);
-
-		bool is_pointer_or_equivalent = true;
-		if (!qtype->isPointerType()) {
-			const auto RD = qtype->getAsRecordDecl();
-			if (!RD) {
-				is_pointer_or_equivalent = false;
-			} else {
-				/* `mse::us::impl::TPointerForLegacy<>` is sometimes used as (a functionally
-				equivalent) substitute for native pointers that can act as a base class. */
-				const auto CXXCE_rw_qtype_str = RD->getQualifiedNameAsString();
-				DECLARE_CACHED_CONST_STRING(TPointerForLegacy_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
-				if (TPointerForLegacy_str != CXXCE_rw_qtype_str) {
-					is_pointer_or_equivalent = false;
-				}
-			}
-		}
-		return is_pointer_or_equivalent;
-	}
-
-	inline std::optional<clang::QualType> pointee_type_if_any(clang::QualType const& qtype) {
-		std::optional<clang::QualType> retval;
-		auto peeled_qtype = remove_mse_transparent_wrappers(qtype);
-		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
-		if (is_raw_pointer_or_equivalent(peeled_qtype)) {
-			if (peeled_qtype->isPointerType()) {
-				retval = peeled_qtype->getPointeeType();
-			} else {
-				auto RD = peeled_qtype->getAsRecordDecl();
-				if (RD) {
-					const auto RD_qtype_str = RD->getQualifiedNameAsString();
-					DECLARE_CACHED_CONST_STRING(TPointerForLegacy_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
-					if (TPointerForLegacy_str == RD_qtype_str) {
-						auto maybe_qtype2 = get_first_template_parameter_if_any(peeled_qtype);
-						if (maybe_qtype2.has_value()) {
-							retval = maybe_qtype2.value();
-						}
-					}
-				}
-			}
-		} else if (peeled_qtype->isReferenceType()) {
-			retval = peeled_qtype->getPointeeType();
-		}
-		return retval;
-	}
-
 	inline void slti_set_default_lower_bound_lifetimes_where_needed(CScopeLifetimeInfo1& slti, clang::QualType const& qtype) {
+		MSE_RETURN_IF_TYPE_IS_NULL(qtype);
 		auto peeled_qtype = remove_mse_transparent_wrappers(qtype);
 		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
 		if (is_raw_pointer_or_equivalent(peeled_qtype)) {
@@ -3593,21 +3603,24 @@ namespace checker {
 		} else if (DRE1) {
 			const auto DRE1_qtype = DRE1->getType();
 			IF_DEBUG(const auto DRE1_qtype_str = DRE1_qtype.getAsString();)
+			MSE_RETURN_VALUE_IF_TYPE_IS_NULL(DRE1_qtype, retval);
 
 			auto D1 = DRE1->getDecl();
 			const auto D1_qtype = D1->getType();
 			IF_DEBUG(const auto D1_qtype_str = D1_qtype.getAsString();)
+			MSE_RETURN_VALUE_IF_TYPE_IS_NULL(D1_qtype, retval);
 
 			auto VD = dyn_cast<const clang::VarDecl>(D1);
 			if (VD) {
 				const auto VD_qtype = VD->getType();
 				IF_DEBUG(const auto VD_qtype_str = VD_qtype.getAsString();)
+				MSE_RETURN_VALUE_IF_TYPE_IS_NULL(VD_qtype, retval);
 
 				const auto storage_duration = VD->getStorageDuration();
 				if ((clang::StorageDuration::SD_Automatic == storage_duration)
 					|| (clang::StorageDuration::SD_Thread == storage_duration)
 					) {
-					if (VD->getType()->isReferenceType()) {
+					if (VD_qtype->isReferenceType()) {
 						satisfies_checks = false;
 						retval = VD;
 						auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
@@ -3673,7 +3686,7 @@ namespace checker {
 							return retval;
 						}
 
-						if (VD->getType()->isPointerType()) {
+						if (is_raw_pointer_or_equivalent(VD_qtype)) {
 							if (VD->hasInit()) {
 								auto maybe_res1 = lower_bound_lifetime_owner_if_available(VD->getInit(), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 								if (maybe_res1.has_value()) {
@@ -3692,7 +3705,7 @@ namespace checker {
 							}
 						}
 
-						auto RD = VD->getType().getTypePtr()->getAsRecordDecl();
+						auto RD = VD_qtype.getTypePtr()->getAsRecordDecl();
 						if (RD) {
 							auto found_iter = tu_state_ref.m_type_lifetime_annotations_map.find(RD->getTypeForDecl());
 							if (tu_state_ref.m_type_lifetime_annotations_map.end() != found_iter) {
@@ -3745,7 +3758,9 @@ namespace checker {
 																			if ((0 <= param_index) && (int(CD->getNumParams()) > param_index)) {
 																				auto PVD = CD->getParamDecl(param_index);
 																				if (PVD) {
-																					if (PVD->getType()->isReferenceType()) {
+																					const auto PVD_qtype = PVD->getType();
+																					MSE_RETURN_VALUE_IF_TYPE_IS_NULL(PVD_qtype, retval);
+																					if (PVD_qtype->isReferenceType()) {
 																						if (maybe_res1.value().m_maybe_sublifetime_owners_vlptr.has_value()) {
 																							auto& sublifetime_owners_vlptr = maybe_res1.value().m_maybe_sublifetime_owners_vlptr.value();
 																							if (1 == (*sublifetime_owners_vlptr).m_maybe_primary_lifetime_owner_infos.size()) {
@@ -3798,6 +3813,7 @@ namespace checker {
 					} else {
 						const auto VD_qtype = VD->getType();
 						IF_DEBUG(const auto VD_qtype_str = VD_qtype.getAsString();)
+						MSE_RETURN_VALUE_IF_TYPE_IS_NULL(VD_qtype, retval);
 						if (is_raw_pointer_or_equivalent(VD_qtype)) {
 							const auto pointee_VD_qtype = pointee_type_if_any(VD_qtype).value();
 							IF_DEBUG(const auto pointee_VD_qtype_str = pointee_VD_qtype.getAsString();)
@@ -3851,7 +3867,9 @@ namespace checker {
 					auto parent_RD = FD->getParent();
 					auto found_iter = tu_state_ref.m_fielddecl_to_abstract_lifetime_map.find(FD);
 					if (tu_state_ref.m_fielddecl_to_abstract_lifetime_map.end() != found_iter) {
-						if (FD->getType()->isReferenceType()) {
+						const auto FD_qtype = FD->getType();
+						MSE_RETURN_VALUE_IF_TYPE_IS_NULL(FD_qtype, retval);
+						if (FD_qtype->isReferenceType()) {
 							if (1 <= (*found_iter).second.m_primary_lifetimes.size()) {
 								CScopeLifetimeInfo1 sli1;
 								auto abstract_lifetime = (*found_iter).second.first_lifetime();
@@ -3897,8 +3915,9 @@ namespace checker {
 						if (UOSE) {
 							const auto UOSE_qtype = UOSE->getType();
 							IF_DEBUG(const auto UOSE_qtype_str = UOSE_qtype.getAsString();)
+							MSE_RETURN_VALUE_IF_TYPE_IS_NULL(UOSE_qtype, retval);
 
-							if (UOSE->getType()->isPointerType()) {
+							if (is_raw_pointer_or_equivalent(UOSE_qtype)) {
 								/* The declrefexpression is a direct dereference of a native pointer. */
 								auto maybe_slo1 = lower_bound_lifetime_owner_if_available(UOSE, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 								if (maybe_slo1.has_value()) {
@@ -3919,6 +3938,7 @@ namespace checker {
 						if (UOSE) {
 							const auto UOSE_qtype = UOSE->getType();
 							IF_DEBUG(const auto UOSE_qtype_str = UOSE_qtype.getAsString();)
+							MSE_RETURN_VALUE_IF_TYPE_IS_NULL(UOSE_qtype, retval);
 
 							auto maybe_slo1 = lower_bound_lifetime_owner_if_available(UOSE, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 							if (maybe_slo1.has_value()) {
@@ -3939,7 +3959,8 @@ namespace checker {
 					auto CO = dyn_cast<const clang::ConditionalOperator>(EX);
 					if (CXXCE) {
 						const auto qtype = CXXCE->getType();
-						const auto CXXCE_rw_type_ptr = remove_mse_transparent_wrappers(CXXCE->getType()).getTypePtr();
+						MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+						const auto CXXCE_rw_type_ptr = remove_mse_transparent_wrappers(qtype).getTypePtr();
 						if (is_raw_pointer_or_equivalent(qtype)) {
 							const auto numArgs = CXXCE->getNumArgs();
 							if (1 == CXXCE->getNumArgs()) {
@@ -4005,6 +4026,7 @@ namespace checker {
 												}
 												auto CE_qtype = remove_mse_transparent_wrappers(CE->getType());
 												IF_DEBUG(auto CE_qtype_str = CE_qtype.getAsString();)
+												MSE_RETURN_VALUE_IF_TYPE_IS_NULL(CE_qtype, retval);
 												slti_set_default_lower_bound_lifetimes_where_needed(retval, CE_qtype);
 
 												return retval;
@@ -4098,8 +4120,9 @@ namespace checker {
 									if (arg_EX) {
 										const auto arg_EX_qtype = arg_EX->getType();
 										IF_DEBUG(const auto arg_EX_qtype_str = arg_EX_qtype.getAsString();)
+										MSE_RETURN_VALUE_IF_TYPE_IS_NULL(arg_EX_qtype, retval);
 
-										const auto CXXRD = remove_mse_transparent_wrappers(arg_EX->getType()).getTypePtr()->getAsCXXRecordDecl();
+										const auto CXXRD = remove_mse_transparent_wrappers(arg_EX_qtype).getTypePtr()->getAsCXXRecordDecl();
 										if (CXXRD) {
 											DECLARE_CACHED_CONST_STRING(xscope_f_ptr_str, mse_namespace_str() + "::TXScopeFixedPointer");
 											DECLARE_CACHED_CONST_STRING(xscope_f_const_ptr_str, mse_namespace_str() + "::TXScopeFixedConstPointer");
@@ -4167,7 +4190,7 @@ namespace checker {
 													}
 												}
 											}
-										} else if (arg_EX->getType()->isReferenceType()) {
+										} else if (arg_EX_qtype->isReferenceType()) {
 											int q = 5;
 										}
 									}
@@ -4199,6 +4222,7 @@ namespace checker {
 									potential_owner_EX = IgnoreParenImpNoopCasts(CXXMCE->getImplicitObjectArgument(), Ctx);
 								} else {
 									const auto CXXMCE_qtype = CXXMCE->getType();
+									MSE_RETURN_VALUE_IF_TYPE_IS_NULL(CXXMCE_qtype, retval);
 									if (contains_non_owning_scope_reference(CXXMCE_qtype, tu_state_ref)) {
 										auto maybe_lb_lifetime_owner = lower_bound_lifetime_owner_of_returned_reference_object_if_available(CXXMCE, Ctx, tu_state_ref);
 										if (maybe_lb_lifetime_owner.has_value()) {
@@ -4219,6 +4243,7 @@ namespace checker {
 									potential_owner_EX = IgnoreParenImpNoopCasts(CE->getArg(0), Ctx);
 								} else {
 									const auto CE_qtype = CE->getType();
+									MSE_RETURN_VALUE_IF_TYPE_IS_NULL(CE_qtype, retval);
 									if (contains_non_owning_scope_reference(CE_qtype, tu_state_ref)) {
 										auto maybe_lb_lifetime_owner = lower_bound_lifetime_owner_of_returned_reference_object_if_available(CE, Ctx, tu_state_ref);
 										if (maybe_lb_lifetime_owner.has_value()) {
@@ -4233,8 +4258,9 @@ namespace checker {
 							if (potential_owner_EX_ii) {
 								const auto potential_owner_EX_ii_qtype = potential_owner_EX_ii->getType();
 								IF_DEBUG(const auto potential_owner_EX_ii_qtype_str = potential_owner_EX_ii_qtype.getAsString();)
+								MSE_RETURN_VALUE_IF_TYPE_IS_NULL(potential_owner_EX_ii_qtype, retval);
 
-								const auto CXXRD = remove_mse_transparent_wrappers(potential_owner_EX_ii->getType()).getTypePtr()->getAsCXXRecordDecl();
+								const auto CXXRD = remove_mse_transparent_wrappers(potential_owner_EX_ii_qtype).getTypePtr()->getAsCXXRecordDecl();
 								if (CXXRD) {
 									/* static structure containers */
 									DECLARE_CACHED_CONST_STRING(xscope_owner_ptr_str, mse_namespace_str() + "::TXScopeOwnerPointer");
@@ -4285,7 +4311,7 @@ namespace checker {
 											retval.value().m_possession_lifetime_info_chain.push_back({ {}, CPossessionLifetimeInfo1::is_element_in_a_multi_element_container_t::Yes });
 										}
 									}
-								} else if (potential_owner_EX_ii->getType()->isReferenceType()) {
+								} else if (potential_owner_EX_ii_qtype->isReferenceType()) {
 									int q = 5;
 								}
 							}
@@ -4323,6 +4349,7 @@ namespace checker {
 			for (size_t i = 0; i < CXXMCE->getNumArgs(); i+=1) {
 				const auto arg_EX_ii = IgnoreParenImpNoopCasts(CXXMCE->getArg(i), Ctx);
 				const auto arg_EX_ii_qtype = arg_EX_ii->getType();
+				MSE_RETURN_VALUE_IF_TYPE_IS_NULL(arg_EX_ii_qtype, retval);
 				if (contains_non_owning_scope_reference(arg_EX_ii_qtype, tu_state_ref)) {
 					lifetime_owners.push_back(lower_bound_lifetime_owner_if_available(CXXMCE->getArg(i), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr));
 				}
@@ -4511,7 +4538,10 @@ namespace checker {
 				if ((clang::StorageDuration::SD_Automatic == storage_duration)
 					|| (clang::StorageDuration::SD_Thread == storage_duration)
 					) {
-					if (VD->getType()->isReferenceType()) {
+					auto VD_qtype = VD->getType();
+					IF_DEBUG(auto VD_qtype_str = VD_qtype.getAsString();)
+					MSE_RETURN_VALUE_IF_TYPE_IS_NULL(VD_qtype, retval);
+					if (VD_qtype->isReferenceType()) {
 						satisfies_checks = false;
 						retval = {};
 						auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
@@ -4577,7 +4607,10 @@ namespace checker {
 							return retval;
 						}
 
-						if (VD->getType()->isPointerType()) {
+						auto VD_qtype = VD->getType();
+						IF_DEBUG(auto VD_qtype_str = VD_qtype.getAsString();)
+						MSE_RETURN_VALUE_IF_TYPE_IS_NULL(VD_qtype, retval);
+						if (VD_qtype->isPointerType()) {
 							if (VD->hasInit()) {
 								auto maybe_res1 = lower_bound_lifetime_owner_if_available(VD->getInit(), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 								if (maybe_res1.has_value()) {
@@ -4649,7 +4682,10 @@ namespace checker {
 																			if ((0 <= param_index) && (int(CD->getNumParams()) > param_index)) {
 																				auto PVD = CD->getParamDecl(param_index);
 																				if (PVD) {
-																					if (PVD->getType()->isReferenceType()) {
+																					auto PVD_qtype = PVD->getType();
+																					IF_DEBUG(auto PVD_qtype_str = PVD_qtype.getAsString();)
+																					MSE_RETURN_VALUE_IF_TYPE_IS_NULL(PVD_qtype, retval);
+																					if (PVD_qtype->isReferenceType()) {
 																						if (maybe_res1.value().m_maybe_sublifetime_owners_vlptr.has_value()) {
 																							auto& sublifetime_owners_vlptr = maybe_res1.value().m_maybe_sublifetime_owners_vlptr.value();
 																							if (1 == (*sublifetime_owners_vlptr).m_maybe_primary_lifetime_owner_infos.size()) {
@@ -4870,6 +4906,7 @@ namespace checker {
 							if (potential_owner_EX_ii) {
 								const auto potential_owner_EX_ii_qtype = potential_owner_EX_ii->getType();
 								IF_DEBUG(const auto potential_owner_EX_ii_qtype_str = potential_owner_EX_ii_qtype.getAsString();)
+								MSE_RETURN_VALUE_IF_TYPE_IS_NULL(potential_owner_EX_ii_qtype, retval);
 
 								const auto CXXRD = remove_mse_transparent_wrappers(potential_owner_EX_ii->getType()).getTypePtr()->getAsCXXRecordDecl();
 								if (CXXRD) {
@@ -4958,7 +4995,7 @@ namespace checker {
 											retval.value().m_possession_lifetime_info_chain.push_back({ {}, CPossessionLifetimeInfo1::is_element_in_a_multi_element_container_t::Yes });
 										}
 									}
-								} else if (potential_owner_EX_ii->getType()->isReferenceType()) {
+								} else if (potential_owner_EX_ii_qtype->isReferenceType()) {
 									int q = 5;
 								}
 							}
@@ -5312,10 +5349,15 @@ namespace checker {
 							bool satisfies_checks = can_be_safely_targeted_with_an_xscope_reference(EX, *(MR.Context), m_state1);
 							if (!satisfies_checks) {
 								auto const * const MTE = dyn_cast<const clang::MaterializeTemporaryExpr>(EX);
-								if (MTE && (!(MTE->getType()->isReferenceType()))) {
-									/* This argument is a temporary (non-reference) (that should outlive
-									the function parameter). */
-									satisfies_checks = true;
+								if (MTE) {
+									auto MTE_qtype = MTE->getType();
+									IF_DEBUG(auto MTE_qtype_str = MTE_qtype.getAsString();)
+									MSE_RETURN_IF_TYPE_IS_NULL(MTE_qtype);
+									if (!(MTE_qtype->isReferenceType())) {
+										/* This argument is a temporary (non-reference) (that should outlive
+										the function parameter). */
+										satisfies_checks = true;
+									}
 								}
 							}
 							if (!satisfies_checks) {
@@ -5403,7 +5445,10 @@ namespace checker {
 										if (maybe_expr_lifetime_value.has_value()) {
 											auto &lbsli = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
 											CScopeLifetimeInfo1 rvsli;
-											if (E->getType()->isReferenceType()) {
+											auto E_qtype = E->getType();
+											IF_DEBUG(auto E_qtype_str = E_qtype.getAsString();)
+											MSE_RETURN_IF_TYPE_IS_NULL(E_qtype);
+											if (E_qtype->isReferenceType()) {
 												/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
 												same as the object it refers to (without an added level of indirection). */
 												if (1 == rv_abstract_lifetimes.m_primary_lifetimes.size()) {
@@ -6298,7 +6343,10 @@ namespace checker {
 						}
 						if (maybe_expr_lifetime_value.has_value()) {
 							auto& expr_lifetime_value_ref = maybe_expr_lifetime_value.value();
-							if (CE->getType()->isReferenceType()) {
+							auto CE_qtype = CE->getType();
+							IF_DEBUG(auto CE_qtype_str = CE_qtype.getAsString();)
+							MSE_RETURN_VALUE_IF_TYPE_IS_NULL(CE_qtype, {});
+							if (CE_qtype->isReferenceType()) {
 								/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
 								same as the object it refers to (without an added level of indirection). */
 								expr_scope_lifetime_info = expr_lifetime_value_ref.m_scope_lifetime_info;
@@ -7462,7 +7510,10 @@ namespace checker {
 						auto first_init_E = sf_ILE->getInit(0);
 						bool all_the_same_type = true;
 						if (true) {
-							all_the_same_type = sf_ILE->getType()->isArrayType();
+							auto sf_ILE_qtype = sf_ILE->getType();
+							IF_DEBUG(auto sf_ILE_qtype_str = sf_ILE_qtype.getAsString();)
+							MSE_RETURN_VALUE_IF_TYPE_IS_NULL(sf_ILE_qtype, retval);
+							all_the_same_type = sf_ILE_qtype->isArrayType();
 						} else {
 							const auto first_qtype = first_init_E->getType();
 							for (size_t i = 1; sf_ILE->getNumInits() > i; i += 1) {
@@ -7610,7 +7661,10 @@ namespace checker {
 
 		const auto qtype = DD->getType();
 		const std::string qtype_str = DD->getType().getAsString();
-		const auto TST = DD->getType()->getAs<clang::TemplateSpecializationType>();
+		auto DD_qtype = DD->getType();
+		IF_DEBUG(auto DD_qtype_str = DD_qtype.getAsString();)
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(DD_qtype, retval);
+		const auto TST = DD_qtype->getAs<clang::TemplateSpecializationType>();
 
 		auto VD = dyn_cast<const clang::VarDecl>(DD);
 		if (VD) {
@@ -7706,8 +7760,11 @@ namespace checker {
 							assert(init_E);
 
 							auto ILE = dyn_cast<const clang::InitListExpr>(init_E);
-							if (ILE && VD->getType()->isAggregateType()) {
-								if (!(VD->getType()->isPointerType() || VD->getType()->isReferenceType())) {
+							auto VD_qtype = VD->getType();
+							IF_DEBUG(auto VD_qtype_str = VD_qtype.getAsString();)
+							MSE_RETURN_VALUE_IF_TYPE_IS_NULL(VD_qtype, retval);
+							if (ILE && VD_qtype->isAggregateType()) {
+								if (!(VD_qtype->isPointerType() || VD_qtype->isReferenceType())) {
 									if (MR_ptr && (!suppress_check_flag)) {
 										const std::string error_desc = std::string("Aggregate initialization (of '") + var_qualified_name
 											+ "') is not (currently) supported for types (like '" + qtype_str + "') that have (explicit or "
@@ -7944,14 +8001,17 @@ namespace checker {
 				vardecl_scope_lifetime_info.m_maybe_corresponding_cpp_element = VD;
 
 				auto reference_removed_qtype = VD->getType();
-				if (VD->getType()->isReferenceType()) {
+				auto VD_qtype = VD->getType();
+				IF_DEBUG(auto VD_qtype_str = VD_qtype.getAsString();)
+				MSE_RETURN_VALUE_IF_TYPE_IS_NULL(VD_qtype, retval);
+				if (VD_qtype->isReferenceType()) {
 					/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
 					same as the object it refers to (without an added level of indirection). */
 					/* So we will attempt to remove one level of indirection from the expression lifetime. */
 					auto& sublifetimes = vardecl_scope_lifetime_info.m_sublifetimes_vlptr->m_primary_lifetime_infos;
 					if (1 == sublifetimes.size()) {
 						vardecl_scope_lifetime_info = sublifetimes.at(0);
-						reference_removed_qtype = VD->getType()->getPointeeType();
+						reference_removed_qtype = VD_qtype->getPointeeType();
 					} else {
 						if (0 != sublifetimes.size()) {
 							/* unexpected */
@@ -8449,7 +8509,10 @@ namespace checker {
 						}
 					}
 				} else {
-					if (FD->getType()->isPointerType()) {
+					auto FD_qtype = FD->getType();
+					IF_DEBUG(auto FD_qtype_str = FD_qtype.getAsString();)
+					MSE_RETURN_IF_TYPE_IS_NULL(FD_qtype);
+					if (FD_qtype->isPointerType()) {
 						{
 							const std::string error_desc = std::string("Default initialization of ")
 								+ "native pointer field '" + FD->getNameAsString()
@@ -9076,7 +9139,10 @@ namespace checker {
 												called, but since we don't check standard library (or system) code, we have to
 												check for potential dangers here where it's being passed as a parameter. */
 												for (const auto& param : l_FD->parameters()) {
-													if (param->getType()->isReferenceType()) {
+													auto param_qtype = param->getType();
+													IF_DEBUG(auto param_qtype_str = param_qtype.getAsString();)
+													MSE_RETURN_IF_TYPE_IS_NULL(param_qtype);
+													if (param_qtype->isReferenceType()) {
 														auto arg_SR = arg_EX_ii->getSourceRange();
 														if (arg_SR.isInvalid()) {
 															arg_SR = SR;
@@ -9232,7 +9298,10 @@ namespace checker {
 				if (DD) {
 					const auto qtype = DD->getType();
 					const std::string qtype_str = DD->getType().getAsString();
-					const auto TST = DD->getType()->getAs<clang::TemplateSpecializationType>();
+					auto DD_qtype = DD->getType();
+					IF_DEBUG(auto DD_qtype_str = DD_qtype.getAsString();)
+					MSE_RETURN_IF_TYPE_IS_NULL(DD_qtype);
+					const auto TST = DD_qtype->getAs<clang::TemplateSpecializationType>();
 
 					auto maybe_decl_lifetime_value = evaluate_declaration_lower_bound_lifetimes(MR, Rewrite, m_state1, DD);
 					if (maybe_decl_lifetime_value.m_failure_due_to_dependent_type_flag) {
@@ -9325,8 +9394,11 @@ namespace checker {
 										assert(init_E);
 
 										auto ILE = dyn_cast<const clang::InitListExpr>(init_E);
-										if (ILE && VD->getType()->isAggregateType()) {
-											if (!(VD->getType()->isPointerType() || VD->getType()->isReferenceType())) {
+										auto VD_qtype = VD->getType();
+										IF_DEBUG(auto VD_qtype_str = VD_qtype.getAsString();)
+										MSE_RETURN_IF_TYPE_IS_NULL(VD_qtype);
+										if (ILE && VD_qtype->isAggregateType()) {
+											if (!(VD_qtype->isPointerType() || VD_qtype->isReferenceType())) {
 												const std::string error_desc = std::string("Aggregate initialization (of '") + var_qualified_name
 													+ "') is not (currently) supported for types (like '" + qtype_str + "') that have (explicit or "
 													+ "implicit) lifetime annotations.";
@@ -9853,9 +9925,13 @@ namespace checker {
 
 #ifndef NDEBUG
 					if (D->getType() != DRE->getType()) {
-						auto D_qtype_str = D->getType().getAsString();
-						auto DRE_qtype_str = DRE->getType().getAsString();
-						if (D->getType()->isReferenceType() == DRE->getType()->isReferenceType()) {
+						auto D_qtype = D->getType();
+						IF_DEBUG(auto D_qtype_str = D_qtype.getAsString();)
+						MSE_RETURN_IF_TYPE_IS_NULL(D_qtype);
+						auto DRE_qtype = DRE->getType();
+						IF_DEBUG(auto DRE_qtype_str = DRE_qtype.getAsString();)
+						MSE_RETURN_IF_TYPE_IS_NULL(DRE_qtype);
+						if (D_qtype->isReferenceType() == DRE_qtype->isReferenceType()) {
 							/* just a break-point site for debugging */
 							int q = 5;
 						}

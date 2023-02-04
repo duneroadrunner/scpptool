@@ -102,6 +102,14 @@
                     return; \
                 }
 
+#define MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval) \
+	if (qtype.isNull()) { \
+		/* Cannot properly evaluate (presumably) because this is a template definition. Proper \
+		evaluation should occur in any instantiation of the template. */ \
+		return retval; \
+	}
+#define MSE_RETURN_IF_TYPE_IS_NULL(qtype) MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, )
+
 
 inline const std::string& mse_namespace_str() {
 	/* In the future, this could be specified (at run-time, as a command line parameter). */
@@ -962,6 +970,7 @@ inline std::optional<clang::QualType> get_first_template_parameter_if_any(const 
 }
 
 inline clang::QualType remove_fparam_wrappers(const clang::QualType& qtype) {
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, qtype);
 	const auto CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 	if (CXXRD) {
 		auto qname = CXXRD->getQualifiedNameAsString();
@@ -998,6 +1007,7 @@ inline clang::QualType remove_fparam_wrappers(const clang::QualType& qtype) {
 }
 
 inline clang::QualType remove_return_value_wrappers(const clang::QualType& qtype) {
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, qtype);
 	const auto CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 	if (CXXRD) {
 		auto qname = CXXRD->getQualifiedNameAsString();
@@ -1034,6 +1044,7 @@ inline clang::QualType remove_return_value_wrappers(const clang::QualType& qtype
 }
 
 inline clang::QualType remove_mse_transparent_wrappers(const clang::QualType& qtype) {
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, qtype);
 	clang::QualType retval = remove_return_value_wrappers(remove_fparam_wrappers(qtype));
 	const auto CXXRD = retval.getTypePtr()->getAsCXXRecordDecl();
 	if (CXXRD) {
@@ -1422,6 +1433,7 @@ public:
 	}
 	bool raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(const clang::QualType& qtype) const {
 		bool retval = false;
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
 		if (qtype.getTypePtr()->isPointerType()) {
 			const auto pointee_qtype = qtype->getPointeeType();
 			return raw_pointer_scope_restrictions_are_disabled_for_raw_pointers_with_this_target_type(pointee_qtype);
@@ -1483,6 +1495,7 @@ inline bool is_xscope_type(const clang::QualType qtype, const CCommonTUState1& t
 	bool retval = false;
 
 	IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
 	const auto TP = qtype.getTypePtr();
 	if (!TP) { assert(false); } else {
 		retval = is_xscope_type(*TP, tu_state_cref);
@@ -1519,6 +1532,7 @@ inline bool contains_non_owning_scope_reference(const clang::QualType qtype, con
 	bool retval = false;
 
 	IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
 	const auto TP = qtype.getTypePtr();
 	if (!TP) { assert(false); } else {
 		retval = contains_non_owning_scope_reference(*TP, tu_state_cref);
@@ -1543,6 +1557,7 @@ inline bool referenceable_by_scope_pointer(const clang::QualType qtype, const CC
 	bool retval = false;
 
 	IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
 	const auto TP = qtype.getTypePtr();
 	if (!TP) { assert(false); } else {
 		retval = referenceable_by_scope_pointer(*TP, tu_state_cref);
@@ -1608,6 +1623,7 @@ inline bool is_async_shareable(const clang::QualType qtype) {
 	bool retval = false;
 
 	IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
 	const auto TP = qtype.getTypePtr();
 	if (!TP) { assert(false); } else {
 		retval = is_async_shareable(*TP);
@@ -1668,6 +1684,7 @@ inline bool is_async_passable(const clang::QualType qtype) {
 	bool retval = false;
 
 	IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
 	const auto TP = qtype.getTypePtr();
 	if (!TP) { assert(false); } else {
 		retval = is_async_passable(*TP);
@@ -1750,6 +1767,7 @@ inline std::vector<clang::QualType> types_from_template_arg(const clang::Templat
 inline std::vector<clang::QualType> shallow_component_types_if_any(const clang::QualType& qtype) {
 	std::vector<clang::QualType> retval;
 	IF_DEBUG(const auto qtype_str = qtype.getAsString();)
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
 	//const auto TP = &type;
 	const auto TP = remove_fparam_wrappers(qtype);
 	const auto CXXRD = TP->getAsCXXRecordDecl();
@@ -1869,9 +1887,11 @@ inline auto Tget_descendant_of_type(const NodeT* NodePtr, clang::ASTContext& con
 struct Parse {
 	typedef decltype(std::declval<std::string_view>().length()) index_t;
 	//typedef std::pair<index_t, index_t> range_t;
+
+    /* The convention, like iterators, is that "end" refers to one past the last element. */
 	struct range_t {
-		index_t begin;
-		index_t end;
+		index_t begin = 0;
+		index_t end = 0;
         bool operator==(const range_t& rhs) const {
             return ((rhs.begin == begin) && (rhs.end == end));
         }
@@ -1957,7 +1977,7 @@ struct Parse {
 	}
 
 	static bool can_only_be_a_one_char_token(char ch1) {
-		static const std::string one_char_tokens = "(){},;\n";
+		static const std::string one_char_tokens = "(){},;?\n";
 		for (const auto ch : one_char_tokens) {
 			if (ch == ch1) {
 				return true;
@@ -2013,14 +2033,26 @@ struct Parse {
 			/* a string literal */
 			/* untested */
 			auto end_pos = find_string("\"", sv1, start_pos + 1);
-			retval = { start_pos, end_pos };
+            if (sv1.length() > end_pos) {
+                end_pos += 1;
+            } else if (sv1.length() > start_pos) {
+				end_pos = start_pos + 1;
+			}
+            retval = { start_pos, end_pos };
+            auto debug_quote_sv = Parse::substring_view(sv1, retval);
 			return retval;
 		}
 		else if ('\'' == first_ch) {
 			/* a char literal */
 			/* untested */
 			auto end_pos = find_string("\'", sv1, start_pos + 1);
-			retval = { start_pos, end_pos };
+            if (sv1.length() > end_pos) {
+                end_pos += 1;
+            } else if (sv1.length() > start_pos) {
+				end_pos = start_pos + 1;
+			}
+            retval = { start_pos, end_pos };
+            auto debug_char_sv = Parse::substring_view(sv1, retval);
 			return retval;
 		}
 		else {
@@ -2053,7 +2085,8 @@ struct Parse {
 							{ '+', '+' },
 							{ '-', '-' },
 							{ '|', '|' },
-							{ '&', '&' }
+							{ '&', '&' },
+							{ '-', '>' }
 						};
 						for (auto& tt_pair : two_char_token_table) {
 							if ((tt_pair.first == first_ch) && (tt_pair.second == second_ch)) {
@@ -2164,19 +2197,6 @@ struct Parse {
 		return retval;
 	}
 
-	static auto find_stmt_with_semicolon(std::string_view sv1, size_t pos = 0) {
-		auto retval = range_t{ sv1.length(), sv1.length() };
-		auto first_token_range = find_potential_token_v1(sv1, pos);
-		auto semic_range = find_uncommented_token(";", sv1, first_token_range.begin);
-		if (semic_range.begin >= sv1.length()) {
-			return retval;
-		}
-		else {
-			retval = { first_token_range.begin, semic_range.end };
-			return retval;
-		}
-	}
-
 	static auto find_token_sequence(std::vector<std::string> const& token_sequence, std::string_view sv1, size_t pos = 0) {
 		auto retval = range_t{ sv1.length(), sv1.length() };
 		if (pos > sv1.length()) { pos = sv1.length(); }
@@ -2218,6 +2238,7 @@ struct Parse {
 		return retval;
 	};
 
+    /* The start_index needs to refer to the character after the opening delimiter. */
 	static auto find_matching_closing_delimiter(std::string_view opening_delimiter, std::string_view closing_delimiter, std::string_view str, std::string::size_type start_index = 0) {
 		int right_angle_brackets_required = 1;
 		while (true) {
@@ -2245,89 +2266,151 @@ struct Parse {
 		}
 	}
 
-	static auto find_matching_right_angle_bracket(std::string_view str, std::string::size_type start_index = 0) {
-		return find_matching_closing_delimiter("<", ">", str, start_index);
-	}
+    /* The start_index needs to refer to the character after the opening delimiter. Does not distinguish between
+    angle brackets and "less than" or "greater than" operators. */
+    static auto find_matching_right_angle_bracket(std::string_view str, std::string::size_type start_index = 0) {
+        return find_matching_closing_delimiter("<", ">", str, start_index);
+    }
 
-	static auto find_matching_right_bracket(std::string_view str, std::string::size_type start_index = 0) {
-		return find_matching_closing_delimiter("[", "]", str, start_index);
-	}
+    /* The start_index needs to refer to the character after the opening delimiter. */
+    static auto find_matching_right_bracket(std::string_view str, std::string::size_type start_index = 0) {
+        return find_matching_closing_delimiter("[", "]", str, start_index);
+    }
 
-	static auto find_matching_right_parenthesis(std::string_view str, std::string::size_type start_index = 0) {
-		return find_matching_closing_delimiter("(", ")", str, start_index);
-	}
+    /* The start_index needs to refer to the character after the opening delimiter. */
+    static auto find_matching_right_parenthesis(std::string_view str, std::string::size_type start_index = 0) {
+        return find_matching_closing_delimiter("(", ")", str, start_index);
+    }
 
-	static auto find_matching_right_brace(std::string_view str, std::string::size_type start_index = 0) {
-		return find_matching_closing_delimiter("{", "}", str, start_index);
-	}
+    /* The start_index needs to refer to the character after the opening delimiter. */
+    static auto find_matching_right_brace(std::string_view str, std::string::size_type start_index = 0) {
+        return find_matching_closing_delimiter("{", "}", str, start_index);
+    }
 
-	static auto find_matching_closing_delimiter(std::vector<std::string> const& opening_delimiter_set, std::string_view closing_delimiter, std::string_view str, std::string::size_type start_index = 0) {
-		int right_angle_brackets_required = 1;
-		while (true) {
-			auto next_r_range = find_uncommented_token(closing_delimiter, str, start_index);
-			auto next_r_index = next_r_range.begin;
+    /* The start_index needs to refer to the character after the opening delimiter. */
+    static auto find_matching_closing_delimiter(std::vector<std::string> const& opening_delimiter_set, std::string_view closing_delimiter, std::string_view str, std::string::size_type start_index = 0) {
+        int right_angle_brackets_required = 1;
+        while (true) {
+            auto next_r_range = find_uncommented_token(closing_delimiter, str, start_index);
+            auto next_r_index = next_r_range.begin;
 
-			if (str.length() <= next_r_index) {
-				return next_r_index;
-			}
-			auto substr1 = str.substr(start_index, size_t(next_r_index - start_index));
+            if (str.length() <= next_r_index) {
+                return next_r_index;
+            }
+            auto substr1 = str.substr(start_index, size_t(next_r_index - start_index));
 
-			auto next_l_subrange = Parse::range_t{ substr1.length(), substr1.length() };
-			for (auto const& opening_delimiter : opening_delimiter_set) {
-				auto next_l_subrange2 = find_uncommented_token(opening_delimiter, substr1);
-				if (next_l_subrange2.begin < next_l_subrange.begin) {
-					next_l_subrange = next_l_subrange2;
-				}
-			}
-			auto next_l_subindex = next_l_subrange.begin;
-			if (substr1.length() <= next_l_subindex) {
-				right_angle_brackets_required -= 1;
-				start_index = next_r_index + 1;
-			}
-			else {
-				right_angle_brackets_required += 1;
-				start_index = start_index + next_l_subindex + 1;
-			}
-			if (1 > right_angle_brackets_required) {
-				return next_r_index;
-			}
-		}
-	}
+            auto next_l_subrange = Parse::range_t{ substr1.length(), substr1.length() };
+            for (auto const& opening_delimiter : opening_delimiter_set) {
+                auto next_l_subrange2 = find_uncommented_token(opening_delimiter, substr1);
+                if (next_l_subrange2.begin < next_l_subrange.begin) {
+                    next_l_subrange = next_l_subrange2;
+                }
+            }
+            auto next_l_subindex = next_l_subrange.begin;
+            if (substr1.length() <= next_l_subindex) {
+                right_angle_brackets_required -= 1;
+                start_index = next_r_index + 1;
+            }
+            else {
+                right_angle_brackets_required += 1;
+                start_index = start_index + next_l_subindex + 1;
+            }
+            if (1 > right_angle_brackets_required) {
+                return next_r_index;
+            }
+        }
+    }
 
-	static auto find_token_at_same_nesting_depth1(std::string_view target_token_sv, std::string_view str, std::string::size_type start_index = 0) {
-		struct CEnclosureDelimiterPair {
-			std::string open;
-			std::string close;
-		};
-		static const std::array<CEnclosureDelimiterPair, 4> enclosure_delimiters = {
+    struct CEnclosureDelimiterPair {
+        std::string open;
+        std::string close;
+    };
+    static const std::vector<CEnclosureDelimiterPair>& s_enclosure_delimiters_including_angle_brackets() {
+		static const std::vector<CEnclosureDelimiterPair> s_l_enclosure_delimiters_including_angle_brackets {
 			CEnclosureDelimiterPair{ "(", ")" },
 			CEnclosureDelimiterPair{ "[", "]" },
-			CEnclosureDelimiterPair{ "<", ">" },
+	        CEnclosureDelimiterPair{ "<", ">" },
 			CEnclosureDelimiterPair{ "{", "}" }
-			};
-		auto next_tt_range = find_uncommented_token(target_token_sv, str, start_index);
-		while (str.length() > next_tt_range.end) {
-			auto next_opening_delimiter_range = next_tt_range;
-			size_t next_opening_delimiter_species_index = enclosure_delimiters.size();
-			for (size_t i = 0; i < enclosure_delimiters.size(); i += 1) {
-				auto& delimiter_pair = enclosure_delimiters.at(i);
-				const auto found_range = find_uncommented_token(delimiter_pair.open, str, start_index);
-				if (found_range.begin < next_opening_delimiter_range.begin) {
-					next_opening_delimiter_range = found_range;
-					next_opening_delimiter_species_index = i;
-				}
-			}
-			if (enclosure_delimiters.size() > next_opening_delimiter_species_index) {
-				auto& delimiter_pair = enclosure_delimiters.at(next_opening_delimiter_species_index);
-				const auto found_range = find_uncommented_token(delimiter_pair.close, str, start_index);
-				start_index = found_range.end;
-			} else {
-				return next_opening_delimiter_range;
-			}
+		};
+		return s_l_enclosure_delimiters_including_angle_brackets;
+	}
+    static const std::vector<CEnclosureDelimiterPair>& s_enclosure_delimiters() {
+		static const std::vector<CEnclosureDelimiterPair> s_l_enclosure_delimiters {
+			CEnclosureDelimiterPair{ "(", ")" },
+			CEnclosureDelimiterPair{ "[", "]" },
+			CEnclosureDelimiterPair{ "{", "}" }
+		};
+		return s_l_enclosure_delimiters;
+	}
 
-			next_tt_range = find_uncommented_token(target_token_sv, str, start_index);
+    /* Angle bracket nesting can be thrown off by the presence of "less than" or "greater than" operators. Use
+    find_token_at_same_nesting_depth2() if you don't need angle bracket nesting. */
+		static auto find_token_at_same_nesting_depth1(std::string_view target_token_sv, std::string_view str, std::string::size_type start_index = 0, const std::vector<CEnclosureDelimiterPair>& enclosure_delimiters = s_enclosure_delimiters_including_angle_brackets()) {
+        auto next_tt_range = find_uncommented_token(target_token_sv, str, start_index);
+        while (str.length() > next_tt_range.end) {
+            auto debug_sv2 = str.substr(start_index, int(next_tt_range.end) - int(start_index));
+            auto next_opening_delimiter_range = next_tt_range;
+            size_t next_opening_delimiter_species_index = enclosure_delimiters.size();
+            auto next_closing_delimiter_range = next_tt_range;
+            size_t next_closing_delimiter_species_index = enclosure_delimiters.size();
+            for (size_t i = 0; i < enclosure_delimiters.size(); i += 1) {
+                auto& delimiter_pair = enclosure_delimiters.at(i);
+                const auto found_range = find_uncommented_token(delimiter_pair.open, str, start_index);
+                if (found_range.begin < next_opening_delimiter_range.begin) {
+                    next_opening_delimiter_range = found_range;
+                    next_opening_delimiter_species_index = i;
+                }
+
+                const auto found_range2 = find_uncommented_token(delimiter_pair.close, str, start_index);
+                if (found_range2.begin < next_closing_delimiter_range.begin) {
+                    next_closing_delimiter_range = found_range2;
+                    next_closing_delimiter_species_index = i;
+                }
+            }
+            if ((next_closing_delimiter_range.begin < next_tt_range.begin)
+                && (next_closing_delimiter_range.begin < next_opening_delimiter_range.begin)) {
+                /* We've encountered a closing delimiter before encountering the target token and also before
+                encountering an open delimiter. */
+                if (enclosure_delimiters.at(next_closing_delimiter_species_index).close == target_token_sv) {
+                    /* The closing delimiter happens to be the target token we're looking for. */
+                    return next_closing_delimiter_range;
+                }
+                else {
+                    /* This closing delimiter demarques the end of the scope we're in. */
+                    return Parse::range_t{ str.length(), str.length() };
+                }
+            }
+
+            if (enclosure_delimiters.size() > next_opening_delimiter_species_index) {
+                auto& delimiter_pair = enclosure_delimiters.at(next_opening_delimiter_species_index);
+                const auto found_range = find_token_at_same_nesting_depth1(delimiter_pair.close, str, next_opening_delimiter_range.end, enclosure_delimiters);
+                start_index = found_range.end;
+            }
+            else {
+                return next_opening_delimiter_range;
+            }
+
+            next_tt_range = find_uncommented_token(target_token_sv, str, start_index);
+        }
+        return next_tt_range;
+    }
+
+    /* Does not recognize angle bracket nesting. */
+    static auto find_token_at_same_nesting_depth2(std::string_view target_token_sv, std::string_view str, std::string::size_type start_index = 0) {
+        return find_token_at_same_nesting_depth1(target_token_sv, str, start_index, s_enclosure_delimiters());
+    }
+
+	static auto find_stmt_with_semicolon(std::string_view sv1, size_t pos = 0) {
+		auto retval = range_t{ sv1.length(), sv1.length() };
+		auto first_token_range = find_potential_token_v1(sv1, pos);
+		auto semic_range = find_token_at_same_nesting_depth1(";", sv1, first_token_range.begin);
+		if (semic_range.begin >= sv1.length()) {
+			return retval;
 		}
-		return next_tt_range;
+		else {
+			retval = { first_token_range.begin, semic_range.end };
+			return retval;
+		}
 	}
 
 	struct CCodeSession {
