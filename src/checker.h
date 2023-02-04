@@ -991,8 +991,8 @@ namespace checker {
 				if (decltype(pretty_str)::npos != index1) {
 					static const std::string lbrace = "{";
 					static const std::string rbrace = "}";
-					static const std::string langle_bracket = "<";
-					static const std::string rangle_bracket = ">";
+					static const std::string lparenthesis = "(";
+					static const std::string rparenthesis = ")";
 					static const std::string semicolon = ";";
 					index1 = pretty_str.find(lbrace, index1 + mse_lifetime_notes_str.length());
 					if (decltype(pretty_str)::npos == index1) {
@@ -1011,13 +1011,13 @@ namespace checker {
 							std::optional<lifetime_id_t> maybe_second_lifetime_label_id;
 
 							if (true) {
-								auto langle_bracket_index = sv1.find('<');
-								if (std::string::npos != langle_bracket_index) {
-									auto comma_index = sv1.find(',', langle_bracket_index+1);
-									if ((std::string::npos != comma_index) && (langle_bracket_index + 1 < comma_index)) {
-										auto rangle_bracket_index = sv1.find('>', comma_index+1);
-										if ((std::string::npos != rangle_bracket_index) && (comma_index + 1 < rangle_bracket_index)) {
-											std::string first_lifetime_label_id_str( sv1.substr(langle_bracket_index + 1, int(comma_index) - int(langle_bracket_index) - 1) );
+								auto lparenthesis_index = sv1.find('(');
+								if (std::string::npos != lparenthesis_index) {
+									auto comma_index = sv1.find(',', lparenthesis_index+1);
+									if ((std::string::npos != comma_index) && (lparenthesis_index + 1 < comma_index)) {
+										auto rparenthesis_index = sv1.find(')', comma_index+1);
+										if ((std::string::npos != rparenthesis_index) && (comma_index + 1 < rparenthesis_index)) {
+											std::string first_lifetime_label_id_str( sv1.substr(lparenthesis_index + 1, int(comma_index) - int(lparenthesis_index) - 1) );
 											auto first_lifetime_label_id = with_whitespace_removed(first_lifetime_label_id_str);
 											maybe_first_lifetime_label_id = lifetime_id_t(first_lifetime_label_id);
 											if (1 <= first_lifetime_label_id.length()) {
@@ -1031,7 +1031,7 @@ namespace checker {
 												}
 											}
 
-											std::string second_lifetime_label_id_str( sv1.substr(comma_index + 1, int(rangle_bracket_index) - int(comma_index) - 1) );
+											std::string second_lifetime_label_id_str( sv1.substr(comma_index + 1, int(rparenthesis_index) - int(comma_index) - 1) );
 											auto second_lifetime_label_id = with_whitespace_removed(second_lifetime_label_id_str);
 											maybe_second_lifetime_label_id = lifetime_id_t(second_lifetime_label_id);
 											if (1 <= second_lifetime_label_id.length()) {
@@ -1123,20 +1123,20 @@ namespace checker {
 						lifetime_labels_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_label }, pretty_str);
 					}
 					if (pretty_str.length() > lifetime_labels_range.begin) {
-						static const std::string langle_bracket = "<";
-						static const std::string rangle_bracket = ">";
+						static const std::string lparenthesis = "(";
+						static const std::string rparenthesis = ")";
 
-						auto langle_bracket_range = Parse::find_token_at_same_nesting_depth1(langle_bracket, pretty_str, lifetime_labels_range.end);
-						if (pretty_str.length() <= langle_bracket_range.begin) {
+						auto lparenthesis_range = Parse::find_token_at_same_nesting_depth1(lparenthesis, pretty_str, lifetime_labels_range.end);
+						if (pretty_str.length() <= lparenthesis_range.begin) {
 							continue;
 						}
-						auto langle_bracket_index = langle_bracket_range.begin;
-						auto rangle_bracket_index = Parse::find_matching_right_angle_bracket(pretty_str, langle_bracket_range.end);
-						if (pretty_str.length() <= rangle_bracket_index) {
+						auto lparenthesis_index = lparenthesis_range.begin;
+						auto rparenthesis_index = Parse::find_matching_right_parenthesis(pretty_str, lparenthesis_range.end);
+						if (pretty_str.length() <= rparenthesis_index) {
 							int q = 3;
 							continue;
 						}
-						std::string_view sv1(pretty_str.data() + langle_bracket_index + 1, int(rangle_bracket_index) - int(langle_bracket_index + 1));
+						std::string_view sv1(pretty_str.data() + lparenthesis_index + 1, int(rparenthesis_index) - int(lparenthesis_index + 1));
 
 						CAbstractLifetimeSet alts1 = parse_lifetime_ids(sv1, &type_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
 
@@ -1157,20 +1157,20 @@ namespace checker {
 							lsftp_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_set_alias_from_template_parameter }, pretty_str);
 						}
 						if (pretty_str.length() > lsftp_range.begin) {
-							static const std::string langle_bracket = "<";
-							static const std::string rangle_bracket = ">";
+							static const std::string lparenthesis = "(";
+							static const std::string rparenthesis = ")";
 
-							auto langle_bracket_range = Parse::find_token_at_same_nesting_depth1(langle_bracket, pretty_str, lsftp_range.end);
-							if (pretty_str.length() <= langle_bracket_range.begin) {
+							auto lparenthesis_range = Parse::find_token_at_same_nesting_depth1(lparenthesis, pretty_str, lsftp_range.end);
+							if (pretty_str.length() <= lparenthesis_range.begin) {
 								continue;
 							}
-							auto langle_bracket_index = langle_bracket_range.begin;
-							auto rangle_bracket_index = Parse::find_matching_right_angle_bracket(pretty_str, langle_bracket_range.end);
-							if (pretty_str.length() <= rangle_bracket_index) {
+							auto lparenthesis_index = lparenthesis_range.begin;
+							auto rparenthesis_index = Parse::find_matching_right_parenthesis(pretty_str, lparenthesis_range.end);
+							if (pretty_str.length() <= rparenthesis_index) {
 								int q = 3;
 								continue;
 							}
-							std::string_view sv1(pretty_str.data() + langle_bracket_index + 1, int(rangle_bracket_index) - int(langle_bracket_index + 1));
+							std::string_view sv1(pretty_str.data() + lparenthesis_index + 1, int(rparenthesis_index) - int(lparenthesis_index + 1));
 
 							CAbstractLifetimeSet alts1 = parse_lifetime_ids(sv1, &type_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
 
@@ -1264,20 +1264,20 @@ namespace checker {
 							lifetime_labels_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_label }, pretty_str);
 						}
 						if (pretty_str.length() > lifetime_labels_range.begin) {
-							static const std::string langle_bracket = "<";
-							static const std::string rangle_bracket = ">";
+							static const std::string lparenthesis = "(";
+							static const std::string rparenthesis = ")";
 
-							auto langle_bracket_range = Parse::find_token_at_same_nesting_depth1(langle_bracket, pretty_str, lifetime_labels_range.end);
-							if (pretty_str.length() <= langle_bracket_range.begin) {
+							auto lparenthesis_range = Parse::find_token_at_same_nesting_depth1(lparenthesis, pretty_str, lifetime_labels_range.end);
+							if (pretty_str.length() <= lparenthesis_range.begin) {
 								continue;
 							}
-							auto langle_bracket_index = langle_bracket_range.begin;
-							auto rangle_bracket_index = Parse::find_matching_right_angle_bracket(pretty_str, langle_bracket_range.end);
-							if (pretty_str.length() <= rangle_bracket_index) {
+							auto lparenthesis_index = lparenthesis_range.begin;
+							auto rparenthesis_index = Parse::find_matching_right_parenthesis(pretty_str, lparenthesis_range.end);
+							if (pretty_str.length() <= rparenthesis_index) {
 								int q = 3;
 								continue;
 							}
-							std::string_view sv1(pretty_str.data() + langle_bracket_index + 1, int(rangle_bracket_index) - int(langle_bracket_index + 1));
+							std::string_view sv1(pretty_str.data() + lparenthesis_index + 1, int(rparenthesis_index) - int(lparenthesis_index + 1));
 
 							CAbstractLifetimeSet alts2 = parse_lifetime_ids(sv1, &type_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
 							CAbstractLifetimeSet alts1 = with_any_lifetime_aliases_dealiased(alts2, state1, MR_ptr, Rewrite_ptr);
@@ -1296,20 +1296,20 @@ namespace checker {
 						} else {
 							auto lifetime_set_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_set }, pretty_str);
 							if (pretty_str.length() > lifetime_set_range.begin) {
-								static const std::string langle_bracket = "<";
-								static const std::string rangle_bracket = ">";
+								static const std::string lparenthesis = "(";
+								static const std::string rparenthesis = ")";
 
-								auto langle_bracket_range = Parse::find_token_at_same_nesting_depth1(langle_bracket, pretty_str, lifetime_set_range.end);
-								if (pretty_str.length() <= langle_bracket_range.begin) {
+								auto lparenthesis_range = Parse::find_token_at_same_nesting_depth1(lparenthesis, pretty_str, lifetime_set_range.end);
+								if (pretty_str.length() <= lparenthesis_range.begin) {
 									continue;
 								}
-								auto langle_bracket_index = langle_bracket_range.begin;
-								auto rangle_bracket_index = Parse::find_matching_right_angle_bracket(pretty_str, langle_bracket_range.end);
-								if (pretty_str.length() <= rangle_bracket_index) {
+								auto lparenthesis_index = lparenthesis_range.begin;
+								auto rparenthesis_index = Parse::find_matching_right_parenthesis(pretty_str, lparenthesis_range.end);
+								if (pretty_str.length() <= rparenthesis_index) {
 									int q = 3;
 									continue;
 								}
-								std::string_view sv1(pretty_str.data() + langle_bracket_index + 1, int(rangle_bracket_index) - int(langle_bracket_index + 1));
+								std::string_view sv1(pretty_str.data() + lparenthesis_index + 1, int(rparenthesis_index) - int(lparenthesis_index + 1));
 
 								CAbstractLifetimeSet alts2 = parse_lifetime_ids(sv1, &type_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
 								CAbstractLifetimeSet alts1 = with_any_lifetime_aliases_dealiased(alts2, state1, MR_ptr, Rewrite_ptr);
@@ -1426,8 +1426,8 @@ namespace checker {
 				if (decltype(pretty_str)::npos != index1) {
 					static const std::string lbrace = "{";
 					static const std::string rbrace = "}";
-					static const std::string langle_bracket = "<";
-					static const std::string rangle_bracket = ">";
+					static const std::string lparenthesis = "(";
+					static const std::string rparenthesis = ")";
 					static const std::string semicolon = ";";
 					index1 = pretty_str.find(lbrace, index1 + mse_lifetime_notes_str.length());
 					if (decltype(pretty_str)::npos == index1) {
@@ -1444,11 +1444,11 @@ namespace checker {
 							CAbstractLifetimeSet return_value_lifetimes;
 
 							if (true) {
-								const auto langle_bracket_index = sv1.find('<');
-								if (std::string::npos != langle_bracket_index) {
-									const auto rangle_bracket_index = sv1.find('>', langle_bracket_index+1);
-									if ((std::string::npos != rangle_bracket_index) && (langle_bracket_index + 1 < rangle_bracket_index)) {
-										auto sv2 = sv1.substr(langle_bracket_index + 1, int(rangle_bracket_index) - (int(langle_bracket_index) + 1));
+								const auto lparenthesis_index = sv1.find('(');
+								if (std::string::npos != lparenthesis_index) {
+									const auto rparenthesis_index = sv1.find(')', lparenthesis_index+1);
+									if ((std::string::npos != rparenthesis_index) && (lparenthesis_index + 1 < rparenthesis_index)) {
+										auto sv2 = sv1.substr(lparenthesis_index + 1, int(rparenthesis_index) - (int(lparenthesis_index) + 1));
 										return_value_lifetimes = parse_lifetime_ids(sv2, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
 									}
 								}
@@ -1466,11 +1466,11 @@ namespace checker {
 							CAbstractLifetimeSet this_lifetimes;
 
 							if (true) {
-								const auto langle_bracket_index = sv1.find('<');
-								if (std::string::npos != langle_bracket_index) {
-									const auto rangle_bracket_index = sv1.find('>', langle_bracket_index+1);
-									if ((std::string::npos != rangle_bracket_index) && (langle_bracket_index + 1 < rangle_bracket_index)) {
-										auto sv2 = sv1.substr(langle_bracket_index + 1, int(rangle_bracket_index) - (int(langle_bracket_index) + 1));
+								const auto lparenthesis_index = sv1.find('(');
+								if (std::string::npos != lparenthesis_index) {
+									const auto rparenthesis_index = sv1.find(')', lparenthesis_index+1);
+									if ((std::string::npos != rparenthesis_index) && (lparenthesis_index + 1 < rparenthesis_index)) {
+										auto sv2 = sv1.substr(lparenthesis_index + 1, int(rparenthesis_index) - (int(lparenthesis_index) + 1));
 										this_lifetimes = parse_lifetime_ids(sv2, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
 									}
 								}
@@ -1492,14 +1492,14 @@ namespace checker {
 							std::optional<lifetime_id_t> maybe_second_lifetime_label_id;
 
 							if (true) {
-								auto langle_bracket_index = sv1.find('<');
-								if (std::string::npos != langle_bracket_index) {
-									auto comma_index = Parse::find_token_at_same_nesting_depth1(",", sv1, langle_bracket_index+1).begin;
-									if ((sv1.length() > comma_index) && (langle_bracket_index + 1 < comma_index)) {
-										auto rangle_bracket_index = sv1.find('>', comma_index+1);
-										if ((std::string::npos != rangle_bracket_index) && (comma_index + 1 < rangle_bracket_index)) {
+								auto lparenthesis_index = sv1.find('(');
+								if (std::string::npos != lparenthesis_index) {
+									auto comma_index = Parse::find_token_at_same_nesting_depth1(",", sv1, lparenthesis_index+1).begin;
+									if ((sv1.length() > comma_index) && (lparenthesis_index + 1 < comma_index)) {
+										auto rparenthesis_index = sv1.find(')', comma_index+1);
+										if ((std::string::npos != rparenthesis_index) && (comma_index + 1 < rparenthesis_index)) {
 											{
-												auto sv2 = sv1.substr(langle_bracket_index + 1, int(comma_index) - (int(langle_bracket_index) + 1));
+												auto sv2 = sv1.substr(lparenthesis_index + 1, int(comma_index) - (int(lparenthesis_index) + 1));
 												first_lifetimes = parse_lifetime_ids(sv2, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
 												if (MR_ptr) {
 													if (first_lifetimes.is_empty()) {
@@ -1518,7 +1518,7 @@ namespace checker {
 												}
 											}
 											{
-												auto sv2 = sv1.substr(comma_index + 1, int(rangle_bracket_index) - (int(comma_index) + 1));
+												auto sv2 = sv1.substr(comma_index + 1, int(rparenthesis_index) - (int(comma_index) + 1));
 												second_lifetimes = parse_lifetime_ids(sv2, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
 												if (MR_ptr) {
 													if (second_lifetimes.is_empty()) {
@@ -1612,20 +1612,20 @@ namespace checker {
 						lifetime_labels_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_label }, pretty_str);
 					}
 					if (pretty_str.length() > lifetime_labels_range.begin) {
-						static const std::string langle_bracket = "<";
-						static const std::string rangle_bracket = ">";
+						static const std::string lparenthesis = "(";
+						static const std::string rparenthesis = ")";
 
-						auto langle_bracket_range = Parse::find_token_at_same_nesting_depth1(langle_bracket, pretty_str, lifetime_labels_range.end);
-						if (pretty_str.length() <= langle_bracket_range.begin) {
+						auto lparenthesis_range = Parse::find_token_at_same_nesting_depth1(lparenthesis, pretty_str, lifetime_labels_range.end);
+						if (pretty_str.length() <= lparenthesis_range.begin) {
 							continue;
 						}
-						auto langle_bracket_index = langle_bracket_range.begin;
-						auto rangle_bracket_index = Parse::find_matching_right_angle_bracket(pretty_str, langle_bracket_range.end);
-						if (pretty_str.length() <= rangle_bracket_index) {
+						auto lparenthesis_index = lparenthesis_range.begin;
+						auto rparenthesis_index = Parse::find_matching_right_parenthesis(pretty_str, lparenthesis_range.end);
+						if (pretty_str.length() <= rparenthesis_index) {
 							int q = 3;
 							continue;
 						}
-						std::string_view sv1(pretty_str.data() + langle_bracket_index + 1, int(rangle_bracket_index) - int(langle_bracket_index + 1));
+						std::string_view sv1(pretty_str.data() + lparenthesis_index + 1, int(rparenthesis_index) - int(lparenthesis_index + 1));
 
 						CAbstractLifetimeSet alts2 = parse_lifetime_ids(sv1, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
 						CAbstractLifetimeSet alts1 = with_any_lifetime_aliases_dealiased(alts2, state1, MR_ptr, Rewrite_ptr);
@@ -1666,20 +1666,20 @@ namespace checker {
 					} else {
 						auto lifetime_set_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_set }, pretty_str);
 						if (pretty_str.length() > lifetime_set_range.begin) {
-							static const std::string langle_bracket = "<";
-							static const std::string rangle_bracket = ">";
+							static const std::string lparenthesis = "(";
+							static const std::string rparenthesis = ")";
 
-							auto langle_bracket_range = Parse::find_token_at_same_nesting_depth1(langle_bracket, pretty_str, lifetime_set_range.end);
-							if (pretty_str.length() <= langle_bracket_range.begin) {
+							auto lparenthesis_range = Parse::find_token_at_same_nesting_depth1(lparenthesis, pretty_str, lifetime_set_range.end);
+							if (pretty_str.length() <= lparenthesis_range.begin) {
 								continue;
 							}
-							auto langle_bracket_index = langle_bracket_range.begin;
-							auto rangle_bracket_index = Parse::find_matching_right_angle_bracket(pretty_str, langle_bracket_range.end);
-							if (pretty_str.length() <= rangle_bracket_index) {
+							auto lparenthesis_index = lparenthesis_range.begin;
+							auto rparenthesis_index = Parse::find_matching_right_parenthesis(pretty_str, lparenthesis_range.end);
+							if (pretty_str.length() <= rparenthesis_index) {
 								int q = 3;
 								continue;
 							}
-							std::string_view sv1(pretty_str.data() + langle_bracket_index + 1, int(rangle_bracket_index) - int(langle_bracket_index + 1));
+							std::string_view sv1(pretty_str.data() + lparenthesis_index + 1, int(rparenthesis_index) - int(lparenthesis_index + 1));
 
 							CAbstractLifetimeSet alts2 = parse_lifetime_ids(sv1, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
 							CAbstractLifetimeSet alts1 = with_any_lifetime_aliases_dealiased(alts2, state1, MR_ptr, Rewrite_ptr);
@@ -2192,16 +2192,16 @@ namespace checker {
 					pretty_stream.flush();
 					auto index1 = pretty_str.find(mse_lifetime_label);
 					if (decltype(pretty_str)::npos != index1) {
-						static const std::string langle_bracket = "<";
-						static const std::string rangle_bracket = ">";
+						static const std::string lparenthesis = "(";
+						static const std::string rparenthesis = ")";
 
-						index1 = pretty_str.find(langle_bracket, index1 + mse_lifetime_label.length());
+						index1 = pretty_str.find(lparenthesis, index1 + mse_lifetime_label.length());
 						if (decltype(pretty_str)::npos == index1) {
 							continue;
 						}
-						auto langle_bracket_index = index1;
-						auto rangle_bracket_index = pretty_str.find(rangle_bracket, langle_bracket_index + 1);
-						std::string_view sv1(pretty_str.data() + langle_bracket_index + 1, int(rangle_bracket_index) - int(langle_bracket_index + 1));
+						auto lparenthesis_index = index1;
+						auto rparenthesis_index = pretty_str.find(rparenthesis, lparenthesis_index + 1);
+						std::string_view sv1(pretty_str.data() + lparenthesis_index + 1, int(rparenthesis_index) - int(lparenthesis_index + 1));
 
 						CAbstractLifetimeSet alts1 = parse_lifetime_ids(sv1, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
 
@@ -2390,7 +2390,7 @@ namespace checker {
 																	MESR = SR;
 																}
 
-																const std::string error_desc = std::string("The FD '") + FD2->getNameAsString()
+																const std::string error_desc = std::string("The field '") + FD2->getNameAsString()
 																	+ "' may be being referenced before it has been constructed.";
 																auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, MESR.getBegin(), error_desc));
 																if (res.second) {
@@ -2404,7 +2404,7 @@ namespace checker {
 																the object that hasn't been constructed yet. */
 																const std::string error_desc = std::string("Calling non-static member functions ")
 																+ "(such as '" + CXXMD->getQualifiedNameAsString() + "') of an object is not supported in "
-																+ "constructor initializers or direct FD initializers of the object. Consider "
+																+ "constructor initializers or direct field initializers of the object. Consider "
 																+ "using a static member or free function instead. ";
 																auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
 																if (res.second) {
@@ -2436,7 +2436,7 @@ namespace checker {
 															CISR = SR;
 														}
 														const std::string error_desc = std::string("Null initialization of ")
-															+ "native pointer FD '" + FD->getNameAsString()
+															+ "native pointer field '" + FD->getNameAsString()
 															+ "' is not supported.";
 														auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, CISR.getBegin(), error_desc));
 														if (res.second) {
@@ -10235,8 +10235,8 @@ namespace checker {
 					binaryOperator(hasOperatorName("+=")), binaryOperator(hasOperatorName("-=")),
 					binaryOperator(hasOperatorName("+")), binaryOperator(hasOperatorName("+=")),
 					binaryOperator(hasOperatorName("-")), binaryOperator(hasOperatorName("-=")),
-					binaryOperator(hasOperatorName("<=")), binaryOperator(hasOperatorName("<")),
-					binaryOperator(hasOperatorName(">=")), binaryOperator(hasOperatorName(">")),
+					binaryOperator(hasOperatorName("<=")), binaryOperator(hasOperatorName("(")),
+					binaryOperator(hasOperatorName(">=")), binaryOperator(hasOperatorName(")")),
 					arraySubscriptExpr()/*, clang::ast_matchers::castExpr(hasParent(arraySubscriptExpr()))*/
 					)).bind("mcssspointerarithmetic1"))),
 				/* We'd like to select for pointer types exclusively here, but it seems to miss some cases
