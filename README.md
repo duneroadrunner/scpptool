@@ -399,10 +399,11 @@ struct TLARefObj2 : public mse::rsv::XScopeTagBase, public mse::rsv::ContainsNon
 
     T m_val1 MSE_ATTR_STR("mse::lifetime_label(alias_99)");
     U m_val2 MSE_ATTR_STR("mse::lifetime_label(alias_42)");
-} MSE_ATTR_STR("mse::lifetime_set_aliases_from_template_parameters(alias_99, alias_42)");
+} MSE_ATTR_STR("mse::lifetime_set_alias_from_template_parameter_by_name(T, alias_11)")
+ MSE_ATTR_STR("mse::lifetime_set_alias_from_template_parameter_by_name(U, alias_12)");
 ```
 
-So instead of declaring specific lifetime labels for the template type, we use the `mse::lifetime_set_aliases_from_template_parameters()` annotation to define a lifetime label alias for the set of (reference) lifetimes each template parameter type has (or rather, will have whenever the template is instantiated).
+So instead of declaring specific lifetime labels for the template type, we use the `mse::lifetime_set_alias_from_template_parameter_by_name()` annotation to define a lifetime label alias for the set of (reference) lifetimes the specified template parameter type has (or rather, will have whenever the template is instantiated).
 
 Now, if we can revisit the earlier part where we were learning to associate lifetime labels with function parameters, and consider a situation where we are interested in, not the lifetime of the parameter directly, but perhaps the (maximum known lower bound) lifespan of an object that the parameter references. We can use the `CLARefObj2` `struct` we defined earlier for this example:
 
