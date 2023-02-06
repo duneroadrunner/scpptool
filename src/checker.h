@@ -240,6 +240,7 @@ namespace checker {
 		std::unordered_map<clang::Expr const *, CExpressionLifetimeValues> m_expr_lifetime_values_map;
 
 		std::unordered_map<clang::FieldDecl const *, CAbstractLifetimeSet> m_fielddecl_to_abstract_lifetime_map;
+		std::unordered_map<clang::CXXBaseSpecifier const *, CAbstractLifetimeSet> m_base_class_to_abstract_lifetime_map;
 
 		typedef CPairwiseLifetimeConstraint::EYesNoDontKnow EYesNoDontKnow;
 
@@ -878,7 +879,7 @@ namespace checker {
 			}
 		}
 
-		auto template_params = get_template_parameters(TypePtr2);
+		auto template_params = get_template_arg_types(TypePtr2);
 		auto num_lt_aliases = alts.m_primary_lifetimes.size();
 		size_t count = 0;
 		for (size_t i = 0; i < num_lt_aliases; i += 1) {
@@ -905,7 +906,7 @@ namespace checker {
 					}
 				} else {
 					/* In the case of a template definition (as opposed to a template instantiation),
-					get_template_parameters() won't return any parameters. In this case we'll just map the
+					get_template_arg_types() won't return any parameters. In this case we'll just map the
 					specified aliases to the empty set. */
 					int q = 5;
 				}
@@ -920,6 +921,110 @@ namespace checker {
 				retval.m_primary_lifetimes.insert(retval.m_primary_lifetimes.end(), res1.m_primary_lifetimes.begin(), res1.m_primary_lifetimes.end());
 			}
 		}
+		return retval;
+	};
+
+	auto infer_alias_mapping_from_template_arg(const clang::Type * TypePtr2, std::string_view target_tparam_name_sv, const CAbstractLifetime& alias, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr)
+		-> CAbstractLifetimeSet {
+
+		auto retval = CAbstractLifetimeSet{};
+		if (TypePtr2) {
+			if (TypePtr2->isUndeducedType()) {
+				int q = 5;
+			}
+		}
+
+		const auto CXXRD = TypePtr2->getAsCXXRecordDecl();
+		if (CXXRD) {
+			auto qname = CXXRD->getQualifiedNameAsString();
+
+			auto CTSD = clang::dyn_cast<const clang::ClassTemplateSpecializationDecl>(CXXRD);
+			if (CTSD) {
+				auto CTD2 = CTSD->getSpecializedTemplate();
+				if (CTD2) {
+					auto tparam_list = CTD2->getTemplateParameters();
+					auto tpl_size = tparam_list->size();
+					std::optional<size_t> maybe_found_index;
+					size_t count = 0;
+					for (auto& tparam_ND : *tparam_list) {
+						const auto tp_name = tparam_ND->getNameAsString();
+						if (tp_name == target_tparam_name_sv) {
+							maybe_found_index = count;
+							break;
+						}
+						count += 1;
+					}
+					if (maybe_found_index.has_value()) {
+						auto target_targ_index = maybe_found_index.value();
+
+						auto template_arg_types = get_template_arg_types(TypePtr2);
+						{
+							if ("" != alias.m_id) {
+								CAbstractLifetimeSet unaliased_lifetimes;
+								if (template_arg_types.size() > target_targ_index) {
+									auto maybe_tlta_ptr = type_lifetime_annotations_if_available(template_arg_types.at(target_targ_index).getTypePtr(), state1, MR_ptr, Rewrite_ptr);
+									if (maybe_tlta_ptr.has_value()) {
+										auto unaliased_prefix1 = "__lifetime_set_" + alias.m_id;
+										auto& tlta = *(maybe_tlta_ptr.value());
+
+										size_t count = 0;
+										for (auto& lifetime : tlta.m_lifetime_set.m_primary_lifetimes) {
+											/* Ok, we now have a set of (the template parameter) type's declared lifetimes. Now we want to
+											create corresponding (distinct) lifetimes in our template type. */
+											CAbstractLifetime unaliased_lifetime;
+											unaliased_lifetime.m_context = alias.m_context;
+											count += 1;
+											unaliased_lifetime.m_id = unaliased_prefix1 + "_" + std::to_string(count) + "_" + lifetime.m_id;
+
+											/* And then we'll add this lifetime to the set of lifetimes the lifetime set alias represents. */
+											unaliased_lifetimes.m_primary_lifetimes.push_back(unaliased_lifetime);
+										}
+									}
+								} else {
+									/* In the case of a template definition (as opposed to a template instantiation),
+									get_template_arg_types() won't return any parameters. In this case we'll just map the
+									specified aliases to the empty set. */
+									int q = 5;
+								}
+								state1.m_lifetime_alias_map.insert_or_assign(alias, unaliased_lifetimes);
+
+								retval.m_primary_lifetimes.insert(retval.m_primary_lifetimes.end(), unaliased_lifetimes.m_primary_lifetimes.begin(), unaliased_lifetimes.m_primary_lifetimes.end());
+							}
+						}
+					} else {
+						if (MR_ptr) {
+							std::string template_parameters_str;
+							for (auto& tparam_ND : *tparam_list) {
+								const auto tp_name = tparam_ND->getNameAsString();
+								template_parameters_str += tp_name;
+								template_parameters_str += ", ";
+							}
+							if (std::string(", ").length() < template_parameters_str.length()) {
+								template_parameters_str = template_parameters_str.substr(0, int(template_parameters_str.length()) - 2);
+							}
+
+							std::string error_desc = std::string("The specified template parameter name '")
+								+ std::string(target_tparam_name_sv) + "' was not recognized.";
+							if (256/*arbitrary*/ > template_parameters_str.length()) {
+								error_desc += " The recognized template parameters are: " + template_parameters_str + ".";
+							}
+
+							auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), CTD2->getSourceRange().getBegin(), error_desc));
+							if (res.second) {
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
+							}
+						}
+					}
+					int q = 5;
+				}
+			}
+			auto CTD = clang::dyn_cast<const clang::ClassTemplateDecl>(CXXRD);
+			if (CTD) {
+				int q = 5;
+			}
+			int q = 5;
+		}
+
 		return retval;
 	};
 
@@ -964,8 +1069,9 @@ namespace checker {
 			DECLARE_CACHED_CONST_STRING(lifetime_notes_str, "lifetime_notes");
 			DECLARE_CACHED_CONST_STRING(lifetime_labels, "lifetime_labels");
 			DECLARE_CACHED_CONST_STRING(lifetime_label, "lifetime_label");
-			DECLARE_CACHED_CONST_STRING(lifetime_set_aliases_from_template_parameters, "lifetime_set_aliases_from_template_parameters");
+			DECLARE_CACHED_CONST_STRING(lifetime_set_alias_from_template_parameter_by_name, "lifetime_set_alias_from_template_parameter_by_name");
 			DECLARE_CACHED_CONST_STRING(lifetime_set_alias_from_template_parameter, "lifetime_set_alias_from_template_parameter");
+			DECLARE_CACHED_CONST_STRING(lifetime_set_aliases_from_template_parameters_in_order, "lifetime_set_aliases_from_template_parameters_in_order");
 
 			DECLARE_CACHED_CONST_STRING(mse_lifetime_notes_str, mse_namespace_str() + "::lifetime_notes");
 			DECLARE_CACHED_CONST_STRING(mse_lifetime_labels, mse_namespace_str() + "::lifetime_labels");
@@ -1010,7 +1116,7 @@ namespace checker {
 							std::optional<lifetime_id_t> maybe_first_lifetime_label_id;
 							std::optional<lifetime_id_t> maybe_second_lifetime_label_id;
 
-							if (true) {
+							{
 								auto lparenthesis_index = sv1.find('(');
 								if (std::string::npos != lparenthesis_index) {
 									auto comma_index = sv1.find(',', lparenthesis_index+1);
@@ -1057,38 +1163,6 @@ namespace checker {
 									alt1 = CAbstractLifetime{ maybe_first_lifetime_label_id.value(), &type_decl };
 								} else {
 									alt1 = maybe_alt1.value();
-#ifndef NDEBUG
-#if 0
-									auto alt1b = CAbstractLifetime{ maybe_first_lifetime_label_id.value(), &type_decl };
-									auto b1 = (alt1b == alt1);
-									auto ctxhash1 = impl::general_hash_via_bit_representation(alt1.m_context);
-									auto ctxhash2 = impl::general_hash_via_bit_representation(alt1b.m_context);
-									auto ctxhash1b = impl::general_hash_via_bit_representation(alt1.m_context);
-									auto ctxhash2b = impl::general_hash_via_bit_representation(alt1b.m_context);
-									std::hash<decltype(alt1.m_context)> hasher1;
-									auto ctxhash1c = hasher1(alt1.m_context.m_context);
-									auto ctxhash2c = hasher1(alt1b.m_context.m_context);
-									if (!b1) {
-										int q = 5;
-									}
-									std::hash<decltype(alt1)> hasher2;
-									auto althash1 = hasher2(alt1);
-									auto althash2 = hasher2(alt1b);
-
-									decltype(alt1.m_context) ctx3a((clang::FunctionDecl const *)(nullptr));
-									decltype(alt1.m_context) ctx3b((clang::FunctionDecl const *)(nullptr));
-									auto ctx3c_uqptr = std::make_unique<decltype(alt1.m_context)>((clang::FunctionDecl const *)(nullptr));
-									auto ctx3ahash1 = impl::general_hash_via_bit_representation(ctx3a.m_context);
-									auto ctx3bhash1 = impl::general_hash_via_bit_representation(ctx3b.m_context);
-									auto ctx3chash1 = impl::general_hash_via_bit_representation((*ctx3c_uqptr).m_context);
-									std::hash<decltype(ctx3a.m_context)> hasher3;
-									auto ctx3ahash2 = hasher3(ctx3a.m_context);
-									auto ctx3bhash2 = hasher3(ctx3b.m_context);
-									auto ctx3chash2 = hasher3((*ctx3c_uqptr).m_context);
-
-									int q = 5;
-#endif /*0*/
-#endif /*!NDEBUG*/
 								}
 								CAbstractLifetime alt2;
 								auto maybe_alt2 = tlta.m_lifetime_set.lifetime_from_label_id_if_present(maybe_second_lifetime_label_id.value());
@@ -1152,15 +1226,12 @@ namespace checker {
 							}
 						}
 					} else {
-						auto lsftp_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_set_aliases_from_template_parameters }, pretty_str);
-						if (pretty_str.length() <= lsftp_range.begin) {
-							lsftp_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_set_alias_from_template_parameter }, pretty_str);
-						}
-						if (pretty_str.length() > lsftp_range.begin) {
+						auto lsftpbn_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_set_alias_from_template_parameter_by_name }, pretty_str);
+						if (pretty_str.length() > lsftpbn_range.begin) {
 							static const std::string lparenthesis = "(";
 							static const std::string rparenthesis = ")";
 
-							auto lparenthesis_range = Parse::find_token_at_same_nesting_depth1(lparenthesis, pretty_str, lsftp_range.end);
+							auto lparenthesis_range = Parse::find_token_at_same_nesting_depth1(lparenthesis, pretty_str, lsftpbn_range.end);
 							if (pretty_str.length() <= lparenthesis_range.begin) {
 								continue;
 							}
@@ -1174,9 +1245,19 @@ namespace checker {
 
 							CAbstractLifetimeSet alts1 = parse_lifetime_ids(sv1, &type_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
 
-							if (alts1.is_empty()) {
-								int q = 5;
+							if (2 != alts1.m_primary_lifetimes.size()) {
+								if (MR_ptr) {
+									std::string error_desc = std::string("'lifetime_set_alias_from_template_parameter_by_name()' annotation requires two arguments,");
+									error_desc += " the template parameter name (followed by a comma), followed by a (unique) alias name (of your choosing).";
+									auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
+									if (res.second) {
+										std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									}
+								}
 							} else {
+								auto template_name = std::string(alts1.m_primary_lifetimes.at(0).m_id);
+								auto set_alias = alts1.m_primary_lifetimes.at(1);
+
 								auto check_for_illegal_label_reuse = [&state1, &attr_SR, &MR_ptr, &Rewrite_ptr](const CAbstractLifetime& alt) {
 									{
 										auto found_it = state1.m_lifetime_alias_map.find(alt);
@@ -1192,27 +1273,108 @@ namespace checker {
 										}
 									}
 								};
-								for (auto& lifetime : alts1.m_primary_lifetimes) {
-									apply_to_all_lifetimes_const(lifetime, check_for_illegal_label_reuse);
+								check_for_illegal_label_reuse(set_alias);
+
+								clang::Type const * TypePtr = nullptr;
+								if (MR_ptr && MR_ptr->Context) {
+									auto qtype = MR_ptr->Context->getTypeDeclType(&type_decl);
+									if (!qtype.isNull()) {
+										TypePtr = qtype.getTypePtr();
+									}
+								} else {
+									TypePtr = type_decl.getTypeForDecl();
 								}
+								if (TypePtr) {
+									auto lifetimes_from_specified_template_params = infer_alias_mapping_from_template_arg(TypePtr, template_name, set_alias, state1, MR_ptr, Rewrite_ptr);
+									tlta.m_lifetime_set.m_primary_lifetimes.insert(tlta.m_lifetime_set.m_primary_lifetimes.end(), lifetimes_from_specified_template_params.m_primary_lifetimes.begin(), lifetimes_from_specified_template_params.m_primary_lifetimes.end());
+								}
+							}
+						} else {
+							auto lsftp_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_set_aliases_from_template_parameters_in_order }, pretty_str);
+							if (pretty_str.length() <= lsftp_range.begin) {
+								lsftp_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_set_alias_from_template_parameter }, pretty_str);
+							}
+							if (pretty_str.length() > lsftp_range.begin) {
+								static const std::string lparenthesis = "(";
+								static const std::string rparenthesis = ")";
 
-								auto TypePtr = (MR_ptr && MR_ptr->Context) ? MR_ptr->Context->getTypeDeclType(&type_decl).getTypePtr()
-									: type_decl.getTypeForDecl();
+								auto lparenthesis_range = Parse::find_token_at_same_nesting_depth1(lparenthesis, pretty_str, lsftp_range.end);
+								if (pretty_str.length() <= lparenthesis_range.begin) {
+									continue;
+								}
+								auto lparenthesis_index = lparenthesis_range.begin;
+								auto rparenthesis_index = Parse::find_matching_right_parenthesis(pretty_str, lparenthesis_range.end);
+								if (pretty_str.length() <= rparenthesis_index) {
+									int q = 3;
+									continue;
+								}
+								std::string_view sv1(pretty_str.data() + lparenthesis_index + 1, int(rparenthesis_index) - int(lparenthesis_index + 1));
 
-								auto lifetimes_from_specified_template_params = populate_lifetime_alias_map(TypePtr, alts1, state1, MR_ptr, Rewrite_ptr);
-								tlta.m_lifetime_set.m_primary_lifetimes.insert(tlta.m_lifetime_set.m_primary_lifetimes.end(), lifetimes_from_specified_template_params.m_primary_lifetimes.begin(), lifetimes_from_specified_template_params.m_primary_lifetimes.end());
+								CAbstractLifetimeSet alts1 = parse_lifetime_ids(sv1, &type_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
 
-								if (false && alts1.is_empty()) {
-									if (MR_ptr) {
-										std::string error_desc = std::string("No valid 'lifetime set aliases' specified in 'lifetime_set_aliases_from_template_parameters' annotation.");
-										error_desc += " (A valid use of the 'lifetime_set_aliases_from_template_parameters' annotation might look something like: ";
-										error_desc += " 'mse::lifetime_set_aliases_from_template_parameters<51>' or 'mse::lifetime_set_aliases_from_template_parameters<51,52[521,522]>'.)";
-										auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
+								if (alts1.is_empty()) {
+									int q = 5;
+								} else {
+									auto check_for_illegal_label_reuse = [&state1, &attr_SR, &MR_ptr, &Rewrite_ptr](const CAbstractLifetime& alt) {
+										{
+											auto found_it = state1.m_lifetime_alias_map.find(alt);
+											if (state1.m_lifetime_alias_map.end() != found_it) {
+												if (MR_ptr) {
+													std::string error_desc = std::string("'lifetime set' label '") + alt.m_id + "', specified in 'lifetime_set_aliases_from_template_parameters' annotation,";
+													error_desc += " is already being used as a 'lifetime set' label. Please choose a different one.";
+													auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
+													if (res.second) {
+														std::cout << (*(res.first)).as_a_string1() << " \n\n";
+													}
+												}
+											}
+										}
+									};
+									for (auto& lifetime : alts1.m_primary_lifetimes) {
+										apply_to_all_lifetimes_const(lifetime, check_for_illegal_label_reuse);
+									}
+
+									auto TypePtr = (MR_ptr && MR_ptr->Context) ? MR_ptr->Context->getTypeDeclType(&type_decl).getTypePtr()
+										: type_decl.getTypeForDecl();
+
+									{
+										const auto CXXRD = TypePtr->getAsCXXRecordDecl();
+										if (CXXRD) {
+											auto qname = CXXRD->getQualifiedNameAsString();
+
+											auto CTSD = clang::dyn_cast<const clang::ClassTemplateSpecializationDecl>(CXXRD);
+											if (CTSD) {
+												auto CTD2 = CTSD->getSpecializedTemplate();
+												if (CTD2) {
+													auto tparam_list = CTD2->getTemplateParameters();
+													auto tpl_size = tparam_list->size();
+													int q = 5;
+												}
+											}
+											auto CTD = clang::dyn_cast<const clang::ClassTemplateDecl>(CXXRD);
+											if (CTD) {
+												int q = 5;
+											}
+											int q = 5;
 										}
 									}
-								} 
+
+									auto lifetimes_from_specified_template_params = populate_lifetime_alias_map(TypePtr, alts1, state1, MR_ptr, Rewrite_ptr);
+									tlta.m_lifetime_set.m_primary_lifetimes.insert(tlta.m_lifetime_set.m_primary_lifetimes.end(), lifetimes_from_specified_template_params.m_primary_lifetimes.begin(), lifetimes_from_specified_template_params.m_primary_lifetimes.end());
+
+									if (false && alts1.is_empty()) {
+										if (MR_ptr) {
+											std::string error_desc = std::string("No valid 'lifetime set aliases' specified in 'lifetime_set_aliases_from_template_parameters' annotation.");
+											error_desc += " (A valid use of the 'lifetime_set_aliases_from_template_parameters' annotation might look something like: ";
+											error_desc += " 'mse::lifetime_set_aliases_from_template_parameters<51>' or 'mse::lifetime_set_aliases_from_template_parameters<51,52[521,522]>'.)";
+											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
+											if (res.second) {
+												std::cout << (*(res.first)).as_a_string1() << " \n\n";
+											}
+										}
+									} 
+								}
+							} else {
 							}
 						}
 					}
@@ -1443,7 +1605,7 @@ namespace checker {
 						if (decltype(sv1)::npos != index2) {
 							CAbstractLifetimeSet return_value_lifetimes;
 
-							if (true) {
+							{
 								const auto lparenthesis_index = sv1.find('(');
 								if (std::string::npos != lparenthesis_index) {
 									const auto rparenthesis_index = sv1.find(')', lparenthesis_index+1);
@@ -1465,7 +1627,7 @@ namespace checker {
 						if (decltype(sv1)::npos != index2) {
 							CAbstractLifetimeSet this_lifetimes;
 
-							if (true) {
+							{
 								const auto lparenthesis_index = sv1.find('(');
 								if (std::string::npos != lparenthesis_index) {
 									const auto rparenthesis_index = sv1.find(')', lparenthesis_index+1);
@@ -1491,7 +1653,7 @@ namespace checker {
 							std::optional<lifetime_id_t> maybe_first_lifetime_label_id;
 							std::optional<lifetime_id_t> maybe_second_lifetime_label_id;
 
-							if (true) {
+							{
 								auto lparenthesis_index = sv1.find('(');
 								if (std::string::npos != lparenthesis_index) {
 									auto comma_index = Parse::find_token_at_same_nesting_depth1(",", sv1, lparenthesis_index+1).begin;
@@ -2068,15 +2230,15 @@ namespace checker {
 		if (CXXMD) {
 			IF_DEBUG(const std::string qtype_str = CXXMD->getThisType()->getPointeeType().getAsString();)
 			auto Type_ptr = CXXMD->getThisType()->getPointeeType().getTypePtr();
-			auto containing_RD = Type_ptr->getAsRecordDecl();
-			if (containing_RD) {
+			auto containing_CXXRD = Type_ptr->getAsCXXRecordDecl();
+			if (containing_CXXRD) {
 				auto pl_iter = flta.m_param_lifetime_map.find(IMPLICIT_THIS_PARAM_ORDINAL);
 				if (flta.m_param_lifetime_map.end() != pl_iter) {
 					if (1 == pl_iter->second.m_primary_lifetimes.size()) {
 						/* This is a member function whose implicit `this` parameter has an "abstract" lifetime. */
 						auto& lifetime_of_this = pl_iter->second.m_primary_lifetimes.front();
 
-						for (auto FD : containing_RD->fields()) {
+						for (auto FD : containing_CXXRD->fields()) {
 							auto iter1 = state1.m_fielddecl_to_abstract_lifetime_map.find(FD);
 							if (state1.m_fielddecl_to_abstract_lifetime_map.end() != iter1) {
 								for (auto& field_primary_lifetime : iter1->second.m_primary_lifetimes) {
@@ -2095,7 +2257,6 @@ namespace checker {
 		if (maybe_containing_type_alts.has_value()) {
 			auto& containing_type_alts = maybe_containing_type_alts.value();
 		}
-
 
 		state1.m_function_lifetime_annotations_map.insert_or_assign(&func_decl, flta);
 
@@ -3995,7 +4156,7 @@ namespace checker {
 									retval = lower_bound_lifetime_owner_if_available(CE->getArg(0), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 									return retval;
 								}
-								if (true) {
+								{
 									const clang::FunctionDecl* function_decl = CE->getDirectCallee();
 									if (function_decl) {
 										function_call_handler2(tu_state_ref, function_decl, CE, Ctx, MR_ptr, Rewrite_ptr);
@@ -9312,550 +9473,24 @@ namespace checker {
 					if (maybe_decl_lifetime_value.has_value()) {
 						CScopeLifetimeInfo1& decl_slti = maybe_decl_lifetime_value.value().m_scope_lifetime_info;
 					}
-#if 0
-					auto VD = dyn_cast<const clang::VarDecl>(D);
-					if (VD) {
-						const auto var_qualified_name = VD->getQualifiedNameAsString();
-
-						auto PVD = dyn_cast<const clang::ParmVarDecl>(D);
-						if (PVD) {
-							auto FD = function_from_param(PVD);
-							if (FD) {
-								auto flta_iter1 = m_state1.m_function_lifetime_annotations_map.find(FD);
-								if (m_state1.m_function_lifetime_annotations_map.end() != flta_iter1) {
-									auto& param_lifetime_map_ref = flta_iter1->second.m_param_lifetime_map;
-
-									/* Here we iterate over the function's parameters to determine the parameter ordinal
-									of our parameter declaration. (Not necessarily the most efficient set up.) */
-									param_ordinal_t param_ordinal = 1;
-									for (auto param_iter = FD->param_begin(); FD->param_end() != param_iter; ++param_iter, param_ordinal += 1) {
-										auto param = (*param_iter);
-										auto qtype = param->getType();
-										IF_DEBUG(const std::string qtype_str = qtype.getAsString();)
-										if (param == PVD) {
-											auto plm_iter = param_lifetime_map_ref.find(param_ordinal);
-											if (param_lifetime_map_ref.end() != plm_iter) {
-												/* Turns out that our parameter seems to have a lifetime annotation. */
-												CScopeLifetimeInfo1 sli2;
-												if (qtype->isReferenceType()) {
-													if (plm_iter->second.m_primary_lifetimes.size() == 1) {
-														/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
-														same as the object it refers to (without an added level of indirection). */
-														auto& alt = plm_iter->second.m_primary_lifetimes.front();
-														sli2.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
-														sli2.m_maybe_abstract_lifetime = alt;
-														sli2.m_maybe_containing_scope = get_containing_scope(VD, *(MR.Context));
-														sli2.m_maybe_source_range = VD->getSourceRange();
-
-														*(sli2.m_sublifetimes_vlptr) = *(alt.m_sublifetimes_vlptr);
-													} else {
-														/* invalid? A reference parameter with lifetime annotation should have exactly one primary
-														lifetime label. */
-														int q = 3;
-
-														const auto sl_storage_duration = VD->getStorageDuration();
-														const auto sl_is_immortal = ((clang::StorageDuration::SD_Static == sl_storage_duration) || (clang::StorageDuration::SD_Thread == sl_storage_duration)) ? true : false;
-														sli2.m_category = sl_is_immortal ? CScopeLifetimeInfo1::ECategory::Immortal : CScopeLifetimeInfo1::ECategory::Automatic;
-														sli2.m_maybe_containing_scope = get_containing_scope(VD, *(MR.Context));
-														sli2.m_maybe_source_range = VD->getSourceRange();
-													}
-												} else {
-													const auto sl_storage_duration = VD->getStorageDuration();
-													const auto sl_is_immortal = ((clang::StorageDuration::SD_Static == sl_storage_duration) || (clang::StorageDuration::SD_Thread == sl_storage_duration)) ? true : false;
-													sli2.m_category = sl_is_immortal ? CScopeLifetimeInfo1::ECategory::Immortal : CScopeLifetimeInfo1::ECategory::Automatic;
-													sli2.m_maybe_containing_scope = get_containing_scope(VD, *(MR.Context));
-													sli2.m_maybe_source_range = VD->getSourceRange();
-
-													/* Since, unlike regular variables, the initialization value of parameter variables (i.e. the
-													corresponding argument) is not available in the declaration. So we use the annotated abstract
-													lifetimes themselves as the lifetime (initialization) values. */
-													*(sli2.m_sublifetimes_vlptr) = plm_iter->second;
-												}
-												m_state1.m_vardecl_lifetime_values_map.insert_or_assign(VD, CVariableLifetimeValues{ sli2, true });
-											} else {
-												int q = 5;
-											}
-										}
-									}
-								}
-							} else {
-								int q = 5;
-							}
-						} else {
-							process_variable_lifetime_annotations(*VD, m_state1, &MR, &Rewrite);
-
-							auto maybe_tlta = type_lifetime_annotations_if_available(*VD, m_state1, &MR, &Rewrite);
-
-							if (maybe_tlta.has_value()) {
-								auto vltv_iter1 = m_state1.m_vardecl_lifetime_values_map.find(VD);
-								if (m_state1.m_vardecl_lifetime_values_map.end() == vltv_iter1) {
-									if (VD->hasInit()) {
-										auto init_E = VD->getInit();
-										assert(init_E);
-
-										auto ILE = dyn_cast<const clang::InitListExpr>(init_E);
-										auto VD_qtype = VD->getType();
-										IF_DEBUG(auto VD_qtype_str = VD_qtype.getAsString();)
-										MSE_RETURN_IF_TYPE_IS_NULL(VD_qtype);
-										if (ILE && VD_qtype->isAggregateType()) {
-											if (!(VD_qtype->isPointerType() || VD_qtype->isReferenceType())) {
-												const std::string error_desc = std::string("Aggregate initialization (of '") + var_qualified_name
-													+ "') is not (currently) supported for types (like '" + qtype_str + "') that have (explicit or "
-													+ "implicit) lifetime annotations.";
-												auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-												if (res.second) {
-													std::cout << (*(res.first)).as_a_string1() << " \n\n";
-												}
-											}
-										}
-
-										auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(MR, Rewrite, m_state1, init_E);
-										if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
-											/* Cannot properly evaluate because this is a template definition. Proper evaluation should
-											occur in any instantiation of the template. */
-											return;
-										}
-										if (maybe_expr_lifetime_value.has_value()) {
-											CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
-
-											CScopeLifetimeInfo1 sli2;
-
-											const auto sl_storage_duration = VD->getStorageDuration();
-											const auto sl_is_immortal = ((clang::StorageDuration::SD_Static == sl_storage_duration) || (clang::StorageDuration::SD_Thread == sl_storage_duration)) ? true : false;
-											sli2.m_category = sl_is_immortal ? CScopeLifetimeInfo1::ECategory::Immortal : CScopeLifetimeInfo1::ECategory::Automatic;
-											sli2.m_maybe_containing_scope = get_containing_scope(VD, *(MR.Context));
-											sli2.m_maybe_source_range = VD->getSourceRange();
-											*(sli2.m_sublifetimes_vlptr) = *(expr_slti.m_sublifetimes_vlptr);
-
-											m_state1.m_vardecl_lifetime_values_map.insert_or_assign(VD, CVariableLifetimeValues{ sli2, true });
-										} else {
-											int q = 5;
-										}
-									} else {
-										const std::string error_desc = std::string("(Non-parameter) variable '")
-											+ var_qualified_name + "' of type '" + qtype_str + "' has as an associated lifetime label which "
-											+ "requires that the decalaration have an initialization value (that doesn't seem to be present).";
-										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
-									}
-								}
-							}
-						}
-
-						const auto storage_duration = VD->getStorageDuration();
-						const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
-
-						if ((clang::StorageDuration::SD_Static == storage_duration) || (clang::StorageDuration::SD_Thread == storage_duration)) {
-							bool satisfies_checks = false;
-							if (CXXRD) {
-								auto type_name1 = CXXRD->getQualifiedNameAsString();
-								const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
-								if (tmplt_CXXRD) {
-									type_name1 = tmplt_CXXRD->getQualifiedNameAsString();
-								}
-
-								DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, mse_namespace_str() + "::rsv::TStaticImmutableObj");
-								static const std::string std_atomic_str = std::string("std::atomic");
-								DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadWriteAccessRequester_str, mse_namespace_str() + "::TAsyncSharedV2ReadWriteAccessRequester");
-								DECLARE_CACHED_CONST_STRING(mse_AsyncSharedV2ReadOnlyAccessRequester_str, mse_namespace_str() + "::TAsyncSharedV2ReadOnlyAccessRequester");
-								DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2ImmutableFixedPointer_str, mse_namespace_str() + "::TAsyncSharedV2ImmutableFixedPointer");
-								DECLARE_CACHED_CONST_STRING(mse_TAsyncSharedV2AtomicFixedPointer_str, mse_namespace_str() + "::TAsyncSharedV2AtomicFixedPointer");
-								DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, mse_namespace_str() + "::rsv::TThreadLocalObj");
-
-								if ((type_name1 == mse_rsv_static_immutable_obj_str1)
-									|| (type_name1 == std_atomic_str)
-									|| (type_name1 == mse_AsyncSharedV2ReadWriteAccessRequester_str)
-									|| (type_name1 == mse_AsyncSharedV2ReadOnlyAccessRequester_str)
-									|| (type_name1 == mse_TAsyncSharedV2ImmutableFixedPointer_str)
-									|| (type_name1 == mse_TAsyncSharedV2AtomicFixedPointer_str)
-									|| ((type_name1 == mse_rsv_ThreadLocalObj_str) && (clang::StorageDuration::SD_Thread == storage_duration))
-									) {
-									satisfies_checks = true;
-								}
-							}
-
-							if (!satisfies_checks) {
-								if (clang::StorageDuration::SD_Static == storage_duration) {
-									DECLARE_CACHED_CONST_STRING(const_char_star_str, "const char *");
-									if ((qtype.isConstQualified()) && (is_async_shareable(qtype))) {
-										satisfies_checks = true;
-									} else if (qtype.getAsString() == const_char_star_str) {
-										/* This isn't technically safe, but presumably this is likely
-										to be a string literal, which should be fine, so for now we'll
-										let it go. */
-										satisfies_checks = true;
-									} else {
-										const std::string error_desc = std::string("Unable to verify the safety of variable '")
-											+ var_qualified_name + "' of type '" + qtype_str + "' with 'static storage duration'. "
-											+ "'static storage duration' is supported for eligible types wrapped in the "
-											+ "'mse::rsv::TStaticImmutableObj<>' transparent template wrapper. Other supported wrappers include: "
-											+ "mse::rsv::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
-											+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>. "
-											+ "Note that objects with 'static storage duration' may be simultaneously accessible from different threads "
-											+ "and so have more stringent safety requirements than objects with 'thread_local storage duration'.";
-										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
-									}
-								} else {
-									assert(clang::StorageDuration::SD_Thread == storage_duration);
-									if (true || is_async_shareable(qtype)) {
-										satisfies_checks = true;
-									} else {
-										const std::string error_desc = std::string("Unable to verify the safety of variable '")
-											+ var_qualified_name + "' of type '" + qtype_str + "' with 'thread local storage duration'. "
-											+ "'thread local storage duration' is supported for eligible types wrapped in the "
-											+ "'mse::rsv::TThreadLocalObj<>' transparent template wrapper. Other supported wrappers include: "
-											+ "mse::rsv::TStaticImmutableObj<>, mse::rsv::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
-											+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>.";
-										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
-									}
-								}
-							}
-						}
-						if (CXXRD) {
-							auto type_name1 = CXXRD->getQualifiedNameAsString();
-							const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
-							if (tmplt_CXXRD) {
-								type_name1 = tmplt_CXXRD->getQualifiedNameAsString();
-							}
-
-							DECLARE_CACHED_CONST_STRING(mse_rsv_static_immutable_obj_str1, mse_namespace_str() + "::rsv::TStaticImmutableObj");
-							DECLARE_CACHED_CONST_STRING(mse_rsv_ThreadLocalObj_str, mse_namespace_str() + "::rsv::TThreadLocalObj");
-
-							if (type_name1 == mse_rsv_static_immutable_obj_str1) {
-								if (clang::StorageDuration::SD_Static != storage_duration) {
-									const std::string error_desc = std::string("Variable '") + var_qualified_name + "' of type '"
-										+ mse_rsv_static_immutable_obj_str1 + "' must be declared to have 'static' storage duration.";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-								}
-							} else if (type_name1 == mse_rsv_ThreadLocalObj_str) {
-								if (clang::StorageDuration::SD_Thread != storage_duration) {
-									const std::string error_desc = std::string("Variable '") + var_qualified_name + "' of type '"
-										+ mse_rsv_ThreadLocalObj_str + "' must be declared to have 'thread_local' storage duration.";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-								}
-							}
-						}
-
-						if (qtype.getTypePtr()->isScalarType()) {
-							const auto init_EX = VD->getInit();
-							if (!init_EX) {
-								auto PVD = dyn_cast<const ParmVarDecl>(VD);
-								if (!PVD) {
-									if (!VD->isExternallyDeclarable()) {
-										const std::string error_desc = std::string("Uninitialized ")
-											+ "scalar variable '" + VD->getNameAsString() + "' (of type '"
-											+ qtype.getAsString() + "') ";
-										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
-									} else {
-										/* todo: emit error that (uninitialized) 'extern' variables
-										aren't supported?  */;
-									}
-								}
-							}
-						}
-
-						const auto init_EX = VD->getInit();
-						if (init_EX) {
-							auto res = statement_makes_reference_to_decl(*VD, *init_EX);
-							if (res) {
-								const std::string error_desc = std::string("Reference to variable '")
-									+ VD->getNameAsString() + "' before the completion of its "
-									+ "construction/initialization is not supported.";
-								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
-							}
-						} else if (false && VD->isExternallyDeclarable()) {
-							const std::string error_desc = std::string("\"External\"/inline ")
-								+ "variable declarations (such as the declaration of "
-								+ VD->getNameAsString() + "' of type '" + qtype.getAsString()
-								+ "') are not currently supported.";
-							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
-						}
-
-						process_function_lifetime_annotations(*VD, m_state1, &MR, &Rewrite);
-					} else {
-						auto FD = dyn_cast<const clang::FieldDecl>(D);
-						if (FD) {
-							if (false && (qtype.getTypePtr()->isPointerType() || qtype.getTypePtr()->isReferenceType())) {
-								/* These are handled in MCSSSRecordDecl2. */
-							} else if (qtype.getTypePtr()->isScalarType()) {
-								const auto* init_EX = FD->getInClassInitializer();
-								if (!init_EX) {
-									const auto grandparent_DC = FD->getParent()->getParentFunctionOrMethod();
-									bool is_lambda_capture_field = false;
-
-									const auto& parents = MR.Context->getParents(*(FD->getParent()));
-									if ( !(parents.empty()) ) {
-										const auto LE = parents[0].get<LambdaExpr>();
-										if (LE) {
-											is_lambda_capture_field = true;
-										}
-									}
-									if (!is_lambda_capture_field) {
-										if (qtype.getTypePtr()->isPointerType()) {
-										} else {
-											const std::string error_desc = std::string("(Non-pointer) scalar fields (such those of type '")
-												+ qtype.getAsString() + "') require direct initializers.";
-											auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-											if (res.second) {
-												std::cout << (*(res.first)).as_a_string1() << " \n\n";
-											}
-										}
-									}
-								}
-							}
-
-							process_type_lifetime_annotations(*FD, m_state1, &MR, &Rewrite);
-						}
-					}
-
-					const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
-					if (CXXRD) {
-						auto name = CXXRD->getQualifiedNameAsString();
-						const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
-						if (tmplt_CXXRD) {
-							name = tmplt_CXXRD->getQualifiedNameAsString();
-						}
-						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncShareableObj_str1, mse_namespace_str() + "::rsv::TAsyncShareableObj");
-						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncPassableObj_str1, mse_namespace_str() + "::rsv::TAsyncPassableObj");
-						DECLARE_CACHED_CONST_STRING(mse_rsv_TAsyncShareableAndPassableObj_str1, mse_namespace_str() + "::rsv::TAsyncShareableAndPassableObj");
-						DECLARE_CACHED_CONST_STRING(mse_rsv_TFParam_str, mse_namespace_str() + "::rsv::TFParam");
-						static const std::string std_unique_ptr_str = "std::unique_ptr";
-						if (mse_rsv_TAsyncShareableObj_str1 == name) {
-							if (1 == CXXRD->getNumBases()) {
-								const auto& base = *(CXXRD->bases_begin());
-								const auto base_qtype = base.getType();
-								const auto base_qtype_str = base_qtype.getAsString();
-								if (!is_async_shareable(base_qtype)) {
-									const std::string error_desc = std::string("Unable to verify that the ")
-										+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableObj<> template, '"
-										+ base_qtype_str + "', is eligible to be safely shared (among threads). "
-										+ "If it is known to be so, then this error can be suppressed with a "
-										+ "'check suppression' directive. ";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-								}
-							} else {
-								/* This branch shouldn't happen. Unless the library's been changed somehow. */
-							}
-						} else if (mse_rsv_TAsyncPassableObj_str1 == name) {
-							if (1 == CXXRD->getNumBases()) {
-								const auto& base = *(CXXRD->bases_begin());
-								const auto base_qtype = base.getType();
-								const auto base_qtype_str = base_qtype.getAsString();
-								if (!is_async_passable(base_qtype)) {
-									const std::string error_desc = std::string("Unable to verify that the ")
-										+ "given (adjusted) parameter of the mse::rsv::TAsyncPassableObj<> template, '"
-										+ base_qtype_str + "', is eligible to be safely passed (between threads). "
-										+ "If it is known to be so, then this error can be suppressed with a "
-										+ "'check suppression' directive. ";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-								}
-							} else {
-								/* This branch shouldn't happen. Unless the library's been changed somehow. */
-							}
-						} else if (mse_rsv_TAsyncShareableAndPassableObj_str1 == name) {
-							if (1 == CXXRD->getNumBases()) {
-								const auto& base = *(CXXRD->bases_begin());
-								const auto base_qtype = base.getType();
-								const auto base_qtype_str = base_qtype.getAsString();
-								if ((!is_async_shareable(base_qtype)) || (!is_async_passable(base_qtype))) {
-									const std::string error_desc = std::string("Unable to verify that the ")
-										+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableAndPassableObj<> template, '"
-										+ base_qtype_str + "', is eligible to be safely shared and passed (among threads). "
-										+ "If it is known to be so, then this error can be suppressed with a "
-										+ "'check suppression' directive. ";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-								}
-							} else {
-								/* This branch shouldn't happen. Unless the library's been changed somehow. */
-							}
-						} else if (mse_rsv_TFParam_str == name) {
-							bool satisfies_checks = false;
-							auto VD = dyn_cast<const clang::VarDecl>(DD);
-							if (VD) {
-								auto FND = dyn_cast<const clang::FunctionDecl>(VD->getParentFunctionOrMethod());
-								if (FND) {
-									auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
-									if (PVD) {
-										satisfies_checks = true;
-									} else {
-										auto CE = dyn_cast<const clang::CallExpr>(IgnoreParenImpNoopCasts(VD->getInit(), *(MR.Context)));
-										if (CE) {
-											auto function_decl = CE->getDirectCallee();
-											auto num_args = CE->getNumArgs();
-											if (function_decl) {
-												std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-												DECLARE_CACHED_CONST_STRING(as_an_fparam_str, mse_namespace_str() + "::rsv::as_an_fparam");
-												if ((as_an_fparam_str == qualified_function_name)) {
-													if (1 == num_args) {
-														satisfies_checks = true;
-													}
-												}
-											}
-										}
-									}
-								}
-							}
-							if (!satisfies_checks) {
-								const std::string error_desc = std::string("Unsupported use of ")
-									+ "mse::rsv::TFParam<> (in type '" + name + "'). ";
-								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
-							}
-						} else if (qtype.getTypePtr()->isUnionType()) {
-							const std::string error_desc = std::string("Native unions (such as '" + qtype.getAsString() + "') are not ")
-								+ "supported. ";
-							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
-						} else if (true && (std_unique_ptr_str == name)) {
-							if (!qtype.isConstQualified()) {
-								const std::string error_desc = std::string("std::unique_ptr<>s that are not const qualified are not supported. ")
-									+ "Consider using a reference counting pointer from the SaferCPlusPlus library. ";
-								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
-							} else {
-								const auto init_EX = VD->getInit();
-								bool null_initialization = true;
-								if (init_EX) {
-									null_initialization = is_nullptr_literal(init_EX, *(MR.Context));
-									if (!null_initialization) {
-										const auto init_EX_ii = IgnoreParenImpNoopCasts(init_EX, *(MR.Context));
-										const auto CXXCE = dyn_cast<const CXXConstructExpr>(init_EX_ii);
-										if (CXXCE) {
-											if (1 == CXXCE->getNumArgs()) {
-												null_initialization = is_nullptr_literal(CXXCE->getArg(0), *(MR.Context));
-											} else if (0 == CXXCE->getNumArgs()) {
-												null_initialization = true;
-											}
-										}
-									}
-								}
-								if (null_initialization) {
-									const std::string error_desc = std::string("Null/default initialization of ")
-										+ "std::unique_ptr<>s (such as those of type '" + qtype.getAsString()
-										+ "') is not supported.";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-								}
-							}
-						} else {
-							auto check_for_and_handle_unsupported_element = [&MR, &SR](const clang::QualType& qtype, CTUState& state1) {
-								std::string element_name;
-								const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
-								if (l_CXXRD) {
-									element_name = l_CXXRD->getQualifiedNameAsString();
-								} else {
-									element_name = qtype.getAsString();
-								}
-
-								{
-									auto uei_ptr = unsupported_element_info_ptr(element_name);
-									if (uei_ptr) {
-										const auto& unsupported_element_info = *uei_ptr;
-										std::string error_desc = std::string("'") + element_name + std::string("' is not ")
-											+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
-										if ("" != unsupported_element_info.m_recommended_alternative) {
-											error_desc += "Consider using " + unsupported_element_info.m_recommended_alternative + " instead.";
-										}
-										auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
-									}
-								}
-							};
-							//check_for_and_handle_unsupported_element(qtype, (*this).m_state1);
-							//apply_to_component_types_if_any(qtype, check_for_and_handle_unsupported_element, (*this).m_state1);
-
-							auto check_for_and_handle_unsupported_element2 = [&MR](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
-								auto qtype = typeLoc.getType();
-								std::string element_name;
-								const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
-								if (l_CXXRD) {
-									element_name = l_CXXRD->getQualifiedNameAsString();
-								} else {
-									element_name = qtype.getAsString();
-								}
-
-								{
-									auto uei_ptr = unsupported_element_info_ptr(element_name);
-									if (uei_ptr) {
-										const auto& unsupported_element_info = *uei_ptr;
-										std::string error_desc = std::string("'") + element_name + std::string("' is not ")
-											+ "supported (in type '" + qtype.getAsString() + "' used in this declaration). ";
-										if ("" != unsupported_element_info.m_recommended_alternative) {
-											error_desc += "Consider using " + unsupported_element_info.m_recommended_alternative + " instead.";
-										}
-										auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, typeLoc.getSourceRange().getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
-									}
-								}
-							};
-							auto tsi_ptr = DD->getTypeSourceInfo();
-							if (tsi_ptr) {
-								check_for_and_handle_unsupported_element2(tsi_ptr->getTypeLoc(), SR, (*this).m_state1);
-								apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), check_for_and_handle_unsupported_element2, (*this).m_state1);
-							}
-						}
-					} else {
-						std::string unsupported_type_str;
-						if (qtype.getTypePtr()->isArrayType()) {
-							unsupported_type_str = "Native array";
-						} else if (qtype.getTypePtr()->isUnionType()) {
-							unsupported_type_str = "Native union";
-						}
-						if ("" != unsupported_type_str) {
-							const std::string error_desc = unsupported_type_str + std::string("s are not ")
-								+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
-							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
-						}
-					}
-#endif /*0*/
 				} else if (TD) {
+					clang::Type const * TypePtr = nullptr;
+					if (MR.Context) {
+						auto qtype = MR.Context->getTypeDeclType(TD);
+						MSE_RETURN_IF_TYPE_IS_NULL(qtype);
+						TypePtr = qtype.getTypePtr();
+					}
+					{
+						const auto CXXRD = TypePtr->getAsCXXRecordDecl();
+						if (CXXRD) {
+							IF_DEBUG(auto qname = CXXRD->getQualifiedNameAsString();)
+							auto tskind = CXXRD->getTemplateSpecializationKind();
+							if (clang::TemplateSpecializationKind::TSK_Undeclared == tskind) {
+								return;
+							}
+						}
+					}
+
 					process_type_lifetime_annotations(*TD, m_state1, &MR, &Rewrite);
 				} else {
 					auto NAD = dyn_cast<const NamespaceAliasDecl>(D);
@@ -10065,7 +9700,7 @@ namespace checker {
 				if (!multi_tu_state_ptr->ast_units.at(I))
 					continue;
 
-				if (true) {
+				{
 					ASTImporter Importer(CI.getASTContext(),
 							CI.getFileManager(),
 								multi_tu_state_ptr->ast_units.at(I)->getASTContext(),

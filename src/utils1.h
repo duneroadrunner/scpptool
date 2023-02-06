@@ -925,7 +925,7 @@ inline bool is_nullptr_literal(const clang::Expr* EX, clang::ASTContext& Ctx) {
 	return retval;
 }
 
-inline std::vector<clang::QualType> get_template_parameters(const clang::Type* TypePtr) {
+inline std::vector<clang::QualType> get_template_arg_types(const clang::Type* TypePtr) {
 	std::vector<clang::QualType> retval;
 	if (!TypePtr) {
 		return retval;
@@ -951,14 +951,14 @@ inline std::vector<clang::QualType> get_template_parameters(const clang::Type* T
 	}
 	return retval;
 }
-inline std::vector<clang::QualType> get_template_parameters(const clang::QualType qtype) {
-	return get_template_parameters(qtype.getTypePtr());
+inline std::vector<clang::QualType> get_template_arg_types(const clang::QualType qtype) {
+	return get_template_arg_types(qtype.getTypePtr());
 }
 
 inline std::optional<clang::QualType> get_first_template_parameter_if_any(const clang::Type* TypePtr) {
 	std::optional<clang::QualType> retval;
 
-	auto params = get_template_parameters(TypePtr);
+	auto params = get_template_arg_types(TypePtr);
 	if (params.size() >= 1) {
 		retval = params.front();
 	}
