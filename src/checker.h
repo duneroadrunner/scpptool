@@ -1073,11 +1073,13 @@ namespace checker {
 			DECLARE_CACHED_CONST_STRING(lifetime_set_alias_from_template_parameter, "lifetime_set_alias_from_template_parameter");
 			DECLARE_CACHED_CONST_STRING(lifetime_set_aliases_from_template_parameters_in_order, "lifetime_set_aliases_from_template_parameters_in_order");
 
-			DECLARE_CACHED_CONST_STRING(mse_lifetime_notes_str, mse_namespace_str() + "::lifetime_notes");
-			DECLARE_CACHED_CONST_STRING(mse_lifetime_labels, mse_namespace_str() + "::lifetime_labels");
-			DECLARE_CACHED_CONST_STRING(mse_lifetime_label, mse_namespace_str() + "::lifetime_label");
-
-			auto& vec = type_decl.getAttrs();
+			auto vec = type_decl.getAttrs();
+			struct CLTAStatementInfo {
+				CLTAStatementInfo(std::string_view text, clang::Attr const * attr_ptr) : m_text(text), m_attr_ptr(attr_ptr) {}
+				std::string m_text;
+				clang::Attr const * m_attr_ptr = nullptr;
+			};
+			std::vector<CLTAStatementInfo> lta_statement_infos;
 			for (const auto& attr : vec) {
 				auto attr_SR = attr->getRange();
 				std::string raw_pretty_str;
@@ -1088,19 +1090,19 @@ namespace checker {
 				if (decltype(raw_pretty_str)::npos == first_quote_index) {
 					continue;
 				}
-				auto first_mse_range = Parse::find_uncommented_token(mse_namespace_str(), raw_pretty_str, first_quote_index + 1);
+				auto first_mse_range = Parse::find_token_sequence({ mse_namespace_str(), "::" }, raw_pretty_str, first_quote_index + 1);
 				if (raw_pretty_str.length() <= first_mse_range.begin) {
 					continue;
 				}
-				std::string pretty_str = raw_pretty_str.substr(first_mse_range.begin);
-				auto index1 = pretty_str.find(mse_lifetime_notes_str);
+				std::string pretty_str = raw_pretty_str.substr(first_mse_range.end);
+				auto index1 = pretty_str.find(lifetime_notes_str);
 				if (decltype(pretty_str)::npos != index1) {
 					static const std::string lbrace = "{";
 					static const std::string rbrace = "}";
 					static const std::string lparenthesis = "(";
 					static const std::string rparenthesis = ")";
 					static const std::string semicolon = ";";
-					index1 = pretty_str.find(lbrace, index1 + mse_lifetime_notes_str.length());
+					index1 = pretty_str.find(lbrace, index1 + lifetime_notes_str.length());
 					if (decltype(pretty_str)::npos == index1) {
 						continue;
 					}
@@ -1108,93 +1110,101 @@ namespace checker {
 					auto next_delimiter_index = pretty_str.find_first_of(semicolon + rbrace, last_delimiter_index + 1);
 					while (decltype(pretty_str)::npos != next_delimiter_index) {
 						std::string_view sv1(pretty_str.data() + last_delimiter_index + 1, int(next_delimiter_index) - int(last_delimiter_index + 1));
-
-						static const std::string encompasses_str = "encompasses";
-						auto index2 = sv1.find(encompasses_str);
-						if (decltype(sv1)::npos != index2) {
-
-							std::optional<lifetime_id_t> maybe_first_lifetime_label_id;
-							std::optional<lifetime_id_t> maybe_second_lifetime_label_id;
-
-							{
-								auto lparenthesis_index = sv1.find('(');
-								if (std::string::npos != lparenthesis_index) {
-									auto comma_index = sv1.find(',', lparenthesis_index+1);
-									if ((std::string::npos != comma_index) && (lparenthesis_index + 1 < comma_index)) {
-										auto rparenthesis_index = sv1.find(')', comma_index+1);
-										if ((std::string::npos != rparenthesis_index) && (comma_index + 1 < rparenthesis_index)) {
-											std::string first_lifetime_label_id_str( sv1.substr(lparenthesis_index + 1, int(comma_index) - int(lparenthesis_index) - 1) );
-											auto first_lifetime_label_id = with_whitespace_removed(first_lifetime_label_id_str);
-											maybe_first_lifetime_label_id = lifetime_id_t(first_lifetime_label_id);
-											if (1 <= first_lifetime_label_id.length()) {
-											} else {
-												if (MR_ptr) {
-													std::string error_desc = std::string("No valid 'lifetime label id' specified.");
-													auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-													if (res.second) {
-														std::cout << (*(res.first)).as_a_string1() << " \n\n";
-													}
-												}
-											}
-
-											std::string second_lifetime_label_id_str( sv1.substr(comma_index + 1, int(rparenthesis_index) - int(comma_index) - 1) );
-											auto second_lifetime_label_id = with_whitespace_removed(second_lifetime_label_id_str);
-											maybe_second_lifetime_label_id = lifetime_id_t(second_lifetime_label_id);
-											if (1 <= second_lifetime_label_id.length()) {
-											} else {
-												if (MR_ptr) {
-													std::string error_desc = std::string("No valid 'lifetime label id' specified.");
-													auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-													if (res.second) {
-														std::cout << (*(res.first)).as_a_string1() << " \n\n";
-													}
-												}
-											}
-										}
-									}
-								}
-							}
-
-							if (maybe_first_lifetime_label_id.has_value() && maybe_second_lifetime_label_id.has_value()) {
-								CAbstractLifetime alt1;
-								auto maybe_alt1 = tlta.m_lifetime_set.lifetime_from_label_id_if_present(maybe_first_lifetime_label_id.value());
-								if (!maybe_alt1.has_value()) {
-									int q = 3;
-									alt1 = CAbstractLifetime{ maybe_first_lifetime_label_id.value(), &type_decl };
-								} else {
-									alt1 = maybe_alt1.value();
-								}
-								CAbstractLifetime alt2;
-								auto maybe_alt2 = tlta.m_lifetime_set.lifetime_from_label_id_if_present(maybe_second_lifetime_label_id.value());
-								if (!maybe_alt2.has_value()) {
-									int q = 3;
-									alt2 = CAbstractLifetime{ maybe_second_lifetime_label_id.value(), &type_decl };
-								} else {
-									alt2 = maybe_alt2.value();
-								}
-
-								tlta.m_lifetime_constraint_shptrs.push_back(std::make_shared<CEncompasses>(
-									CEncompasses{ alt1, alt2 }));
-							} else {
-								if (MR_ptr) {
-									std::string error_desc = std::string("Parse error in 'encompassing' lifetime constraint specification.");
-									auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-								}
-							}
-
-							int q = 5;
-						}
+						lta_statement_infos.push_back( CLTAStatementInfo{ sv1, attr } );
 
 						last_delimiter_index = next_delimiter_index;
 						next_delimiter_index = pretty_str.find_first_of(semicolon + rbrace, last_delimiter_index + 1);
 					}
 				} else {
-					auto lifetime_labels_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_labels }, pretty_str);
+					lta_statement_infos.push_back( CLTAStatementInfo{ pretty_str, attr } );
+				}
+			}
+
+			for (const auto& lta_statement_info : lta_statement_infos) {
+				std::string_view pretty_str = lta_statement_info.m_text;
+				std::string_view sv1 = lta_statement_info.m_text;
+				auto attr_SR = lta_statement_info.m_attr_ptr->getRange();
+
+				static const std::string encompasses_str = "encompasses";
+				auto encompasses_range = Parse::find_token_sequence({ encompasses_str }, sv1);
+				if (pretty_str.length() > encompasses_range.begin) {
+					std::optional<lifetime_id_t> maybe_first_lifetime_label_id;
+					std::optional<lifetime_id_t> maybe_second_lifetime_label_id;
+
+					{
+						auto lparenthesis_index = sv1.find('(');
+						if (std::string::npos != lparenthesis_index) {
+							auto comma_index = sv1.find(',', lparenthesis_index+1);
+							if ((std::string::npos != comma_index) && (lparenthesis_index + 1 < comma_index)) {
+								auto rparenthesis_index = sv1.find(')', comma_index+1);
+								if ((std::string::npos != rparenthesis_index) && (comma_index + 1 < rparenthesis_index)) {
+									std::string first_lifetime_label_id_str( sv1.substr(lparenthesis_index + 1, int(comma_index) - int(lparenthesis_index) - 1) );
+									auto first_lifetime_label_id = with_whitespace_removed(first_lifetime_label_id_str);
+									maybe_first_lifetime_label_id = lifetime_id_t(first_lifetime_label_id);
+									if (1 <= first_lifetime_label_id.length()) {
+									} else {
+										if (MR_ptr) {
+											std::string error_desc = std::string("No valid 'lifetime label id' specified.");
+											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
+											if (res.second) {
+												std::cout << (*(res.first)).as_a_string1() << " \n\n";
+											}
+										}
+									}
+
+									std::string second_lifetime_label_id_str( sv1.substr(comma_index + 1, int(rparenthesis_index) - int(comma_index) - 1) );
+									auto second_lifetime_label_id = with_whitespace_removed(second_lifetime_label_id_str);
+									maybe_second_lifetime_label_id = lifetime_id_t(second_lifetime_label_id);
+									if (1 <= second_lifetime_label_id.length()) {
+									} else {
+										if (MR_ptr) {
+											std::string error_desc = std::string("No valid 'lifetime label id' specified.");
+											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
+											if (res.second) {
+												std::cout << (*(res.first)).as_a_string1() << " \n\n";
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+
+					if (maybe_first_lifetime_label_id.has_value() && maybe_second_lifetime_label_id.has_value()) {
+						CAbstractLifetime alt1;
+						auto maybe_alt1 = tlta.m_lifetime_set.lifetime_from_label_id_if_present(maybe_first_lifetime_label_id.value());
+						if (!maybe_alt1.has_value()) {
+							int q = 3;
+							alt1 = CAbstractLifetime{ maybe_first_lifetime_label_id.value(), &type_decl };
+						} else {
+							alt1 = maybe_alt1.value();
+						}
+						CAbstractLifetime alt2;
+						auto maybe_alt2 = tlta.m_lifetime_set.lifetime_from_label_id_if_present(maybe_second_lifetime_label_id.value());
+						if (!maybe_alt2.has_value()) {
+							int q = 3;
+							alt2 = CAbstractLifetime{ maybe_second_lifetime_label_id.value(), &type_decl };
+						} else {
+							alt2 = maybe_alt2.value();
+						}
+
+						tlta.m_lifetime_constraint_shptrs.push_back(std::make_shared<CEncompasses>(
+							CEncompasses{ alt1, alt2 }));
+					} else {
+						if (MR_ptr) {
+							std::string error_desc = std::string("Parse error in 'encompassing' lifetime constraint specification.");
+							auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
+							if (res.second) {
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
+							}
+						}
+					}
+
+					int q = 5;
+				} else {
+					auto lifetime_labels_range = Parse::find_token_sequence({ lifetime_labels }, pretty_str);
 					if (pretty_str.length() <= lifetime_labels_range.begin) {
-						lifetime_labels_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_label }, pretty_str);
+						lifetime_labels_range = Parse::find_token_sequence({ lifetime_label }, pretty_str);
 					}
 					if (pretty_str.length() > lifetime_labels_range.begin) {
 						static const std::string lparenthesis = "(";
@@ -1226,7 +1236,7 @@ namespace checker {
 							}
 						}
 					} else {
-						auto lsftpbn_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_set_alias_from_template_parameter_by_name }, pretty_str);
+						auto lsftpbn_range = Parse::find_token_sequence({ lifetime_set_alias_from_template_parameter_by_name }, pretty_str);
 						if (pretty_str.length() > lsftpbn_range.begin) {
 							static const std::string lparenthesis = "(";
 							static const std::string rparenthesis = ")";
@@ -1290,9 +1300,9 @@ namespace checker {
 								}
 							}
 						} else {
-							auto lsftp_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_set_aliases_from_template_parameters_in_order }, pretty_str);
+							auto lsftp_range = Parse::find_token_sequence({ lifetime_set_aliases_from_template_parameters_in_order }, pretty_str);
 							if (pretty_str.length() <= lsftp_range.begin) {
-								lsftp_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_set_alias_from_template_parameter }, pretty_str);
+								lsftp_range = Parse::find_token_sequence({ lifetime_set_alias_from_template_parameter }, pretty_str);
 							}
 							if (pretty_str.length() > lsftp_range.begin) {
 								static const std::string lparenthesis = "(";
@@ -1566,8 +1576,20 @@ namespace checker {
 		DECLARE_CACHED_CONST_STRING(clang_lifetimebound_str, "clang::lifetimebound");
 
 		if (func_decl.hasAttrs()) {
-			DECLARE_CACHED_CONST_STRING(mse_lifetime_notes_str, mse_namespace_str() + "::lifetime_notes");
-			clang::AttrVec vec = func_decl.getAttrs();
+			DECLARE_CACHED_CONST_STRING(lifetime_notes_str, "lifetime_notes");
+			DECLARE_CACHED_CONST_STRING(lifetime_labels, "lifetime_labels");
+			DECLARE_CACHED_CONST_STRING(lifetime_label, "lifetime_label");
+			DECLARE_CACHED_CONST_STRING(lifetime_set_alias_from_template_parameter_by_name, "lifetime_set_alias_from_template_parameter_by_name");
+			DECLARE_CACHED_CONST_STRING(lifetime_set_alias_from_template_parameter, "lifetime_set_alias_from_template_parameter");
+			DECLARE_CACHED_CONST_STRING(lifetime_set_aliases_from_template_parameters_in_order, "lifetime_set_aliases_from_template_parameters_in_order");
+
+			auto vec = func_decl.getAttrs();
+			struct CLTAStatementInfo {
+				CLTAStatementInfo(std::string_view text, clang::Attr const * attr_ptr) : m_text(text), m_attr_ptr(attr_ptr) {}
+				std::string m_text;
+				clang::Attr const * m_attr_ptr = nullptr;
+			};
+			std::vector<CLTAStatementInfo> lta_statement_infos;
 			for (const auto& attr : vec) {
 				auto attr_SR = attr->getRange();
 				std::string raw_pretty_str;
@@ -1578,20 +1600,19 @@ namespace checker {
 				if (decltype(raw_pretty_str)::npos == first_quote_index) {
 					continue;
 				}
-				auto first_mse_range = Parse::find_uncommented_token(mse_namespace_str(), raw_pretty_str, first_quote_index + 1);
+				auto first_mse_range = Parse::find_token_sequence({ mse_namespace_str(), "::" }, raw_pretty_str, first_quote_index + 1);
 				if (raw_pretty_str.length() <= first_mse_range.begin) {
 					continue;
 				}
-				std::string pretty_str = raw_pretty_str.substr(first_mse_range.begin);
-
-				auto index1 = pretty_str.find(mse_lifetime_notes_str);
+				std::string pretty_str = raw_pretty_str.substr(first_mse_range.end);
+				auto index1 = pretty_str.find(lifetime_notes_str);
 				if (decltype(pretty_str)::npos != index1) {
 					static const std::string lbrace = "{";
 					static const std::string rbrace = "}";
 					static const std::string lparenthesis = "(";
 					static const std::string rparenthesis = ")";
 					static const std::string semicolon = ";";
-					index1 = pretty_str.find(lbrace, index1 + mse_lifetime_notes_str.length());
+					index1 = pretty_str.find(lbrace, index1 + lifetime_notes_str.length());
 					if (decltype(pretty_str)::npos == index1) {
 						continue;
 					}
@@ -1599,141 +1620,149 @@ namespace checker {
 					auto next_delimiter_index = pretty_str.find_first_of(semicolon + rbrace, last_delimiter_index + 1);
 					while (decltype(pretty_str)::npos != next_delimiter_index) {
 						std::string_view sv1(pretty_str.data() + last_delimiter_index + 1, int(next_delimiter_index) - int(last_delimiter_index + 1));
+						lta_statement_infos.push_back( CLTAStatementInfo{ sv1, attr } );
 
-						static const std::string return_value_str = "return_value";
-						auto index2 = sv1.find(return_value_str);
-						if (decltype(sv1)::npos != index2) {
-							CAbstractLifetimeSet return_value_lifetimes;
+						last_delimiter_index = next_delimiter_index;
+						next_delimiter_index = pretty_str.find_first_of(semicolon + rbrace, last_delimiter_index + 1);
+					}
+				} else {
+					lta_statement_infos.push_back( CLTAStatementInfo{ pretty_str, attr } );
+				}
+			}
 
-							{
-								const auto lparenthesis_index = sv1.find('(');
-								if (std::string::npos != lparenthesis_index) {
-									const auto rparenthesis_index = sv1.find(')', lparenthesis_index+1);
-									if ((std::string::npos != rparenthesis_index) && (lparenthesis_index + 1 < rparenthesis_index)) {
-										auto sv2 = sv1.substr(lparenthesis_index + 1, int(rparenthesis_index) - (int(lparenthesis_index) + 1));
-										return_value_lifetimes = parse_lifetime_ids(sv2, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
-									}
-								}
+			for (const auto& lta_statement_info : lta_statement_infos) {
+				std::string_view pretty_str = lta_statement_info.m_text;
+				std::string_view sv1 = lta_statement_info.m_text;
+				auto attr_SR = lta_statement_info.m_attr_ptr->getRange();
+
+
+				static const std::string return_value_str = "return_value";
+				auto index2 = sv1.find(return_value_str);
+				if (decltype(sv1)::npos != index2) {
+					CAbstractLifetimeSet return_value_lifetimes;
+
+					{
+						const auto lparenthesis_index = sv1.find('(');
+						if (std::string::npos != lparenthesis_index) {
+							const auto rparenthesis_index = sv1.find(')', lparenthesis_index+1);
+							if ((std::string::npos != rparenthesis_index) && (lparenthesis_index + 1 < rparenthesis_index)) {
+								auto sv2 = sv1.substr(lparenthesis_index + 1, int(rparenthesis_index) - (int(lparenthesis_index) + 1));
+								return_value_lifetimes = parse_lifetime_ids(sv2, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
 							}
-							if (!(return_value_lifetimes.is_empty())) {
-								flta.m_return_value_lifetimes = return_value_lifetimes;
-							}
-
-							int q = 5;
 						}
+					}
+					if (!(return_value_lifetimes.is_empty())) {
+						flta.m_return_value_lifetimes = return_value_lifetimes;
+					}
 
-						static const std::string this_str = "this";
-						index2 = sv1.find(this_str);
-						if (decltype(sv1)::npos != index2) {
-							CAbstractLifetimeSet this_lifetimes;
+					int q = 5;
+				}
 
-							{
-								const auto lparenthesis_index = sv1.find('(');
-								if (std::string::npos != lparenthesis_index) {
-									const auto rparenthesis_index = sv1.find(')', lparenthesis_index+1);
-									if ((std::string::npos != rparenthesis_index) && (lparenthesis_index + 1 < rparenthesis_index)) {
-										auto sv2 = sv1.substr(lparenthesis_index + 1, int(rparenthesis_index) - (int(lparenthesis_index) + 1));
-										this_lifetimes = parse_lifetime_ids(sv2, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
-									}
-								}
+				static const std::string this_str = "this";
+				index2 = sv1.find(this_str);
+				if (decltype(sv1)::npos != index2) {
+					CAbstractLifetimeSet this_lifetimes;
+
+					{
+						const auto lparenthesis_index = sv1.find('(');
+						if (std::string::npos != lparenthesis_index) {
+							const auto rparenthesis_index = sv1.find(')', lparenthesis_index+1);
+							if ((std::string::npos != rparenthesis_index) && (lparenthesis_index + 1 < rparenthesis_index)) {
+								auto sv2 = sv1.substr(lparenthesis_index + 1, int(rparenthesis_index) - (int(lparenthesis_index) + 1));
+								this_lifetimes = parse_lifetime_ids(sv2, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
 							}
-							if (!(this_lifetimes.is_empty())) {
-								param_lifetime_map.insert_or_assign(IMPLICIT_THIS_PARAM_ORDINAL, this_lifetimes);
-							}
-
-							int q = 5;
 						}
+					}
+					if (!(this_lifetimes.is_empty())) {
+						param_lifetime_map.insert_or_assign(IMPLICIT_THIS_PARAM_ORDINAL, this_lifetimes);
+					}
 
-						static const std::string encompasses_str = "encompasses";
-						index2 = sv1.find(encompasses_str);
-						if (decltype(sv1)::npos != index2) {
-							CAbstractLifetimeSet first_lifetimes;
-							CAbstractLifetimeSet second_lifetimes;
+					int q = 5;
+				}
 
-							std::optional<lifetime_id_t> maybe_first_lifetime_label_id;
-							std::optional<lifetime_id_t> maybe_second_lifetime_label_id;
+				static const std::string encompasses_str = "encompasses";
+				index2 = sv1.find(encompasses_str);
+				if (decltype(sv1)::npos != index2) {
+					CAbstractLifetimeSet first_lifetimes;
+					CAbstractLifetimeSet second_lifetimes;
 
-							{
-								auto lparenthesis_index = sv1.find('(');
-								if (std::string::npos != lparenthesis_index) {
-									auto comma_index = Parse::find_token_at_same_nesting_depth1(",", sv1, lparenthesis_index+1).begin;
-									if ((sv1.length() > comma_index) && (lparenthesis_index + 1 < comma_index)) {
-										auto rparenthesis_index = sv1.find(')', comma_index+1);
-										if ((std::string::npos != rparenthesis_index) && (comma_index + 1 < rparenthesis_index)) {
-											{
-												auto sv2 = sv1.substr(lparenthesis_index + 1, int(comma_index) - (int(lparenthesis_index) + 1));
-												first_lifetimes = parse_lifetime_ids(sv2, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
-												if (MR_ptr) {
-													if (first_lifetimes.is_empty()) {
-														std::string error_desc = std::string("First lifetime argument not found in 'encompasses' constraint.");
-														auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-														if (res.second) {
-															std::cout << (*(res.first)).as_a_string1() << " \n\n";
-														}
-													} else if (1 < first_lifetimes.m_primary_lifetimes.size()) {
-														std::string error_desc = std::string("More than one lifetime given in the first lifetime argument of 'encompasses' constraint.");
-														auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-														if (res.second) {
-															std::cout << (*(res.first)).as_a_string1() << " \n\n";
-														}
-													}
+					std::optional<lifetime_id_t> maybe_first_lifetime_label_id;
+					std::optional<lifetime_id_t> maybe_second_lifetime_label_id;
+
+					{
+						auto lparenthesis_index = sv1.find('(');
+						if (std::string::npos != lparenthesis_index) {
+							auto comma_index = Parse::find_token_at_same_nesting_depth1(",", sv1, lparenthesis_index+1).begin;
+							if ((sv1.length() > comma_index) && (lparenthesis_index + 1 < comma_index)) {
+								auto rparenthesis_index = sv1.find(')', comma_index+1);
+								if ((std::string::npos != rparenthesis_index) && (comma_index + 1 < rparenthesis_index)) {
+									{
+										auto sv2 = sv1.substr(lparenthesis_index + 1, int(comma_index) - (int(lparenthesis_index) + 1));
+										first_lifetimes = parse_lifetime_ids(sv2, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
+										if (MR_ptr) {
+											if (first_lifetimes.is_empty()) {
+												std::string error_desc = std::string("First lifetime argument not found in 'encompasses' constraint.");
+												auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
+												if (res.second) {
+													std::cout << (*(res.first)).as_a_string1() << " \n\n";
+												}
+											} else if (1 < first_lifetimes.m_primary_lifetimes.size()) {
+												std::string error_desc = std::string("More than one lifetime given in the first lifetime argument of 'encompasses' constraint.");
+												auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
+												if (res.second) {
+													std::cout << (*(res.first)).as_a_string1() << " \n\n";
 												}
 											}
-											{
-												auto sv2 = sv1.substr(comma_index + 1, int(rparenthesis_index) - (int(comma_index) + 1));
-												second_lifetimes = parse_lifetime_ids(sv2, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
-												if (MR_ptr) {
-													if (second_lifetimes.is_empty()) {
-														std::string error_desc = std::string("Second lifetime argument not found in 'encompasses' constraint.");
-														auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-														if (res.second) {
-															std::cout << (*(res.first)).as_a_string1() << " \n\n";
-														}
-													} else if (1 < second_lifetimes.m_primary_lifetimes.size()) {
-														std::string error_desc = std::string("More than one lifetime given in the second lifetime argument of 'encompasses' constraint.");
-														auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-														if (res.second) {
-															std::cout << (*(res.first)).as_a_string1() << " \n\n";
-														}
-													}
+										}
+									}
+									{
+										auto sv2 = sv1.substr(comma_index + 1, int(rparenthesis_index) - (int(comma_index) + 1));
+										second_lifetimes = parse_lifetime_ids(sv2, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
+										if (MR_ptr) {
+											if (second_lifetimes.is_empty()) {
+												std::string error_desc = std::string("Second lifetime argument not found in 'encompasses' constraint.");
+												auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
+												if (res.second) {
+													std::cout << (*(res.first)).as_a_string1() << " \n\n";
+												}
+											} else if (1 < second_lifetimes.m_primary_lifetimes.size()) {
+												std::string error_desc = std::string("More than one lifetime given in the second lifetime argument of 'encompasses' constraint.");
+												auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
+												if (res.second) {
+													std::cout << (*(res.first)).as_a_string1() << " \n\n";
 												}
 											}
 										}
 									}
 								}
 							}
-
-							if ((1 == first_lifetimes.m_primary_lifetimes.size()) && (1 == second_lifetimes.m_primary_lifetimes.size())) {
-								auto first_lifetime = first_lifetimes.m_primary_lifetimes.front();
-								auto second_lifetime = second_lifetimes.m_primary_lifetimes.front();
-								flta.m_lifetime_constraint_shptrs.push_back(std::make_shared<CEncompasses>(
-									CEncompasses{ first_lifetime, second_lifetime }));
-							} else {
-								if (MR_ptr) {
-									std::string error_desc = std::string("Parse error in 'encompasses' lifetime constraint specification.");
-									auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
-								}
-							}
-
-							int q = 5;
 						}
+					}
 
-						last_delimiter_index = next_delimiter_index;
-						next_delimiter_index = pretty_str.find_first_of(semicolon + rbrace, last_delimiter_index + 1);
-					}
-				} else {
-					auto index2 = pretty_str.find(clang_lifetimebound_str);
-					if (false && (decltype(pretty_str)::npos != index2)) {
-						/* A [[clang::lifetimebound]] attribute on the function will be interpreted as an
-						MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value<1>; this<1> }") attribute. */
-						flta.m_return_value_lifetimes = CAbstractLifetime{ lifetime_id_t("1"), &func_decl };
-						param_lifetime_map.insert_or_assign(IMPLICIT_THIS_PARAM_ORDINAL, CAbstractLifetime{ lifetime_id_t("1"), &func_decl });
+					if ((1 == first_lifetimes.m_primary_lifetimes.size()) && (1 == second_lifetimes.m_primary_lifetimes.size())) {
+						auto first_lifetime = first_lifetimes.m_primary_lifetimes.front();
+						auto second_lifetime = second_lifetimes.m_primary_lifetimes.front();
+						flta.m_lifetime_constraint_shptrs.push_back(std::make_shared<CEncompasses>(
+							CEncompasses{ first_lifetime, second_lifetime }));
 					} else {
-						continue;
+						if (MR_ptr) {
+							std::string error_desc = std::string("Parse error in 'encompasses' lifetime constraint specification.");
+							auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
+							if (res.second) {
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
+							}
+						}
 					}
+
+					int q = 5;
+				}
+
+				index2 = pretty_str.find(clang_lifetimebound_str);
+				if (false && (decltype(pretty_str)::npos != index2)) {
+					/* A [[clang::lifetimebound]] attribute on the function will be interpreted as an
+					MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value<1>; this<1> }") attribute. */
+					flta.m_return_value_lifetimes = CAbstractLifetime{ lifetime_id_t("1"), &func_decl };
+					param_lifetime_map.insert_or_assign(IMPLICIT_THIS_PARAM_ORDINAL, CAbstractLifetime{ lifetime_id_t("1"), &func_decl });
 				}
 			}
 		}
