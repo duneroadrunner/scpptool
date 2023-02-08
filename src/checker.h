@@ -312,6 +312,15 @@ namespace checker {
 			}
 			return std::optional<CAbstractLifetimeSet>{};
 		}
+		std::optional<CAbstractLifetimeSet> corresponding_abstract_lifetime_set_if_any(clang::CXXBaseSpecifier const * CXXBS) const {
+			if (CXXBS) {
+				auto iter1 = this->m_base_class_to_abstract_lifetime_map.find(CXXBS);
+				if (m_base_class_to_abstract_lifetime_map.end() != iter1) {
+					return iter1->second;
+				}
+			}
+			return std::optional<CAbstractLifetimeSet>{};
+		}
 
 		std::optional<CVariableLifetimeValues> corresponding_lifetime_values_if_any(clang::VarDecl const * VD) const {
 			if (VD) {
@@ -656,7 +665,10 @@ namespace checker {
 				equivalent) substitute for native pointers that can act as a base class. */
 				const auto CXXCE_rw_qtype_str = RD->getQualifiedNameAsString();
 				DECLARE_CACHED_CONST_STRING(TPointerForLegacy_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
-				if (TPointerForLegacy_str != CXXCE_rw_qtype_str) {
+				DECLARE_CACHED_CONST_STRING(TPointer_str, mse_namespace_str() + "::us::impl::TPointer");
+				if ((TPointer_str == CXXCE_rw_qtype_str) || (TPointerForLegacy_str == CXXCE_rw_qtype_str)) {
+					int q = 5;
+				} else {
 					is_pointer_or_equivalent = false;
 				}
 			}
@@ -677,7 +689,8 @@ namespace checker {
 				if (RD) {
 					const auto RD_qtype_str = RD->getQualifiedNameAsString();
 					DECLARE_CACHED_CONST_STRING(TPointerForLegacy_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
-					if (TPointerForLegacy_str == RD_qtype_str) {
+					DECLARE_CACHED_CONST_STRING(TPointer_str, mse_namespace_str() + "::us::impl::TPointer");
+					if ((TPointer_str == RD_qtype_str) || (TPointerForLegacy_str == RD_qtype_str)) {
 						auto maybe_qtype2 = get_first_template_parameter_if_any(peeled_qtype);
 						if (maybe_qtype2.has_value()) {
 							retval = maybe_qtype2.value();
@@ -3218,6 +3231,29 @@ namespace checker {
 			}
 		}
 	}
+	inline void slti_set_default_lower_bound_lifetimes_where_needed(CScopeLifetimeInfo1& slti, clang::QualType const& qtype, CTUState& state1) {
+		MSE_RETURN_IF_TYPE_IS_NULL(qtype);
+		auto peeled_qtype = remove_mse_transparent_wrappers(qtype);
+		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
+		if (is_raw_pointer_or_equivalent(peeled_qtype)) {
+			slti_set_default_lower_bound_lifetimes_where_needed(slti, peeled_qtype);
+		} else {
+			if ((*(slti.m_sublifetimes_vlptr)).is_empty()) {
+				auto found_it = state1.m_type_lifetime_annotations_map.find(peeled_qtype.getTypePtr());
+				if (state1.m_type_lifetime_annotations_map.end() != found_it) {
+					auto num_lifetimes = found_it->second.m_lifetime_set.m_primary_lifetimes.size();
+
+					/* If an object with associated (annotated) lifetimes doesn't already have sublifetime values,
+					we'll use the primary lifetime of the object itself as a lower bound for its sublifetimes. */
+					auto shallow_slti = slti;
+					shallow_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
+					for (auto& unused_ref : found_it->second.m_lifetime_set.m_primary_lifetimes) {
+						(*(slti.m_sublifetimes_vlptr)).m_primary_lifetime_infos.push_back(shallow_slti);
+					}
+				}
+			}
+		}
+	}
 
 	CScopeLifetimeInfo1 scope_lifetime_info_from_lifetime_owner(const CStaticLifetimeOwnerInfo1& sloiv, ASTContext& Ctx, const CTUState& state1) {
 		const CStaticLifetimeOwner& slov = sloiv;
@@ -4669,7 +4705,8 @@ namespace checker {
 		if (!EX1) {
 			return retval;
 		}
-		const auto EX = IgnoreParenImpNoopCasts(EX1, Ctx);
+		//const auto EX = IgnoreParenImpNoopCasts(EX1, Ctx);
+		const auto EX = IgnoreParenNoopCasts(EX1, Ctx);
 
 		if (!(retval.has_value())) {
 			auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(tu_state_ref, EX, Ctx, MR_ptr, Rewrite_ptr);
@@ -5052,6 +5089,7 @@ namespace checker {
 				retval = CStaticLifetimeOwnerInfo1{ sli1 };
 			}
 		} else {
+			auto CSTE = dyn_cast<const clang::CastExpr>(EX);
 			auto ME = dyn_cast<const clang::MemberExpr>(EX);
 			if (ME) {
 				const auto VLD = ME->getMemberDecl();
@@ -5063,7 +5101,7 @@ namespace checker {
 					auto containing_ref_EX = containing_object_ref_expr_from_member_expr(ME);
 					auto containing_qtype = containing_ref_EX->getType();
 					IF_DEBUG(const auto containing_ref_qtype_str = containing_qtype.getAsString();)
-					retval = upper_bound_lifetime_owner_if_available(containing_ref_EX, Ctx, tu_state_ref);
+					retval = upper_bound_lifetime_owner_if_available(containing_ref_EX, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 					if (retval.has_value()) {
 						auto& retval_slo_ref = retval.value();
 
@@ -5155,6 +5193,141 @@ namespace checker {
 				} else {
 					int q = 5;
 				}
+			} else if (CSTE) {
+				const auto sub_E_ip = IgnoreParenNoopCasts(CSTE->getSubExpr(), Ctx);
+				if (sub_E_ip && (sub_E_ip != CSTE)) {
+					auto CSTE_qtype = CSTE->getType();
+					IF_DEBUG(auto CSTE_qtype_str = CSTE_qtype.getAsString();)
+					MSE_RETURN_VALUE_IF_TYPE_IS_NULL(CSTE_qtype, retval);
+
+					auto cast_kind = CSTE->getCastKind();
+					IF_DEBUG(auto cast_kind_str = CSTE->getCastKindName();)
+					auto cf_ND = CSTE->getConversionFunction();
+
+					auto maybe_expr_slo = upper_bound_lifetime_owner_if_available(sub_E_ip, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
+					if (maybe_expr_slo.has_value()) {
+						auto& src_slo = maybe_expr_slo.value();
+						retval = src_slo;
+
+						auto found_it = tu_state_ref.m_type_lifetime_annotations_map.find(CSTE_qtype.getTypePtr());
+						if (tu_state_ref.m_type_lifetime_annotations_map.end() != found_it) {
+							/* The result type of the cast has abstract (annotated) lifetimes associated with it. We cannot in
+							general assume that any (sub)lifetime values of the source object correspond to those of the
+							resulting object. */
+
+							/* Until we determine the lifetime values corresponding to those abstract lifetimes, we cannot
+							establish an upper bound for the object's lifetime(s). */
+							retval = {};
+
+							auto maybe_ltvs = tu_state_ref.corresponding_lifetime_values_if_any(CSTE);
+							if (maybe_ltvs.has_value()) {
+								/* The lifetime values of the resulting object seem to have been already evaluated elsewhere. */
+								/* Does this ever happen? */
+								auto& ltvs = maybe_ltvs.value().m_scope_lifetime_info;
+								retval = { ltvs };
+							} else if ((clang::CastKind::CK_UncheckedDerivedToBase == cast_kind) || (clang::CastKind::CK_DerivedToBase == cast_kind)) {
+								/* This particular (implicit) cast seems to be just using an object as its base class. This is
+								similar to using a member field of an object via member expression, and so we handle it in
+								similar fashion. */
+								auto sub_E_ip_qtype = sub_E_ip->getType();
+								IF_DEBUG(auto sub_E_ip_qtype_str = sub_E_ip_qtype.getAsString();)
+								MSE_RETURN_VALUE_IF_TYPE_IS_NULL(sub_E_ip_qtype, retval);
+
+								auto CXXRD = sub_E_ip_qtype->getAsCXXRecordDecl();
+								if (CXXRD) {
+									for (auto& CXXBS : CXXRD->bases()) {
+										auto base_qtype = CXXBS.getType();
+										IF_DEBUG(auto base_qtype_str = base_qtype.getAsString();)
+										MSE_RETURN_VALUE_IF_TYPE_IS_NULL(base_qtype, retval);
+
+										if (base_qtype == CSTE_qtype) {
+											auto iter1 = tu_state_ref.m_base_class_to_abstract_lifetime_map.find(&CXXBS);
+											if (tu_state_ref.m_base_class_to_abstract_lifetime_map.end() != iter1) {
+												auto owner_slti = scope_lifetime_info_from_lifetime_owner(src_slo, Ctx, tu_state_ref);
+												auto const& owner_type_lifetime_values = owner_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos;
+
+												/* expr_stli will (hopefully) be the returned lifetime value of the base class. We will start
+												by initializing it with the lifetime value of its parent/containing object. */
+												CScopeLifetimeInfo1 expr_slti = owner_slti;
+
+												CPossessionLifetimeInfo1 pli;
+												pli.m_maybe_field_source_range = CXXBS.getSourceRange();
+												/* Here we're adding info about the base class's relationship to the parent from which its lifetime
+												value is based. */
+												expr_slti.m_possession_lifetime_info_chain.push_back(pli);
+
+												/* While the base class's primary lifetime is based on its parent/containing object, its
+												sublifetimes are, in general, not. We still need to evaluate them. */
+												expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
+
+												auto maybe_tlta = type_lifetime_annotations_if_available(sub_E_ip_qtype.getTypePtr(), tu_state_ref, MR_ptr, Rewrite_ptr);
+												if (maybe_tlta.has_value()) {
+													/* The parent/containing type seems to have (zero or more) annotated lifetimes. */
+
+													auto CXXTE = dyn_cast<const clang::CXXThisExpr>(sub_E_ip);
+													if (CXXTE) {
+														/* Ok, the parent/owner of this member expression is a "this" expression. This means that the
+														value of the parent/containing object's (sub)lifetimes remain abstract/"unevaluated". And, at
+														the moment, the (sub)lifetimes of "this" expressions are not included in their lifetime values,
+														so we have to obtain them here manually. But this just involves setting the parent/containing
+														object's (sub)lifetime values to the set of the object type's (annotated) abstract lifetimes. */
+
+														*(owner_slti.m_sublifetimes_vlptr) = CScopeLifetimeInfo1Set{ maybe_tlta.value()->m_lifetime_set };
+													}
+
+													auto& owner_type_abstract_lifetimes = maybe_tlta.value()->m_lifetime_set.m_primary_lifetimes;
+
+													IF_DEBUG(auto sz1 = owner_type_abstract_lifetimes.size();)
+													IF_DEBUG(auto sz2 = owner_type_lifetime_values.size();)
+
+													auto maybe_abstract_lifetime_set = tu_state_ref.corresponding_abstract_lifetime_set_if_any(&CXXBS);
+													if (maybe_abstract_lifetime_set.has_value()) {
+														auto& abstract_lifetime_set1 = maybe_abstract_lifetime_set.value();
+														/* The base class's type also seems to have (zero or more) annotated lifetimes. Presumably, its
+														abstract lifetimes are a subset of its parent/containing object's abstract lifetimes. */
+
+														/* For each of the base class's abstract lifetimes, we'll look for the corresponding abstract
+														lifetime of the parent/containing object, and its corresponding evaluated (non-abstract) value,
+														if available, and assign that value to the base class accordingly. */
+														for (auto const& base_class_abstract_lifetime1 : abstract_lifetime_set1.m_primary_lifetimes) {
+															auto owner_tlv_iter1 = owner_type_lifetime_values.begin();
+															auto owner_talt_iter1 = owner_type_abstract_lifetimes.begin();
+															for (; (owner_type_abstract_lifetimes.end() != owner_talt_iter1) && (owner_type_lifetime_values.end() != owner_tlv_iter1)
+																; ++owner_talt_iter1, ++owner_tlv_iter1) {
+
+																if (base_class_abstract_lifetime1 == (*owner_talt_iter1)) {
+																	expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.push_back(*owner_tlv_iter1);
+																	break;
+																}
+															}
+														}
+														if (expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.size() == abstract_lifetime_set1.m_primary_lifetimes.size()) {
+															retval = { expr_slti };
+														}
+													}
+													int q = 5;
+												}
+
+												return retval;
+											}
+											break;
+										}
+									}
+								}
+							} else {
+								/* The resulting object of the cast has associated (annotated) lifetimes. Unfortunately we haven't
+								been able to determine the values of those lifetimes. (And we can't just assume they're related to
+								any lifetime values of the source object.) */
+								retval = {};
+							}
+							return retval;
+						}
+					}
+					int q = 5;
+				}
+
+
+
 			} else {
 				{
 					auto CO = dyn_cast<const clang::ConditionalOperator>(EX);
@@ -7677,6 +7850,7 @@ namespace checker {
 				retval.m_failure_due_to_dependent_type_flag = true;
 				return retval;
 			} else {
+				auto CSTE = dyn_cast<const clang::CastExpr>(E_ip);
 				auto CXXILE = dyn_cast<const clang::CXXStdInitializerListExpr>(E_ip);
 				auto ILE = dyn_cast<const clang::InitListExpr>(E_ip);
 				auto CXXDSME = dyn_cast<const clang::CXXDependentScopeMemberExpr>(E_ip);
@@ -7869,6 +8043,167 @@ namespace checker {
 					if (sub_E_ip && (sub_E_ip != CXXILE)) {
 						/* We're expecting sub_E_ip to be a clang::InitListExpr (pointer). */
 						return evaluate_expression_lower_bound_lifetimes(state1, sub_E_ip, Ctx, MR_ptr, Rewrite_ptr);
+					}
+				} else if (CSTE) {
+					const auto sub_E_ip = IgnoreParenNoopCasts(CSTE->getSubExpr(), Ctx);
+					if (sub_E_ip && (sub_E_ip != CSTE)) {
+						auto CSTE_qtype = CSTE->getType();
+						IF_DEBUG(auto CSTE_qtype_str = CSTE_qtype.getAsString();)
+						MSE_RETURN_VALUE_IF_TYPE_IS_NULL(CSTE_qtype, retval);
+
+						auto cast_kind = CSTE->getCastKind();
+						IF_DEBUG(auto cast_kind_str = CSTE->getCastKindName();)
+						auto cf_ND = CSTE->getConversionFunction();
+
+						bool reference_cast_or_equivalent = CSTE_qtype->isReferenceType();
+						reference_cast_or_equivalent |= (clang::CastKind::CK_UncheckedDerivedToBase == cast_kind);
+						reference_cast_or_equivalent |= (clang::CastKind::CK_DerivedToBase == cast_kind);
+						reference_cast_or_equivalent |= (clang::CastKind::CK_BaseToDerived == cast_kind);
+						reference_cast_or_equivalent |= (clang::CastKind::CK_LValueToRValue == cast_kind); // ?
+						reference_cast_or_equivalent |= (clang::CastKind::CK_NoOp == cast_kind);
+
+						CScopeLifetimeInfo1 slti1;
+						slti1.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
+						slti1.m_maybe_containing_scope = get_containing_scope(CSTE, Ctx);
+						slti1.m_maybe_source_range = CSTE->getSourceRange();
+						slti1.m_maybe_corresponding_cpp_element = CSTE;
+
+						auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(state1, sub_E_ip, Ctx, MR_ptr, Rewrite_ptr);
+						if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+							/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+							occur in any instantiation of the template. */
+							retval.m_failure_due_to_dependent_type_flag = true;
+							return retval;
+						}
+						if (maybe_expr_lifetime_value.has_value()) {
+							auto& src_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+							if (reference_cast_or_equivalent) {
+								slti1 = src_slti;
+							} else {
+								*(slti1.m_sublifetimes_vlptr) = *(src_slti.m_sublifetimes_vlptr);
+							}
+							retval = CExpressionLifetimeValues{ slti1, bool(MR_ptr) };
+
+							auto found_it = state1.m_type_lifetime_annotations_map.find(CSTE_qtype.getTypePtr());
+							if (state1.m_type_lifetime_annotations_map.end() != found_it) {
+								/* The result type of the cast has abstract (annotated) lifetimes associated with it. We cannot in
+								general assume that any (sub)lifetime values of the source object correspond to those of the
+								resulting object. */
+								auto maybe_ltvs = state1.corresponding_lifetime_values_if_any(CSTE);
+								if (maybe_ltvs.has_value()) {
+									/* The lifetime values of the resulting object seem to have been already evaluated elsewhere. */
+									/* Does this ever happen? */
+									auto& ltvs = maybe_ltvs.value().m_scope_lifetime_info;
+									*(slti1.m_sublifetimes_vlptr) = *(ltvs.m_sublifetimes_vlptr);
+									retval = CExpressionLifetimeValues{ slti1, bool(MR_ptr) };
+								} else if ((clang::CastKind::CK_UncheckedDerivedToBase == cast_kind) || (clang::CastKind::CK_DerivedToBase == cast_kind)) {
+									/* This particular (implicit) cast seems to be just using an object as its base class. This is
+									similar to using a member field of an object via member expression, and so we handle it in
+									similar fashion. */
+									auto sub_E_ip_qtype = sub_E_ip->getType();
+									IF_DEBUG(auto sub_E_ip_qtype_str = sub_E_ip_qtype.getAsString();)
+									MSE_RETURN_VALUE_IF_TYPE_IS_NULL(sub_E_ip_qtype, retval);
+
+									auto CXXRD = sub_E_ip_qtype->getAsCXXRecordDecl();
+									if (CXXRD) {
+										for (auto& CXXBS : CXXRD->bases()) {
+											auto base_qtype = CXXBS.getType();
+											IF_DEBUG(auto base_qtype_str = base_qtype.getAsString();)
+											MSE_RETURN_VALUE_IF_TYPE_IS_NULL(base_qtype, retval);
+
+											if (base_qtype == CSTE_qtype) {
+												auto iter1 = state1.m_base_class_to_abstract_lifetime_map.find(&CXXBS);
+												if (state1.m_base_class_to_abstract_lifetime_map.end() != iter1) {
+													auto& owner_slti = src_slti;
+													auto const& owner_type_lifetime_values = owner_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos;
+
+													/* expr_stli will (hopefully) be the returned lifetime value of the base class. We will start
+													by initializing it with the lifetime value of its parent/containing object. */
+													CScopeLifetimeInfo1 expr_slti = owner_slti;
+
+													CPossessionLifetimeInfo1 pli;
+													pli.m_maybe_field_source_range = CXXBS.getSourceRange();
+													/* Here we're adding info about the base class's relationship to the parent from which its lifetime
+													value is based. */
+													expr_slti.m_possession_lifetime_info_chain.push_back(pli);
+
+													/* While the base class's primary lifetime is based on its parent/containing object, its
+													sublifetimes are, in general, not. We still need to evaluate them. */
+													expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
+
+													auto maybe_tlta = type_lifetime_annotations_if_available(sub_E_ip_qtype.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
+													if (maybe_tlta.has_value()) {
+														/* The parent/containing type seems to have (zero or more) annotated lifetimes. */
+
+														auto CXXTE = dyn_cast<const clang::CXXThisExpr>(sub_E_ip);
+														if (CXXTE) {
+															/* Ok, the parent/owner of this member expression is a "this" expression. This means that the
+															value of the parent/containing object's (sub)lifetimes remain abstract/"unevaluated". And, at
+															the moment, the (sub)lifetimes of "this" expressions are not included in their lifetime values,
+															so we have to obtain them here manually. But this just involves setting the parent/containing
+															object's (sub)lifetime values to the set of the object type's (annotated) abstract lifetimes. */
+
+															*(owner_slti.m_sublifetimes_vlptr) = CScopeLifetimeInfo1Set{ maybe_tlta.value()->m_lifetime_set };
+														}
+
+														auto& owner_type_abstract_lifetimes = maybe_tlta.value()->m_lifetime_set.m_primary_lifetimes;
+
+														IF_DEBUG(auto sz1 = owner_type_abstract_lifetimes.size();)
+														IF_DEBUG(auto sz2 = owner_type_lifetime_values.size();)
+
+														auto maybe_abstract_lifetime_set = state1.corresponding_abstract_lifetime_set_if_any(&CXXBS);
+														if (maybe_abstract_lifetime_set.has_value()) {
+															auto& abstract_lifetime_set1 = maybe_abstract_lifetime_set.value();
+															/* The base class's type also seems to have (zero or more) annotated lifetimes. Presumably, its
+															abstract lifetimes are a subset of its parent/containing object's abstract lifetimes. */
+
+															/* For each of the base class's abstract lifetimes, we'll look for the corresponding abstract
+															lifetime of the parent/containing object, and its corresponding evaluated (non-abstract) value,
+															if available, and assign that value to the base class accordingly. */
+															for (auto const& base_class_abstract_lifetime1 : abstract_lifetime_set1.m_primary_lifetimes) {
+																auto owner_tlv_iter1 = owner_type_lifetime_values.begin();
+																auto owner_talt_iter1 = owner_type_abstract_lifetimes.begin();
+																for (; (owner_type_abstract_lifetimes.end() != owner_talt_iter1) && (owner_type_lifetime_values.end() != owner_tlv_iter1)
+																	; ++owner_talt_iter1, ++owner_tlv_iter1) {
+
+																	if (base_class_abstract_lifetime1 == (*owner_talt_iter1)) {
+																		expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.push_back(*owner_tlv_iter1);
+																		break;
+																	}
+																}
+															}
+														}
+														int q = 5;
+													}
+													slti_set_default_lower_bound_lifetimes_where_needed(expr_slti, CXXBS.getType());
+
+													/* Here we put the evaluated expression lifetimes in "persistent" storage. */
+													state1.m_expr_lifetime_values_map.insert_or_assign( E, CExpressionLifetimeValues{ expr_slti, bool(MR_ptr) } );
+													if (E_ip != E) {
+														auto res1 = state1.m_expr_lifetime_values_map.insert_or_assign( E_ip, CExpressionLifetimeValues{ expr_slti, bool(MR_ptr) } );
+														retval = (res1.first)->second;
+													}
+													retval = CExpressionLifetimeValues{ expr_slti, bool(MR_ptr) };
+													return retval;
+												}
+												break;
+											}
+										}
+									}
+								} else {
+									/* Since it's the lower bound that we're trying to determine, for now we'll just set all the
+									(sub)lifetime values to the (lower bound) lifetime of object itself. */
+									retval = {};
+									auto src_slti2 = src_slti;
+									src_slti2.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
+									slti_set_default_lower_bound_lifetimes_where_needed(src_slti2, CSTE_qtype, state1);
+									*(slti1.m_sublifetimes_vlptr) = *(src_slti2.m_sublifetimes_vlptr);
+									retval = CExpressionLifetimeValues{ slti1, bool(MR_ptr) };
+								}
+								return retval;
+							}
+						}
+						int q = 5;
 					}
 				} else if (is_raw_pointer_or_equivalent(qtype)) {
 					auto target_EX = raw_pointer_target_expression_if_available(E_ip, Ctx, state1);
