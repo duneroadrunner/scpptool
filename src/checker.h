@@ -3886,7 +3886,19 @@ namespace checker {
 
 		auto MTE = dyn_cast<const clang::MaterializeTemporaryExpr>(IgnoreExprWithCleanups(EX1));
 
-		const auto EX = IgnoreParenImpNoopCasts(EX1, Ctx);
+		/* We're generally not interested in implicit nodes, but we do need to handle certain
+		`ImplicitCastExpr`s. So we check if the node is an ImplicitCastExpr of a species that we're
+		interested in, and if not, skip over any implicit nodes. */
+		auto EX2 = IgnoreParenNoopCasts(EX1, Ctx);
+		auto ICE = dyn_cast<const clang::ImplicitCastExpr>(EX2);
+		if (ICE && ((clang::CastKind::CK_UncheckedDerivedToBase == ICE->getCastKind()) || (clang::CastKind::CK_DerivedToBase == ICE->getCastKind()))) {
+			int q = 5;
+		} else {
+			EX2 = IgnoreParenImpNoopCasts(EX1, Ctx);
+		}
+
+		const auto EX = EX2;
+
 		auto DRE1 = dyn_cast<const clang::DeclRefExpr>(EX);
 		auto CXXTE = dyn_cast<const clang::CXXThisExpr>(EX);
 		auto SL = dyn_cast<const clang::StringLiteral>(EX);
@@ -4160,6 +4172,7 @@ namespace checker {
 		} else if (SL) {
 			retval = SL;
 		} else {
+			auto CSTE = dyn_cast<const clang::CastExpr>(EX);
 			auto ME = dyn_cast<const clang::MemberExpr>(EX);
 			if (ME) {
 				const auto VLD = ME->getMemberDecl();
@@ -4205,6 +4218,16 @@ namespace checker {
 					return retval;
 				} else {
 					int q = 5;
+				}
+			} else if (CSTE) {
+				auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(tu_state_ref, EX, Ctx, MR_ptr, Rewrite_ptr);
+				if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
+					/* Cannot properly evaluate because this is a template definition. Proper evaluation should
+					occur in any instantiation of the template. */
+				} else if (maybe_expr_lifetime_value.has_value()) {
+					CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+					retval = expr_slti;
+					return retval;
 				}
 			}
 			{
@@ -4705,10 +4728,21 @@ namespace checker {
 		if (!EX1) {
 			return retval;
 		}
-		//const auto EX = IgnoreParenImpNoopCasts(EX1, Ctx);
-		const auto EX = IgnoreParenNoopCasts(EX1, Ctx);
 
-		if (!(retval.has_value())) {
+		/* We're generally not interested in implicit nodes, but we do need to handle certain
+		`ImplicitCastExpr`s. So we check if the node is an ImplicitCastExpr of a species that we're
+		interested in, and if not, skip over any implicit nodes. */
+		auto EX2 = IgnoreParenNoopCasts(EX1, Ctx);
+		auto ICE = dyn_cast<const clang::ImplicitCastExpr>(EX2);
+		if (ICE && ((clang::CastKind::CK_UncheckedDerivedToBase == ICE->getCastKind()) || (clang::CastKind::CK_DerivedToBase == ICE->getCastKind()))) {
+			int q = 5;
+		} else {
+			EX2 = IgnoreParenImpNoopCasts(EX1, Ctx);
+		}
+
+		const auto EX = EX2;
+
+		{
 			auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(tu_state_ref, EX, Ctx, MR_ptr, Rewrite_ptr);
 			if (maybe_expr_lifetime_value.m_failure_due_to_dependent_type_flag) {
 				/* Cannot properly evaluate because this is a template definition. Proper evaluation should
@@ -5240,7 +5274,12 @@ namespace checker {
 										IF_DEBUG(auto base_qtype_str = base_qtype.getAsString();)
 										MSE_RETURN_VALUE_IF_TYPE_IS_NULL(base_qtype, retval);
 
-										if (base_qtype == CSTE_qtype) {
+										auto base_cnqtype = base_qtype.getCanonicalType(); base_cnqtype.removeLocalConst();
+										IF_DEBUG(auto base_cnqtype_str = base_cnqtype.getAsString();)
+										auto CSTE_cnqtype = CSTE_qtype.getCanonicalType(); CSTE_cnqtype.removeLocalConst();
+										IF_DEBUG(auto CSTE_cnqtype_str = CSTE_cnqtype.getAsString();)
+
+										if (base_cnqtype == CSTE_cnqtype) {
 											auto iter1 = tu_state_ref.m_base_class_to_abstract_lifetime_map.find(&CXXBS);
 											if (tu_state_ref.m_base_class_to_abstract_lifetime_map.end() != iter1) {
 												auto owner_slti = scope_lifetime_info_from_lifetime_owner(src_slo, Ctx, tu_state_ref);
@@ -7794,17 +7833,27 @@ namespace checker {
 			}
 		}
 
-		//const auto E_ii = IgnoreParenImpNoopCasts(E, Ctx);
-		const auto E_ip = IgnoreParenNoopCasts(E, Ctx);
+		/* We're generally not interested in implicit nodes, but we do need to handle certain
+		`ImplicitCastExpr`s. So we check if the node is an ImplicitCastExpr of a species that we're
+		interested in, and if not, skip over any implicit nodes. */
+		auto EX2 = IgnoreParenNoopCasts(E, Ctx);
+		auto ICE = dyn_cast<const clang::ImplicitCastExpr>(EX2);
+		if (ICE && ((clang::CastKind::CK_UncheckedDerivedToBase == ICE->getCastKind()) || (clang::CastKind::CK_DerivedToBase == ICE->getCastKind()))) {
+			int q = 5;
+		} else {
+			EX2 = IgnoreParenImpNoopCasts(E, Ctx);
+		}
+
+		const auto E_ip = EX2;
 
 		auto qtype = E_ip->getType();
-		IF_DEBUG(auto qtype_str = qtype.getAsString();)
 		if (qtype.isNull()) {
 			/* Cannot properly evaluate (presumably) because this is a template definition. Proper
 			evaluation should occur in any instantiation of the template. */
 			retval.m_failure_due_to_dependent_type_flag = true;
 			return retval;
 		}
+		IF_DEBUG(auto qtype_str = qtype.getAsString();)
 
 		auto CXXCE = dyn_cast<const clang::CXXConstructExpr>(E_ip);
 		if (CXXCE) {
@@ -8111,7 +8160,12 @@ namespace checker {
 											IF_DEBUG(auto base_qtype_str = base_qtype.getAsString();)
 											MSE_RETURN_VALUE_IF_TYPE_IS_NULL(base_qtype, retval);
 
-											if (base_qtype == CSTE_qtype) {
+											auto base_cnqtype = base_qtype.getCanonicalType(); base_cnqtype.removeLocalConst();
+											IF_DEBUG(auto base_cnqtype_str = base_cnqtype.getAsString();)
+											auto CSTE_cnqtype = CSTE_qtype.getCanonicalType(); CSTE_cnqtype.removeLocalConst();
+											IF_DEBUG(auto CSTE_cnqtype_str = CSTE_cnqtype.getAsString();)
+
+											if (base_cnqtype == CSTE_cnqtype) {
 												auto iter1 = state1.m_base_class_to_abstract_lifetime_map.find(&CXXBS);
 												if (state1.m_base_class_to_abstract_lifetime_map.end() != iter1) {
 													auto& owner_slti = src_slti;
@@ -8205,6 +8259,7 @@ namespace checker {
 						}
 						int q = 5;
 					}
+					return retval;
 				} else if (is_raw_pointer_or_equivalent(qtype)) {
 					auto target_EX = raw_pointer_target_expression_if_available(E_ip, Ctx, state1);
 					auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(state1, target_EX, Ctx, MR_ptr, Rewrite_ptr);
@@ -8312,6 +8367,12 @@ namespace checker {
 		auto SR = Rewrite_ptr ? nice_source_range(DD->getSourceRange(), *Rewrite_ptr) : DD->getSourceRange();
 
 		const auto qtype = DD->getType();
+		if (qtype.isNull()) {
+			/* Cannot properly evaluate (presumably) because this is a template definition. Proper
+			evaluation should occur in any instantiation of the template. */
+			retval.m_failure_due_to_dependent_type_flag = true;
+			return retval;
+		}
 		const std::string qtype_str = DD->getType().getAsString();
 		auto DD_qtype = DD->getType();
 		IF_DEBUG(auto DD_qtype_str = DD_qtype.getAsString();)
@@ -9315,7 +9376,7 @@ namespace checker {
 				}
 
 				CScopeLifetimeInfo1 lhs_lifetime_value;
-				lhs_lifetime_value.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
+				lhs_lifetime_value.m_category = CScopeLifetimeInfo1::ECategory::Literal;
 				lhs_lifetime_value.m_maybe_containing_scope = get_containing_scope(LHSEX, *(MR.Context));
 				lhs_lifetime_value.m_maybe_source_range = LHSEX->getSourceRange();
 				lhs_lifetime_value.m_maybe_corresponding_cpp_element = LHSEX;
