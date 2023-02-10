@@ -194,7 +194,7 @@ void foo1(int_ptr_t& i1_ptr_ref, int_ptr_t& i2_ptr_ref) {
 }
 ```
 
-We (and the tool) can see that it is safe to assign he value of the `i1_ptr_ref` parameter to the `i3_ptr` local variable, because the target object of the pointer referred to by `i1_ptr_ref` comes from outside the function and can be assumed to outlive the function call itself and therefore any local variable within the function.
+We (and the tool) can see that it is safe to assign the value of the `i1_ptr_ref` parameter to the `i3_ptr` local variable, because the target object of the pointer referred to by `i1_ptr_ref` comes from outside the function and can be assumed to outlive the function call itself and therefore any local variable within the function.
 
 But what about assigning the value of `i1_ptr_ref` to `i2_ptr_ref`? In this case we (and the tool) don't have enough information to conclude that the target of the pointer referred to by `i1_ptr_ref` would outlive the pointer that `i2_ptr_ref` refers to.
 
