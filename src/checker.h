@@ -190,6 +190,7 @@ namespace checker {
  
 	class CFunctionLifetimeAnnotations {
 	public:
+		CAbstractLifetimeSet m_lifetime_set;
 		std::unordered_map<param_ordinal_t, CAbstractLifetimeSet> m_param_lifetime_map;
 		std::vector<std::shared_ptr<CPairwiseLifetimeConstraint> > m_lifetime_constraint_shptrs;
 		CAbstractLifetimeSet m_return_value_lifetimes;
@@ -1070,7 +1071,7 @@ namespace checker {
 
 		IF_DEBUG(auto type_str = type_decl.getNameAsString();)
 #ifndef NDEBUG
-		if ("CL" == type_str) {
+		if ("CLARefObj11" == type_str) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -1079,16 +1080,21 @@ namespace checker {
 		tlta.m_parse_errors_noted = (nullptr != MR_ptr);
 
 		if (type_decl.hasAttrs()) {
+			auto with_lifetime_prefix = [](std::string_view sv1) -> std::string {
+				auto sv2 = sv1.substr(Parse::find_non_whitespace(sv1));
+				return std::string("lifetime_") + std::string(sv2);
+			};
 			DECLARE_CACHED_CONST_STRING(lifetime_notes_str, "lifetime_notes");
 			DECLARE_CACHED_CONST_STRING(lifetime_labels, "lifetime_labels");
 			DECLARE_CACHED_CONST_STRING(lifetime_label, "lifetime_label");
+			DECLARE_CACHED_CONST_STRING(lifetime_encompasses, "lifetime_encompasses");
 			DECLARE_CACHED_CONST_STRING(lifetime_set_alias_from_template_parameter_by_name, "lifetime_set_alias_from_template_parameter_by_name");
 			DECLARE_CACHED_CONST_STRING(lifetime_set_alias_from_template_parameter, "lifetime_set_alias_from_template_parameter");
 			DECLARE_CACHED_CONST_STRING(lifetime_set_aliases_from_template_parameters_in_order, "lifetime_set_aliases_from_template_parameters_in_order");
-			DECLARE_CACHED_CONST_STRING(base_class_lifetime_labels_by_type, "base_class_lifetime_labels_by_type");
-			DECLARE_CACHED_CONST_STRING(base_class_lifetime_labels, "base_class_lifetime_labels");
-			DECLARE_CACHED_CONST_STRING(base_class_lifetime_label, "base_class_lifetime_label");
-			DECLARE_CACHED_CONST_STRING(base_class_lifetime_labels_in_order, "base_class_lifetime_labels_in_order");
+			DECLARE_CACHED_CONST_STRING(lifetime_labels_for_base_class_by_type, "lifetime_labels_for_base_class_by_type");
+			DECLARE_CACHED_CONST_STRING(lifetime_labels_for_base_class, "lifetime_labels_for_base_class");
+			DECLARE_CACHED_CONST_STRING(lifetime_label_for_base_class, "lifetime_label_for_base_class");
+			DECLARE_CACHED_CONST_STRING(lifetime_labels_for_base_class_in_order, "lifetime_labels_for_base_class_in_order");
 
 			auto vec = type_decl.getAttrs();
 			struct CLTAStatementInfo {
@@ -1129,7 +1135,8 @@ namespace checker {
 					auto next_delimiter_index = pretty_str.find_first_of(semicolon + rbrace, last_delimiter_index + 1);
 					while (decltype(pretty_str)::npos != next_delimiter_index) {
 						std::string_view sv1(pretty_str.data() + last_delimiter_index + 1, int(next_delimiter_index) - int(last_delimiter_index + 1));
-						lta_statement_infos.push_back( CLTAStatementInfo{ sv1, attr, true } );
+						auto prefixed_str = with_lifetime_prefix(sv1);
+						lta_statement_infos.push_back( CLTAStatementInfo{ prefixed_str, attr, true } );
 
 						last_delimiter_index = next_delimiter_index;
 						next_delimiter_index = pretty_str.find_first_of(semicolon + rbrace, last_delimiter_index + 1);
@@ -1145,8 +1152,7 @@ namespace checker {
 				auto attr_SR = lta_statement_info.m_attr_ptr->getRange();
 
 				do {
-					static const std::string encompasses_str = "encompasses";
-					auto encompasses_range = Parse::find_token_sequence({ encompasses_str }, sv1);
+					auto encompasses_range = Parse::find_token_sequence({ lifetime_encompasses }, sv1);
 					if (pretty_str.length() > encompasses_range.begin) {
 						std::optional<lifetime_id_t> maybe_first_lifetime_label_id;
 						std::optional<lifetime_id_t> maybe_second_lifetime_label_id;
@@ -1319,7 +1325,6 @@ namespace checker {
 							}
 							if (TypePtr) {
 								auto lifetimes_from_specified_template_params = infer_alias_mapping_from_template_arg(TypePtr, template_name, set_alias, state1, MR_ptr, Rewrite_ptr);
-								//tlta.m_lifetime_set.m_primary_lifetimes.insert(tlta.m_lifetime_set.m_primary_lifetimes.end(), lifetimes_from_specified_template_params.m_primary_lifetimes.begin(), lifetimes_from_specified_template_params.m_primary_lifetimes.end());
 							}
 						}
 						break;
@@ -1380,7 +1385,6 @@ namespace checker {
 							}
 							if (TypePtr) {
 								auto lifetimes_from_specified_template_params = populate_lifetime_alias_map(TypePtr, alts1, state1, MR_ptr, Rewrite_ptr);
-								tlta.m_lifetime_set.m_primary_lifetimes.insert(tlta.m_lifetime_set.m_primary_lifetimes.end(), lifetimes_from_specified_template_params.m_primary_lifetimes.begin(), lifetimes_from_specified_template_params.m_primary_lifetimes.end());
 
 								if (false && alts1.is_empty()) {
 									if (MR_ptr) {
@@ -1398,9 +1402,9 @@ namespace checker {
 						break;
 					}
 
-					auto bcltl_range = Parse::find_token_sequence({ base_class_lifetime_labels }, pretty_str);
+					auto bcltl_range = Parse::find_token_sequence({ lifetime_labels_for_base_class }, pretty_str);
 					if (pretty_str.length() <= bcltl_range.begin) {
-						bcltl_range = Parse::find_token_sequence({ base_class_lifetime_label }, pretty_str);
+						bcltl_range = Parse::find_token_sequence({ lifetime_label_for_base_class }, pretty_str);
 					}
 					if (pretty_str.length() > bcltl_range.begin) {
 						static const std::string lparenthesis = "(";
@@ -1642,15 +1646,22 @@ namespace checker {
 		flta.m_parse_errors_noted = (nullptr != MR_ptr);
 
 		std::unordered_map<param_ordinal_t, CAbstractLifetimeSet> param_lifetime_map;
+		DECLARE_CACHED_CONST_STRING(lifetime_notes_str, "lifetime_notes");
+		DECLARE_CACHED_CONST_STRING(lifetime_labels, "lifetime_labels");
+		DECLARE_CACHED_CONST_STRING(lifetime_label, "lifetime_label");
 		DECLARE_CACHED_CONST_STRING(clang_lifetimebound_str, "clang::lifetimebound");
 
 		if (func_decl.hasAttrs()) {
-			DECLARE_CACHED_CONST_STRING(lifetime_notes_str, "lifetime_notes");
-			DECLARE_CACHED_CONST_STRING(lifetime_labels, "lifetime_labels");
-			DECLARE_CACHED_CONST_STRING(lifetime_label, "lifetime_label");
+			auto with_lifetime_prefix = [](std::string_view sv1) -> std::string {
+				auto sv2 = sv1.substr(Parse::find_non_whitespace(sv1));
+				return std::string("lifetime_") + std::string(sv2);
+			};
 			DECLARE_CACHED_CONST_STRING(lifetime_set_alias_from_template_parameter_by_name, "lifetime_set_alias_from_template_parameter_by_name");
 			DECLARE_CACHED_CONST_STRING(lifetime_set_alias_from_template_parameter, "lifetime_set_alias_from_template_parameter");
 			DECLARE_CACHED_CONST_STRING(lifetime_set_aliases_from_template_parameters_in_order, "lifetime_set_aliases_from_template_parameters_in_order");
+			DECLARE_CACHED_CONST_STRING(lifetime_return_value, "lifetime_return_value");
+			DECLARE_CACHED_CONST_STRING(lifetime_this, "lifetime_this");
+			DECLARE_CACHED_CONST_STRING(lifetime_encompasses, "lifetime_encompasses");
 
 			auto vec = func_decl.getAttrs();
 			struct CLTAStatementInfo {
@@ -1691,7 +1702,8 @@ namespace checker {
 					auto next_delimiter_index = pretty_str.find_first_of(semicolon + rbrace, last_delimiter_index + 1);
 					while (decltype(pretty_str)::npos != next_delimiter_index) {
 						std::string_view sv1(pretty_str.data() + last_delimiter_index + 1, int(next_delimiter_index) - int(last_delimiter_index + 1));
-						lta_statement_infos.push_back( CLTAStatementInfo{ sv1, attr, true } );
+						auto prefixed_str = with_lifetime_prefix(sv1);
+						lta_statement_infos.push_back( CLTAStatementInfo{ prefixed_str, attr, true } );
 
 						last_delimiter_index = next_delimiter_index;
 						next_delimiter_index = pretty_str.find_first_of(semicolon + rbrace, last_delimiter_index + 1);
@@ -1707,8 +1719,7 @@ namespace checker {
 				auto attr_SR = lta_statement_info.m_attr_ptr->getRange();
 
 				do {
-					static const std::string return_value_str = "return_value";
-					auto index2 = sv1.find(return_value_str);
+					auto index2 = sv1.find(lifetime_return_value);
 					if (decltype(sv1)::npos != index2) {
 						CAbstractLifetimeSet return_value_lifetimes;
 
@@ -1730,8 +1741,7 @@ namespace checker {
 						break;
 					}
 
-					static const std::string this_str = "this";
-					index2 = sv1.find(this_str);
+					index2 = sv1.find(lifetime_this);
 					if (decltype(sv1)::npos != index2) {
 						CAbstractLifetimeSet this_lifetimes;
 
@@ -1753,8 +1763,7 @@ namespace checker {
 						break;
 					}
 
-					static const std::string encompasses_str = "encompasses";
-					index2 = sv1.find(encompasses_str);
+					index2 = sv1.find(lifetime_encompasses);
 					if (decltype(sv1)::npos != index2) {
 						CAbstractLifetimeSet first_lifetimes;
 						CAbstractLifetimeSet second_lifetimes;
@@ -1831,6 +1840,43 @@ namespace checker {
 						break;
 					}
 
+					auto lifetime_labels_range = Parse::find_token_sequence({ lifetime_labels }, pretty_str);
+					if (pretty_str.length() <= lifetime_labels_range.begin) {
+						lifetime_labels_range = Parse::find_token_sequence({ lifetime_label }, pretty_str);
+					}
+					if (pretty_str.length() > lifetime_labels_range.begin) {
+						static const std::string lparenthesis = "(";
+						static const std::string rparenthesis = ")";
+
+						auto lparenthesis_range = Parse::find_token_at_same_nesting_depth1(lparenthesis, pretty_str, lifetime_labels_range.end);
+						if (pretty_str.length() <= lparenthesis_range.begin) {
+							continue;
+						}
+						auto lparenthesis_index = lparenthesis_range.begin;
+						auto rparenthesis_index = Parse::find_matching_right_parenthesis(pretty_str, lparenthesis_range.end);
+						if (pretty_str.length() <= rparenthesis_index) {
+							int q = 3;
+							continue;
+						}
+						std::string_view sv1(pretty_str.data() + lparenthesis_index + 1, int(rparenthesis_index) - int(lparenthesis_index + 1));
+
+						CAbstractLifetimeSet alts2 = parse_lifetime_ids(sv1, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
+						CAbstractLifetimeSet alts1 = with_any_lifetime_aliases_dealiased(alts2, state1, MR_ptr, Rewrite_ptr);
+
+						if (!(alts1.is_empty())) {
+							flta.m_lifetime_set = alts1;
+						} else {
+							if (MR_ptr) {
+								std::string error_desc = std::string("No valid 'lifetime label id' specified.");
+								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
+								if (res.second) {
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
+								}
+							}
+						}
+						break;
+					}
+
 					index2 = pretty_str.find(clang_lifetimebound_str);
 					if (false && (decltype(pretty_str)::npos != index2)) {
 						/* A [[clang::lifetimebound]] attribute on the function will be interpreted as an
@@ -1848,15 +1894,21 @@ namespace checker {
 			IF_DEBUG(const std::string param_qtype_str = param->getType().getAsString();)
 
 			if (param->hasAttrs()) {
-				DECLARE_CACHED_CONST_STRING(lifetime_labels, "lifetime_labels");
-				DECLARE_CACHED_CONST_STRING(lifetime_label, "lifetime_label");
+				auto with_lifetime_prefix = [](std::string_view sv1) -> std::string {
+					auto sv2 = sv1.substr(Parse::find_non_whitespace(sv1));
+					return std::string("lifetime_") + std::string(sv2);
+				};
 				DECLARE_CACHED_CONST_STRING(lifetime_set, "lifetime_set");
 
-				DECLARE_CACHED_CONST_STRING(mse_lifetime_labels, mse_namespace_str() + "::lifetime_labels");
-				DECLARE_CACHED_CONST_STRING(mse_lifetime_label, mse_namespace_str() + "::lifetime_label");
-				DECLARE_CACHED_CONST_STRING(mse_lifetime_set, mse_namespace_str() + "::lifetime_set");
-
-				clang::AttrVec vec = param->getAttrs();
+				auto vec = param->getAttrs();
+				struct CLTAStatementInfo {
+					CLTAStatementInfo(std::string_view text, clang::Attr const * attr_ptr, bool is_a_lifetime_note = false)
+						: m_text(text), m_attr_ptr(attr_ptr), m_is_a_lifetime_note(is_a_lifetime_note) {}
+					std::string m_text;
+					clang::Attr const * m_attr_ptr = nullptr;
+					bool m_is_a_lifetime_note = false;
+				};
+				std::vector<CLTAStatementInfo> lta_statement_infos;
 				for (const auto& attr : vec) {
 					auto attr_SR = attr->getRange();
 					std::string raw_pretty_str;
@@ -1867,15 +1919,45 @@ namespace checker {
 					if (decltype(raw_pretty_str)::npos == first_quote_index) {
 						continue;
 					}
-					auto first_mse_range = Parse::find_uncommented_token(mse_namespace_str(), raw_pretty_str, first_quote_index + 1);
+					auto first_mse_range = Parse::find_token_sequence({ mse_namespace_str(), "::" }, raw_pretty_str, first_quote_index + 1);
 					if (raw_pretty_str.length() <= first_mse_range.begin) {
 						continue;
 					}
-					std::string pretty_str = raw_pretty_str.substr(first_mse_range.begin);
+					std::string pretty_str = raw_pretty_str.substr(first_mse_range.end);
+					auto index1 = pretty_str.find(lifetime_notes_str);
+					if (decltype(pretty_str)::npos != index1) {
+						static const std::string lbrace = "{";
+						static const std::string rbrace = "}";
+						static const std::string lparenthesis = "(";
+						static const std::string rparenthesis = ")";
+						static const std::string semicolon = ";";
+						index1 = pretty_str.find(lbrace, index1 + lifetime_notes_str.length());
+						if (decltype(pretty_str)::npos == index1) {
+							continue;
+						}
+						auto last_delimiter_index = index1;
+						auto next_delimiter_index = pretty_str.find_first_of(semicolon + rbrace, last_delimiter_index + 1);
+						while (decltype(pretty_str)::npos != next_delimiter_index) {
+							std::string_view sv1(pretty_str.data() + last_delimiter_index + 1, int(next_delimiter_index) - int(last_delimiter_index + 1));
+							auto prefixed_str = with_lifetime_prefix(sv1);
+							lta_statement_infos.push_back( CLTAStatementInfo{ prefixed_str, attr, true } );
 
-					auto lifetime_labels_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_labels }, pretty_str);
+							last_delimiter_index = next_delimiter_index;
+							next_delimiter_index = pretty_str.find_first_of(semicolon + rbrace, last_delimiter_index + 1);
+						}
+					} else {
+						lta_statement_infos.push_back( CLTAStatementInfo{ pretty_str, attr } );
+					}
+				}
+
+				for (const auto& lta_statement_info : lta_statement_infos) {
+					std::string_view pretty_str = lta_statement_info.m_text;
+					std::string_view sv1 = lta_statement_info.m_text;
+					auto attr_SR = lta_statement_info.m_attr_ptr->getRange();
+
+					auto lifetime_labels_range = Parse::find_token_sequence({ lifetime_labels }, pretty_str);
 					if (pretty_str.length() <= lifetime_labels_range.begin) {
-						lifetime_labels_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_label }, pretty_str);
+						lifetime_labels_range = Parse::find_token_sequence({ lifetime_label }, pretty_str);
 					}
 					if (pretty_str.length() > lifetime_labels_range.begin) {
 						static const std::string lparenthesis = "(";
@@ -1930,7 +2012,7 @@ namespace checker {
 							}
 						}
 					} else {
-						auto lifetime_set_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_set }, pretty_str);
+						auto lifetime_set_range = Parse::find_token_sequence({ lifetime_set }, pretty_str);
 						if (pretty_str.length() > lifetime_set_range.begin) {
 							static const std::string lparenthesis = "(";
 							static const std::string rparenthesis = ")";
@@ -2458,27 +2540,91 @@ namespace checker {
 			auto param = &var_decl;
 			IF_DEBUG(const std::string param_qtype_str = param->getType().getAsString();)
 
+			DECLARE_CACHED_CONST_STRING(lifetime_notes_str, "lifetime_notes");
+			DECLARE_CACHED_CONST_STRING(lifetime_labels, "lifetime_labels");
+			DECLARE_CACHED_CONST_STRING(lifetime_label, "lifetime_label");
+			DECLARE_CACHED_CONST_STRING(clang_lifetimebound_str, "clang::lifetimebound");
+
 			if (param->hasAttrs()) {
-				DECLARE_CACHED_CONST_STRING(mse_lifetime_label, mse_namespace_str() + "::lifetime_label");
-				DECLARE_CACHED_CONST_STRING(mse_lifetime_labels, mse_namespace_str() + "::lifetime_labels");
-				clang::AttrVec vec = param->getAttrs();
+				auto with_lifetime_prefix = [](std::string_view sv1) -> std::string {
+					auto sv2 = sv1.substr(Parse::find_non_whitespace(sv1));
+					return std::string("lifetime_") + std::string(sv2);
+				};
+				DECLARE_CACHED_CONST_STRING(lifetime_set, "lifetime_set");
+
+				auto vec = param->getAttrs();
+				struct CLTAStatementInfo {
+					CLTAStatementInfo(std::string_view text, clang::Attr const * attr_ptr, bool is_a_lifetime_note = false)
+						: m_text(text), m_attr_ptr(attr_ptr), m_is_a_lifetime_note(is_a_lifetime_note) {}
+					std::string m_text;
+					clang::Attr const * m_attr_ptr = nullptr;
+					bool m_is_a_lifetime_note = false;
+				};
+				std::vector<CLTAStatementInfo> lta_statement_infos;
 				for (const auto& attr : vec) {
 					auto attr_SR = attr->getRange();
-					std::string pretty_str;
-					llvm::raw_string_ostream pretty_stream(pretty_str);
+					std::string raw_pretty_str;
+					llvm::raw_string_ostream pretty_stream(raw_pretty_str);
 					attr->printPretty(pretty_stream, clang::PrintingPolicy(clang::LangOptions()));
 					pretty_stream.flush();
-					auto index1 = pretty_str.find(mse_lifetime_label);
+					auto first_quote_index = raw_pretty_str.find('"');
+					if (decltype(raw_pretty_str)::npos == first_quote_index) {
+						continue;
+					}
+					auto first_mse_range = Parse::find_token_sequence({ mse_namespace_str(), "::" }, raw_pretty_str, first_quote_index + 1);
+					if (raw_pretty_str.length() <= first_mse_range.begin) {
+						continue;
+					}
+					std::string pretty_str = raw_pretty_str.substr(first_mse_range.end);
+					auto index1 = pretty_str.find(lifetime_notes_str);
 					if (decltype(pretty_str)::npos != index1) {
+						static const std::string lbrace = "{";
+						static const std::string rbrace = "}";
 						static const std::string lparenthesis = "(";
 						static const std::string rparenthesis = ")";
-
-						index1 = pretty_str.find(lparenthesis, index1 + mse_lifetime_label.length());
+						static const std::string semicolon = ";";
+						index1 = pretty_str.find(lbrace, index1 + lifetime_notes_str.length());
 						if (decltype(pretty_str)::npos == index1) {
 							continue;
 						}
-						auto lparenthesis_index = index1;
-						auto rparenthesis_index = pretty_str.find(rparenthesis, lparenthesis_index + 1);
+						auto last_delimiter_index = index1;
+						auto next_delimiter_index = pretty_str.find_first_of(semicolon + rbrace, last_delimiter_index + 1);
+						while (decltype(pretty_str)::npos != next_delimiter_index) {
+							std::string_view sv1(pretty_str.data() + last_delimiter_index + 1, int(next_delimiter_index) - int(last_delimiter_index + 1));
+							auto prefixed_str = with_lifetime_prefix(sv1);
+							lta_statement_infos.push_back( CLTAStatementInfo{ prefixed_str, attr, true } );
+
+							last_delimiter_index = next_delimiter_index;
+							next_delimiter_index = pretty_str.find_first_of(semicolon + rbrace, last_delimiter_index + 1);
+						}
+					} else {
+						lta_statement_infos.push_back( CLTAStatementInfo{ pretty_str, attr } );
+					}
+				}
+
+				for (const auto& lta_statement_info : lta_statement_infos) {
+					std::string_view pretty_str = lta_statement_info.m_text;
+					std::string_view sv1 = lta_statement_info.m_text;
+					auto attr_SR = lta_statement_info.m_attr_ptr->getRange();
+
+					auto lifetime_labels_range = Parse::find_token_sequence({ lifetime_labels }, pretty_str);
+					if (pretty_str.length() <= lifetime_labels_range.begin) {
+						lifetime_labels_range = Parse::find_token_sequence({ lifetime_label }, pretty_str);
+					}
+					if (pretty_str.length() > lifetime_labels_range.begin) {
+						static const std::string lparenthesis = "(";
+						static const std::string rparenthesis = ")";
+
+						auto lparenthesis_range = Parse::find_token_at_same_nesting_depth1(lparenthesis, pretty_str, lifetime_labels_range.end);
+						if (pretty_str.length() <= lparenthesis_range.begin) {
+							continue;
+						}
+						auto lparenthesis_index = lparenthesis_range.begin;
+						auto rparenthesis_index = Parse::find_matching_right_parenthesis(pretty_str, lparenthesis_range.end);
+						if (pretty_str.length() <= rparenthesis_index) {
+							int q = 3;
+							continue;
+						}
 						std::string_view sv1(pretty_str.data() + lparenthesis_index + 1, int(rparenthesis_index) - int(lparenthesis_index + 1));
 
 						CAbstractLifetimeSet alts2 = parse_lifetime_ids(sv1, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
