@@ -1319,7 +1319,7 @@ namespace checker {
 							}
 							if (TypePtr) {
 								auto lifetimes_from_specified_template_params = infer_alias_mapping_from_template_arg(TypePtr, template_name, set_alias, state1, MR_ptr, Rewrite_ptr);
-								tlta.m_lifetime_set.m_primary_lifetimes.insert(tlta.m_lifetime_set.m_primary_lifetimes.end(), lifetimes_from_specified_template_params.m_primary_lifetimes.begin(), lifetimes_from_specified_template_params.m_primary_lifetimes.end());
+								//tlta.m_lifetime_set.m_primary_lifetimes.insert(tlta.m_lifetime_set.m_primary_lifetimes.end(), lifetimes_from_specified_template_params.m_primary_lifetimes.begin(), lifetimes_from_specified_template_params.m_primary_lifetimes.end());
 							}
 						}
 						break;
@@ -5364,9 +5364,7 @@ namespace checker {
 					}
 					int q = 5;
 				}
-
-
-
+				return retval;
 			} else {
 				{
 					auto CO = dyn_cast<const clang::ConditionalOperator>(EX);
