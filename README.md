@@ -386,21 +386,22 @@ Ok, now let's say that instead of the member fields being of type `int*` and `fl
 ```cpp
 template<typename T, typename U>
 struct TLARefObj2 : public mse::rsv::XScopeTagBase, public mse::rsv::ContainsNonOwningScopeReferenceTagBase {
-    TLARefObj2(T val1 MSE_ATTR_PARAM_STR("mse::lifetime_label(alias_99)")
-        , U val2 MSE_ATTR_PARAM_STR("mse::lifetime_label(alias_42)"))
+    TLARefObj2(T val1 MSE_ATTR_PARAM_STR("mse::lifetime_label(alias_11$)")
+        , U val2 MSE_ATTR_PARAM_STR("mse::lifetime_label(alias_12$)"))
         : m_val1(val1), m_val2(val2) {}
 
-	T first() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(alias_99) }") {
+	T first() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(alias_11$) }") {
 		return m_val1;
 	}
-	U second() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(alias_42) }") {
+	U second() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(alias_12$) }") {
 		return m_val2;
 	}
 
-    T m_val1 MSE_ATTR_STR("mse::lifetime_label(alias_99)");
-    U m_val2 MSE_ATTR_STR("mse::lifetime_label(alias_42)");
-} MSE_ATTR_STR("mse::lifetime_set_alias_from_template_parameter_by_name(T, alias_11)")
- MSE_ATTR_STR("mse::lifetime_set_alias_from_template_parameter_by_name(U, alias_12)");
+    T m_val1 MSE_ATTR_STR("mse::lifetime_label(alias_11$)");
+    U m_val2 MSE_ATTR_STR("mse::lifetime_label(alias_12$)");
+} MSE_ATTR_STR("mse::lifetime_set_alias_from_template_parameter_by_name(T, alias_11$)")
+ MSE_ATTR_STR("mse::lifetime_set_alias_from_template_parameter_by_name(U, alias_12$)")
+ MSE_ATTR_STR("mse::lifetime_labels(alias_11$, alias_12$)");
 ```
 
 So instead of declaring specific lifetime labels for the template type, we use the `mse::lifetime_set_alias_from_template_parameter_by_name()` annotation to define a lifetime label alias for the set of (reference) lifetimes the specified template parameter type has (or rather, will have whenever the template is instantiated).
