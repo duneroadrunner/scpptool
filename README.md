@@ -416,7 +416,7 @@ struct TLARefObj2 : public mse::rsv::XScopeTagBase, public mse::rsv::ContainsNon
  MSE_ATTR_STR("mse::lifetime_labels(alias_11$, alias_12$)");
 ```
 
-So instead of declaring specific lifetime labels for the template type, we use the `mse::lifetime_set_alias_from_template_parameter_by_name()` annotation to define a lifetime label alias for the set of (reference) lifetimes the specified template parameter type has (or rather, will have whenever the template is instantiated).
+We use the `mse::lifetime_set_alias_from_template_parameter_by_name()` annotation to define a lifetime label alias for the set of (reference) lifetimes the specified template parameter type has (or rather, will have whenever the template is instantiated).
 
 ##### Accessing sublifetimes
 
