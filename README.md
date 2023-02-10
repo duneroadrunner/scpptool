@@ -198,6 +198,8 @@ We (and the tool) can see that it is safe to assign he value of the `i1_ptr_ref`
 
 But what about assigning the value of `i1_ptr_ref` to `i2_ptr_ref`? In this case we (and the tool) don't have enough information to conclude that the target of the pointer referred to by `i1_ptr_ref` would outlive the pointer that `i2_ptr_ref` refers to.
 
+##### Annotating function interfaces
+
 Now imagine we had some way to specify in the function interface that the pointer referred to by `i1_ptr_ref`, and therefore its target object, must live at least as long as the pointer that `i2_ptr_ref` refers to.
 
 The tool supports such a specification (referred to as "lifetime annotations") and might look something like this:
@@ -276,6 +278,8 @@ So we've seen lifetime labels associated with (raw) references and (raw) pointer
 
 When not used as function parameters, reference objects may (be required to) have an initialization value, in which case any associated lifetime labels may have their "maximum known lower bound" lifespan value determined to be a "concrete" lifespan of the initialization value object.
 
+##### Annotating (user-defined) types
+
 By "reference object" we mean basically any object that references (ultimately via pointer) any other object(s). A simple example would be just a `struct` that has a pointer member. So lets look at an example of a couple of `struct`s with a pointer member, one with and one without lifetime annotation:
 
 ```cpp
@@ -331,6 +335,8 @@ So you can see the different restrictions on which objects the member pointers c
 
 So lets walk through the application of lifetime annotations to the `CLARefObj1` `struct` and its pointer member. The declaration of the pointer member gets an annotation in similar fashion to the function parameter declarations in our previous examples. We also add the same lifetime label annotation to the `struct` itself. (This may seem a little redundant, but that's ok.) Note that (for now at least) the tool requires any `struct` with lifetime annotation to define an (annotated) constructor (from which it can infer the lifetime values associated with the lifetime labels). So in the `CLARefObj1` `struct`, the (maximum lower bound) lifetime value associated with lifetime label `99`, and the pointer member, is inferred from the constructor parameter associated with lifetime label `99` when the constructor is called (at object instantiation).
 
+##### Annotating return values and `this` pointers
+
 Ok, but if we want to use our annotated `CLARefObj1` type as a reference type, you could image we might want to provide, for example, member operators like `operator*()` and `operator->()`. Lets see how we would do that:
 
 ```cpp
@@ -385,6 +391,8 @@ struct CLARefObj2 : public mse::rsv::XScopeTagBase, public mse::rsv::ContainsNon
 } MSE_ATTR_STR("mse::lifetime_labels(99, 42)");
 ```
 
+##### Annotating template parameters
+
 Ok, now let's say that instead of the member fields being of type `int*` and `float*`, we want those types to be generic template parameters. That's a little trickier. Because we know that pointers like `int*` and `float*` each have (at most) one reference lifetime to which a lifetime label can be associated. But if a type is a generic template parameter then we wouldn't know in advance how many, if any, lifetime labels can be associated with it. In this case we'll use a generic "lifetime label alias" that maps to the set of (reference) lifetimes the template parameter type has (when the template is instantiated).
 
 ```cpp
@@ -410,6 +418,8 @@ struct TLARefObj2 : public mse::rsv::XScopeTagBase, public mse::rsv::ContainsNon
 
 So instead of declaring specific lifetime labels for the template type, we use the `mse::lifetime_set_alias_from_template_parameter_by_name()` annotation to define a lifetime label alias for the set of (reference) lifetimes the specified template parameter type has (or rather, will have whenever the template is instantiated).
 
+##### Accessing sublifetimes
+
 Now, if we can revisit the earlier part where we were learning to associate lifetime labels with function parameters, and consider a situation where we are interested in, not the lifetime of the parameter directly, but perhaps the (maximum known lower bound) lifespan of an object that the parameter references. We can use the `CLARefObj2` `struct` we defined earlier for this example:
 
 ```cpp
@@ -430,7 +440,15 @@ MSE_ATTR_FUNC_STR("mse::lifetime_notes{ labels(42, 421, 422); return_value(422) 
 
 Notice the annotation for the `foo2()` function's parameter, `mse::lifetime_labels(42 [421, 422])`. In this case, label `42` is associated with the lifespan of the object (of type `CRefObj2`) referenced by the native reference argument, label `421` is associated with the lifespan of the first object referenced by that object (aka the object's first "sublifetime"), and label `422` is associated with the lifespan of the second object (of type `float` in this case) referenced by that object. See, in the `mse::lifetime_labels()` annotation we can use commas and (possibly nested) square brackets to create a tree of lifetime labels that correspond to the tree of lifespan values of the argument object.
 
+##### Future syntax options
+
 This syntax for addressing sublifetimes might be considered a little messy (and maybe error prone), but results from the fact that, in the source text, our annotations are placed after the declarations rather than the directly after the types they might correspond to. This is, in part, an artifact of a historical limitation in one of the libraries the tool uses. In the future the tool may support placing the lifetime label annotations directly after the type.
+
+##### Annotating base classes
+
+Just to mention it, base classes are, in terms of lifetime annotations, conceptually treated just like member fields. You can use the `labels_for_base_class()` annotation (on the derived type) to assign lifetime labels to the first base class.
+
+##### Lifetime annotation implementation caveats
 
 (Note, that at the time of writing, implementation of lifetime safety enforcement is not complete. Safety can be subverted through, for example, casts between compatible types with incompatible lifetime annotations, or cyclic references with user-defined destructors, etc.. Also note that the SaferCPlusPlus library has not yet had these lifetime annotations applied to its elements.)
 
