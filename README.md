@@ -26,7 +26,7 @@ Note that this tool is still in development and not well tested.
 
 ### How to Build:
 
-On Ubuntu Linux: Download the [llvm 13 pre-built binaries](https://github.com/llvm/llvm-project/releases/tag/llvmorg-13.0.0) and extract them to a directory of your choosing. Download the [scpptool source code](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract it to a directory of your choosing. 
+On Ubuntu Linux: Download the [llvm 15.0.6 pre-built binaries](https://github.com/llvm/llvm-project/releases/tag/llvmorg-15.0.6) and extract them to a directory of your choosing. Download the [scpptool source code](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract it to a directory of your choosing. 
 
 llvm requires some additional libraries that can be installed as follows:
 ```
@@ -35,7 +35,7 @@ sudo apt-get install zlib1g-dev
 sudo apt-get install libtinfo-dev
 sudo apt-get install libxml2-dev
 ```
-And on Ubuntu 19 and later, llvm 13 depends on an older version of libtinfo:
+And on Ubuntu 19 and later, llvm 15 depends on an older version of libtinfo:
 ```
 sudo apt-get install libtinfo5
 ```
@@ -46,22 +46,22 @@ sudo apt-get install libyaml-cpp-dev
 
 From the `src` subdirectory of the scpptool directory, you can build the tool by typing:
 ```
-make LLVM_CONF={the llvm 13 directory}/bin/llvm-config
+make LLVM_CONF={the llvm 15 directory}/bin/llvm-config
 ```
 
-Substituting the `{the llvm 13 directory}` part with the directory where you extracted llvm 13. (You can also add the `BUILD_MODE=DEBUG` option. Currently, the debug build is more extensively tested.)
+Substituting the `{the llvm 15 directory}` part with the directory where you extracted llvm 15. (You can also add the `BUILD_MODE=DEBUG` option. Currently, the debug build is more extensively tested.)
 
 ### How to Use:
 
 The syntax is as follows:
 
-`scpptool {source filename(s)} -- {compiler options} -I'{the llvm 13 directory}/lib/clang/13.0.0/include'`
+`scpptool {source filename(s)} -- {compiler options} -I'{the llvm 15 directory}/lib/clang/15.0.6/include'`
 
 So for example:
 
-`scpptool hello_world.cpp -- -I./msetl -std=c++17 -I'/home/user1/clang+llvm-13.0.0-x86_64-linux-gnu-ubuntu-20.04/lib/clang/13.0.0/include'`
+`scpptool hello_world.cpp -- -I./msetl -std=c++17 -I'/home/user1/clang+llvm-15.0.6-x86_64-linux-gnu-ubuntu-18.04/lib/clang/15.0.6/include'`
 
-(If you happen to have version 13 of the clang compiler installed on your system then you may be able to omit the lengthy "include directory specifier" option.)
+(If you happen to have version 15 of the clang compiler installed on your system then you may be able to omit the lengthy "include directory specifier" option.)
 
 ### Local Suppression of the Checks
 
