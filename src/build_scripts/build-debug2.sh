@@ -30,5 +30,5 @@ g++ scpptool.o utils1.o  $LDFLAGS1 -Wl,--start-group -lclangAST -lclangAnalysis 
  -lclangRewrite -lclangRewriteFrontend -lclangStaticAnalyzerFrontend\
  -lclangStaticAnalyzerCheckers -lclangStaticAnalyzerCore\
  -lclangSerialization -lclangToolingCore -lclangTooling -lstdc++\
- -lLLVMRuntimeDyld -lm -Wl,--end-group $LDFLAGS2  -lyaml-cpp  -o scpptool 
+ -lLLVMRuntimeDyld -lm -Wl,--end-group $LDFLAGS2  -lclangSupport -lyaml-cpp  -o scpptool 
 

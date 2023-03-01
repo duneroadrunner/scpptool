@@ -39,7 +39,7 @@ LLVM_LD_FLAGS=-Wl,--start-group -lclangAST -lclangAnalysis -lclangBasic\
  -lclangRewrite -lclangRewriteFrontend -lclangStaticAnalyzerFrontend\
  -lclangStaticAnalyzerCheckers -lclangStaticAnalyzerCore\
  -lclangSerialization -lclangToolingCore -lclangTooling -lstdc++\
- -lLLVMRuntimeDyld -lm -Wl,--end-group
+ -lLLVMRuntimeDyld -lm -Wl,--end-group -lclangSupport
 LLVM_LD_FLAGS+=$(shell $(LLVM_CONF) --ldflags --libs --system-libs)
 
 CXX_FLAGS+=$(LLVM_CXX_FLAGS)

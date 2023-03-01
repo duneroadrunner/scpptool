@@ -952,6 +952,8 @@ inline std::vector<clang::QualType> get_template_arg_types(const clang::Type* Ty
 	return retval;
 }
 inline std::vector<clang::QualType> get_template_arg_types(const clang::QualType qtype) {
+	std::vector<clang::QualType>  retval;
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
 	return get_template_arg_types(qtype.getTypePtr());
 }
 
@@ -966,6 +968,8 @@ inline std::optional<clang::QualType> get_first_template_parameter_if_any(const 
 	return retval;
 }
 inline std::optional<clang::QualType> get_first_template_parameter_if_any(const clang::QualType qtype) {
+	std::optional<clang::QualType> retval;
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
 	return get_first_template_parameter_if_any(qtype.getTypePtr());
 }
 

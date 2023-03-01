@@ -1091,10 +1091,10 @@ namespace checker {
 			DECLARE_CACHED_CONST_STRING(lifetime_set_alias_from_template_parameter_by_name, "lifetime_set_alias_from_template_parameter_by_name");
 			DECLARE_CACHED_CONST_STRING(lifetime_set_alias_from_template_parameter, "lifetime_set_alias_from_template_parameter");
 			DECLARE_CACHED_CONST_STRING(lifetime_set_aliases_from_template_parameters_in_order, "lifetime_set_aliases_from_template_parameters_in_order");
-			DECLARE_CACHED_CONST_STRING(lifetime_labels_for_base_class_by_type, "lifetime_labels_for_base_class_by_type");
+			DECLARE_CACHED_CONST_STRING(lifetime_labels_for_base_class_by_type_as_written, "lifetime_labels_for_base_class_by_type_as_written");
 			DECLARE_CACHED_CONST_STRING(lifetime_labels_for_base_class, "lifetime_labels_for_base_class");
 			DECLARE_CACHED_CONST_STRING(lifetime_label_for_base_class, "lifetime_label_for_base_class");
-			DECLARE_CACHED_CONST_STRING(lifetime_labels_for_base_class_in_order, "lifetime_labels_for_base_class_in_order");
+			DECLARE_CACHED_CONST_STRING(lifetime_labels_for_base_class_by_zb_index, "lifetime_labels_for_base_class_by_zb_index");
 
 			auto vec = type_decl.getAttrs();
 			struct CLTAStatementInfo {
@@ -6710,7 +6710,9 @@ namespace checker {
 		if (!VD) {
 			return false;
 		}
-		retval = VD->getType().isConstQualified();
+		auto qtype = VD->getType();
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+		retval = qtype.isConstQualified();
 		return retval;
 	}
 	inline bool is_known_to_be_const_declared_variable(clang::Expr const * E) {
@@ -6734,9 +6736,10 @@ namespace checker {
 	}
 
 	inline bool is_recognized_dynamic_container(clang::QualType const& qtype) {
+		bool retval = false;
 		auto const peeled_qtype = remove_mse_transparent_wrappers(qtype);
 		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
-		bool retval = false;
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(peeled_qtype, retval);
 
 		thread_local std::vector<std::string> known_dynamic_container_names;
 		thread_local std::unordered_set<std::string_view> known_dynamic_container_name_svs;
