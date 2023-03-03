@@ -925,8 +925,8 @@ inline bool is_nullptr_literal(const clang::Expr* EX, clang::ASTContext& Ctx) {
 	return retval;
 }
 
-inline std::vector<clang::QualType> get_template_arg_types(const clang::Type* TypePtr) {
-	std::vector<clang::QualType> retval;
+inline std::vector<std::optional<clang::QualType> > get_template_args_maybe_types(const clang::Type* TypePtr) {
+	std::vector<std::optional<clang::QualType> > retval;
 	if (!TypePtr) {
 		return retval;
 	}
@@ -940,10 +940,8 @@ inline std::vector<clang::QualType> get_template_arg_types(const clang::Type* Ty
 			const auto num_args = template_args.size();
 			for (int i = 0; i < int(num_args); i += 1) {
 				const auto template_arg = template_args[i];
-				if (clang::TemplateArgument::ArgKind::Type != template_arg.getKind() || template_arg.isNull()) {
-					/* This is presumably a template definition rather than an instantiation, so (not all of) the
-					template arguments will not yet have types. */
-					return std::vector<clang::QualType>{};
+				if ((clang::TemplateArgument::ArgKind::Type != template_arg.getKind()) || template_arg.isNull()) {
+					retval.push_back({});
 				} else {
 					const auto ta_qtype = template_arg.getAsType();
 					IF_DEBUG(const auto ta_qtype_str = ta_qtype.getAsString();)
@@ -957,16 +955,16 @@ inline std::vector<clang::QualType> get_template_arg_types(const clang::Type* Ty
 	}
 	return retval;
 }
-inline std::vector<clang::QualType> get_template_arg_types(const clang::QualType qtype) {
-	std::vector<clang::QualType>  retval;
+inline std::vector<std::optional<clang::QualType> > get_template_args_maybe_types(const clang::QualType qtype) {
+	std::vector<std::optional<clang::QualType> > retval;
 	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
-	return get_template_arg_types(qtype.getTypePtr());
+	return get_template_args_maybe_types(qtype.getTypePtr());
 }
 
 inline std::optional<clang::QualType> get_first_template_parameter_if_any(const clang::Type* TypePtr) {
 	std::optional<clang::QualType> retval;
 
-	auto params = get_template_arg_types(TypePtr);
+	auto params = get_template_args_maybe_types(TypePtr);
 	if (params.size() >= 1) {
 		retval = params.front();
 	}

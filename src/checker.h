@@ -893,15 +893,22 @@ namespace checker {
 			}
 		}
 
-		auto template_params = get_template_arg_types(TypePtr2);
+		auto template_args_maybe_types = get_template_args_maybe_types(TypePtr2);
 		auto num_lt_aliases = alts.m_primary_lifetimes.size();
 		size_t count = 0;
 		for (size_t i = 0; i < num_lt_aliases; i += 1) {
 			auto& alias = alts.m_primary_lifetimes.at(i);
-			if ("" != alias.m_id) {
-				CAbstractLifetimeSet unaliased_lifetimes;
-				if (template_params.size() > i) {
-					auto maybe_tlta_ptr = type_lifetime_annotations_if_available(template_params.at(i).getTypePtr(), state1, MR_ptr, Rewrite_ptr);
+			CAbstractLifetimeSet unaliased_lifetimes;
+			if (template_args_maybe_types.size() > i) {
+				if (!(template_args_maybe_types.at(i).has_value())) {
+					continue;
+				}
+				auto template_arg_type = template_args_maybe_types.at(i).value();
+				if (template_arg_type.isNull()) {
+					continue;
+				}
+				if ("" != alias.m_id) {
+					auto maybe_tlta_ptr = type_lifetime_annotations_if_available(template_arg_type.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
 					if (maybe_tlta_ptr.has_value()) {
 						auto unaliased_prefix1 = "__lifetime_set_" + alias.m_id;
 						auto& tlta = *(maybe_tlta_ptr.value());
@@ -920,19 +927,19 @@ namespace checker {
 					}
 				} else {
 					/* In the case of a template definition (as opposed to a template instantiation),
-					get_template_arg_types() won't return any parameters. In this case we'll just map the
+					get_template_args_maybe_types() won't return any parameters. In this case we'll just map the
 					specified aliases to the empty set. */
 					int q = 5;
 				}
 				state1.m_lifetime_alias_map.insert_or_assign(alias, unaliased_lifetimes);
 
 				retval.m_primary_lifetimes.insert(retval.m_primary_lifetimes.end(), unaliased_lifetimes.m_primary_lifetimes.begin(), unaliased_lifetimes.m_primary_lifetimes.end());
-			}
 
-			if (!(alias.m_sublifetimes_vlptr->is_empty())) {
-				auto res1 = populate_lifetime_alias_map(template_params.at(i).getTypePtr(), *(alias.m_sublifetimes_vlptr), state1, MR_ptr, Rewrite_ptr);
+				if (!(alias.m_sublifetimes_vlptr->is_empty())) {
+					auto res1 = populate_lifetime_alias_map(template_arg_type.getTypePtr(), *(alias.m_sublifetimes_vlptr), state1, MR_ptr, Rewrite_ptr);
 
-				retval.m_primary_lifetimes.insert(retval.m_primary_lifetimes.end(), res1.m_primary_lifetimes.begin(), res1.m_primary_lifetimes.end());
+					retval.m_primary_lifetimes.insert(retval.m_primary_lifetimes.end(), res1.m_primary_lifetimes.begin(), res1.m_primary_lifetimes.end());
+				}
 			}
 		}
 		return retval;
@@ -971,12 +978,15 @@ namespace checker {
 					if (maybe_found_index.has_value()) {
 						auto target_targ_index = maybe_found_index.value();
 
-						auto template_arg_types = get_template_arg_types(TypePtr2);
-						{
-							if ("" != alias.m_id) {
-								CAbstractLifetimeSet unaliased_lifetimes;
-								if (template_arg_types.size() > target_targ_index) {
-									auto maybe_tlta_ptr = type_lifetime_annotations_if_available(template_arg_types.at(target_targ_index).getTypePtr(), state1, MR_ptr, Rewrite_ptr);
+						if ("" != alias.m_id) {
+							auto template_args_maybe_types = get_template_args_maybe_types(TypePtr2);
+							CAbstractLifetimeSet unaliased_lifetimes;
+							if ((template_args_maybe_types.size() > target_targ_index)
+								&& (template_args_maybe_types.at(target_targ_index).has_value())) {
+
+								auto template_arg_type = template_args_maybe_types.at(target_targ_index).value();
+								if (!(template_arg_type.isNull())) {
+									auto maybe_tlta_ptr = type_lifetime_annotations_if_available(template_arg_type.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
 									if (maybe_tlta_ptr.has_value()) {
 										auto unaliased_prefix1 = "__lifetime_set_" + alias.m_id;
 										auto& tlta = *(maybe_tlta_ptr.value());
@@ -996,7 +1006,7 @@ namespace checker {
 									}
 								} else {
 									/* In the case of a template definition (as opposed to a template instantiation),
-									get_template_arg_types() won't return any parameters. In this case we'll just map the
+									get_template_args_maybe_types() won't return any parameters. In this case we'll just map the
 									specified aliases to the empty set. */
 									int q = 5;
 								}
@@ -1071,7 +1081,7 @@ namespace checker {
 
 		IF_DEBUG(auto type_str = type_decl.getNameAsString();)
 #ifndef NDEBUG
-		if ("CLARefObj11" == type_str) {
+		if ("xscope_array_wrapper" == type_str) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -3216,7 +3226,12 @@ namespace checker {
 		if (TypePtr) {
 			auto TD = TypePtr->getAsRecordDecl();
 			if (TD) {
+				IF_DEBUG(auto type_str = TD->getNameAsString();)
 				process_type_lifetime_annotations(*TD, state1, MR_ptr, Rewrite_ptr);
+				auto TypePtr2 = TD->getTypeForDecl();
+				if (TypePtr2) {
+					TypePtr = TypePtr2;
+				}
 			}
 			auto tlta_iter1 = state1.m_type_lifetime_annotations_map.find(TypePtr);
 			if (state1.m_type_lifetime_annotations_map.end() != tlta_iter1) {
