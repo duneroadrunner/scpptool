@@ -1169,7 +1169,7 @@ namespace checker {
 										maybe_first_lifetime_label_id = lifetime_id_t(first_lifetime_label_id);
 										if (1 <= first_lifetime_label_id.length()) {
 										} else {
-											if (MR_ptr) {
+											if (false && MR_ptr) {
 												std::string error_desc = std::string("No valid 'lifetime label id' specified.");
 												auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
 												if (res.second) {
@@ -1183,7 +1183,7 @@ namespace checker {
 										maybe_second_lifetime_label_id = lifetime_id_t(second_lifetime_label_id);
 										if (1 <= second_lifetime_label_id.length()) {
 										} else {
-											if (MR_ptr) {
+											if (false && MR_ptr) {
 												std::string error_desc = std::string("No valid 'lifetime label id' specified.");
 												auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
 												if (res.second) {
@@ -1254,7 +1254,7 @@ namespace checker {
 						if (!(alts1.is_empty())) {
 							tlta.m_lifetime_set = alts1;
 						} else {
-							if (MR_ptr) {
+							if (false && MR_ptr) {
 								std::string error_desc = std::string("No valid 'lifetime label id' specified.");
 								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
 								if (res.second) {
@@ -1866,7 +1866,7 @@ namespace checker {
 						if (!(alts1.is_empty())) {
 							flta.m_lifetime_set = alts1;
 						} else {
-							if (MR_ptr) {
+							if (false && MR_ptr) {
 								std::string error_desc = std::string("No valid 'lifetime label id' specified.");
 								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
 								if (res.second) {
@@ -2277,7 +2277,7 @@ namespace checker {
 												if (1 <= lifetime_label_id.length()) {
 													maybe_return_value_lifetime = new_or_existing_lifetime_from_label_id(lifetime_id_t(lifetime_label_id), &func_decl, maybe_containing_type_alts);
 												} else {
-													if (MR_ptr) {
+													if (false && MR_ptr) {
 														std::string error_desc = std::string("No valid 'lifetime label id' specified.");
 														auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
 														if (res.second) {
@@ -2329,7 +2329,7 @@ namespace checker {
 												maybe_first_lifetime_label_id = lifetime_id_t(first_lifetime_label_id);
 												if (1 <= first_lifetime_label_id.length()) {
 												} else {
-													if (MR_ptr) {
+													if (false && MR_ptr) {
 														std::string error_desc = std::string("No valid 'lifetime label id' specified.");
 														auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
 														if (res.second) {
@@ -2343,7 +2343,7 @@ namespace checker {
 												maybe_second_lifetime_label_id = lifetime_id_t(second_lifetime_label_id);
 												if (1 <= second_lifetime_label_id.length()) {
 												} else {
-													if (MR_ptr) {
+													if (false && MR_ptr) {
 														std::string error_desc = std::string("No valid 'lifetime label id' specified.");
 														auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
 														if (res.second) {
@@ -2646,7 +2646,7 @@ namespace checker {
 							vlta.m_parse_errors_noted = (nullptr != MR_ptr);
 							state1.m_vardecl_lifetime_annotations_map.insert_or_assign(&var_decl, vlta);
 						} else {
-							if (MR_ptr) {
+							if (false && MR_ptr) {
 								std::string error_desc = std::string("No valid 'lifetime label id' specified.");
 								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
 								if (res.second) {

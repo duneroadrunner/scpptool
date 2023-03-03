@@ -940,9 +940,15 @@ inline std::vector<clang::QualType> get_template_arg_types(const clang::Type* Ty
 			const auto num_args = template_args.size();
 			for (int i = 0; i < int(num_args); i += 1) {
 				const auto template_arg = template_args[i];
-				const auto ta_qtype = template_arg.getAsType();
-				IF_DEBUG(const auto ta_qtype_str = ta_qtype.getAsString();)
-				retval.push_back(ta_qtype);
+				if (clang::TemplateArgument::ArgKind::Type != template_arg.getKind() || template_arg.isNull()) {
+					/* This is presumably a template definition rather than an instantiation, so (not all of) the
+					template arguments will not yet have types. */
+					return std::vector<clang::QualType>{};
+				} else {
+					const auto ta_qtype = template_arg.getAsType();
+					IF_DEBUG(const auto ta_qtype_str = ta_qtype.getAsString();)
+					retval.push_back(ta_qtype);
+				}
 			}
 		}
 	} else if (TypePtr->isPointerType() || TypePtr->isReferenceType()) {
