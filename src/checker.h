@@ -871,6 +871,7 @@ namespace checker {
 		}
 
 		std::optional<CAbstractLifetimeSet> maybe_containing_type_alts;
+		std::optional<clang::RecordDecl *> maybe_containing_RD;
 		if (std::holds_alternative<clang::FunctionDecl const *>(context)) {
 			auto FD = std::get<clang::FunctionDecl const *>(context);
 			auto CXXMD = dyn_cast<const clang::CXXMethodDecl>(FD);
@@ -879,6 +880,7 @@ namespace checker {
 				auto Type_ptr = CXXMD->getThisType()->getPointeeType().getTypePtr();
 				auto containing_RD = Type_ptr->getAsRecordDecl();
 				if (containing_RD) {
+					maybe_containing_RD = containing_RD;
 					process_type_lifetime_annotations(*containing_RD, state1, MR_ptr);
 
 					auto iter = state1.m_type_lifetime_annotations_map.find(Type_ptr);
@@ -952,9 +954,24 @@ namespace checker {
 			}
 			abstract_lifetime.m_id = primary_lifetime_label_id_str;
 			if (maybe_containing_type_alts.has_value()) {
+				/* This lifetime label is attached to a member function. So we check to see if the same 
+				label has been used by a lifetime label that has already been defined for the parent type. 
+				If so, then we'll presume that this label refers to that one. */
 				auto maybe_existing_alt = maybe_containing_type_alts.value().lifetime_from_label_id_if_present(primary_lifetime_label_id_str);
 				if (maybe_existing_alt.has_value()) {
 					abstract_lifetime = maybe_existing_alt.value();
+				}
+			}
+			if (maybe_containing_RD.has_value()) {
+				/* This lifetime label is attached to a member function. So we check to see if the same 
+				label has been used by a lifetime set alias that has already been defined for the parent
+				type. If so, then we'll presume that this label refers to that alias. */
+				auto containing_RD = maybe_containing_RD.value();
+				auto abstract_lifetime2 = abstract_lifetime;
+				abstract_lifetime2.m_context = containing_RD;
+				auto found_it = state1.m_lifetime_alias_map.find(abstract_lifetime2);
+				if (state1.m_lifetime_alias_map.end() != found_it) {
+					abstract_lifetime = abstract_lifetime2;
 				}
 			}
 
@@ -1717,6 +1734,16 @@ namespace checker {
 				return;
 			}
 		}
+
+		IF_DEBUG(const auto FND = &func_decl;)
+		IF_DEBUG(const auto debug_func_name = func_decl.getNameAsString();)
+		IF_DEBUG(const auto debug_func_qname = func_decl.getQualifiedNameAsString();)
+#ifndef NDEBUG
+		if ("xscope_array_wrapper" == debug_func_name) {
+			int q = 5;
+		}
+#endif /*!NDEBUG*/
+
 		std::optional<CAbstractLifetimeSet> maybe_containing_type_alts;
 		auto CXXMD = dyn_cast<const clang::CXXMethodDecl>(&func_decl);
 		if (CXXMD) {
@@ -4040,8 +4067,15 @@ namespace checker {
 				lhs_lifetime_info.m_sublifetimes_vlptr->m_primary_lifetime_infos.push_back(shallow_lhs_lifetime_info);
 			}
 
+			auto as_sublifetime_of_tempexpr = [](const CScopeLifetimeInfo1& slti) {
+				CScopeLifetimeInfo1 indirect_lifetime_value;
+				indirect_lifetime_value.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
+				indirect_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos.push_back(slti);
+				return indirect_lifetime_value;
+			};
+
 			/* First we determine the "shallow" lower bound (without sublifetimes). */
-			if (slti_second_can_be_assigned_to_first(shallow_lhs_lifetime_info, shallow_rhs_lifetime_info, Ctx, tu_state_cref)) {
+			if (slti_second_can_be_assigned_to_first(as_sublifetime_of_tempexpr(shallow_lhs_lifetime_info), as_sublifetime_of_tempexpr(shallow_rhs_lifetime_info), Ctx, tu_state_cref)) {
 				lbl = shallow_lhs_lifetime_info;
 			} else {
 				lbl = shallow_rhs_lifetime_info;
@@ -7139,17 +7173,6 @@ namespace checker {
 
 				if (CXXCE) {
 					auto maybe_tla_ptr = type_lifetime_annotations_if_available(CE_TypePtr1, state1, MR_ptr, Rewrite_ptr);
-
-					if (!(maybe_tla_ptr.has_value())) {
-						if (CE_TypePtr1) {
-							auto TD = CE_TypePtr1->getAsTagDecl();
-							if (TD) {
-								process_type_lifetime_annotations(*TD, state1, MR_ptr, Rewrite_ptr);
-							}
-						}
-						maybe_tla_ptr = type_lifetime_annotations_if_available(CE_TypePtr1, state1, MR_ptr, Rewrite_ptr);
-					}
-
 					if (maybe_tla_ptr.has_value()) {
 						auto& tla_ref = *(maybe_tla_ptr.value());
 						/* We initialize the expression "sublifetimes" with the abstract lifetimes of this (constructor)
