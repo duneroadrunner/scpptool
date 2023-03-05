@@ -7404,12 +7404,16 @@ namespace checker {
 									auto lifetime_values_ptr = &(sloi1.m_sublifetimes_vlptr->m_primary_lifetime_infos);
 
 									std::vector<CScopeLifetimeInfo1> ref_lifetime_values;
-									if (param_Type.isReferenceType()) {
+									if (param_Type.isReferenceType() || (IMPLICIT_THIS_PARAM_ORDINAL == param_lifetime_mapping1.first)) {
 										/* Generally, a type's annotated (primary) lifetimes correspond to a lifetime value's
 										"sublifetimes". But in the case of (raw) references, its sole (primary) lifetime corresponds
 										to lifetime value's primary lifetime. So instead of having a separate code path for (raw)
 										reference types, we'll create a "stand-in" set of "sublifetimes" for the reference type 
 										consisting of just the primary lifetime value. */
+										/* In the case of the implicit `this` parameter, the parameter type is given as the direct
+										type rather than a reference or pointer to the type. But the lifetime annotations of the 
+										implicit `this` parameter are defined to be as if it were a reference parameter, so we treat 
+										it as such here. */
 										ref_lifetime_values.push_back(sloi1);
 										lifetime_values_ptr = &ref_lifetime_values;
 									}
