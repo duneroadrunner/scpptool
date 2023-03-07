@@ -185,9 +185,83 @@ namespace checker {
 		}
 	};
 
-	typedef size_t param_ordinal_t;
-#define IMPLICIT_THIS_PARAM_ORDINAL 0
+	/* The ordinal of the "first" parameter has a value of 1 (as opposed to zero). */
+	struct param_ordinal_t {
+		/* For some reason the clang AST represents member operator call expressions as non-member
+		call expressions with the implicit `this` object expression as the first argument. It does
+		not seem to do the corresponding transformation in its representation of member operator
+		declarations and their parameters. This class notes if it was initialized with an indication
+		of belonging to a member operator and provides separate functions for obtaining the correctly 
+		adjusted zero based index depending on whether you're accessing a parameter or an argument. */
+		struct member_operator_tag {};
+		//param_ordinal_t() : m_zb_index(1) {}
+		param_ordinal_t(const param_ordinal_t&) = default;
+		param_ordinal_t(size_t ordinal) : m_zb_index(int(ordinal) - 1) {}
+		param_ordinal_t(member_operator_tag, size_t ordinal) : m_belongs_to_member_operator(true), m_zb_index(int(ordinal) - 1) {}
+		operator size_t() const {
+			return (m_zb_index + 1);
+		};
+		std::optional<size_t> as_a_zero_based_argument_index_if_valid() const {
+			int i1 = m_belongs_to_member_operator ? (m_zb_index + 1) : m_zb_index;
+			if (0 <= i1) {
+				return size_t(i1);
+			}
+			return {};
+		}
+		static auto as_a_zero_based_argument_index_if_valid(const param_ordinal_t& param_ordinal) {
+			return param_ordinal.as_a_zero_based_argument_index_if_valid();
+		}
+		std::optional<size_t> as_a_zero_based_parameter_index_if_valid() const {
+			if (0 <= m_zb_index) {
+				return size_t(m_zb_index);
+			}
+			return {};
+		}
+		static auto as_a_zero_based_parameter_index_if_valid(const param_ordinal_t& param_ordinal) {
+			return param_ordinal.as_a_zero_based_parameter_index_if_valid();
+		}
+		auto& operator+= (int rhs) {
+			m_zb_index += rhs;
+			return (*this);
+		}
+		param_ordinal_t& operator=(const param_ordinal_t&) = default;
+		param_ordinal_t& operator=(const size_t& ordinal) {
+			(*this) = m_belongs_to_member_operator ? param_ordinal_t(member_operator_tag{}, ordinal)
+				: param_ordinal_t(ordinal);
+			return (*this);
+		}
+		bool operator==(const param_ordinal_t& rhs) const { return (m_zb_index == rhs.m_zb_index); };
+		bool operator!=(const param_ordinal_t& rhs) const { return !((*this) == rhs); };
+
+		int m_zb_index = 0;
+		bool m_belongs_to_member_operator = false;
+	};
+#define IMPLICIT_THIS_PARAM_ORDINAL param_ordinal_t(0)
  
+    inline auto operator+ (param_ordinal_t lhs, int rhs) {
+        lhs += (rhs);
+        return lhs;
+    }
+    inline auto operator- (param_ordinal_t lhs, int rhs) {
+        lhs += (-rhs);
+        return lhs;
+    }
+}
+namespace std
+{
+  template<> struct hash<checker::param_ordinal_t>
+  {
+    inline size_t operator()(const checker::param_ordinal_t & v) const
+    {
+		size_t seed = 0;
+		impl::hash_combine(seed, v.m_zb_index);
+		//impl::hash_combine(seed, v.m_belongs_to_member_operator);
+		return seed;
+    }
+  };
+}
+
+namespace checker {
 	class CFunctionLifetimeAnnotations {
 	public:
 		CAbstractLifetimeSet m_lifetime_set;
@@ -714,27 +788,24 @@ namespace checker {
 			if (CXXMCE) {
 				retval = CXXMCE->getImplicitObjectArgument();
 			} else if (CXXOCE) {
-				if (CE->getNumArgs() < 1) {
+				if (CXXOCE->getNumArgs() < 1) {
 					/* This should never happen, right? */
 				} else {
 					/* For CXXOperatorCallExpr, they just make the "ImplicitObjectArgument" (if any) the first
 					argument. I think. */
-					retval = CE->getArg(0);
+					retval = CXXOCE->getArg(0);
 				}
 				//retval = CXXOCE->getImplicitObjectArgument();
 			} else {
 				//todo: report error?
 			}
 		} else {
-			if (!(1 <= param_ordinal)) {
-				assert(false);
-				return retval;
-			}
-			if (CE->getNumArgs() < param_ordinal) {
+			auto zb_index = param_ordinal_t::as_a_zero_based_argument_index_if_valid(param_ordinal).value();
+			if (CE->getNumArgs() <= zb_index) {
 				/* If this happens then either an error should be reported elsewhere
 				or there should be a compile error. */
 			} else {
-				retval = CE->getArg(int(param_ordinal - 1));
+				retval = CE->getArg(zb_index);
 			}
 		}
 		return retval;
@@ -780,21 +851,18 @@ namespace checker {
 				//todo: report error?
 			}
 		} else {
-			if (!(1 <= param_ordinal)) {
-				assert(false);
-				return retval;
-			}
+			auto zb_index = param_ordinal_t::as_a_zero_based_parameter_index_if_valid(param_ordinal).value();
 
 			auto CXXCE = dyn_cast<clang::CXXConstructExpr>(CE);
 			auto CE2 = dyn_cast<CallExpr>(CE);
 			if (CXXCE) {
 				auto CXXCD = CXXCE->getConstructor();
 				if (CXXCD) {
-					if (CXXCD->getNumParams() < param_ordinal) {
+					if (CXXCD->getNumParams() <= zb_index) {
 						/* If this happens then either an error should be reported elsewhere
 						or there should be a compile error. */
 					} else {
-						auto PVD = CXXCD->getParamDecl(int(param_ordinal - 1));
+						auto PVD = CXXCD->getParamDecl(zb_index);
 						if (PVD) {
 							auto qtype = PVD->getType();
 							if (!qtype.isNull()) {
@@ -809,11 +877,11 @@ namespace checker {
 			} else if (CE2) {
 				auto FND = CE2->getDirectCallee();
 				if (FND) {
-					if (FND->getNumParams() < param_ordinal) {
+					if (FND->getNumParams() <= zb_index) {
 						/* If this happens then either an error should be reported elsewhere
 						or there should be a compile error. */
 					} else {
-						auto PVD = FND->getParamDecl(int(param_ordinal - 1));
+						auto PVD = FND->getParamDecl(zb_index);
 						if (PVD) {
 							auto qtype = PVD->getType();
 							if (!qtype.isNull()) {
@@ -1739,7 +1807,7 @@ namespace checker {
 		IF_DEBUG(const auto debug_func_name = func_decl.getNameAsString();)
 		IF_DEBUG(const auto debug_func_qname = func_decl.getQualifiedNameAsString();)
 #ifndef NDEBUG
-		if ("xscope_array_wrapper" == debug_func_name) {
+		if ("operator=" == debug_func_name) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -2012,7 +2080,16 @@ namespace checker {
 			}
 		}
 
-		param_ordinal_t param_ordinal = 1;
+		/* For some reason the clang AST represents member operator call expressions as non-member
+		call expressions with the implicit `this` parameter as the first parameter. So will indicate
+		whether this is a member operator in the param_ordinal_t's constructor call. */
+		bool is_member_operator = false;
+		if (CXXMD && CXXMD->isOverloadedOperator()) {
+			is_member_operator = true;
+		}
+		auto param_ordinal = is_member_operator ? param_ordinal_t(param_ordinal_t::member_operator_tag{}, 1)
+			: param_ordinal_t(1);
+
 		for (auto param_iter = func_decl.param_begin(); func_decl.param_end() != param_iter; ++param_iter, param_ordinal += 1) {
 			auto param = (*param_iter);
 			IF_DEBUG(const std::string param_qtype_str = param->getType().getAsString();)
@@ -2270,7 +2347,7 @@ namespace checker {
 													auto rangle_bracket_index = qtype_str.find('>', comma_index+1);
 													if ((std::string::npos != rangle_bracket_index) && (comma_index + 1 < rangle_bracket_index)) {
 														std::string param_ordinal_str = qtype_str.substr(langle_bracket_index + 1, int(comma_index) - int(langle_bracket_index) - 1);
-														auto param_ordinal = atoi(param_ordinal_str.c_str());
+														auto param_ordinal = size_t(atoi(param_ordinal_str.c_str()));
 														if (int(func_decl.getNumParams()) < param_ordinal) {
 															if (MR_ptr) {
 																std::string error_desc = std::string("The specified parameter ordinal ('") + std::to_string(param_ordinal)
@@ -2280,7 +2357,7 @@ namespace checker {
 																	std::cout << (*(res.first)).as_a_string1() << " \n\n";
 																}
 															}
-														} else if ((1 <= param_ordinal) || (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal)) {
+														} else if ((1 <= param_ordinal) || (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal_t(param_ordinal))) {
 															maybe_param_ordinal = param_ordinal_t(param_ordinal);
 														} else {
 															if (MR_ptr) {
@@ -7220,6 +7297,15 @@ namespace checker {
 						std::optional<CScopeLifetimeInfo1> maybe_this_slti;
 
 						if (CXXMCE || (CXXOCE && (1 <= CXXOCE->getNumArgs()))) {
+
+#ifndef NDEBUG
+							auto fdnp1 = function_decl ? function_decl->getNumParams() : 99;
+							auto mdnp1 = CXXMD ? CXXMD->getNumParams() : 99;
+							auto cena1 = CE ? CE->getNumArgs() : 99;
+							auto mcena1 = CXXMCE ? CXXMCE->getNumArgs() : 99;
+							auto ocena1 = CXXOCE ? CXXOCE->getNumArgs() : 99;
+#endif /*!NDEBUG*/
+
 							/* This is a member function call. */
 							auto IOA_E = CXXMCE ? CXXMCE->getImplicitObjectArgument() : CXXOCE->getArg(0);
 							auto maybe_expr_lifetime_value = evaluate_expression_lower_bound_lifetimes(state1, IOA_E, Ctx, MR_ptr, Rewrite_ptr);
@@ -7418,10 +7504,8 @@ namespace checker {
 										auto found_it2 = IOA_type_lifetime_value_map.find(abstract_lifetime1);
 										if (IOA_type_lifetime_value_map.end() != found_it2) {
 											/* The annotated lifetime of the parameter is an annotated lifetime of the object type. */
-											if (CScopeLifetimeInfo1::ECategory::AbstractLifetime == corresponding_initialized_scope_lifetime.m_category) {
-												corresponding_initialized_scope_lifetime = lifetime_value_ref;
-												int q = 3;
-											}
+											corresponding_initialized_scope_lifetime = found_it2->second;
+
 											if (!slti_second_can_be_assigned_to_first(as_sublifetime_of_tempexpr(corresponding_initialized_scope_lifetime)
 												, as_sublifetime_of_tempexpr(lifetime_value_ref), Ctx, state1)) {
 
@@ -8498,7 +8582,18 @@ namespace checker {
 
 						/* Here we iterate over the function's parameters to determine the parameter ordinal
 						of our parameter declaration. (Not necessarily the most efficient set up.) */
-						param_ordinal_t param_ordinal = 1;
+
+						/* For some reason the clang AST represents member operator call expressions as non-member
+						call expressions with the implicit `this` parameter as the first parameter. So will indicate
+						whether this is a member operator in the param_ordinal_t's constructor call. */
+						bool is_member_operator = false;
+						auto CXXMD = dyn_cast<const clang::CXXMethodDecl>(FD);
+						if (CXXMD && CXXMD->isOverloadedOperator()) {
+							is_member_operator = true;
+						}
+						auto param_ordinal = is_member_operator ? param_ordinal_t(param_ordinal_t::member_operator_tag{}, 1)
+							: param_ordinal_t(1);
+
 						for (auto param_iter = FD->param_begin(); FD->param_end() != param_iter; ++param_iter, param_ordinal += 1) {
 							auto param = (*param_iter);
 							auto qtype = param->getType();
