@@ -2069,6 +2069,67 @@ namespace checker {
 						break;
 					}
 
+					auto lsftpbn_range = Parse::find_token_sequence({ lifetime_set_alias_from_template_parameter_by_name }, pretty_str);
+					if (pretty_str.length() > lsftpbn_range.begin) {
+						static const std::string lparenthesis = "(";
+						static const std::string rparenthesis = ")";
+
+						auto lparenthesis_range = Parse::find_token_at_same_nesting_depth1(lparenthesis, pretty_str, lsftpbn_range.end);
+						if (pretty_str.length() <= lparenthesis_range.begin) {
+							continue;
+						}
+						auto lparenthesis_index = lparenthesis_range.begin;
+						auto rparenthesis_index = Parse::find_matching_right_parenthesis(pretty_str, lparenthesis_range.end);
+						if (pretty_str.length() <= rparenthesis_index) {
+							int q = 3;
+							continue;
+						}
+						std::string_view sv1(pretty_str.data() + lparenthesis_index + 1, int(rparenthesis_index) - int(lparenthesis_index + 1));
+
+						CAbstractLifetimeSet alts1 = parse_lifetime_ids(sv1, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
+
+						if (2 != alts1.m_primary_lifetimes.size()) {
+							if (MR_ptr) {
+								std::string error_desc = std::string("'lifetime_set_alias_from_template_parameter_by_name()' annotation requires two arguments,");
+								error_desc += " the template parameter name (followed by a comma), followed by a (unique) alias name (of your choosing).";
+								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
+								if (res.second) {
+									std::cout << (*(res.first)).as_a_string1() << " \n\n";
+								}
+							}
+						} else {
+							auto template_name = std::string(alts1.m_primary_lifetimes.at(0).m_id);
+							auto set_alias = alts1.m_primary_lifetimes.at(1);
+
+							auto check_for_illegal_label_reuse = [&state1, &attr_SR, &MR_ptr, &Rewrite_ptr](const CAbstractLifetime& alt) {
+								{
+									auto found_it = state1.m_lifetime_alias_map.find(alt);
+									if (state1.m_lifetime_alias_map.end() != found_it) {
+										if (MR_ptr) {
+											std::string error_desc = std::string("'lifetime set' label '") + alt.m_id + "', specified in 'lifetime_set_aliases_from_template_parameters' annotation,";
+											error_desc += " is already being used as a 'lifetime set' label. Please choose a different one.";
+											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
+											if (res.second) {
+												std::cout << (*(res.first)).as_a_string1() << " \n\n";
+											}
+										}
+									}
+								}
+							};
+							check_for_illegal_label_reuse(set_alias);
+
+							clang::Type const * TypePtr = nullptr;
+							auto qtype = func_decl.getType();
+							if (!qtype.isNull()) {
+								TypePtr = qtype.getTypePtr();
+							}
+							if (TypePtr) {
+								auto lifetimes_from_specified_template_params = infer_alias_mapping_from_template_arg(TypePtr, template_name, set_alias, state1, MR_ptr, Rewrite_ptr);
+							}
+						}
+						break;
+					}
+
 					index2 = pretty_str.find(clang_lifetimebound_str);
 					if (false && (decltype(pretty_str)::npos != index2)) {
 						/* A [[clang::lifetimebound]] attribute on the function will be interpreted as an
