@@ -1711,6 +1711,7 @@ inline const std::vector<CUnsupportedElementInfo>& unsupported_element_infos() {
 	/* In the future, this set could be augmented (at run-time, with data read from a file). */
 	static const auto l_unsupported_element_infos = std::vector<CUnsupportedElementInfo> {
 		{"std::thread", "mse::mstd::thread", "mse::xscope_thread", "mse::mstd::thread or mse::xscope_thread"}
+		, {"std::jthread", "mse::mstd::thread", "mse::xscope_thread", "mse::mstd::thread or mse::xscope_thread"}
 		, {"std::async", "mse::mstd::async", "mse::xscope_asyc", "mse::mstd::async or mse::xscope_asyc"}
 		, {"std::basic_string_view", "mse::mstd::basic_string_view", "mse::TXScopeCSSSXSTEStringSection", "a 'string section' from the SaferCPlusPlus library"}
 		, {"std::span", "mse::TAnyRandomAccessSection", "mse::TXScopeCSSSXSTERandomAccessSection", "a 'random access section' from the SaferCPlusPlus library"}
