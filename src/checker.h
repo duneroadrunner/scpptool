@@ -1133,6 +1133,95 @@ namespace checker {
 		return retval;
 	};
 
+	auto infer_alias_mapping_from_template_arg(clang::TemplateParameterList const * tparam_list, std::vector<std::optional<clang::QualType> > const & template_args_maybe_types, clang::SourceRange const& SR, std::string_view target_tparam_name_sv, const CAbstractLifetime& alias, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr)
+		-> CAbstractLifetimeSet {
+
+		auto retval = CAbstractLifetimeSet{};
+		if (!tparam_list) {
+			return retval;
+		}
+
+		//auto tparam_list = CTD2->getTemplateParameters();
+		auto tpl_size = tparam_list->size();
+		std::optional<size_t> maybe_found_index;
+		size_t count = 0;
+		for (auto& tparam_ND : *tparam_list) {
+			const auto tp_name = tparam_ND->getNameAsString();
+			if (tp_name == target_tparam_name_sv) {
+				maybe_found_index = count;
+				break;
+			}
+			count += 1;
+		}
+		if (maybe_found_index.has_value()) {
+			auto target_targ_index = maybe_found_index.value();
+
+			if ("" != alias.m_id) {
+				//auto template_args_maybe_types = get_template_args_maybe_types(TypePtr2);
+				CAbstractLifetimeSet unaliased_lifetimes;
+				if ((template_args_maybe_types.size() > target_targ_index)
+					&& (template_args_maybe_types.at(target_targ_index).has_value())) {
+
+					auto template_arg_type = template_args_maybe_types.at(target_targ_index).value();
+					if (!(template_arg_type.isNull())) {
+						auto maybe_tlta_ptr = type_lifetime_annotations_if_available(template_arg_type.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
+						if (maybe_tlta_ptr.has_value()) {
+							auto unaliased_prefix1 = "__lifetime_set_" + alias.m_id;
+							auto& tlta = *(maybe_tlta_ptr.value());
+
+							size_t count = 0;
+							for (auto& lifetime : tlta.m_lifetime_set.m_primary_lifetimes) {
+								/* Ok, we now have a set of (the template parameter) type's declared lifetimes. Now we want to
+								create corresponding (distinct) lifetimes in our template type. */
+								CAbstractLifetime unaliased_lifetime;
+								unaliased_lifetime.m_context = alias.m_context;
+								count += 1;
+								unaliased_lifetime.m_id = unaliased_prefix1 + "_" + std::to_string(count) + "_" + lifetime.m_id;
+
+								/* And then we'll add this lifetime to the set of lifetimes the lifetime set alias represents. */
+								unaliased_lifetimes.m_primary_lifetimes.push_back(unaliased_lifetime);
+							}
+						}
+					} else {
+						/* In the case of a template definition (as opposed to a template instantiation),
+						get_template_args_maybe_types() won't return any parameters. In this case we'll just map the
+						specified aliases to the empty set. */
+						int q = 5;
+					}
+					state1.m_lifetime_alias_map.insert_or_assign(alias, unaliased_lifetimes);
+
+					retval.m_primary_lifetimes.insert(retval.m_primary_lifetimes.end(), unaliased_lifetimes.m_primary_lifetimes.begin(), unaliased_lifetimes.m_primary_lifetimes.end());
+				}
+			}
+		} else {
+			if (MR_ptr) {
+				std::string template_parameters_str;
+				for (auto& tparam_ND : *tparam_list) {
+					const auto tp_name = tparam_ND->getNameAsString();
+					template_parameters_str += tp_name;
+					template_parameters_str += ", ";
+				}
+				if (std::string(", ").length() < template_parameters_str.length()) {
+					template_parameters_str = template_parameters_str.substr(0, int(template_parameters_str.length()) - 2);
+				}
+
+				std::string error_desc = std::string("The specified template parameter name '")
+					+ std::string(target_tparam_name_sv) + "' was not recognized.";
+				if (256/*arbitrary*/ > template_parameters_str.length()) {
+					error_desc += " The recognized template parameters are: " + template_parameters_str + ".";
+				}
+
+				auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
+				if (res.second) {
+					std::cout << (*(res.first)).as_a_string1() << " \n\n";
+				}
+			}
+		}
+		int q = 5;
+
+		return retval;
+	}
+
 	auto infer_alias_mapping_from_template_arg(const clang::Type * TypePtr2, std::string_view target_tparam_name_sv, const CAbstractLifetime& alias, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr)
 		-> CAbstractLifetimeSet {
 
@@ -1152,93 +1241,47 @@ namespace checker {
 				auto CTD2 = CTSD->getSpecializedTemplate();
 				if (CTD2) {
 					auto tparam_list = CTD2->getTemplateParameters();
-					auto tpl_size = tparam_list->size();
-					std::optional<size_t> maybe_found_index;
-					size_t count = 0;
-					for (auto& tparam_ND : *tparam_list) {
-						const auto tp_name = tparam_ND->getNameAsString();
-						if (tp_name == target_tparam_name_sv) {
-							maybe_found_index = count;
-							break;
-						}
-						count += 1;
-					}
-					if (maybe_found_index.has_value()) {
-						auto target_targ_index = maybe_found_index.value();
+					auto template_args_maybe_types = get_template_args_maybe_types(TypePtr2);
 
-						if ("" != alias.m_id) {
-							auto template_args_maybe_types = get_template_args_maybe_types(TypePtr2);
-							CAbstractLifetimeSet unaliased_lifetimes;
-							if ((template_args_maybe_types.size() > target_targ_index)
-								&& (template_args_maybe_types.at(target_targ_index).has_value())) {
-
-								auto template_arg_type = template_args_maybe_types.at(target_targ_index).value();
-								if (!(template_arg_type.isNull())) {
-									auto maybe_tlta_ptr = type_lifetime_annotations_if_available(template_arg_type.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
-									if (maybe_tlta_ptr.has_value()) {
-										auto unaliased_prefix1 = "__lifetime_set_" + alias.m_id;
-										auto& tlta = *(maybe_tlta_ptr.value());
-
-										size_t count = 0;
-										for (auto& lifetime : tlta.m_lifetime_set.m_primary_lifetimes) {
-											/* Ok, we now have a set of (the template parameter) type's declared lifetimes. Now we want to
-											create corresponding (distinct) lifetimes in our template type. */
-											CAbstractLifetime unaliased_lifetime;
-											unaliased_lifetime.m_context = alias.m_context;
-											count += 1;
-											unaliased_lifetime.m_id = unaliased_prefix1 + "_" + std::to_string(count) + "_" + lifetime.m_id;
-
-											/* And then we'll add this lifetime to the set of lifetimes the lifetime set alias represents. */
-											unaliased_lifetimes.m_primary_lifetimes.push_back(unaliased_lifetime);
-										}
-									}
-								} else {
-									/* In the case of a template definition (as opposed to a template instantiation),
-									get_template_args_maybe_types() won't return any parameters. In this case we'll just map the
-									specified aliases to the empty set. */
-									int q = 5;
-								}
-								state1.m_lifetime_alias_map.insert_or_assign(alias, unaliased_lifetimes);
-
-								retval.m_primary_lifetimes.insert(retval.m_primary_lifetimes.end(), unaliased_lifetimes.m_primary_lifetimes.begin(), unaliased_lifetimes.m_primary_lifetimes.end());
-							}
-						}
-					} else {
-						if (MR_ptr) {
-							std::string template_parameters_str;
-							for (auto& tparam_ND : *tparam_list) {
-								const auto tp_name = tparam_ND->getNameAsString();
-								template_parameters_str += tp_name;
-								template_parameters_str += ", ";
-							}
-							if (std::string(", ").length() < template_parameters_str.length()) {
-								template_parameters_str = template_parameters_str.substr(0, int(template_parameters_str.length()) - 2);
-							}
-
-							std::string error_desc = std::string("The specified template parameter name '")
-								+ std::string(target_tparam_name_sv) + "' was not recognized.";
-							if (256/*arbitrary*/ > template_parameters_str.length()) {
-								error_desc += " The recognized template parameters are: " + template_parameters_str + ".";
-							}
-
-							auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), CTD2->getSourceRange().getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
-						}
-					}
-					int q = 5;
+					retval = infer_alias_mapping_from_template_arg(tparam_list, template_args_maybe_types, CTD2->getSourceRange(), target_tparam_name_sv, alias, state1, MR_ptr, Rewrite_ptr);
 				}
 			}
-			auto CTD = clang::dyn_cast<const clang::ClassTemplateDecl>(CXXRD);
-			if (CTD) {
-				int q = 5;
-			}
-			int q = 5;
 		}
-
 		return retval;
-	};
+	}
+
+	auto infer_alias_mapping_from_template_arg(const clang::FunctionDecl& func_decl, std::string_view target_tparam_name_sv, const CAbstractLifetime& alias, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr)
+		-> CAbstractLifetimeSet {
+
+		auto retval = CAbstractLifetimeSet{};
+
+		auto FTD = func_decl.getPrimaryTemplate();
+		if (!FTD) {
+			return retval;
+		}
+		auto tparam_list = FTD->getTemplateParameters();
+		if (tparam_list) {
+			const auto template_args_ptr = func_decl.getTemplateSpecializationArgs();
+			if (template_args_ptr) {
+				const auto& template_args = *template_args_ptr;
+				std::vector<std::optional<clang::QualType> > template_args_maybe_types;
+
+				const auto num_args = template_args.size();
+				for (int i = 0; i < int(num_args); i += 1) {
+					const auto template_arg = template_args[i];
+					if ((clang::TemplateArgument::ArgKind::Type != template_arg.getKind()) || template_arg.isNull()) {
+						template_args_maybe_types.push_back({});
+					} else {
+						const auto ta_qtype = template_arg.getAsType();
+						IF_DEBUG(const auto ta_qtype_str = ta_qtype.getAsString();)
+						template_args_maybe_types.push_back(ta_qtype);
+					}
+				}
+				retval = infer_alias_mapping_from_template_arg(tparam_list, template_args_maybe_types, func_decl.getSourceRange(), target_tparam_name_sv, alias, state1, MR_ptr, Rewrite_ptr);
+			}
+		}
+		return retval;
+	}
 
 	auto with_any_lifetime_aliases_dealiased(const CAbstractLifetimeSet& alts1, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr)
 		-> CAbstractLifetimeSet {
@@ -1251,6 +1294,10 @@ namespace checker {
 				/* This lifetime is actually an alias (for a set of lifetimes). */
 				retval.m_primary_lifetimes.insert(retval.m_primary_lifetimes.end(), found_it->second.m_primary_lifetimes.begin(), found_it->second.m_primary_lifetimes.end());
 			} else {
+				if (1 <= lifetime.m_sublifetimes_vlptr->m_primary_lifetimes.size()) {
+					auto dealiased_sublifetimes = with_any_lifetime_aliases_dealiased(*(lifetime.m_sublifetimes_vlptr), state1, MR_ptr, Rewrite_ptr);
+					*(lifetime.m_sublifetimes_vlptr) = dealiased_sublifetimes;
+				}
 				retval.m_primary_lifetimes.push_back(lifetime);
 			}
 		}
@@ -2175,14 +2222,7 @@ namespace checker {
 							};
 							check_for_illegal_label_reuse(set_alias);
 
-							clang::Type const * TypePtr = nullptr;
-							auto qtype = func_decl.getType();
-							if (!qtype.isNull()) {
-								TypePtr = qtype.getTypePtr();
-							}
-							if (TypePtr) {
-								auto lifetimes_from_specified_template_params = infer_alias_mapping_from_template_arg(TypePtr, template_name, set_alias, state1, MR_ptr, Rewrite_ptr);
-							}
+							auto lifetimes_from_specified_template_params = infer_alias_mapping_from_template_arg(func_decl, template_name, set_alias, state1, MR_ptr, Rewrite_ptr);
 						}
 						break;
 					}
