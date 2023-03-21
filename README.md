@@ -444,13 +444,43 @@ Notice the annotation for the `foo2()` function's parameter, `mse::lifetime_labe
 
 This syntax for addressing sublifetimes might be considered a little messy (and maybe error prone), but results from the fact that, in the source text, our annotations are placed after the declarations rather than the directly after the types they might correspond to. This is, in part, an artifact of a historical limitation in one of the libraries the tool uses. In the future the tool may support placing the lifetime label annotations directly after the type.
 
+##### More Lifetime Constraints
+
+In the [first example](annotating-function-interfaces) we saw a straightforward use of the `encompasses` lifetime constraint. Now let's look at a slightly more advanced example where we demonstrate two ways of annotating a `swap` function:
+
+```cpp
+template<typename T>
+void swap1(T& item1 MSE_ATTR_PARAM_STR("mse::lifetime_label(42 [alias_421$])"), T& item2 MSE_ATTR_PARAM_STR("mse::lifetime_label(99 [alias_991$])"))
+	MSE_ATTR_FUNC_STR("mse::lifetime_set_alias_from_template_parameter_by_name(T, alias_421$)")
+	MSE_ATTR_FUNC_STR("mse::lifetime_set_alias_from_template_parameter_by_name(T, alias_991$)")
+	MSE_ATTR_FUNC_STR("mse::lifetime_labels(42, 99, alias_421$, alias_991$)")
+	MSE_ATTR_FUNC_STR("mse::lifetime_notes{ encompasses(alias_421$, alias_991$); encompasses(alias_991$, alias_421$) }")
+{
+	MSE_SUPPRESS_CHECK_IN_XSCOPE std::swap(item1, item2);
+}
+
+template<typename T>
+void swap2(T& item1 MSE_ATTR_PARAM_STR("mse::lifetime_label(42)"), T& item2 MSE_ATTR_PARAM_STR("mse::lifetime_label(99)"))
+	MSE_ATTR_FUNC_STR("mse::lifetime_labels(42, 99)")
+	MSE_ATTR_FUNC_STR("mse::lifetime_notes{ first_can_be_assigned_to_second(42, 99); first_can_be_assigned_to_second(99, 42) }")
+{
+	MSE_SUPPRESS_CHECK_IN_XSCOPE std::swap(item1, item2);
+}
+```
+
+Note that the `swap` functions take (raw) reference parameters. Determining whether or not the argument values are safe to swap does not depend on the "direct" lifetimes of the arguments, but rather on the (maximum lower bound) lifetimes of any objects that the arguments might refer to (aka the "sublifetimes), right? So for example, swapping the value of two `int`s is always safe because `int`s don't hold any references to any other objects (i.e. `int`s have no "sublifetimes"). Swapping the value of two pointers on the otherhand is not always safe. We can ensure that swapping the value of two pointers is safe if we can ensure that the (maximum lower bound) lifetimes of the objects the pointers reference (aka the "sublifetimes") are the same.
+
+So in our annotation of the `swap1()` function we assign "lifetime set alias" labels to the sublifetimes (if any) of the arguments. Then we use the `encompasses` constraint to to ensure that none of the (maximum lower bound) sublifetimes of one argument outlives the corresponding (maximum lower bound) sublifetime of the other.
+
+In the annotation of the `swap2()` function, we introduce the use of the `first_can_be_assigned_to_second` constraint to make the annotation a little cleaner. The `first_can_be_assigned_to_second` constraint is similar to the `encompasses` constraint except that it ignores the "direct" (maximum lower bound) lifetime and only constrains the sublifetimes (if any). Using the `first_can_be_assigned_to_second` constraint eliminates the need to assign lifetime (set alias) labels to the argument sublifetimes.
+
 ##### Annotating base classes
 
 Just to mention it, base classes are, in terms of lifetime annotations, conceptually treated just like member fields. You can use the `labels_for_base_class()` annotation (on the derived type) to assign lifetime labels to the first base class.
 
 ##### Lifetime annotation implementation caveats
 
-(Note, that at the time of writing, implementation of lifetime safety enforcement is not complete. Safety can be subverted through, for example, casts between compatible types with incompatible lifetime annotations, or cyclic references with user-defined destructors, etc.. Also note that the SaferCPlusPlus library has not yet had these lifetime annotations applied to its elements.)
+(Note, that at the time of writing, implementation of lifetime safety enforcement is not complete. Safety can be subverted through, for example, cyclic references with user-defined destructors, etc.. Also note that the SaferCPlusPlus library has not yet had these lifetime annotations applied to its elements.)
 
 ##### third party lifetime annotations
 
