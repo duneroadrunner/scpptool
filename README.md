@@ -444,7 +444,7 @@ Notice the annotation for the `foo2()` function's parameter, `mse::lifetime_labe
 
 This syntax for addressing sublifetimes might be considered a little messy (and maybe error prone), but results from the fact that, in the source text, our annotations are placed after the declarations rather than the directly after the types they might correspond to. This is, in part, an artifact of a historical limitation in one of the libraries the tool uses. In the future the tool may support placing the lifetime label annotations directly after the type.
 
-##### More Lifetime Constraints
+##### More lifetime constraints
 
 In the [first example](#annotating-function-interfaces) we saw a straightforward use of the `encompasses` lifetime constraint. Now let's look at a slightly more advanced example where we demonstrate two ways of annotating a `swap` function:
 
