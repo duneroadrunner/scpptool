@@ -1,5 +1,5 @@
 
-Feb 2023
+Mar 2023
 
 ### Overview
 
@@ -480,11 +480,86 @@ Just to mention it, base classes are, in terms of lifetime annotations, conceptu
 
 ##### Lifetime annotation implementation caveats
 
-(Note, that at the time of writing, implementation of lifetime safety enforcement is not complete. Safety can be subverted through, for example, cyclic references with user-defined destructors, etc.. Also note that the SaferCPlusPlus library has not yet had these lifetime annotations applied to its elements.)
+(Note, that at the time of writing, implementation of lifetime safety enforcement is not complete. Safety can be subverted through, for example, cyclic references with user-defined destructors, etc.. Also note that the process of adding lifetime annotated elements to the SaferCPlusPlus library is still in the early stages.)
 
 ##### third party lifetime annotations
 
 Note that other static lifetime analyzers in development introduce their own distinct lifetime annotations (including the lifetime profile checker and [others](https://discourse.llvm.org/t/rfc-lifetime-annotations-for-c/61377)). Those analyzers may not recognize the lifetime annotations introduced here, so to be compliant with those analyzers you may have to use their lifetime annotations as well. Ideally, in the future scpptool would also support those lifetime annotations, reducing the need for redundant annotations.
+
+##### Lifetime annotated elements in the SaferCPlusPlus library
+
+The process of adding lifetime annotated elements to the SaferCPlusPlus library is still in the early stages.
+
+Since lifetime annotations require the scpptool for enforcement, lifetime annotated elements generally reside in the `mse::rsv` namespace, like the other elements that require scpptool for safety enforcement. Most lifetime annotated elements are "[scope](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#scope-pointers)" elements and conform to the corresponding restrictions. 
+
+##### rsv::TXSLTAPointer
+
+`rsv::TXSLTAPointer<>` is just a class that acts like a (lifetime annotated) pointer.
+
+usage example:
+
+```cpp
+    #include "mseslta.h"
+    
+    void main(int argc, char* argv[]) {
+        int i1 = 3;
+        int i2 = 5;
+        int i3 = 7;
+        /* The (lower bound) lifetime associated with an rsv::TXSLTAPointer<> is set to the lifetime of 
+        its initialization value. */
+        auto ilaptr1 = mse::rsv::TXSLTAPointer<int>{ &i1 };
+        auto ilaptr2 = mse::rsv::TXSLTAPointer<int>{ &i2 };
+        
+        /* The (lower bound) lifetime associated with ilaptr2 does not outlive the one associated with 
+        ilaptr1, so assigning the value of ilaptr2 to ilaptr1 cannot be verified to be safe. */
+        //ilaptr1 = ilaptr2;    // scpptool would complain
+        ilaptr2 = ilaptr1;
+        ilaptr2 = &i1;
+        //ilaptr2 = &i3;    // scpptool would complain
+    }
+```
+
+##### rsv::xslta_nii_array
+
+`rsv::xslta_nii_array<>` is just the lifetime annotated version of [`xscope_nii_array<>`](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#xscope_nii_array).
+
+usage example:
+
+```cpp
+    #include "mseslta.h"
+    #include "msemsearray.h"
+    
+    void main(int argc, char* argv[]) {
+        int i1 = 3;
+        int i2 = 5;
+        int i3 = 7;
+        
+        /* The lifetime associated with the rsv::xslta_nii_array<>, and each of its contained elements, is
+        the lower bound of the lifetimes of the elements in the initializer list. */
+        auto arrwp2 = mse::rsv::xslta_nii_array<mse::rsv::TXSLTAPointer<int>, 2>{ &i1, &i2 };
+        auto ilaptr3 = arrwp2.front();
+        //ilaptr3 = &i3;    // scpptool would complain
+        ilaptr3 = &i1;
+        
+        /* Note that although the initializer list used in the declaration of arrwp3 is different than the
+        initializer list used for arrwp2, the lower bound of the lifetimes of both initializer lists is
+        the same. */
+        auto arrwp3 = mse::rsv::xslta_nii_array<mse::rsv::TXSLTAPointer<int>, 2>{ &i2, &i2 };
+        
+        /* Since the (lower bound) lifetime values of arrwp2 and arrwp3 are the same, their values can be 
+        safely swapped.*/
+        std::swap(arrwp2, arrwp3);
+        arrwp2.swap(arrwp3);
+        
+        /* The lower bound lifetime of arrwp4's initializer list is not the same as that of arrwp2. */
+        auto arrwp4 = mse::rsv::xslta_nii_array<mse::rsv::TXSLTAPointer<int>, 2>{ &i3, &i1 };
+        
+        /* Since the (lower bound) lifetime values of arrwp2 and arrwp4 are not the same, their values 
+        cannot be safely swapped.*/
+        //std::swap(arrwp2, arrwp4);    // scpptool would complain
+        //arrwp2.swap(arrwp4);    // scpptool would complain
+    }
+```
 
 #### SaferCPlusPlus elements
 
