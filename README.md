@@ -446,7 +446,7 @@ This syntax for addressing sublifetimes might be considered a little messy (and 
 
 ##### More Lifetime Constraints
 
-In the [first example](annotating-function-interfaces) we saw a straightforward use of the `encompasses` lifetime constraint. Now let's look at a slightly more advanced example where we demonstrate two ways of annotating a `swap` function:
+In the [first example](#annotating-function-interfaces) we saw a straightforward use of the `encompasses` lifetime constraint. Now let's look at a slightly more advanced example where we demonstrate two ways of annotating a `swap` function:
 
 ```cpp
 template<typename T>
