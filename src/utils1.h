@@ -179,8 +179,11 @@ bool first_is_a_subset_of_second(const clang::SourceRange& first, const clang::S
 bool first_is_a_proper_subset_of_second(const clang::SourceRange& first, const clang::SourceRange& second);
 
 bool filtered_out_by_location(const clang::SourceManager &SM, clang::SourceLocation SL);
-
+bool filtered_out_by_location(clang::ASTContext const& Ctx, clang::SourceLocation SL);
 bool filtered_out_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceLocation SL);
+bool errors_suppressed_by_location(const clang::SourceManager &SM, clang::SourceLocation SL);
+bool errors_suppressed_by_location(clang::ASTContext const& Ctx, clang::SourceLocation SL);
+bool errors_suppressed_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceLocation SL);
 
 std::string with_whitespace_removed(const std::string_view str);
 

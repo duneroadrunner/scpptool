@@ -194,30 +194,58 @@ bool first_is_a_proper_subset_of_second(const clang::SourceRange& first, const c
 	return retval;
 }
 
-bool filtered_out_by_filename(const std::string &filename) {
-	bool retval = false;
+struct CFilteringResult {
+	bool m_suppress_errors = false;
+	bool m_do_not_process = false;
+};
+
+CFilteringResult evaluate_filtering_by_filename(const std::string &filename) {
+	CFilteringResult retval;
 
 	static const std::string mse_str = "mse";
 	static const std::string built_in_str = "<built-in>";
 	if (0 == filename.compare(0, mse_str.size(), mse_str)) {
-		retval = true;
+		retval.m_suppress_errors = true;
+
+		static const std::string msealgorithm_h_str = "msealgorithm.h";
+		if (!(0 == filename.compare(0, msealgorithm_h_str.size(), msealgorithm_h_str))) {
+			/* Evaluation of lifetimes inside the msealgorithm.h file is sometimes necessary because some of its
+			elements call and pass arguments to user supplied callable objects. So far this doesn't seem to be
+			the case for the other mse*.h files, but that could change in the future. */
+			retval.m_do_not_process = true;
+		} else {
+			retval.m_do_not_process = true;
+			int q = 5;
+		}
 	} else if (built_in_str == filename) {
-		retval = true;
+		retval.m_do_not_process = true;
+		retval.m_suppress_errors = true;
 	}
 
 	return retval;
 }
 
-bool filtered_out_by_location(const SourceManager &SM, SourceLocation SL) {
-	bool retval = false;
+struct CFilteringResultByLocation : public CFilteringResult {
+	CFilteringResultByLocation(SourceLocation SL) : m_SL(SL) {}
+	SourceLocation m_SL;
+};
+
+CFilteringResultByLocation evaluate_filtering_by_location(const SourceManager &SM, SourceLocation SL) {
+	CFilteringResultByLocation retval { SL };
+	thread_local std::optional<CFilteringResultByLocation> tl_maybe_cached_result;
+
+	if (tl_maybe_cached_result.has_value() && (SL == tl_maybe_cached_result.value().m_SL)) {
+		return tl_maybe_cached_result.value();
+	}
 
 	if (!(SL.isValid())) {
-		retval = true;
+		retval.m_suppress_errors = true;
 	} else if (SM.isInSystemHeader(SL)) {
-		retval = true;
+		retval.m_do_not_process = true;
+		retval.m_suppress_errors = true;
 	/*
 	} else if (MainFileOnly && (!(SM.isInMainFile(SL)))) {
-		retval = true;
+		retval.m_do_not_process = true;
 	*/
 	} else {
 		bool filename_is_invalid = false;
@@ -242,7 +270,8 @@ bool filtered_out_by_location(const SourceManager &SM, SourceLocation SL) {
 		}
 		const auto lib_clang_pos = full_path_name.find("/lib/clang/");
 		if (std::string::npos != lib_clang_pos) {
-			retval = true;
+			retval.m_do_not_process = true;
+			retval.m_suppress_errors = true;
 		} else {
 			std::string filename = full_path_name;
 			const auto last_slash_pos = full_path_name.find_last_of('/');
@@ -253,24 +282,43 @@ bool filtered_out_by_location(const SourceManager &SM, SourceLocation SL) {
 					filename = "";
 				}
 			}
-			if (filtered_out_by_filename(filename)) {
-				retval = true;
-			}
+			auto res1 = evaluate_filtering_by_filename(filename);
+			retval.m_do_not_process = res1.m_do_not_process;
+			retval.m_suppress_errors = res1.m_suppress_errors;
 		}
 	}
+	tl_maybe_cached_result = retval;
 	return retval;
 }
 
+bool filtered_out_by_location(const SourceManager &SM, SourceLocation SL) {
+	auto res1 = evaluate_filtering_by_location(SM, SL);
+	return res1.m_do_not_process;
+}
 bool filtered_out_by_location(ASTContext const& Ctx, SourceLocation SL) {
   const SourceManager &SM = Ctx.getSourceManager();
   return filtered_out_by_location(SM, SL);
 }
-
 bool filtered_out_by_location(const ast_matchers::MatchFinder::MatchResult &MR, SourceLocation SL) {
   ASTContext *const ASTC = MR.Context;
   assert(MR.Context);
   const SourceManager &SM = ASTC->getSourceManager();
   return filtered_out_by_location(SM, SL);
+}
+
+bool errors_suppressed_by_location(const SourceManager &SM, SourceLocation SL) {
+	auto res1 = evaluate_filtering_by_location(SM, SL);
+	return res1.m_suppress_errors;
+}
+bool errors_suppressed_by_location(ASTContext const& Ctx, SourceLocation SL) {
+  const SourceManager &SM = Ctx.getSourceManager();
+  return errors_suppressed_by_location(SM, SL);
+}
+bool errors_suppressed_by_location(const ast_matchers::MatchFinder::MatchResult &MR, SourceLocation SL) {
+  ASTContext *const ASTC = MR.Context;
+  assert(MR.Context);
+  const SourceManager &SM = ASTC->getSourceManager();
+  return errors_suppressed_by_location(SM, SL);
 }
 
 std::string with_whitespace_removed(const std::string_view str) {
