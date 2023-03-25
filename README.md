@@ -519,9 +519,9 @@ usage example:
     }
 ```
 
-##### rsv::xslta_nii_array
+##### rsv::xslta_array
 
-`rsv::xslta_nii_array<>` is just the lifetime annotated version of [`xscope_nii_array<>`](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#xscope_nii_array).
+`rsv::xslta_array<>` is a lifetime annotated array. Somewhat based on [`xscope_nii_array<>`](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#xscope_nii_array).
 
 usage example:
 
@@ -534,9 +534,9 @@ usage example:
         int i2 = 5;
         int i3 = 7;
         
-        /* The lifetime associated with the rsv::xslta_nii_array<>, and each of its contained elements, is
+        /* The lifetime associated with the rsv::xslta_array<>, and each of its contained elements, is
         the lower bound of the lifetimes of the elements in the initializer list. */
-        auto arrwp2 = mse::rsv::xslta_nii_array<mse::rsv::TXSLTAPointer<int>, 2>{ &i1, &i2 };
+        auto arrwp2 = mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 2>{ &i1, &i2 };
         auto ilaptr3 = arrwp2.front();
         //ilaptr3 = &i3;    // scpptool would complain
         ilaptr3 = &i1;
@@ -544,7 +544,7 @@ usage example:
         /* Note that although the initializer list used in the declaration of arrwp3 is different than the
         initializer list used for arrwp2, the lower bound of the lifetimes of both initializer lists is
         the same. */
-        auto arrwp3 = mse::rsv::xslta_nii_array<mse::rsv::TXSLTAPointer<int>, 2>{ &i2, &i2 };
+        auto arrwp3 = mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 2>{ &i2, &i2 };
         
         /* Since the (lower bound) lifetime values of arrwp2 and arrwp3 are the same, their values can be 
         safely swapped.*/
@@ -552,12 +552,31 @@ usage example:
         arrwp2.swap(arrwp3);
         
         /* The lower bound lifetime of arrwp4's initializer list is not the same as that of arrwp2. */
-        auto arrwp4 = mse::rsv::xslta_nii_array<mse::rsv::TXSLTAPointer<int>, 2>{ &i3, &i1 };
+        auto arrwp4 = mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 2>{ &i3, &i1 };
         
         /* Since the (lower bound) lifetime values of arrwp2 and arrwp4 are not the same, their values 
         cannot be safely swapped.*/
         //std::swap(arrwp2, arrwp4);    // scpptool would complain
         //arrwp2.swap(arrwp4);    // scpptool would complain
+        
+        {
+            auto arrwp2_xslptaptr = mse::rsv::TXSLTAPointer<decltype(arrwp2)>{ &arrwp2 };
+            auto xslta_iter1 = mse::rsv::make_xslta_begin_iterator(arrwp2_xslptaptr);
+            auto xslta_iter2 = mse::rsv::make_xslta_end_iterator(arrwp2_xslptaptr);
+            
+            auto xslta_citer3 = mse::rsv::make_xslta_begin_const_iterator(arrwp2_xslptaptr);
+            xslta_citer3 = xslta_iter1;
+            xslta_citer3 = mse::rsv::make_xslta_begin_const_iterator(arrwp2_xslptaptr);
+            xslta_citer3 += 1;
+            auto res1 = *(*xslta_citer3);
+            auto res2 = *(xslta_citer3[0]);
+            
+            std::cout << "\n";
+            mse::for_each_ptr(xslta_iter1, xslta_iter2, [](auto item_ptr) {
+                    std::cout << *(*item_ptr) << " ";
+                });
+            std::cout << "\n";
+        }
     }
 ```
 
