@@ -3044,21 +3044,28 @@ namespace checker {
 								auto& context = *MR.Context;
 								const auto* LE = Tget_immediately_containing_element_of_type<clang::LambdaExpr>(CXXRD, *MR.Context);
 								if (LE) {
-									auto* MTE = Tget_immediately_containing_element_of_type<clang::MaterializeTemporaryExpr>(LE, *MR.Context);
-									if (!MTE) {
-										const clang::ImplicitCastExpr* ICE2 = Tget_immediately_containing_element_of_type<clang::ImplicitCastExpr>(LE, *MR.Context);
-										const clang::ImplicitCastExpr* ICE1 = ICE2;
-										do {
-											ICE1 = ICE2;
-											ICE2 = Tget_immediately_containing_element_of_type<clang::ImplicitCastExpr>(ICE1, *MR.Context);
-										} while (ICE2);
-										MTE = Tget_immediately_containing_element_of_type<clang::MaterializeTemporaryExpr>(ICE1, *MR.Context);
+									const auto* CE = Tget_immediately_containing_element_of_type<clang::CallExpr>(
+										LE, *MR.Context);
+									if (!CE) {
+										auto* MTE = Tget_immediately_containing_element_of_type<clang::MaterializeTemporaryExpr>(LE, *MR.Context);
+										if (!MTE) {
+											const clang::ImplicitCastExpr* ICE2 = Tget_immediately_containing_element_of_type<clang::ImplicitCastExpr>(LE, *MR.Context);
+											const clang::ImplicitCastExpr* ICE1 = ICE2;
+											do {
+												ICE1 = ICE2;
+												ICE2 = Tget_immediately_containing_element_of_type<clang::ImplicitCastExpr>(ICE1, *MR.Context);
+											} while (ICE2);
+											MTE = Tget_immediately_containing_element_of_type<clang::MaterializeTemporaryExpr>(ICE1, *MR.Context);
+										}
+										if (MTE) {
+											CE = Tget_immediately_containing_element_of_type<clang::CallExpr>(
+												MTE->IgnoreImpCasts(), *MR.Context);
+										}
 									}
-									if (MTE) {
-										const auto* CE = Tget_immediately_containing_element_of_type<clang::CallExpr>(
-											MTE->IgnoreImpCasts(), *MR.Context);
-										if (CE) {
-											const auto qname = CE->getDirectCallee()->getQualifiedNameAsString();
+									if (CE) {
+										auto FND = CE->getDirectCallee();
+										if (FND) {
+											const auto qname = FND->getQualifiedNameAsString();
 											DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_reference_or_pointer_capture_lambda");
 											DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_non_reference_or_pointer_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_non_reference_or_pointer_capture_lambda");
 											DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_capture_lambda");
@@ -3080,6 +3087,31 @@ namespace checker {
 													has_ContainsNonOwningScopeReference_tag_base = true;
 												}
 											}
+										} else {
+											//auto b1 = CXXRD->isTemplateDecl();
+											auto b2 = CXXRD->isTemplated();
+											bool b3 = false;
+											{
+												auto CTSD = clang::dyn_cast<const clang::ClassTemplateSpecializationDecl>(CXXRD);
+												if (CTSD) {
+													auto CTD2 = CTSD->getSpecializedTemplate();
+													if (CTD2) {
+														//auto tparam_list = CTD2->getTemplateParameters();
+														b3 = true;
+													}
+												} else {
+													int q = 5;
+												}
+											}
+											if (b2 && !b3) {
+												/* In this case, we suspect that the reason the function declaration of the direct callee is not 
+												available may be because this is part of an uninstantiated template. In this case we can't 
+												reliably determine if our imposed requirements are satisfied or not. We'll defer verification to
+												the actual instantiations of this template. */
+												return;
+											} else {
+												int q = 5;
+											}
 										}
 									}
 								} else {
@@ -3091,6 +3123,11 @@ namespace checker {
 									const auto field_qtype = FD->getType();
 									IF_DEBUG(auto field_qtype_str = field_qtype.getAsString();)
 									if (!(field_qtype.isNull())) {
+										auto field_suppress_check_flag = state1.m_suppress_check_region_set.contains(FD, Rewrite, *(MR.Context));
+										if (field_suppress_check_flag) {
+											continue;
+										}
+
 										const auto ICIEX = FD->getInClassInitializer();
 										if (is_raw_pointer_or_equivalent(field_qtype)
 											&& (!state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(field_qtype))
@@ -3267,14 +3304,19 @@ namespace checker {
 							}
 						}
 
-						for (const auto& field : RD->fields()) {
-							const auto field_qtype = field->getType();
+						for (const auto FD : RD->fields()) {
+							const auto field_qtype = FD->getType();
 							auto field_qtype_str = field_qtype.getAsString();
+							auto field_suppress_check_flag = state1.m_suppress_check_region_set.contains(FD, Rewrite, *(MR.Context));
+							if (field_suppress_check_flag) {
+								continue;
+							}
+
 							if (!(field_qtype.isNull())) {
 								std::string error_desc;
 								if (field_qtype.getTypePtr()->isPointerType()) {
 									if (!state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(field_qtype)
-										&& (!state1.m_suppress_check_region_set.contains(instantiation_source_range(field->getSourceRange(), Rewrite)))
+										&& (!state1.m_suppress_check_region_set.contains(instantiation_source_range(FD->getSourceRange(), Rewrite)))
 										) {
 										if (has_xscope_tag_base) {
 											/*
@@ -3345,7 +3387,7 @@ namespace checker {
 									}
 								}
 								if ("" != error_desc) {
-									auto FDISR = instantiation_source_range(field->getSourceRange(), Rewrite);
+									auto FDISR = instantiation_source_range(FD->getSourceRange(), Rewrite);
 									auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
 									if (res.second) {
 										std::cout << (*(res.first)).as_a_string1() << " \n\n";
@@ -3968,19 +4010,28 @@ namespace checker {
 				return retval;
 			} else if (sli2.m_maybe_abstract_lifetime.has_value()) {
 				if (CScopeLifetimeInfo1::ECategory::Automatic == sli1.m_category) {
-					/* We're assuming that sli2 corresponds to a pointer/reference parameter with lifetime
-					annotation. And that sli1 does not correspond to a reference parameter or reassignable
-					(i.e. non-const) pointer. */
-					if (sli1.m_maybe_containing_scope.has_value() && sli1.m_maybe_source_range.has_value()
-						 && sli2.m_maybe_containing_scope.has_value() && sli2.m_maybe_source_range.has_value()) {
-						retval = first_is_contained_in_scope_of_second(sli1.m_maybe_containing_scope.value(), sli1.m_maybe_source_range.value()
-						 , sli2.m_maybe_containing_scope.value(), sli2.m_maybe_source_range.value(), context);
-						if (!retval) {
-							/* does this ever happen? */
-							int q = 3;
-						}
+					if (true) {
+						/* Automatic lifetimes refer to (non-static/non-thread_local) local variables that never outlive the
+						function call they were declared in. Abstract lifetimes available within a function are introduced 
+						at the beginning of the function (or before) and are associated with lifetimes that are already 
+						active when the function call is executed. So an abstract lifetime shoudl always outlive an 
+						automatic one. Right? */
+						retval = true;
 					} else {
-						retval = false;
+						/* We're assuming that sli2 corresponds to a pointer/reference parameter with lifetime
+						annotation. And that sli1 does not correspond to a reference parameter or reassignable
+						(i.e. non-const) pointer. */
+						if (sli1.m_maybe_containing_scope.has_value() && sli1.m_maybe_source_range.has_value()
+							&& sli2.m_maybe_containing_scope.has_value() && sli2.m_maybe_source_range.has_value()) {
+							retval = first_is_contained_in_scope_of_second(sli1.m_maybe_containing_scope.value(), sli1.m_maybe_source_range.value()
+							, sli2.m_maybe_containing_scope.value(), sli2.m_maybe_source_range.value(), context);
+							if (!retval) {
+								/* does this ever happen? */
+								int q = 3;
+							}
+						} else {
+							retval = false;
+						}
 					}
 					return retval;
 				}
@@ -6646,44 +6697,95 @@ namespace checker {
 						return;
 					}
 
-					bool xscope_return_value_wrapper_present = false;
-					const clang::Stmt* stii = IgnoreParenImpNoopCasts(ST->getRetValue(), *(MR.Context));
-					while (!dyn_cast<const CallExpr>(stii)) {
-						//stii->dump();
-						auto* CXXCE = dyn_cast<const CXXConstructExpr>(stii);
-						if (CXXCE && (1 <= CXXCE->getNumArgs()) && (CXXCE->getArg(0))) {
-							stii = IgnoreParenImpNoopCasts(CXXCE->getArg(0), *(MR.Context));
+					/* The SaferCPlusPlus library has "transparent" template wrappers such as mse::rsv::TReturnableFParam<>
+					which were used to to help ensure the safety of reference parameters (that might be used in the return 
+					value). (This tool largely renders that functionality redundant, but anyway they still exist.) When 
+					these template wrappers are used with function parameters, the return value needs to be passed through
+					the mse::return_value() "transparent" function. Here we check for any violations of this rule. */
+					bool has_an_mse_fparam_parameter = false;
+					for (auto& PVD : FND->parameters()) {
+						auto qtype = PVD->getType();
+						if (qtype.isNull()) {
 							continue;
 						}
-						break;
-					}
-					auto* CE = dyn_cast<const CallExpr>(stii);
-					if (CE) {
-						auto function_decl = CE->getDirectCallee();
-						auto num_args = CE->getNumArgs();
-						if (function_decl) {
-							std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-							DECLARE_CACHED_CONST_STRING(return_value_str, mse_namespace_str() + "::return_value");
-							if (return_value_str == qualified_function_name) {
-								xscope_return_value_wrapper_present = true;
+						const auto CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+						if (CXXRD) {
+							auto qname = CXXRD->getQualifiedNameAsString();
+							//DECLARE_CACHED_CONST_STRING(treturnablefparam_str, mse_namespace_str() + "::rsv::TReturnableFParam");
+							//DECLARE_CACHED_CONST_STRING(tfparam_str, mse_namespace_str() + "::rsv::TFParam");
+							//DECLARE_CACHED_CONST_STRING(txsifcfparam_str, mse_namespace_str() + "::rsv::TXScopeItemFixedConstPointerFParam");
+							//DECLARE_CACHED_CONST_STRING(txsiffparam_str, mse_namespace_str() + "::rsv::TXScopeItemFixedPointerFParam");
+
+							DECLARE_CACHED_CONST_STRING(prefix_str, mse_namespace_str() + "::rsv::");
+							static const std::string suffix_str = "FParam";
+							if (!(string_begins_with(qname, prefix_str) && string_ends_with(qname, suffix_str))) {
+								continue;
+							}
+
+							auto CTSD = clang::dyn_cast<const clang::ClassTemplateSpecializationDecl>(CXXRD);
+							if (CTSD) {
+								const auto& template_args = CTSD->getTemplateInstantiationArgs();
+								const auto num_args = template_args.size();
+								for (int i = 0; i < int(num_args); i += 1) {
+									const auto template_arg = template_args[i];
+									if (clang::TemplateArgument::Type == template_arg.getKind()) {
+										const auto ta_qtype = template_arg.getAsType();
+										IF_DEBUG(const auto ta_qtype_str = ta_qtype.getAsString();)
+										//return remove_fparam_wrappers(ta_qtype);
+
+										has_an_mse_fparam_parameter = true;
+										break;
+									} else {
+										/*unexpected*/
+										int q = 5;
+									}
+								}
 							}
 						}
+						if (has_an_mse_fparam_parameter) {
+							break;
+						}
 					}
-					if (!xscope_return_value_wrapper_present) {
-						std::string error_desc = std::string("Return values of xscope type (such as '")
-						+ return_qtype.getAsString() + "') need to be wrapped in the mse::return_value() function wrapper"
-						+ ", or have their lifetime specified with the 'return_value<>' function lifetime annotation.";
-
-						auto FND = enclosing_function_if_any(ST->getRetValue(), *(MR.Context));
-						if (FND) {
-							if (FND->isDefaulted()) {
-								error_desc += " (This return statement is contained in the (possibly implicit/default member) function '" + FND->getNameAsString() + "' .)";
+					if (has_an_mse_fparam_parameter) {
+						bool xscope_return_value_wrapper_present = false;
+						const clang::Stmt* stii = IgnoreParenImpNoopCasts(ST->getRetValue(), *(MR.Context));
+						while (!dyn_cast<const CallExpr>(stii)) {
+							//stii->dump();
+							auto* CXXCE = dyn_cast<const CXXConstructExpr>(stii);
+							if (CXXCE && (1 <= CXXCE->getNumArgs()) && (CXXCE->getArg(0))) {
+								stii = IgnoreParenImpNoopCasts(CXXCE->getArg(0), *(MR.Context));
+								continue;
+							}
+							break;
+						}
+						auto* CE = dyn_cast<const CallExpr>(stii);
+						if (CE) {
+							auto function_decl = CE->getDirectCallee();
+							auto num_args = CE->getNumArgs();
+							if (function_decl) {
+								std::string qualified_function_name = function_decl->getQualifiedNameAsString();
+								DECLARE_CACHED_CONST_STRING(return_value_str, mse_namespace_str() + "::return_value");
+								if (return_value_str == qualified_function_name) {
+									xscope_return_value_wrapper_present = true;
+								}
 							}
 						}
+						if (!xscope_return_value_wrapper_present) {
+							std::string error_desc = std::string("Return values of xscope type (such as '")
+							+ return_qtype.getAsString() + "'), in functions that have 'FParam<>' parameters, need to be "
+							+ "wrapped in the mse::return_value() function wrapper.";
 
-						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n\n";
+							auto FND = enclosing_function_if_any(ST->getRetValue(), *(MR.Context));
+							if (FND) {
+								if (FND->isDefaulted()) {
+									error_desc += " (This return statement is contained in the (possibly implicit/default member) function '" + FND->getNameAsString() + "' .)";
+								}
+							}
+
+							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+							if (res.second) {
+								std::cout << (*(res.first)).as_a_string1() << " \n\n";
+							}
 						}
 					}
 				}
@@ -7632,13 +7734,9 @@ namespace checker {
 								}
 							}
 						}
-						{
-							auto IOA_type_lifetime_value_map_copy = IOA_type_lifetime_value_map;
-							initialized_lifetime_value_map.merge(IOA_type_lifetime_value_map_copy);
-						}
-						{
-							auto IOA_type_lifetime_value_map_copy = IOA_type_lifetime_value_map;
-							present_lifetime_value_map.merge(IOA_type_lifetime_value_map_copy);
+						for (auto const& item : IOA_type_lifetime_value_map) {
+							initialized_lifetime_value_map.insert_or_assign(item.first, item.second);
+							present_lifetime_value_map.insert_or_assign(item.first, item.second);
 						}
 
 						if (CXXCE) {
@@ -8944,16 +9042,23 @@ namespace checker {
 											sli2.m_maybe_source_range = VD->getSourceRange();
 										}
 									} else {
+										auto VD_conatining_scope = get_containing_scope(VD, Ctx);
+										auto VDSR = VD->getSourceRange();
+
 										const auto sl_storage_duration = VD->getStorageDuration();
 										const auto sl_is_immortal = ((clang::StorageDuration::SD_Static == sl_storage_duration) || (clang::StorageDuration::SD_Thread == sl_storage_duration)) ? true : false;
 										sli2.m_category = sl_is_immortal ? CScopeLifetimeInfo1::ECategory::Immortal : CScopeLifetimeInfo1::ECategory::Automatic;
-										sli2.m_maybe_containing_scope = get_containing_scope(VD, Ctx);
-										sli2.m_maybe_source_range = VD->getSourceRange();
+										sli2.m_maybe_containing_scope = VD_conatining_scope;
+										sli2.m_maybe_source_range = VDSR;
 
 										/* Since, unlike regular variables, the initialization value of parameter variables (i.e. the
 										corresponding argument) is not available in the declaration. So we use the annotated abstract
 										lifetimes themselves as the lifetime (initialization) values. */
 										*(sli2.m_sublifetimes_vlptr) = plm_iter->second;
+										for (auto& slti_ref : (*(sli2.m_sublifetimes_vlptr)).m_primary_lifetime_infos) {
+											slti_ref.m_maybe_containing_scope = VD_conatining_scope;
+											slti_ref.m_maybe_source_range = VDSR;
+										}
 									}
 									auto res1 = state1.m_vardecl_lifetime_values_map.insert_or_assign(VD, CVariableLifetimeValues{ sli2, bool(MR_ptr) });
 									retval = res1.first->second;
@@ -10285,19 +10390,20 @@ namespace checker {
 						auto num_args = CE->getNumArgs();
 						if (function_decl) {
 							const std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-							const auto FDSR = function_decl->getSourceRange();
-							bool is_potentially_from_standard_header = FDSR.getBegin().isInvalid()
-								|| MR.SourceManager->isInSystemHeader(FDSR.getBegin());
+							const auto FNDSR = function_decl->getSourceRange();
+							bool is_potentially_from_standard_header = FNDSR.getBegin().isInvalid()
+								|| MR.SourceManager->isInSystemHeader(FNDSR.getBegin());
 							if (!is_potentially_from_standard_header) {
 								/*
 								bool filename_is_invalid = false;
-								std::string full_path_name = MR.SourceManager->getBufferName(FDSR.getBegin(), &filename_is_invalid);
+								std::string full_path_name = MR.SourceManager->getBufferName(FNDSR.getBegin(), &filename_is_invalid);
 								static const std::string built_in_str = "<built-in>";
 								is_potentially_from_standard_header |= (built_in_str == full_path_name);
 								*/
-								/* filtered_out_by_location() returns true for SaferCPlusPlus headers as well
+								/* errors_suppressed_by_location() returns true for SaferCPlusPlus headers as well
 								as standard and system headers.  */
-								is_potentially_from_standard_header |= filtered_out_by_location(*(MR.SourceManager), FDSR.getBegin());
+								is_potentially_from_standard_header |= filtered_out_by_location(*(MR.SourceManager), FNDSR.getBegin());
+								is_potentially_from_standard_header |= errors_suppressed_by_location(*(MR.SourceManager), FNDSR.getBegin());
 							}
 							if (is_potentially_from_standard_header) {
 								static const std::string std_move_str = "std::move";
@@ -10394,8 +10500,8 @@ namespace checker {
 														}
 														const std::string error_desc = std::string("Unable to verify the safety ")
 															+ "of the native reference parameter, '" + param->getNameAsString()
-															+ "', of the function object being passed (to an opaque "
-															+ "function/method/operator) here.";
+															+ "', of the function object being passed (to opaque "
+															+ "function/method/operator '" + l_FD->getQualifiedNameAsString() + "') here.";
 														auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, arg_SR.getBegin(), error_desc));
 														if (res.second) {
 															std::cout << (*(res.first)).as_a_string1() << " \n\n";

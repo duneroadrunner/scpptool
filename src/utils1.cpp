@@ -214,7 +214,7 @@ CFilteringResult evaluate_filtering_by_filename(const std::string &filename) {
 			the case for the other mse*.h files, but that could change in the future. */
 			retval.m_do_not_process = true;
 		} else {
-			retval.m_do_not_process = true;
+			//retval.m_do_not_process = true;
 			int q = 5;
 		}
 	} else if (built_in_str == filename) {
