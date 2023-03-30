@@ -795,6 +795,64 @@ namespace checker {
 		return retval;
 	}
 
+	inline bool contains_non_owning_scope_reference(const clang::QualType qtype, const CCommonTUState1& tu_state_cref, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr);
+	inline bool contains_non_owning_scope_reference(const clang::Type& type, const CCommonTUState1& tu_state_cref, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
+		bool retval = false;
+
+		const auto qtype = clang::QualType(&type, 0/*I'm just assuming zero specifies no qualifiers*/);
+		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+		auto CXXRD = type.getAsCXXRecordDecl();
+		if (CXXRD) {
+			DECLARE_CACHED_CONST_STRING(ContainsNonOwningScopeReference_tag_str, mse_namespace_str() + "::us::impl::ContainsNonOwningScopeReferenceTagBase");
+			if (has_ancestor_base_class(*(CXXRD->getTypeForDecl()), ContainsNonOwningScopeReference_tag_str)) {
+				return true;
+			} else {
+				auto qname = CXXRD->getQualifiedNameAsString();
+
+				DECLARE_CACHED_CONST_STRING(tpfl_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
+				if ((tpfl_str == qname) && (!tu_state_cref.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(qtype))) {
+					return true;
+				}
+			}
+		} else if ((!tu_state_cref.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(qtype))
+			&& ((type.isPointerType()) || (type.isReferenceType()))) {
+			return true;
+		}
+		auto RD = type.getAsRecordDecl();
+		if (RD) {
+			for (const auto FD : RD->fields()) {
+				const auto field_qtype = FD->getType();
+				auto field_qtype_str = field_qtype.getAsString();
+				if (MR_ptr && Rewrite_ptr) {
+					auto field_suppress_check_flag = tu_state_cref.m_suppress_check_region_set.contains(FD, *Rewrite_ptr, *(MR_ptr->Context));
+					if (field_suppress_check_flag) {
+						continue;
+					}
+				}
+
+				if (!(field_qtype.isNull())) {
+					bool res1 = contains_non_owning_scope_reference(field_qtype, tu_state_cref, MR_ptr, Rewrite_ptr);
+					if (res1) {
+						return true;
+					}
+				}
+			}
+		}
+
+		return retval;
+	}
+	inline bool contains_non_owning_scope_reference(const clang::QualType qtype, const CCommonTUState1& tu_state_cref, MatchFinder::MatchResult const * MR_ptr/* = nullptr*/, Rewriter* Rewrite_ptr/* = nullptr*/) {
+		bool retval = false;
+
+		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+		const auto TP = qtype.getTypePtr();
+		if (!TP) { assert(false); } else {
+			retval = contains_non_owning_scope_reference(*TP, tu_state_cref, MR_ptr, Rewrite_ptr);
+		}
+		return retval;
+	}
+
 	template<typename TCallExpr>
 	auto arg_from_param_ordinal(TCallExpr const * CE, checker::param_ordinal_t param_ordinal) {
 		clang::Expr const * retval = nullptr;
@@ -1070,7 +1128,6 @@ namespace checker {
 	inline auto type_lifetime_annotations_if_available(const clang::Type * TypePtr, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr)
 		-> std::optional<CTypeLifetimeAnnotations *>;
 
-
 	auto populate_lifetime_alias_map(const clang::Type * TypePtr2, const CAbstractLifetimeSet& alts, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr)
 		-> CAbstractLifetimeSet {
 
@@ -1132,6 +1189,136 @@ namespace checker {
 		}
 		return retval;
 	};
+
+	auto template_arg_type_by_name_if_available(clang::TemplateParameterList const * tparam_list, std::vector<std::optional<clang::QualType> > const & template_args_maybe_types, clang::SourceRange const& SR, std::string_view target_tparam_name_sv, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr)
+		-> std::optional<clang::QualType> {
+
+		auto retval = std::optional<clang::QualType>{};
+		if (!tparam_list) {
+			return retval;
+		}
+
+		//auto tparam_list = CTD2->getTemplateParameters();
+		auto tpl_size = tparam_list->size();
+		std::optional<size_t> maybe_found_index;
+		size_t count = 0;
+		for (auto& tparam_ND : *tparam_list) {
+			const auto tp_name = tparam_ND->getNameAsString();
+			if (tp_name == target_tparam_name_sv) {
+				maybe_found_index = count;
+				break;
+			}
+			count += 1;
+		}
+		if (maybe_found_index.has_value()) {
+			auto target_targ_index = maybe_found_index.value();
+
+			{
+				//auto template_args_maybe_types = get_template_args_maybe_types(TypePtr2);
+				if ((template_args_maybe_types.size() > target_targ_index)
+					&& (template_args_maybe_types.at(target_targ_index).has_value())) {
+
+					auto template_arg_type = template_args_maybe_types.at(target_targ_index).value();
+					if (!(template_arg_type.isNull())) {
+						return template_arg_type;
+					} else {
+						/* In the case of a template definition (as opposed to a template instantiation),
+						get_template_args_maybe_types() won't return any parameters. In this case we'll just map the
+						specified aliases to the empty set. */
+						int q = 5;
+					}
+				}
+			}
+		} else {
+			if (MR_ptr) {
+				std::string template_parameters_str;
+				for (auto& tparam_ND : *tparam_list) {
+					const auto tp_name = tparam_ND->getNameAsString();
+					template_parameters_str += tp_name;
+					template_parameters_str += ", ";
+				}
+				if (std::string(", ").length() < template_parameters_str.length()) {
+					template_parameters_str = template_parameters_str.substr(0, int(template_parameters_str.length()) - 2);
+				}
+
+				std::string error_desc = std::string("The specified template parameter name '")
+					+ std::string(target_tparam_name_sv) + "' was not recognized.";
+				if (256/*arbitrary*/ > template_parameters_str.length()) {
+					error_desc += " The recognized template parameters are: " + template_parameters_str + ".";
+				}
+
+				auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
+				if (res.second) {
+					std::cout << (*(res.first)).as_a_string1() << " \n\n";
+				}
+			}
+		}
+		int q = 5;
+
+		return retval;
+	}
+
+	auto template_arg_type_by_name_if_available(const clang::Type * TypePtr2, std::string_view target_tparam_name_sv, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr)
+		-> std::optional<clang::QualType> {
+
+		auto retval = std::optional<clang::QualType>{};
+		if (!TypePtr2) {
+			return retval;
+		}
+		if (TypePtr2->isUndeducedType()) {
+			int q = 5;
+		}
+
+		const auto CXXRD = TypePtr2->getAsCXXRecordDecl();
+		if (CXXRD) {
+			auto qname = CXXRD->getQualifiedNameAsString();
+
+			auto CTSD = clang::dyn_cast<const clang::ClassTemplateSpecializationDecl>(CXXRD);
+			if (CTSD) {
+				auto CTD2 = CTSD->getSpecializedTemplate();
+				if (CTD2) {
+					auto tparam_list = CTD2->getTemplateParameters();
+					auto template_args_maybe_types = get_template_args_maybe_types(TypePtr2);
+
+					retval = template_arg_type_by_name_if_available(tparam_list, template_args_maybe_types, CTD2->getSourceRange(), target_tparam_name_sv, state1, MR_ptr, Rewrite_ptr);
+				}
+			}
+		}
+		return retval;
+	}
+
+	auto template_arg_type_by_name_if_available(const clang::FunctionDecl& func_decl, std::string_view target_tparam_name_sv, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr)
+		-> std::optional<clang::QualType> {
+
+		auto retval = std::optional<clang::QualType>{};
+
+		auto FTD = func_decl.getPrimaryTemplate();
+		if (!FTD) {
+			return retval;
+		}
+		auto tparam_list = FTD->getTemplateParameters();
+		if (tparam_list) {
+			const auto template_args_ptr = func_decl.getTemplateSpecializationArgs();
+			if (template_args_ptr) {
+				const auto& template_args = *template_args_ptr;
+				std::vector<std::optional<clang::QualType> > template_args_maybe_types;
+
+				const auto num_args = template_args.size();
+				for (int i = 0; i < int(num_args); i += 1) {
+					const auto template_arg = template_args[i];
+					if ((clang::TemplateArgument::ArgKind::Type != template_arg.getKind()) || template_arg.isNull()) {
+						template_args_maybe_types.push_back({});
+					} else {
+						const auto ta_qtype = template_arg.getAsType();
+						IF_DEBUG(const auto ta_qtype_str = ta_qtype.getAsString();)
+						template_args_maybe_types.push_back(ta_qtype);
+					}
+				}
+				retval = template_arg_type_by_name_if_available(tparam_list, template_args_maybe_types, func_decl.getSourceRange(), target_tparam_name_sv, state1, MR_ptr, Rewrite_ptr);
+			}
+		}
+		return retval;
+	}
 
 	auto infer_alias_mapping_from_template_arg(clang::TemplateParameterList const * tparam_list, std::vector<std::optional<clang::QualType> > const & template_args_maybe_types, clang::SourceRange const& SR, std::string_view target_tparam_name_sv, const CAbstractLifetime& alias, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr)
 		-> CAbstractLifetimeSet {
@@ -1341,6 +1528,7 @@ namespace checker {
 			DECLARE_CACHED_CONST_STRING(lifetime_labels_for_base_class, "lifetime_labels_for_base_class");
 			DECLARE_CACHED_CONST_STRING(lifetime_label_for_base_class, "lifetime_label_for_base_class");
 			DECLARE_CACHED_CONST_STRING(lifetime_labels_for_base_class_by_zb_index, "lifetime_labels_for_base_class_by_zb_index");
+			DECLARE_CACHED_CONST_STRING(lifetime_scope_types_prohibited_for_template_parameter_by_name, "lifetime_scope_types_prohibited_for_template_parameter_by_name");
 
 			auto vec = type_decl.getAttrs();
 			struct CLTAStatementInfo {
@@ -1730,6 +1918,61 @@ namespace checker {
 						}
 						break;
 					}
+
+					auto lstpftpbn_range = Parse::find_token_sequence({ lifetime_scope_types_prohibited_for_template_parameter_by_name }, pretty_str);
+					if (pretty_str.length() > lstpftpbn_range.begin) {
+						static const std::string lparenthesis = "(";
+						static const std::string rparenthesis = ")";
+
+						auto lparenthesis_range = Parse::find_token_at_same_nesting_depth1(lparenthesis, pretty_str, lstpftpbn_range.end);
+						if (pretty_str.length() <= lparenthesis_range.begin) {
+							continue;
+						}
+						auto lparenthesis_index = lparenthesis_range.begin;
+						auto rparenthesis_index = Parse::find_matching_right_parenthesis(pretty_str, lparenthesis_range.end);
+						if (pretty_str.length() <= rparenthesis_index) {
+							int q = 3;
+							continue;
+						}
+						std::string_view sv1(pretty_str.data() + lparenthesis_index + 1, int(rparenthesis_index) - int(lparenthesis_index + 1));
+
+						CAbstractLifetimeSet alts1 = parse_lifetime_ids(sv1, &type_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
+
+						for (auto& lifetime : alts1.m_primary_lifetimes) {
+							auto template_name = std::string(lifetime.m_id);
+
+							clang::Type const * TypePtr = nullptr;
+							if (MR_ptr && MR_ptr->Context) {
+								auto qtype = MR_ptr->Context->getTypeDeclType(&type_decl);
+								if (!qtype.isNull()) {
+									TypePtr = qtype.getTypePtr();
+								}
+							} else {
+								TypePtr = type_decl.getTypeForDecl();
+							}
+							if (TypePtr) {
+								auto maybe_template_arg_type = template_arg_type_by_name_if_available(TypePtr, template_name, state1, MR_ptr, Rewrite_ptr);
+								if (maybe_template_arg_type.has_value()) {
+									auto template_arg_type = maybe_template_arg_type.value();
+									bool res1 = contains_non_owning_scope_reference(template_arg_type, state1, MR_ptr, Rewrite_ptr);
+									if (res1) {
+										if (MR_ptr) {
+											std::string error_desc = std::string("Template parameter '") + template_name + "' instantiated with scope type '";
+											error_desc += template_arg_type.getAsString() + "' prohibited by a 'scope_types_prohibited_for_template_parameter_by_name()' lifetime constraint.";
+											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
+											if (res.second) {
+												std::cout << (*(res.first)).as_a_string1() << " \n\n";
+											}
+										}
+									}
+								} else {
+									int q = 5;
+								}
+							}
+						}
+						break;
+					}
+
 				} while (false);
 			}
 		}
@@ -1935,6 +2178,7 @@ namespace checker {
 			DECLARE_CACHED_CONST_STRING(lifetime_set_alias_from_template_parameter_by_name, "lifetime_set_alias_from_template_parameter_by_name");
 			DECLARE_CACHED_CONST_STRING(lifetime_set_alias_from_template_parameter, "lifetime_set_alias_from_template_parameter");
 			DECLARE_CACHED_CONST_STRING(lifetime_set_aliases_from_template_parameters_in_order, "lifetime_set_aliases_from_template_parameters_in_order");
+			DECLARE_CACHED_CONST_STRING(lifetime_scope_types_prohibited_for_template_parameter_by_name, "lifetime_scope_types_prohibited_for_template_parameter_by_name");
 			DECLARE_CACHED_CONST_STRING(lifetime_return_value, "lifetime_return_value");
 			DECLARE_CACHED_CONST_STRING(lifetime_this, "lifetime_this");
 			DECLARE_CACHED_CONST_STRING(lifetime_encompasses, "lifetime_encompasses");
@@ -2227,13 +2471,60 @@ namespace checker {
 						break;
 					}
 
+					auto lstpftpbn_range = Parse::find_token_sequence({ lifetime_scope_types_prohibited_for_template_parameter_by_name }, pretty_str);
+					if (pretty_str.length() > lstpftpbn_range.begin) {
+						static const std::string lparenthesis = "(";
+						static const std::string rparenthesis = ")";
+
+						auto lparenthesis_range = Parse::find_token_at_same_nesting_depth1(lparenthesis, pretty_str, lstpftpbn_range.end);
+						if (pretty_str.length() <= lparenthesis_range.begin) {
+							continue;
+						}
+						auto lparenthesis_index = lparenthesis_range.begin;
+						auto rparenthesis_index = Parse::find_matching_right_parenthesis(pretty_str, lparenthesis_range.end);
+						if (pretty_str.length() <= rparenthesis_index) {
+							int q = 3;
+							continue;
+						}
+						std::string_view sv1(pretty_str.data() + lparenthesis_index + 1, int(rparenthesis_index) - int(lparenthesis_index + 1));
+
+						CAbstractLifetimeSet alts1 = parse_lifetime_ids(sv1, &func_decl, attr_SR, state1, MR_ptr, Rewrite_ptr);
+
+						for (auto& lifetime : alts1.m_primary_lifetimes) {
+							auto template_name = std::string(lifetime.m_id);
+
+							{
+								auto maybe_template_arg_type = template_arg_type_by_name_if_available(func_decl, template_name, state1, MR_ptr, Rewrite_ptr);
+								if (maybe_template_arg_type.has_value()) {
+									auto template_arg_type = maybe_template_arg_type.value();
+									bool res1 = contains_non_owning_scope_reference(template_arg_type, state1, MR_ptr, Rewrite_ptr);
+									if (res1) {
+										if (MR_ptr) {
+											std::string error_desc = std::string("Template parameter '") + template_name + "' instantiated with scope type '";
+											error_desc += template_arg_type.getAsString() + "' prohibited by a 'scope_types_prohibited_for_template_parameter_by_name()' lifetime constraint.";
+											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
+											if (res.second) {
+												std::cout << (*(res.first)).as_a_string1() << " \n\n";
+											}
+										}
+									}
+								} else {
+									int q = 5;
+								}
+							}
+						}
+						break;
+					}
+
 					index2 = pretty_str.find(clang_lifetimebound_str);
 					if (false && (decltype(pretty_str)::npos != index2)) {
 						/* A [[clang::lifetimebound]] attribute on the function will be interpreted as an
 						MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value<1>; this<1> }") attribute. */
 						flta.m_return_value_lifetimes = CAbstractLifetime{ lifetime_id_t("1"), &func_decl };
 						param_lifetime_map.insert_or_assign(IMPLICIT_THIS_PARAM_ORDINAL, CAbstractLifetime{ lifetime_id_t("1"), &func_decl });
+						break;
 					}
+
 				} while (false);
 			}
 		}

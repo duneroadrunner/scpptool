@@ -1514,43 +1514,6 @@ inline bool is_xscope_type(const clang::QualType qtype, const CCommonTUState1& t
 	return retval;
 }
 
-inline bool contains_non_owning_scope_reference(const clang::QualType qtype, const CCommonTUState1& tu_state_cref);
-inline bool contains_non_owning_scope_reference(const clang::Type& type, const CCommonTUState1& tu_state_cref) {
-	bool retval = false;
-
-	const auto qtype = clang::QualType(&type, 0/*I'm just assuming zero specifies no qualifiers*/);
-	IF_DEBUG(std::string qtype_str = qtype.getAsString();)
-	auto CXXRD = type.getAsCXXRecordDecl();
-	if (CXXRD) {
-		DECLARE_CACHED_CONST_STRING(ContainsNonOwningScopeReference_tag_str, mse_namespace_str() + "::us::impl::ContainsNonOwningScopeReferenceTagBase");
-		if (has_ancestor_base_class(*(CXXRD->getTypeForDecl()), ContainsNonOwningScopeReference_tag_str)) {
-			return true;
-		} else {
-			auto qname = CXXRD->getQualifiedNameAsString();
-
-			DECLARE_CACHED_CONST_STRING(tpfl_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
-			if ((tpfl_str == qname) && (!tu_state_cref.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(qtype))) {
-				return true;
-			}
-		}
-	} else if ((!tu_state_cref.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(qtype))
-		&& ((type.isPointerType()) || (type.isReferenceType()))) {
-		return true;
-	}
-	return retval;
-}
-inline bool contains_non_owning_scope_reference(const clang::QualType qtype, const CCommonTUState1& tu_state_cref) {
-	bool retval = false;
-
-	IF_DEBUG(std::string qtype_str = qtype.getAsString();)
-	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
-	const auto TP = qtype.getTypePtr();
-	if (!TP) { assert(false); } else {
-		retval = contains_non_owning_scope_reference(*TP, tu_state_cref);
-	}
-	return retval;
-}
-
 inline bool referenceable_by_scope_pointer(const clang::QualType qtype, const CCommonTUState1& tu_state_cref);
 inline bool referenceable_by_scope_pointer(const clang::Type& type, const CCommonTUState1& tu_state_cref) {
 	bool retval = false;
