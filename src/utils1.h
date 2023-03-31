@@ -788,18 +788,63 @@ inline bool first_is_contained_in_scope_of_second(const NodeT* ST1, const Node2T
 		, get_containing_scope(ST2, context), ST2->getSourceRange(), context);
 }
 
-inline bool has_ancestor_base_class(const clang::QualType qtype, const std::string& qualified_base_class_name);
-inline bool has_ancestor_base_class(const clang::Type& type, const std::string& qualified_base_class_name) {
+inline bool has_direct_base_class(const clang::QualType qtype, const std::string& qualified_base_class_name);
+inline bool has_direct_base_class(const clang::Type& type, const std::string& qualified_base_class_name) {
 	bool retval = false;
 
 	const auto TP = &type;
 	const auto CXXRD = TP->getAsCXXRecordDecl();
 	if (CXXRD) {
-		auto qname = CXXRD->getQualifiedNameAsString();
-		if (qualified_base_class_name == qname) {
-			return true;
+		if (CXXRD->hasDefinition()) {
+			for (const auto& base : CXXRD->bases()) {
+				const auto base_qtype = base.getType();
+				IF_DEBUG(const auto base_qtype_str = base_qtype.getAsString();)
+				auto base_TP = base_qtype.getTypePtr();
+				if (base_TP) {
+					const auto base_RD = base_TP->getAsRecordDecl();
+					if (base_RD) {
+						auto base_qname = base_RD->getQualifiedNameAsString();
+						if (qualified_base_class_name == base_qname) {
+							return true;
+						}
+					}
+					{
+						const auto l_base_qtype_str = base_qtype.getAsString();
+						if (qualified_base_class_name == l_base_qtype_str) {
+							return true;
+						}
+					}
+				}
+			}
+		} else {
+			int q = 5;
 		}
+	}
 
+	return retval;
+}
+inline bool has_direct_base_class(const clang::QualType qtype, const std::string& qualified_base_class_name) {
+	bool retval = false;
+
+	IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+	const auto TP = qtype.getTypePtr();
+	if (!TP) { assert(false); } else {
+		retval = has_direct_base_class(*TP, qualified_base_class_name);
+	}
+	return retval;
+}
+
+inline bool has_ancestor_base_class(const clang::QualType qtype, const std::string& qualified_base_class_name);
+inline bool has_ancestor_base_class(const clang::Type& type, const std::string& qualified_base_class_name) {
+	bool retval = false;
+
+	const auto TP = &type;
+	if (has_direct_base_class(type, qualified_base_class_name)) {
+		return true;
+	}
+
+	const auto CXXRD = TP->getAsCXXRecordDecl();
+	if (CXXRD) {
 		if (CXXRD->hasDefinition()) {
 			for (const auto& base : CXXRD->bases()) {
 				const auto base_qtype = base.getType();
@@ -1469,75 +1514,6 @@ public:
 	}
 };
 
-
-inline bool is_xscope_type(const clang::QualType qtype, const CCommonTUState1& tu_state_cref);
-inline bool is_xscope_type(const clang::Type& type, const CCommonTUState1& tu_state_cref) {
-	bool retval = false;
-
-	const auto TP = &type;
-	const auto CXXRD = TP->getAsCXXRecordDecl();
-	if (CXXRD) {
-		IF_DEBUG(auto qname = CXXRD->getQualifiedNameAsString();)
-		DECLARE_CACHED_CONST_STRING(xscope_tag_str, mse_namespace_str() + "::us::impl::XScopeTagBase");
-		if (has_ancestor_base_class(type, xscope_tag_str)) {
-			return true;
-		} else {
-			static const std::string std_unique_ptr_str = "std::unique_ptr";
-			auto name = CXXRD->getQualifiedNameAsString();
-			if (std_unique_ptr_str == name) {
-				return true;
-			}
-		}
-	}
-	if (!(tu_state_cref.m_MSE_SOME_NON_XSCOPE_POINTER_TYPE_IS_DISABLED_defined)) {
-		if (type.isPointerType()) {
-			if (!type.isFunctionPointerType()) {
-				return true;
-			}
-		}
-	}
-	if (type.isReferenceType()) {
-		return true;
-	}
-
-	return retval;
-}
-inline bool is_xscope_type(const clang::QualType qtype, const CCommonTUState1& tu_state_cref) {
-	bool retval = false;
-
-	IF_DEBUG(std::string qtype_str = qtype.getAsString();)
-	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
-	const auto TP = qtype.getTypePtr();
-	if (!TP) { assert(false); } else {
-		retval = is_xscope_type(*TP, tu_state_cref);
-	}
-	return retval;
-}
-
-inline bool referenceable_by_scope_pointer(const clang::QualType qtype, const CCommonTUState1& tu_state_cref);
-inline bool referenceable_by_scope_pointer(const clang::Type& type, const CCommonTUState1& tu_state_cref) {
-	bool retval = false;
-
-	auto CXXRD = type.getAsCXXRecordDecl();
-	if (CXXRD) {
-		DECLARE_CACHED_CONST_STRING(ReferenceableByScopePointer_tag_str, mse_namespace_str() + "::us::impl::ReferenceableByScopePointerTagBase");
-		if (has_ancestor_base_class(*(CXXRD->getTypeForDecl()), ReferenceableByScopePointer_tag_str)) {
-			return true;
-		}
-	}
-	return retval;
-}
-inline bool referenceable_by_scope_pointer(const clang::QualType qtype, const CCommonTUState1& tu_state_cref) {
-	bool retval = false;
-
-	IF_DEBUG(std::string qtype_str = qtype.getAsString();)
-	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
-	const auto TP = qtype.getTypePtr();
-	if (!TP) { assert(false); } else {
-		retval = referenceable_by_scope_pointer(*TP, tu_state_cref);
-	}
-	return retval;
-}
 
 inline bool is_async_shareable(const clang::QualType qtype);
 inline bool is_async_shareable(const clang::Type& type) {

@@ -74,6 +74,8 @@ namespace checker {
 
 	static const std::string g_target_debug_source_location_str1 = s_target_debug_location_init_val();
 
+	static const bool g_enforce_scpp_type_indicator_tags = false;
+
     bool CheckSystemHeader = false;
     bool MainFileOnly = false;
     bool CTUAnalysis = false;
@@ -89,18 +91,40 @@ namespace checker {
     };
 
 
+	typedef std::vector<clang::SourceRange> CInstantiationStack;
+
 	class CErrorRecord {
 		public:
 		CErrorRecord() : m_id(next_available_id()) {}
-		CErrorRecord(SourceManager& SM, clang::SourceLocation SL, std::string error_description_str = "", std::string tag_name = "")
-			: m_SL(SL), m_source_location_str(s_source_location_str(SM, SL)), m_error_description_str(error_description_str)
-			, m_tag_name(tag_name), m_id(next_available_id()) {}
+		CErrorRecord(SourceManager& SM, clang::SourceRange const& SR, CInstantiationStack const& instantiation_stack, std::string error_description_str = "", std::string tag_name = "")
+			: m_SR(SR), m_instantiation_stack(instantiation_stack), m_source_location_str(s_source_location_str(SM, SR.getBegin())), m_error_description_str(error_description_str)
+			, m_tag_name(tag_name), m_id(next_available_id()) {
+
+			while (1 <= m_instantiation_stack.size()) {
+				if (m_instantiation_stack.back().getBegin() == m_SR.getBegin()) {
+					m_instantiation_stack.pop_back();
+				} else {
+					break;
+				}
+			}
+			for (auto& instantiation : m_instantiation_stack) {
+				m_instantiation_source_location_str_stack.push_back(s_source_location_str(SM, instantiation.getBegin()));
+			}
+		}
 
 		std::string as_a_string1() const {
 			std::string retval = m_source_location_str + ": " + m_severity_str + ": " + m_error_description_str;
 			if ("" != m_tag_name) {
 				retval += " (" + m_tag_name + ") ";
 			}
+
+			auto l_instantiation_source_location_str_stack = m_instantiation_source_location_str_stack;
+			std::reverse(l_instantiation_source_location_str_stack.begin(), l_instantiation_source_location_str_stack.end());
+			for (auto& instantiation_source_location_str : l_instantiation_source_location_str_stack) {
+				std::string str1 = "\n  used here: " + instantiation_source_location_str;
+				retval += str1;
+			}
+
 			return retval;
 		}
 		bool operator<(const CErrorRecord &RHS) const {
@@ -115,8 +139,10 @@ namespace checker {
 			return SL.printToString(SM);
 		}
 
-		clang::SourceLocation m_SL;
+		clang::SourceRange m_SR;
 		std::string m_source_location_str;
+		CInstantiationStack m_instantiation_stack;
+		std::vector<std::string> m_instantiation_source_location_str_stack;
 		std::string m_error_description_str;
 		std::string m_tag_name;
 		std::string m_severity_str = "error";
@@ -317,6 +343,32 @@ namespace checker {
 	public:
 		/* Set of detected errors and warnings. */
 		CErrorRecords m_error_records;
+
+		CInstantiationStack m_instantiation_stack;
+		struct CInstantiationScopeObj {
+			CInstantiationScopeObj(CTUState& state1, clang::SourceRange const& SR) : m_state1_ptr(&state1), m_SR(SR) {
+				m_state1_ptr->m_instantiation_stack.push_back(m_SR);
+			}
+			CInstantiationScopeObj(const CInstantiationScopeObj& src) : m_state1_ptr(src.m_state1_ptr), m_SR(src.m_SR) {
+				m_state1_ptr->m_instantiation_stack.push_back(m_SR);
+			}
+			~CInstantiationScopeObj() {
+				assert(m_state1_ptr);
+				m_state1_ptr->m_instantiation_stack.pop_back();
+			}
+			CTUState* m_state1_ptr = nullptr;
+			clang::SourceRange m_SR;
+		};
+		auto make_instantiation_scope_obj(clang::SourceRange const& SR) {
+			return CInstantiationScopeObj(*this, SR);
+		}
+		void register_error(SourceManager& SM, clang::SourceRange const& SR, std::string error_description_str = "", std::string tag_name = "") {
+			auto res = m_error_records.emplace(CErrorRecord(SM, SR, m_instantiation_stack, error_description_str, tag_name));
+			if (res.second) {
+				std::cout << (*(res.first)).as_a_string1() << " \n\n";
+			}
+		}
+
 
 		std::unordered_map<clang::FunctionDecl const *, CFunctionLifetimeAnnotations> m_function_lifetime_annotations_map;
 
@@ -801,25 +853,21 @@ namespace checker {
 
 		const auto qtype = clang::QualType(&type, 0/*I'm just assuming zero specifies no qualifiers*/);
 		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
-		auto CXXRD = type.getAsCXXRecordDecl();
-		if (CXXRD) {
-			DECLARE_CACHED_CONST_STRING(ContainsNonOwningScopeReference_tag_str, mse_namespace_str() + "::us::impl::ContainsNonOwningScopeReferenceTagBase");
-			if (has_ancestor_base_class(*(CXXRD->getTypeForDecl()), ContainsNonOwningScopeReference_tag_str)) {
-				return true;
-			} else {
-				auto qname = CXXRD->getQualifiedNameAsString();
 
-				DECLARE_CACHED_CONST_STRING(tpfl_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
-				if ((tpfl_str == qname) && (!tu_state_cref.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(qtype))) {
-					return true;
-				}
-			}
-		} else if ((!tu_state_cref.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(qtype))
-			&& ((type.isPointerType()) || (type.isReferenceType()))) {
+		DECLARE_CACHED_CONST_STRING(ContainsNonOwningScopeReference_tag_str, mse_namespace_str() + "::us::impl::ContainsNonOwningScopeReferenceTagBase");
+		if (has_ancestor_base_class(qtype, ContainsNonOwningScopeReference_tag_str)) {
 			return true;
 		}
+
 		auto RD = type.getAsRecordDecl();
 		if (RD) {
+			auto qname = RD->getQualifiedNameAsString();
+
+			DECLARE_CACHED_CONST_STRING(tpfl_str, mse_namespace_str() + "::us::impl::TPointerForLegacy");
+			if ((tpfl_str == qname) && (!tu_state_cref.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(qtype))) {
+				return true;
+			}
+
 			for (const auto FD : RD->fields()) {
 				const auto field_qtype = FD->getType();
 				auto field_qtype_str = field_qtype.getAsString();
@@ -837,6 +885,9 @@ namespace checker {
 					}
 				}
 			}
+		} else if ((!tu_state_cref.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(qtype))
+			&& ((type.isPointerType()) || (type.isReferenceType()))) {
+			return true;
 		}
 
 		return retval;
@@ -849,6 +900,76 @@ namespace checker {
 		const auto TP = qtype.getTypePtr();
 		if (!TP) { assert(false); } else {
 			retval = contains_non_owning_scope_reference(*TP, tu_state_cref, MR_ptr, Rewrite_ptr);
+		}
+		return retval;
+	}
+
+	inline bool referenceable_by_scope_pointer(const clang::QualType qtype, const CCommonTUState1& tu_state_cref);
+	inline bool referenceable_by_scope_pointer(const clang::Type& type, const CCommonTUState1& tu_state_cref) {
+		bool retval = false;
+
+		DECLARE_CACHED_CONST_STRING(ReferenceableByScopePointer_tag_str, mse_namespace_str() + "::us::impl::ReferenceableByScopePointerTagBase");
+		if (has_ancestor_base_class(type, ReferenceableByScopePointer_tag_str)) {
+			return true;
+		}
+		return retval;
+	}
+	inline bool referenceable_by_scope_pointer(const clang::QualType qtype, const CCommonTUState1& tu_state_cref) {
+		bool retval = false;
+
+		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+		const auto TP = qtype.getTypePtr();
+		if (!TP) { assert(false); } else {
+			retval = referenceable_by_scope_pointer(*TP, tu_state_cref);
+		}
+		return retval;
+	}
+
+	inline bool is_xscope_type(const clang::QualType qtype, const CCommonTUState1& tu_state_cref, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr);
+	inline bool is_xscope_type(const clang::Type& type, const CCommonTUState1& tu_state_cref, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
+		bool retval = false;
+
+		const auto TP = &type;
+		const auto CXXRD = TP->getAsCXXRecordDecl();
+		if (CXXRD) {
+			IF_DEBUG(auto qname = CXXRD->getQualifiedNameAsString();)
+			DECLARE_CACHED_CONST_STRING(xscope_tag_str, mse_namespace_str() + "::us::impl::XScopeTagBase");
+			if (has_ancestor_base_class(type, xscope_tag_str)) {
+				return true;
+			} else {
+				static const std::string std_unique_ptr_str = "std::unique_ptr";
+				auto name = CXXRD->getQualifiedNameAsString();
+				if (std_unique_ptr_str == name) {
+					return true;
+				}
+			}
+		}
+		if (!(tu_state_cref.m_MSE_SOME_NON_XSCOPE_POINTER_TYPE_IS_DISABLED_defined)) {
+			if (type.isPointerType()) {
+				if (!type.isFunctionPointerType()) {
+					return true;
+				}
+			}
+		}
+		if (type.isReferenceType()) {
+			return true;
+		}
+		if (contains_non_owning_scope_reference(type, tu_state_cref, MR_ptr, Rewrite_ptr)
+			|| referenceable_by_scope_pointer(type, tu_state_cref)) {
+			return true;
+		}
+
+		return retval;
+	}
+	inline bool is_xscope_type(const clang::QualType qtype, const CCommonTUState1& tu_state_cref, MatchFinder::MatchResult const * MR_ptr/* = nullptr*/, Rewriter* Rewrite_ptr/* = nullptr*/) {
+		bool retval = false;
+
+		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+		const auto TP = qtype.getTypePtr();
+		if (!TP) { assert(false); } else {
+			retval = is_xscope_type(*TP, tu_state_cref, MR_ptr, Rewrite_ptr);
 		}
 		return retval;
 	}
@@ -1065,10 +1186,7 @@ namespace checker {
 					rbracket_index = lifetime_label_ids.length();
 					if (MR_ptr) {
 						std::string error_desc = std::string("Matching close bracket not found.");
-						auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n\n";
-						}
+						state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 					}
 				}
 
@@ -1084,10 +1202,7 @@ namespace checker {
 				if (1 < next_comma_index - rbracket_index) {
 					if (MR_ptr) {
 						std::string error_desc = std::string("Unexpected character(s) after close bracket.");
-						auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n\n";
-						}
+						state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 					}
 				}
 				std::string sublifetime_label_ids = lifetime_label_ids.substr(lbracket_index + 1, int(rbracket_index) - int(lbracket_index + 1));
@@ -1247,10 +1362,7 @@ namespace checker {
 					error_desc += " The recognized template parameters are: " + template_parameters_str + ".";
 				}
 
-				auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-				if (res.second) {
-					std::cout << (*(res.first)).as_a_string1() << " \n\n";
-				}
+				state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 			}
 		}
 		int q = 5;
@@ -1398,10 +1510,7 @@ namespace checker {
 					error_desc += " The recognized template parameters are: " + template_parameters_str + ".";
 				}
 
-				auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-				if (res.second) {
-					std::cout << (*(res.first)).as_a_string1() << " \n\n";
-				}
+				state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 			}
 		}
 		int q = 5;
@@ -1611,10 +1720,7 @@ namespace checker {
 							if (MR_ptr) {
 								std::string error_desc = std::string("The 'encompasses' lifetime constraint takes two lifetime id arguments. Two valid arguments were not found.");
 								error_desc += " \n(A valid example might look something like 'mse::lifetime_encompasses(42, 99)'.)";
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 							}
 						} else if (0 == alts2.m_primary_lifetimes.size()) {
 						} else {
@@ -1661,10 +1767,7 @@ namespace checker {
 							if (MR_ptr) {
 								std::string error_desc = std::string("The 'first_can_be_assigned_to_second' lifetime constraint takes two lifetime id arguments. Two valid arguments were not found.");
 								error_desc += " \n(A valid example might look something like 'mse::lifetime_first_can_be_assigned_to_second(42, 99)'.)";
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 							}
 						} else if (0 == alts2.m_primary_lifetimes.size()) {
 						} else {
@@ -1710,10 +1813,7 @@ namespace checker {
 						} else {
 							if (false && MR_ptr) {
 								std::string error_desc = std::string("No valid 'lifetime label id' specified.");
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 							}
 						}
 						break;
@@ -1742,10 +1842,7 @@ namespace checker {
 							if (MR_ptr) {
 								std::string error_desc = std::string("'lifetime_set_alias_from_template_parameter_by_name()' annotation requires two arguments,");
 								error_desc += " the template parameter name (followed by a comma), followed by a (unique) alias name (of your choosing).";
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 							}
 						} else {
 							auto template_name = std::string(alts1.m_primary_lifetimes.at(0).m_id);
@@ -1758,10 +1855,7 @@ namespace checker {
 										if (MR_ptr) {
 											std::string error_desc = std::string("'lifetime set' label '") + alt.m_id + "', specified in 'lifetime_set_aliases_from_template_parameters' annotation,";
 											error_desc += " is already being used as a 'lifetime set' label. Please choose a different one.";
-											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-											if (res.second) {
-												std::cout << (*(res.first)).as_a_string1() << " \n\n";
-											}
+											state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 										}
 									}
 								}
@@ -1816,10 +1910,7 @@ namespace checker {
 										if (MR_ptr) {
 											std::string error_desc = std::string("'lifetime set' label '") + alt.m_id + "', specified in 'lifetime_set_aliases_from_template_parameters' annotation,";
 											error_desc += " is already being used as a 'lifetime set' label. Please choose a different one.";
-											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-											if (res.second) {
-												std::cout << (*(res.first)).as_a_string1() << " \n\n";
-											}
+											state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 										}
 									}
 								}
@@ -1845,10 +1936,7 @@ namespace checker {
 										std::string error_desc = std::string("No valid 'lifetime set aliases' specified in 'lifetime_set_aliases_from_template_parameters' annotation.");
 										error_desc += " (A valid use of the 'lifetime_set_aliases_from_template_parameters' annotation might look something like: ";
 										error_desc += " 'mse::lifetime_set_aliases_from_template_parameters<51>' or 'mse::lifetime_set_aliases_from_template_parameters<51,52[521,522]>'.)";
-										auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
+										state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 									}
 								}
 							}
@@ -1892,28 +1980,19 @@ namespace checker {
 								} else {
 									if (MR_ptr) {
 										std::string error_desc = std::string("A base class lifetime label was seemingly specified without a corresponding base class.");
-										auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
+										state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 									}
 								}
 							} else {
 								if (MR_ptr) {
 									std::string error_desc = std::string("A base class lifetime label was seemingly specified for a type with no base classes.");
-									auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
+									state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 								}
 							}
 						} else {
 							if (false && MR_ptr) {
 								std::string error_desc = std::string("No valid 'lifetime label id' specified.");
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 							}
 						}
 						break;
@@ -1954,15 +2033,12 @@ namespace checker {
 								auto maybe_template_arg_type = template_arg_type_by_name_if_available(TypePtr, template_name, state1, MR_ptr, Rewrite_ptr);
 								if (maybe_template_arg_type.has_value()) {
 									auto template_arg_type = maybe_template_arg_type.value();
-									bool res1 = contains_non_owning_scope_reference(template_arg_type, state1, MR_ptr, Rewrite_ptr);
+									bool res1 = is_xscope_type(template_arg_type, state1, MR_ptr, Rewrite_ptr);
 									if (res1) {
 										if (MR_ptr) {
 											std::string error_desc = std::string("Template parameter '") + template_name + "' instantiated with scope type '";
 											error_desc += template_arg_type.getAsString() + "' prohibited by a 'scope_types_prohibited_for_template_parameter_by_name()' lifetime constraint.";
-											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-											if (res.second) {
-												std::cout << (*(res.first)).as_a_string1() << " \n\n";
-											}
+											state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 										}
 									}
 								} else {
@@ -2039,10 +2115,7 @@ namespace checker {
 							} else {
 								if (false && MR_ptr) {
 									std::string error_desc = std::string("No valid 'lifetime label id' specified.");
-									auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
+									state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 								}
 							}
 						} else {
@@ -2071,10 +2144,7 @@ namespace checker {
 								} else {
 									if (false && MR_ptr) {
 										std::string error_desc = std::string("No valid 'lifetime label id' specified.");
-										auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
+										state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 									}
 								}
 							}
@@ -2086,10 +2156,7 @@ namespace checker {
 					if (FD->hasInClassInitializer()) {
 						if (MR_ptr) {
 							std::string error_desc = std::string("Currently, member fields with lifetime annotation aren't permitted to have default values (with field of type '") + FD->getType().getAsString() + "').";
-							auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), FD->getSourceRange().getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
+							state1.register_error(*(MR_ptr->SourceManager), FD->getSourceRange(), error_desc);
 						}
 					}
 				}
@@ -2309,10 +2376,7 @@ namespace checker {
 							if (MR_ptr) {
 								std::string error_desc = std::string("The 'encompasses' lifetime constraint takes two lifetime id arguments. Two valid arguments were not found.");
 								error_desc += " \n(A valid example might look something like 'mse::lifetime_encompasses(42, 99)'.)";
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 							}
 						} else if (0 == alts2.m_primary_lifetimes.size()) {
 						} else {
@@ -2359,10 +2423,7 @@ namespace checker {
 							if (MR_ptr) {
 								std::string error_desc = std::string("The 'first_can_be_assigned_to_second' lifetime constraint takes two lifetime id arguments. Two valid arguments were not found.");
 								error_desc += " \n(A valid example might look something like 'mse::lifetime_first_can_be_assigned_to_second(42, 99)'.)";
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 							}
 						} else if (0 == alts2.m_primary_lifetimes.size()) {
 						} else {
@@ -2408,10 +2469,7 @@ namespace checker {
 						} else {
 							if (false && MR_ptr) {
 								std::string error_desc = std::string("No valid 'lifetime label id' specified.");
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 							}
 						}
 						break;
@@ -2440,10 +2498,7 @@ namespace checker {
 							if (MR_ptr) {
 								std::string error_desc = std::string("'lifetime_set_alias_from_template_parameter_by_name()' annotation requires two arguments,");
 								error_desc += " the template parameter name (followed by a comma), followed by a (unique) alias name (of your choosing).";
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 							}
 						} else {
 							auto template_name = std::string(alts1.m_primary_lifetimes.at(0).m_id);
@@ -2456,10 +2511,7 @@ namespace checker {
 										if (MR_ptr) {
 											std::string error_desc = std::string("'lifetime set' label '") + alt.m_id + "', specified in 'lifetime_set_aliases_from_template_parameters' annotation,";
 											error_desc += " is already being used as a 'lifetime set' label. Please choose a different one.";
-											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-											if (res.second) {
-												std::cout << (*(res.first)).as_a_string1() << " \n\n";
-											}
+											state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 										}
 									}
 								}
@@ -2497,15 +2549,12 @@ namespace checker {
 								auto maybe_template_arg_type = template_arg_type_by_name_if_available(func_decl, template_name, state1, MR_ptr, Rewrite_ptr);
 								if (maybe_template_arg_type.has_value()) {
 									auto template_arg_type = maybe_template_arg_type.value();
-									bool res1 = contains_non_owning_scope_reference(template_arg_type, state1, MR_ptr, Rewrite_ptr);
+									bool res1 = is_xscope_type(template_arg_type, state1, MR_ptr, Rewrite_ptr);
 									if (res1) {
 										if (MR_ptr) {
 											std::string error_desc = std::string("Template parameter '") + template_name + "' instantiated with scope type '";
 											error_desc += template_arg_type.getAsString() + "' prohibited by a 'scope_types_prohibited_for_template_parameter_by_name()' lifetime constraint.";
-											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-											if (res.second) {
-												std::cout << (*(res.first)).as_a_string1() << " \n\n";
-											}
+											state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 										}
 									}
 								} else {
@@ -2655,10 +2704,7 @@ namespace checker {
 						} else {
 							if (false && MR_ptr) {
 								std::string error_desc = std::string("No valid 'lifetime label id' specified.");
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 							}
 						}
 					} else {
@@ -2709,10 +2755,7 @@ namespace checker {
 							} else {
 								if (false && MR_ptr) {
 									std::string error_desc = std::string("No valid 'lifetime label id' specified.");
-									auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
+									state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 								}
 							}
 						} else {
@@ -2801,20 +2844,14 @@ namespace checker {
 															if (MR_ptr) {
 																std::string error_desc = std::string("The specified parameter ordinal ('") + std::to_string(param_ordinal)
 																	+ "') is greater than the number of parameters (" + std::to_string(func_decl.getNumParams()) + ").";
-																auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-																if (res.second) {
-																	std::cout << (*(res.first)).as_a_string1() << " \n\n";
-																}
+																state1.register_error(*(MR_ptr->SourceManager), typeLoc.getSourceRange(), error_desc);
 															}
 														} else if ((1 <= param_ordinal) || (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal_t(param_ordinal))) {
 															maybe_param_ordinal = param_ordinal_t(param_ordinal);
 														} else {
 															if (MR_ptr) {
 																std::string error_desc = std::string("'") + param_ordinal_str + "' is not a valid parameter ordinal value.";
-																auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-																if (res.second) {
-																	std::cout << (*(res.first)).as_a_string1() << " \n\n";
-																}
+																state1.register_error(*(MR_ptr->SourceManager), typeLoc.getSourceRange(), error_desc);
 															}
 														}
 
@@ -2858,10 +2895,7 @@ namespace checker {
 											if (MR_ptr) {
 												std::string error_desc = std::string("The first template argument of the 'mse::rsv::pll<parameter_ordinal_t param_ordinal, lifetime_label_t lifetime_label_id>' ")
 													+ "template must be an integer greater than zero or MSE_IMPLICIT_THIS_PARAM_ORDINAL.";
-												auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-												if (res.second) {
-													std::cout << (*(res.first)).as_a_string1() << " \n\n";
-												}
+												state1.register_error(*(MR_ptr->SourceManager), typeLoc.getSourceRange(), error_desc);
 											}
 										}
 										if ((!maybe_lifetime_label_id.has_value()) || (1 > maybe_lifetime_label_id.value().length())) {
@@ -2869,10 +2903,7 @@ namespace checker {
 											if (MR_ptr) {
 												std::string error_desc = std::string("The second template argument of the 'mse::rsv::pll<size_t param_ordinal, std::string lifetime_label_id>' ")
 													+ "template must be a valid non-empty string.";
-												auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-												if (res.second) {
-													std::cout << (*(res.first)).as_a_string1() << " \n\n";
-												}
+												state1.register_error(*(MR_ptr->SourceManager), typeLoc.getSourceRange(), error_desc);
 											}
 										}
 										if (is_valid) {
@@ -2914,10 +2945,7 @@ namespace checker {
 												if (!(last_delimiter_index + 1 < next_delimiter_index)) {
 													if (MR_ptr) {
 														std::string error_desc = std::string("Parse error in return value lifetime specification.");
-														auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-														if (res.second) {
-															std::cout << (*(res.first)).as_a_string1() << " \n\n";
-														}
+														state1.register_error(*(MR_ptr->SourceManager), typeLoc.getSourceRange(), error_desc);
 													}
 													break;
 												}
@@ -2929,10 +2957,7 @@ namespace checker {
 												} else {
 													if (false && MR_ptr) {
 														std::string error_desc = std::string("No valid 'lifetime label id' specified.");
-														auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-														if (res.second) {
-															std::cout << (*(res.first)).as_a_string1() << " \n\n";
-														}
+														state1.register_error(*(MR_ptr->SourceManager), typeLoc.getSourceRange(), error_desc);
 													}
 												}
 
@@ -2981,10 +3006,7 @@ namespace checker {
 												} else {
 													if (false && MR_ptr) {
 														std::string error_desc = std::string("No valid 'lifetime label id' specified.");
-														auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-														if (res.second) {
-															std::cout << (*(res.first)).as_a_string1() << " \n\n";
-														}
+														state1.register_error(*(MR_ptr->SourceManager), typeLoc.getSourceRange(), error_desc);
 													}
 												}
 
@@ -2995,10 +3017,7 @@ namespace checker {
 												} else {
 													if (false && MR_ptr) {
 														std::string error_desc = std::string("No valid 'lifetime label id' specified.");
-														auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-														if (res.second) {
-															std::cout << (*(res.first)).as_a_string1() << " \n\n";
-														}
+														state1.register_error(*(MR_ptr->SourceManager), typeLoc.getSourceRange(), error_desc);
 													}
 												}
 											}
@@ -3039,10 +3058,7 @@ namespace checker {
 								} else {
 									if (MR_ptr) {
 										std::string error_desc = std::string("Parse error in 'encompassing' lifetime constraint specification.");
-										auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
+										state1.register_error(*(MR_ptr->SourceManager), typeLoc.getSourceRange(), error_desc);
 									}
 								}
 
@@ -3084,10 +3100,7 @@ namespace checker {
 				if (PVD->hasInit()) {
 					if (MR_ptr) {
 						std::string error_desc = std::string("Currently, parameters with lifetime annotation aren't permitted to have default values (with parameter of type '") + PVD->getType().getAsString() + "').";
-						auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), PVD->getSourceRange().getBegin(), error_desc));
-						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n\n";
-						}
+						state1.register_error(*(MR_ptr->SourceManager), PVD->getSourceRange(), error_desc);
 					}
 				}
 			}
@@ -3254,10 +3267,7 @@ namespace checker {
 						} else {
 							if (false && MR_ptr) {
 								std::string error_desc = std::string("No valid 'lifetime label id' specified.");
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), attr_SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 							}
 						}
 					} else {
@@ -3434,10 +3444,7 @@ namespace checker {
 												const std::string error_desc = std::string("Null initialization of ")
 													+ "native pointer fields (such as '" + FD->getNameAsString()
 													+ "') is not supported.";
-												auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, ICISR.getBegin(), error_desc));
-												if (res.second) {
-													std::cout << (*(res.first)).as_a_string1() << " \n\n";
-												}
+												state1.register_error(*MR.SourceManager, ICISR, error_desc);
 											}
 										}
 										if (ICIEX) {
@@ -3460,10 +3467,7 @@ namespace checker {
 
 																const std::string error_desc = std::string("The field '") + FD2->getNameAsString()
 																	+ "' may be being referenced before it has been constructed.";
-																auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, MESR.getBegin(), error_desc));
-																if (res.second) {
-																	std::cout << (*(res.first)).as_a_string1() << " \n\n";
-																}
+																state1.register_error(*MR.SourceManager, MESR, error_desc);
 															}
 														} else {
 															const auto CXXMD = dyn_cast<const CXXMethodDecl>(ME->getMemberDecl());
@@ -3474,10 +3478,7 @@ namespace checker {
 																+ "(such as '" + CXXMD->getQualifiedNameAsString() + "') of an object is not supported in "
 																+ "constructor initializers or direct field initializers of the object. Consider "
 																+ "using a static member or free function instead. ";
-																auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-																if (res.second) {
-																	std::cout << (*(res.first)).as_a_string1() << " \n\n";
-																}
+																state1.register_error(*MR.SourceManager, SR, error_desc);
 															} else {
 																/* Since this MemberExpr was obtained from a CXXThisExpr, if it doesn't refer to
 																a FD, then presumably it refers to a (non-static) member function.
@@ -3488,10 +3489,7 @@ namespace checker {
 													} else {
 														const std::string error_desc = std::string("Unable to verify that the 'this' pointer ")
 														+ "used here can't be used to access part of the object that hasn't been constructed yet.";
-														auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-														if (res.second) {
-															std::cout << (*(res.first)).as_a_string1() << " \n\n";
-														}
+														state1.register_error(*MR.SourceManager, SR, error_desc);
 													}
 												}
 												if (field_qtype->isPointerType()
@@ -3506,10 +3504,7 @@ namespace checker {
 														const std::string error_desc = std::string("Null initialization of ")
 															+ "native pointer field '" + FD->getNameAsString()
 															+ "' is not supported.";
-														auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, CISR.getBegin(), error_desc));
-														if (res.second) {
-															std::cout << (*(res.first)).as_a_string1() << " \n\n";
-														}
+														state1.register_error(*MR.SourceManager, CISR, error_desc);
 													}
 												}
 											}
@@ -3526,10 +3521,7 @@ namespace checker {
 										const std::string error_desc = std::string("Missing constructor initializer (or ")
 										+ "direct initializer) required for '" + unverified_pointer_fields.front()->getNameAsString()
 										+ "' (raw) pointer field.";
-										auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, field_SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
+										state1.register_error(*MR.SourceManager, field_SR, error_desc);
 									}
 									for (const auto& constructor : CXXRD->ctors()) {
 										if (constructor->isCopyOrMoveConstructor()) {
@@ -3576,10 +3568,7 @@ namespace checker {
 											const std::string error_desc = std::string("Missing constructor initializer (or ")
 											+ "direct initializer) required for '" + l_unverified_pointer_fields.front()->getNameAsString()
 											+ "' (raw) pointer field.";
-											auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, constructor_SR.getBegin(), error_desc));
-											if (res.second) {
-												std::cout << (*(res.first)).as_a_string1() << " \n\n";
-											}
+											state1.register_error(*MR.SourceManager, constructor_SR, error_desc);
 										}
 									}
 								}
@@ -3641,7 +3630,7 @@ namespace checker {
 									}
 								}
 
-								if ((!has_xscope_tag_base) && is_xscope_type(field_qtype, state1)) {
+								if (g_enforce_scpp_type_indicator_tags && (!has_xscope_tag_base) && is_xscope_type(field_qtype, state1)) {
 									if (is_lambda) {
 										error_desc = std::string("Lambdas that capture variables of xscope type (such as '")
 											+ field_qtype_str + "') must be scope lambdas (usually created via an "
@@ -3651,7 +3640,7 @@ namespace checker {
 											+ field_qtype_str + "') must inherit from mse::rsv::XScopeTagBase.";
 									}
 								}
-								if ((!has_ContainsNonOwningScopeReference_tag_base)
+								if (g_enforce_scpp_type_indicator_tags && (!has_ContainsNonOwningScopeReference_tag_base)
 									&& contains_non_owning_scope_reference(field_qtype, state1)) {
 									if (is_lambda) {
 										error_desc = std::string("Lambdas that capture items (such as those of type '")
@@ -3665,7 +3654,7 @@ namespace checker {
 											+ "mse::rsv::ContainsNonOwningScopeReferenceTagBase.";
 									}
 								}
-								if ((!has_ReferenceableByScopePointer_tag_base)
+								if (g_enforce_scpp_type_indicator_tags && (!has_ReferenceableByScopePointer_tag_base)
 									&& referenceable_by_scope_pointer(field_qtype, state1)) {
 									if (is_lambda) {
 										/* The assumption is that we don't have to worry about scope pointers targeting
@@ -3679,10 +3668,7 @@ namespace checker {
 								}
 								if ("" != error_desc) {
 									auto FDISR = instantiation_source_range(FD->getSourceRange(), Rewrite);
-									auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
+									state1.register_error(*MR.SourceManager, FDISR, error_desc);
 								}
 							}
 						}
@@ -3755,10 +3741,7 @@ namespace checker {
 							if (!satisfies_checks) {
 								const std::string error_desc = std::string("mse::rsv::as_an_fparam() and ")
 									+ "mse::rsv::as_a_returnable_fparam() may only be used with function parameters.";
-								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 							}
 						} else {
 							/* Wrong number of arguments should result in a compile error,
@@ -6640,10 +6623,7 @@ namespace checker {
 								} else {
 									error_desc += " (Possibly due to being unable to verify that the target object outlives the scope pointer/reference.)";
 								}
-								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 							}
 						}
 					}
@@ -6696,10 +6676,7 @@ namespace checker {
 						const std::string error_desc = std::string("Native references (such as those of type '")
 							+ qtype.getAsString()
 							+ "') that are not local variables (or function parameters) are not supported.";
-						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n\n";
-						}
+						(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 					}
 					const auto EX = VD->getInit();
 					if (EX) {
@@ -6728,10 +6705,7 @@ namespace checker {
 							} else {
 								error_desc += " (Possibly due to being unable to verify that the target object outlives the (scope) reference.)";
 							}
-							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
+							(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 						}
 					}
 				}
@@ -6840,10 +6814,7 @@ namespace checker {
 									+ "' is safe here. (This is often addressed "
 									+ "by obtaining a scope pointer to the intended argument and passing "
 									+ "an expression consisting of a dereference of that pointer.)";
-								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 							}
 						}
 					}
@@ -6976,10 +6947,7 @@ namespace checker {
 							}
 							if (!satisfies_checks) {
 								const std::string error_desc = std::string("Unable to verify that the return value conforms to the lifetime specified.");
-								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 							}
 							return;
 						}
@@ -7073,10 +7041,7 @@ namespace checker {
 								}
 							}
 
-							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
+							(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 						}
 					}
 				}
@@ -7142,10 +7107,7 @@ namespace checker {
 					const std::string error_desc = std::string("Pointer arithmetic (including ")
 						+ "native array subscripts) is not supported. (The expression in question here is of type '"
 						+ EX->getType().getAsString() + "'.)";
-					auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-					if (res.second) {
-						std::cout << (*(res.first)).as_a_string1() << " \n\n";
-					}
+					(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 				}
 			}
 		}
@@ -7216,10 +7178,7 @@ namespace checker {
 						} else {
 							error_desc += " (Possibly due to being unable to verify that the target object outlives the (scope) pointer.)";
 						}
-						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n\n";
-						}
+						(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 					}
 				}
 			}
@@ -7270,10 +7229,7 @@ namespace checker {
 						&& (clang::StorageDuration::SD_Thread != VD->getStorageDuration())) {
 						const std::string error_desc = std::string("Native pointers that are ")
 							+ "not (automatic or thread) local variables (or function parameters) are not supported.";
-						auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n\n";
-						}
+						(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 					}
 					*/
 					const auto* EX = VD->getInit();
@@ -7284,10 +7240,7 @@ namespace checker {
 							const std::string error_desc = std::string("Null initialization of ")
 								+ "native pointers (such as those of type '" + qtype.getAsString()
 								+ "') is not supported.";
-							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
+							(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 						}
 					} else {
 						auto *PVD = dyn_cast<const ParmVarDecl>(VD);
@@ -7295,10 +7248,7 @@ namespace checker {
 							if (!VD->isExternallyDeclarable()) {
 								const std::string error_desc = std::string("Uninitialized ")
 									+ "native pointer variables are not supported.";
-								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 							} else {
 								/* todo: emit error that (uninitialized) 'extern' pointer variables
 								aren't supported?  */;
@@ -7396,10 +7346,7 @@ namespace checker {
 					const std::string error_desc = cast_type_str
 						+ " casts are not supported (in expression of type '"
 						+ CSTE->getType().getAsString() + "').";
-					auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-					if (res.second) {
-						std::cout << (*(res.first)).as_a_string1() << " \n\n";
-					}
+					(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 				}
 			}
 		}
@@ -7504,20 +7451,14 @@ namespace checker {
 					if (CXXDD) {
 						const std::string error_desc =  std::string("Explicitly calling destructors (such as '") + qmethod_name
 							+ "') is not supported.";
-						auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n\n";
-						}
+						state1.register_error(*MR.SourceManager, SR, error_desc);
 					}
 				} else {
 					static const std::string tilda_str = "~";
 					if (string_begins_with(method_name, tilda_str)) {
 						const std::string error_desc =  std::string("'") + method_name
 							+ "' looks like a destructor. Explicitly calling destructors is not supported.";
-						auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n\n";
-						}
+						state1.register_error(*MR.SourceManager, SR, error_desc);
 					}
 				}
 
@@ -7562,10 +7503,7 @@ namespace checker {
 							+ function_qname + "'). (This is often addressed "
 							+ "by obtaining a scope pointer to the object then calling the member " + function_species_str
 							+ " through the scope pointer.)";
-						auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n\n";
-						}
+						state1.register_error(*MR.SourceManager, SR, error_desc);
 					}
 				}
 			}
@@ -7830,6 +7768,10 @@ namespace checker {
 
 			auto raw_SR = CE->getSourceRange();
 			auto SR = Rewrite_ptr ? nice_source_range(raw_SR, *Rewrite_ptr) : raw_SR;
+
+			auto iso = state1.make_instantiation_scope_obj(SR);
+
+			//bool filtered_out_by_location_flag = filtered_out_by_location(Ctx, SR.getBegin());
 
 			bool errors_suppressed_by_location_flag = errors_suppressed_by_location(Ctx, SR.getBegin());
 			if ((!errors_suppressed_by_location_flag) && Rewrite_ptr) {
@@ -8201,10 +8143,7 @@ namespace checker {
 															std::string error_desc = std::string("Unable to verify that in the '") + function_decl->getQualifiedNameAsString()
 																+ "' member function call expression, the argument corresponding to a parameter with lifetime label id '"
 																+ abstract_lifetime1.m_id + "' has a lifetime (including any sublifetimes) that meets the (minimum required) lifetime set when the object was initialized.";
-															auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-															if (res.second) {
-																std::cout << (*(res.first)).as_a_string1() << " \n\n";
-															}
+															state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 														}
 													}
 													corresponding_present_scope_lifetime = lifetime_value_ref;
@@ -8306,10 +8245,7 @@ namespace checker {
 														+ "' " + implicit_or_explicit_str + function_or_constructor_str + "call expression, the specified '" + constraint_shptr->species_str()
 														+ "' lifetime constraint (applied to lifetime label ids '"
 														+ abstract_lifetime1.m_id + "' and '" + abstract_lifetime2.m_id + "') is satisfied.";
-													auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-													if (res.second) {
-														std::cout << (*(res.first)).as_a_string1() << " \n\n";
-													}
+													state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 												}
 											}
 
@@ -8344,10 +8280,7 @@ namespace checker {
 										if (MR_ptr && (!errors_suppressed_by_location_flag)) {
 											std::string error_desc = std::string("At least one of the return value's direct or indirect (referenced object)")
 												+ " lifetimes cannot be verified to (sufficiently) outlive the ('" + qfunction_name + "') call expression.";
-											auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-											if (res.second) {
-												std::cout << (*(res.first)).as_a_string1() << " \n\n";
-											}
+											state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 										}
 									}
 								}
@@ -9384,10 +9317,7 @@ namespace checker {
 										const std::string error_desc = std::string("Aggregate initialization (of '") + var_qualified_name
 											+ "') is not (currently) supported for types (like '" + qtype_str + "') that have (explicit or "
 											+ "implicit) lifetime annotations.";
-										auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
+										state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 									}
 								}
 							}
@@ -9428,10 +9358,7 @@ namespace checker {
 								const std::string error_desc = std::string("(Non-parameter) variable '")
 									+ var_qualified_name + "' of type '" + qtype_str + "' has as an associated lifetime label which "
 									+ "requires that the decalaration have an initialization value (that doesn't seem to be present).";
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 							}
 						}
 					}
@@ -9495,10 +9422,7 @@ namespace checker {
 									+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>. "
 									+ "Note that objects with 'static storage duration' may be simultaneously accessible from different threads "
 									+ "and so have more stringent safety requirements than objects with 'thread_local storage duration'.";
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 							}
 						}
 					} else {
@@ -9513,10 +9437,7 @@ namespace checker {
 									+ "'mse::rsv::TThreadLocalObj<>' transparent template wrapper. Other supported wrappers include: "
 									+ "mse::rsv::TStaticImmutableObj<>, mse::rsv::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
 									+ "mse::TAsyncSharedV2ImmutableFixedPointer<> and mse::TAsyncSharedV2AtomicFixedPointer<>.";
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 							}
 						}
 					}
@@ -9537,10 +9458,7 @@ namespace checker {
 						if (MR_ptr && (!errors_suppressed_by_location_flag)) {
 							const std::string error_desc = std::string("Variable '") + var_qualified_name + "' of type '"
 								+ mse_rsv_static_immutable_obj_str1 + "' must be declared to have 'static' storage duration.";
-							auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
+							state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 						}
 					}
 				} else if (type_name1 == mse_rsv_ThreadLocalObj_str) {
@@ -9548,10 +9466,7 @@ namespace checker {
 						if (MR_ptr && (!errors_suppressed_by_location_flag)) {
 							const std::string error_desc = std::string("Variable '") + var_qualified_name + "' of type '"
 								+ mse_rsv_ThreadLocalObj_str + "' must be declared to have 'thread_local' storage duration.";
-							auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
+							state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 						}
 					}
 				}
@@ -9567,10 +9482,7 @@ namespace checker {
 								const std::string error_desc = std::string("Uninitialized ")
 									+ "scalar variable '" + VD->getNameAsString() + "' (of type '"
 									+ qtype.getAsString() + "') ";
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 							}
 						} else {
 							/* todo: emit error that (uninitialized) 'extern' variables
@@ -9588,10 +9500,7 @@ namespace checker {
 						const std::string error_desc = std::string("Reference to variable '")
 							+ VD->getNameAsString() + "' before the completion of its "
 							+ "construction/initialization is not supported.";
-						auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n\n";
-						}
+						state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 					}
 				}
 			} else if (false && VD->isExternallyDeclarable()) {
@@ -9600,10 +9509,7 @@ namespace checker {
 						+ "variable declarations (such as the declaration of "
 						+ VD->getNameAsString() + "' of type '" + qtype.getAsString()
 						+ "') are not currently supported.";
-					auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-					if (res.second) {
-						std::cout << (*(res.first)).as_a_string1() << " \n\n";
-					}
+					state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 				}
 			}
 
@@ -9668,10 +9574,7 @@ namespace checker {
 								if (MR_ptr && (!errors_suppressed_by_location_flag)) {
 									const std::string error_desc = std::string("(Non-pointer) scalar fields (such those of type '")
 										+ qtype.getAsString() + "') require direct initializers.";
-									auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
+									state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 								}
 							}
 						}
@@ -9706,10 +9609,7 @@ namespace checker {
 								+ base_qtype_str + "', is eligible to be safely shared (among threads). "
 								+ "If it is known to be so, then this error can be suppressed with a "
 								+ "'check suppression' directive. ";
-							auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
+							state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 						}
 					}
 				} else {
@@ -9727,10 +9627,7 @@ namespace checker {
 								+ base_qtype_str + "', is eligible to be safely passed (between threads). "
 								+ "If it is known to be so, then this error can be suppressed with a "
 								+ "'check suppression' directive. ";
-							auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
+							state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 						}
 					}
 				} else {
@@ -9748,10 +9645,7 @@ namespace checker {
 								+ base_qtype_str + "', is eligible to be safely shared and passed (among threads). "
 								+ "If it is known to be so, then this error can be suppressed with a "
 								+ "'check suppression' directive. ";
-							auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
+							state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 						}
 					}
 				} else {
@@ -9788,30 +9682,21 @@ namespace checker {
 					if (MR_ptr && (!errors_suppressed_by_location_flag)) {
 						const std::string error_desc = std::string("Unsupported use of ")
 							+ "mse::rsv::TFParam<> (in type '" + name + "'). ";
-						auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n\n";
-						}
+						state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 					}
 				}
 			} else if (qtype.getTypePtr()->isUnionType()) {
 				if (MR_ptr && (!errors_suppressed_by_location_flag)) {
 					const std::string error_desc = std::string("Native unions (such as '" + qtype.getAsString() + "') are not ")
 						+ "supported. ";
-					auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-					if (res.second) {
-						std::cout << (*(res.first)).as_a_string1() << " \n\n";
-					}
+					state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 				}
 			} else if (true && (std_unique_ptr_str == name)) {
 				if (!qtype.isConstQualified()) {
 					if (MR_ptr && (!errors_suppressed_by_location_flag)) {
 						const std::string error_desc = std::string("std::unique_ptr<>s that are not const qualified are not supported. ")
 							+ "Consider using a reference counting pointer from the SaferCPlusPlus library. ";
-						auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-						if (res.second) {
-							std::cout << (*(res.first)).as_a_string1() << " \n\n";
-						}
+						state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 					}
 				} else {
 					const auto init_EX = VD->getInit();
@@ -9835,10 +9720,7 @@ namespace checker {
 							const std::string error_desc = std::string("Null/default initialization of ")
 								+ "std::unique_ptr<>s (such as those of type '" + qtype.getAsString()
 								+ "') is not supported.";
-							auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
+							state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 						}
 					}
 				}
@@ -9862,10 +9744,7 @@ namespace checker {
 								if ("" != unsupported_element_info.m_recommended_alternative) {
 									error_desc += "Consider using " + unsupported_element_info.m_recommended_alternative + " instead.";
 								}
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 							}
 						}
 					}
@@ -9893,10 +9772,7 @@ namespace checker {
 								if ("" != unsupported_element_info.m_recommended_alternative) {
 									error_desc += "Consider using " + unsupported_element_info.m_recommended_alternative + " instead.";
 								}
-								auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), typeLoc.getSourceRange().getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								state1.register_error(*(MR_ptr->SourceManager), typeLoc.getSourceRange(), error_desc);
 							}
 						}
 					}
@@ -9918,10 +9794,7 @@ namespace checker {
 				if (MR_ptr && (!errors_suppressed_by_location_flag)) {
 					const std::string error_desc = unsupported_type_str + std::string("s are not ")
 						+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
-					auto res = state1.m_error_records.emplace(CErrorRecord(*(MR_ptr->SourceManager), SR.getBegin(), error_desc));
-					if (res.second) {
-						std::cout << (*(res.first)).as_a_string1() << " \n\n";
-					}
+					state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 				}
 			}
 		}
@@ -10026,10 +9899,7 @@ namespace checker {
 
 									const std::string error_desc = std::string("The field '") + FD2->getNameAsString()
 										+ "' may be being referenced before it has been constructed.";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, MESR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
+									(*this).m_state1.register_error(*MR.SourceManager, MESR, error_desc);
 								}
 							} else {
 								const auto CXXMD = dyn_cast<const CXXMethodDecl>(ME->getMemberDecl());
@@ -10040,10 +9910,7 @@ namespace checker {
 									+ "(such as '" + CXXMD->getQualifiedNameAsString() + "') of an object is not supported in "
 									+ "constructor initializers or direct field initializers of the object. Consider "
 									+ "using a static member or free function instead. ";
-									auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
+									(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 								} else {
 									/* Since this MemberExpr was obtained from a CXXThisExpr, if it doesn't refer to
 									a field, then presumably it refers to a (non-static) member function.
@@ -10054,10 +9921,7 @@ namespace checker {
 						} else {
 							const std::string error_desc = std::string("Unable to verify that the 'this' pointer ")
 							+ "used here can't be used to access part of the object that hasn't been constructed yet.";
-							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
+							(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 						}
 					}
 					if (maybe_FD.has_value() && is_raw_pointer_or_equivalent((maybe_FD.value())->getType())
@@ -10072,10 +9936,7 @@ namespace checker {
 							const std::string error_desc = std::string("Null initialization of ")
 								+ "native pointer field '" + (maybe_FD.value())->getNameAsString()
 								+ "' is not supported.";
-							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, CISR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
+							(*this).m_state1.register_error(*MR.SourceManager, CISR, error_desc);
 						}
 
 						auto maybe_alts = m_state1.corresponding_abstract_lifetime_set_if_any((maybe_FD.value()));
@@ -10140,10 +10001,7 @@ namespace checker {
 
 									error_desc += " (This pointer assignment occurs in the constructor initializer for member field '" + (maybe_FD.value())->getNameAsString() + "' .)";
 
-									auto res = m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-									if (res.second) {
-										std::cout << (*(res.first)).as_a_string1() << " \n\n";
-									}
+									(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 								}
 
 							}
@@ -10158,10 +10016,7 @@ namespace checker {
 							const std::string error_desc = std::string("Default initialization of ")
 								+ "native pointer field '" + (maybe_FD.value())->getNameAsString()
 								+ "' is not supported.";
-							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
+							(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 						}
 					}
 				}
@@ -10351,10 +10206,7 @@ namespace checker {
 						}
 					}
 
-					auto res = state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-					if (res.second) {
-						std::cout << (*(res.first)).as_a_string1() << " \n\n";
-					}
+					state1.register_error(*MR.SourceManager, SR, error_desc);
 				}
 			}
 		}
@@ -10592,10 +10444,7 @@ namespace checker {
 						}
 					}
 
-					auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-					if (res.second) {
-						std::cout << (*(res.first)).as_a_string1() << " \n\n";
-					}
+					(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 				}
 			}
 		}
@@ -10712,10 +10561,7 @@ namespace checker {
 												+ "'operator &' of some component). "
 												+ "(In particular, explicit use of std::move() with 'mse::TXScopeOwnerPointer<>' "
 												+ "or any object that might contain an 'mse::TXScopeOwnerPointer<>' is not supported.) ";
-											auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-											if (res.second) {
-												std::cout << (*(res.first)).as_a_string1() << " \n\n";
-											}
+											(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 										}
 									} else if (false) {
 										/* This branch is now redundant with the other branch, but may be 
@@ -10732,10 +10578,7 @@ namespace checker {
 											if (name == xscope_owner_ptr_str) {
 												const std::string error_desc = std::string("Explicit use of std::move() on ")
 													+ xscope_owner_ptr_str + "<> " + " is not supported.";
-												auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-												if (res.second) {
-													std::cout << (*(res.first)).as_a_string1() << " \n\n";
-												}
+												(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 											}
 										}
 									}
@@ -10760,10 +10603,7 @@ namespace checker {
 									if ("" != unsupported_function_str) {
 										const std::string error_desc = std::string("The '") + unsupported_function_str
 											+ "' function is not supported.";
-										auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-										if (res.second) {
-											std::cout << (*(res.first)).as_a_string1() << " \n\n";
-										}
+										(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 									} else {
 
 										for (const auto& arg_EX : CE->arguments()) {
@@ -10793,10 +10633,7 @@ namespace checker {
 															+ "of the native reference parameter, '" + param->getNameAsString()
 															+ "', of the function object being passed (to opaque "
 															+ "function/method/operator '" + l_FD->getQualifiedNameAsString() + "') here.";
-														auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, arg_SR.getBegin(), error_desc));
-														if (res.second) {
-															std::cout << (*(res.first)).as_a_string1() << " \n\n";
-														}
+														(*this).m_state1.register_error(*MR.SourceManager, arg_SR, error_desc);
 													}
 												}
 											} else if (qtype->isFunctionPointerType()) {
@@ -10813,10 +10650,7 @@ namespace checker {
 																+ "of a native reference parameter of type '" + param_type.getAsString()
 																+ "', of the function being passed (to an opaque "
 																+ "function/method/operator) here.";
-															auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, arg_SR.getBegin(), error_desc));
-															if (res.second) {
-																std::cout << (*(res.first)).as_a_string1() << " \n\n";
-															}
+															(*this).m_state1.register_error(*MR.SourceManager, arg_SR, error_desc);
 														}
 													}
 												}
@@ -10836,10 +10670,7 @@ namespace checker {
 													const std::string error_desc = std::string("'") + qualified_function_name
 														+ "' heuristically looks like a C standard library string function. "
 														+ "Those are not supported.";
-													auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-													if (res.second) {
-														std::cout << (*(res.first)).as_a_string1() << " \n\n";
-													}
+													(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 												}
 											}
 										} else if (string_begins_with(function_name, mem_prefix_str)) {
@@ -10851,10 +10682,7 @@ namespace checker {
 													const std::string error_desc = std::string("'") + qualified_function_name
 														+ "' heuristically looks like a C standard library memory function. "
 														+ "Those are not supported.";
-													auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-													if (res.second) {
-														std::cout << (*(res.first)).as_a_string1() << " \n\n";
-													}
+													(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 												}
 											}
 										}
@@ -10886,10 +10714,7 @@ namespace checker {
 						if ("" != unsupported_expression_str) {
 							const std::string error_desc = unsupported_expression_str
 								+ " is not supported.";
-							auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-							if (res.second) {
-								std::cout << (*(res.first)).as_a_string1() << " \n\n";
-							}
+							(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 						}
 
 					}
@@ -10934,6 +10759,8 @@ namespace checker {
 				if (suppress_check_flag) {
 					return;
 				}
+
+				auto iso = (*this).m_state1.make_instantiation_scope_obj(SR);
 
 				auto TD = dyn_cast<const clang::TypeDecl>(D);
 				auto DD = dyn_cast<const DeclaratorDecl>(D);
@@ -10993,10 +10820,7 @@ namespace checker {
 								const std::string error_desc = std::string("This namespace alias (of namespace '")
 									+ source_namespace_str + "') could be used to subvert some of the checks. "
 									+ "So its use requires a 'check suppression' directive.";
-								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 							}
 						}
 					}
@@ -11074,14 +10898,10 @@ namespace checker {
 								declaration/definition of the offending aliases (including "using namespace") will need
 								to be screened for and flagged as well. */
 
-
 								const std::string error_desc = std::string("Elements in the 'mse::us' namespace (such as '"
 									+ qualified_name + "') are potentially unsafe. ")
 									+ "Their use requires a 'check suppression' directive.";
-								auto res = (*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-								if (res.second) {
-									std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
+								(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 							}
 						}
 					}
