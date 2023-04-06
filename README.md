@@ -1,5 +1,5 @@
 
-Mar 2023
+Apr 2023
 
 ### Overview
 
@@ -270,13 +270,11 @@ It works the same way. Note that the lifetime labels refer to the lifetimes of t
 
 But pointers can point to different objects during the execution of the program. Does this mean that lifetime labels associated with the target of a pointer can refer to different lifetimes at different points in the execution of a program?
 
-No. Lifetime labels actually represent "the maximum known lower bound" lifespan of any referenced objects. By "known" we mean known when the pointer or reference object is declared (at compile-time). The lower bound is determined and set from either the initialization value, specified "constraint" annotations, or a default value based on the location of the declaration in the code. You might think of lifetime labels as sort of (deduced) template parameters (that can apply to types that aren't considered templates in traditional C++).
+No. (At least not currently.) A lifetime label actually represents the range of possible lifespans of any objects that might be targeted by the associated reference. This range is determined at the point where the pointer or reference object is declared (at compile-time). The lower bound of the range is determined and set from either the initialization value, specified "constraint" annotations, or a default value based on the location of the declaration in the code. Constraint annotations may also imply an upper bound for the range. But more often than not, the range will have no upper bound. You might think of lifetime labels as sort of (deduced) template parameters (that can apply to types that aren't considered templates in traditional C++).
 
-So in the above example, the "maximum known lower bound" lifespan value of the `42` lifespan is determined, from the declaration, to be the `99` lifespan (as specified in the `encompasses()` annotation). The "maximum known lower bound" lifespan value of the `99` lifespan is determined to be the default one, which in this case is the lifespan of the function call.
+So in the above example, the upper bound of the `99` lifespan range is determined, from the declaration, to be the lower bound of the `42` lifespan range (as specified in the `encompasses()` constraint annotation). The lower bound of the `99` lifespan range is determined to be the default one, which in this case is the lifespan of the function call.
 
 So we've seen lifetime labels associated with (raw) references and (raw) pointers, when used as function parameters. But lifetime labels can be associated with other types of reference objects, and not just when used as function parameters.
-
-When not used as function parameters, reference objects may (be required to) have an initialization value, in which case any associated lifetime labels may have their "maximum known lower bound" lifespan value determined to be a lifespan of the initialization value object.
 
 ##### Annotating (user-defined) types
 
@@ -333,7 +331,7 @@ void main(int argc, char* argv[]) {
 
 So you can see the different restrictions on which objects the member pointers can point to, and how the tool uses those restrictions to determine which assignment operations it can verify to be safe.
 
-So lets walk through the application of lifetime annotations to the `CLARefObj1` `struct` and its pointer member. The declaration of the pointer member gets an annotation in similar fashion to the function parameter declarations in our previous examples. We also use the same lifetime label annotation on the `struct` itself to "declare" the lifetime label, just like with functions. Note that (for now at least) the tool requires any `struct` with lifetime annotation to define an (annotated) constructor (from which it can infer the lifetime values associated with the lifetime labels). So in the `CLARefObj1` `struct`, the (maximum lower bound) lifetime value associated with lifetime label `99`, and the pointer member, is inferred from the constructor parameter associated with lifetime label `99`.
+So lets walk through the application of lifetime annotations to the `CLARefObj1` `struct` and its pointer member. The declaration of the pointer member gets an annotation in similar fashion to the function parameter declarations in our previous examples. We also use the same lifetime label annotation on the `struct` itself to "declare" the lifetime label, just like with functions. Note that (for now at least) the tool requires any `struct` with lifetime annotation to define an (annotated) constructor (from which it can infer the lifetime values associated with the lifetime labels). So in the `CLARefObj1` `struct`, the lifetime (range) value associated with lifetime label `99`, and the pointer member, is inferred from the constructor parameter associated with lifetime label `99`.
 
 ##### Annotating return values and `this` pointers
 
@@ -354,7 +352,7 @@ struct CLARefObj1 : public mse::rsv::XScopeTagBase, public mse::rsv::ContainsNon
 } MSE_ATTR_STR("mse::lifetime_label(99)");
 ```
 
-Operators are just like any other functions and annotated in the same way. Our previous example functions didn't have return values, so we didn't get a chance to see how to annotate the return value. This example shows it. It seems these operators don't take any parameters so we don't have to deal with them here. But to be pedantic, since these are member operators, just like member functions, they actually take an implicit `this` pointer parameter. In some cases, you might need to associate a lifetime label to the implicit `this` pointer parameter. This would be done in similar fashion to the return value annotation above, but substituting the `return_value()` part with `this()`. But understand that the `this()` annotation is just associating a lifetime label to a function parameter (in this case the implicit `this` pointer parameter), and so the (maximum lower bound) lifespan value will be inferred from the parameter, whereas the `return_value()` annotation, on the other hand, is imposing a (lower bound) lifespan value associated with a lifetime label that has already been previously inferred (often from one of the (implicit or explicit) function parameters).
+Operators are just like any other functions and annotated in the same way. Our previous example functions didn't have return values, so we didn't get a chance to see how to annotate the return value. This example shows it. It seems these operators don't take any parameters so we don't have to deal with them here. But to be pedantic, since these are member operators, just like member functions, they actually take an implicit `this` pointer parameter. In some cases, you might need to associate a lifetime label to the implicit `this` pointer parameter. This would be done in similar fashion to the return value annotation above, but substituting the `return_value()` part with `this()`. But understand that the `this()` annotation is just associating a lifetime label to a function parameter (in this case the implicit `this` pointer parameter), and so the lifespan (range) value will be inferred from the parameter, whereas the `return_value()` annotation, on the other hand, is imposing a lifespan (range) value associated with a lifetime label that has already been previously inferred (often from one of the (implicit or explicit) function parameters).
 
 By adding dereference operators, we've made a reference object that kind of resembles the behavior of a pointer. But notice that, unlike the native pointer and reference types, the target of our reference object type is always constrained by the lower bound lifespan inferred from its initialization value (aka constructor argument). With native pointers and references, we have to associate the target object's lifespan with a lifetime label (by adding an annotation to the (parameter) variable or member field) in order to trigger this constraint, whereas a variable or member field of our reference object type will always have this constraint regardless. Native pointers and references are the only types that possess this "dual nature". With all other (user defined) reference object types it's either one or the other.
 
@@ -420,7 +418,7 @@ We use the `mse::lifetime_set_alias_from_template_parameter_by_name()` annotatio
 
 ##### Accessing sublifetimes
 
-Now, if we can revisit the earlier part where we were learning to associate lifetime labels with function parameters, and consider a situation where we are interested in, not the lifetime of the parameter directly, but perhaps the (maximum known lower bound) lifespan of an object that the parameter references. We can use the `CLARefObj2` `struct` we defined earlier for this example:
+Now, if we can revisit the earlier part where we were learning to associate lifetime labels with function parameters, and consider a situation where we are interested in, not the lifetime of the parameter directly, but perhaps the lifespan (range) of an object that the parameter references. We can use the `CLARefObj2` `struct` we defined earlier for this example:
 
 ```cpp
 struct CLARefObj2 : public mse::rsv::XScopeTagBase, public mse::rsv::ContainsNonOwningScopeReferenceTagBase {
@@ -468,11 +466,11 @@ void swap2(T& item1 MSE_ATTR_PARAM_STR("mse::lifetime_label(42)"), T& item2 MSE_
 }
 ```
 
-Note that the `swap` functions take (raw) reference parameters. Determining whether or not the argument values are safe to swap does not depend on the "direct" lifetimes of the arguments, but rather on the (maximum lower bound) lifetimes of any objects that the arguments might refer to (aka the "sublifetimes), right? So for example, swapping the value of two `int`s is always safe because `int`s don't hold any references to any other objects (i.e. `int`s have no "sublifetimes"). Swapping the value of two pointers on the otherhand is not always safe. We can ensure that swapping the value of two pointers is safe if we can ensure that the (maximum lower bound) lifetimes of the objects the pointers reference (aka the "sublifetimes") are the same.
+Note that the `swap` functions take (raw) reference parameters. Determining whether or not the argument values are safe to swap does not depend on the "direct" lifetimes of the arguments, but rather on the lifetime (range)s of any objects that the arguments might refer to (aka the "sublifetimes), right? So for example, swapping the value of two `int`s is always safe because `int`s don't hold any references to any other objects (i.e. `int`s have no "sublifetimes"). Swapping the value of two pointers on the other hand is not always safe. We can ensure that swapping the value of two pointers is safe if we can ensure that the lifetime (range)s of the objects the pointers reference (aka the "sublifetimes") are the same.
 
-So in our annotation of the `swap1()` function we assign "lifetime set alias" labels to the sublifetimes (if any) of the arguments. Then we use the `encompasses` constraint to to ensure that none of the (maximum lower bound) sublifetimes of one argument outlives the corresponding (maximum lower bound) sublifetime of the other.
+So in our annotation of the `swap1()` function we assign "lifetime set alias" labels to the sublifetimes (if any) of the arguments. Then we use the `encompasses` constraint to ensure that none of the sublifetimes of one argument outlives the corresponding sublifetime of the other.
 
-In the annotation of the `swap2()` function, we introduce the use of the `first_can_be_assigned_to_second` constraint to make the annotation a little cleaner. The `first_can_be_assigned_to_second` constraint is similar to the `encompasses` constraint except that it ignores the "direct" (maximum lower bound) lifetime and only constrains the sublifetimes (if any). Using the `first_can_be_assigned_to_second` constraint eliminates the need to assign lifetime (set alias) labels to the argument sublifetimes.
+In the annotation of the `swap2()` function, we introduce the use of the `first_can_be_assigned_to_second` constraint to make the annotation a little cleaner. The `first_can_be_assigned_to_second` constraint is similar to the `encompasses` constraint except that it ignores the "direct" lifetime (range) and only constrains the sublifetimes (if any). Using the `first_can_be_assigned_to_second` constraint eliminates the need to assign lifetime (set alias) labels to the argument sublifetimes.
 
 ##### Annotating base classes
 
@@ -534,8 +532,9 @@ usage example:
         int i2 = 5;
         int i3 = 7;
         
-        /* The lifetime associated with the rsv::xslta_array<>, and each of its contained elements, is
-        the lower bound of the lifetimes of the elements in the initializer list. */
+        /* The (lower bound of the) lifetime range associated with the rsv::xslta_array<>, and each of its 
+        contained elements, is the lower bound of all of the lifetimes of the elements in the initializer 
+        list. */
         auto arrwp2 = mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 2>{ &i1, &i2 };
         auto ilaptr3 = arrwp2.front();
         //ilaptr3 = &i3;    // scpptool would complain
