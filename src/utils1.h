@@ -1025,6 +1025,14 @@ inline std::optional<clang::QualType> get_first_template_parameter_if_any(const 
 	return get_first_template_parameter_if_any(qtype.getTypePtr());
 }
 
+inline clang::QualType remove_reference(const clang::QualType& qtype) {
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, qtype);
+	if (qtype->isReferenceType()) {
+		return qtype->getPointeeType();
+	}
+	return qtype;
+}
+
 inline clang::QualType remove_fparam_wrappers(const clang::QualType& qtype) {
 	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, qtype);
 	const auto CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();

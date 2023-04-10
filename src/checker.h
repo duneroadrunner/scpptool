@@ -2066,7 +2066,7 @@ namespace checker {
 								auto maybe_template_arg_type = template_arg_type_by_name_if_available(TypePtr, template_name, state1, MR_ptr, Rewrite_ptr);
 								if (maybe_template_arg_type.has_value()) {
 									auto template_arg_type = maybe_template_arg_type.value();
-									bool res1 = is_xscope_type(template_arg_type, state1, MR_ptr, Rewrite_ptr);
+									bool res1 = is_xscope_type(remove_reference(template_arg_type), state1, MR_ptr, Rewrite_ptr);
 									if (res1) {
 										if (MR_ptr) {
 											std::string error_desc = std::string("Template parameter '") + template_name + "' instantiated with scope type '";
@@ -2582,7 +2582,7 @@ namespace checker {
 								auto maybe_template_arg_type = template_arg_type_by_name_if_available(func_decl, template_name, state1, MR_ptr, Rewrite_ptr);
 								if (maybe_template_arg_type.has_value()) {
 									auto template_arg_type = maybe_template_arg_type.value();
-									bool res1 = is_xscope_type(template_arg_type, state1, MR_ptr, Rewrite_ptr);
+									bool res1 = is_xscope_type(remove_reference(template_arg_type), state1, MR_ptr, Rewrite_ptr);
 									if (res1) {
 										if (MR_ptr) {
 											std::string error_desc = std::string("Template parameter '") + template_name + "' instantiated with scope type '";
@@ -7014,7 +7014,11 @@ namespace checker {
 									}
 
 									rvsli.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
-									rvsli.m_maybe_abstract_lifetime = rv_abstract_lifetimes.m_primary_lifetimes.front();
+									if (1 <= rv_abstract_lifetimes.m_primary_lifetimes.size()) {
+										rvsli.m_maybe_abstract_lifetime = rv_abstract_lifetimes.m_primary_lifetimes.front();
+									} else {
+										int q = 3;
+									}
 
 									/* If, on the other hand, the return type is a reference type, then there is no conceptual 
 									temporary copy. The returned reference directly targets the return value expression, so 
@@ -8576,11 +8580,14 @@ namespace checker {
 
 					/* set the expression lifetime values */
 					auto expr_scope_lifetime_info = CScopeLifetimeInfo1{};
-					expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
+					expr_scope_lifetime_info.m_category = for_lhs_of_assignment ? CScopeLifetimeInfo1::ECategory::Literal
+					 	: CScopeLifetimeInfo1::ECategory::TemporaryExpression;
 					expr_scope_lifetime_info.m_maybe_corresponding_cpp_element = CE;
 
 					/* Here we set the previously evaluated expression sublifetimes. */
 					*(expr_scope_lifetime_info.m_sublifetimes_vlptr) = expr_scope_sublifetimes_ref;
+
+					slti_set_default_lower_bound_lifetimes_where_needed(expr_scope_lifetime_info, CE->getType());
 
 					if (function_decl->getReturnType()->isReferenceType()) {
 						/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
