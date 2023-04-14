@@ -123,13 +123,16 @@ namespace checker {
 				ebaiex.m_source_location_str = s_source_location_str(SM, SL);
 
 				bool far_enough_apart = true;
-				if ((ebaiex.m_file_id == last_file_id) && (2/*arbitrary*/ > abs(ebaiex.m_line_num - last_line_num)) && (50/*arbitrary*/ > abs(ebaiex.m_column_num - last_column_num))) {
+				if ((ebaiex.m_file_id == last_file_id) && (3/*arbitrary*/ > abs(ebaiex.m_line_num - last_line_num)) && (75/*arbitrary*/ > abs(ebaiex.m_column_num - last_column_num))) {
 					far_enough_apart = false;
 				}
 				if (far_enough_apart) {
 					m_element_being_analyzed_info_ex_stack.push_back(ebaiex);
 				}
 
+				last_file_id = ebaiex.m_file_id;
+				last_line_num = ebaiex.m_line_num;
+				last_column_num = ebaiex.m_column_num;
 			}
 		}
 
@@ -7966,23 +7969,59 @@ namespace checker {
 		/* Here we're going to instantiate one or more "element_being_analyzed_info scope objects". These 
 		objects help keep track of the path in the AST tree we followed to arrive at the AST node we are 
 		currently analyzing. This path will be reported, in some form, as part any error messages to help 
-		inform the user of which parts of the code contribute to the manifestation of the error. 
-		Normally we would instantiate just one such object here to note the call expression node we are 
-		analyzing, but if this call expression is located in SaferCPlusPlus (or system) library code, 
-		then this may be insufficiently helpful, so in that case we will also note/report the location of 
-		the function declaration if it is not also located in SaferCPlusPlus (or system) library code, We 
-		use the errors_suppressed_by_location_flag as an indicator of whether or not the code is located 
-		in SaferCPlusPlus (or system) library code. */
-		typedef std::optional<decltype(state1.make_element_being_analyzed_info_scope_obj({function_declSR, CE, "function declared"}))> MaybeInstantiationScopeObj_t;
-		auto ebai_scope_obj2 = [&]() {
-				if (errors_suppressed_by_location_flag) {
-					if (!errors_suppressed_by_location(Ctx, function_declSR.getBegin())) {
-						return MaybeInstantiationScopeObj_t{ state1.make_element_being_analyzed_info_scope_obj({function_declSR, CE, "function declared"}) };
+		inform the user of which parts of the code contribute to the manifestation of the error. */
+
+		std::vector<CTUState::CElementBeingAnalyzedInfoScopeObj> extra_ebai_scope_objs;
+		{
+			/* Here we note/report the call stack (i.e. the list of containing/ancestor call expressions). */
+			auto l_CE = Tget_containing_element_of_type<clang::CallExpr>(function_decl, Ctx);
+			while (l_CE) {
+				auto l_CESR = l_CE->getSourceRange();
+				std::string str1;
+				if (MR_ptr) {
+					str1 = l_CESR.getBegin().printToString(*(MR_ptr->SourceManager));
+				}
+				if (!errors_suppressed_by_location(Ctx, l_CESR.getBegin())) {
+					extra_ebai_scope_objs.push_back(state1.make_element_being_analyzed_info_scope_obj({l_CESR, CE, "called"}));
+				}
+
+				l_CE = Tget_containing_element_of_type<clang::CallExpr>(l_CE, Ctx);
+			}
+		}
+		auto FTD = function_decl->getPrimaryTemplate();
+		if (FTD) {
+			/* This function seems to be a function template. Here we note/report the template instantiation stack. */
+			auto FND = function_decl;
+			const auto instantiation_FND = FND->getTemplateInstantiationPattern();
+			if (instantiation_FND != FND) {
+				FND = instantiation_FND;
+
+				while (FND) {
+					auto FNDSR = FND->getSourceRange();
+					std::string str1;
+					if (MR_ptr) {
+						str1 = FNDSR.getBegin().printToString(*(MR_ptr->SourceManager));
+					}
+					if (true || !errors_suppressed_by_location(Ctx, FNDSR.getBegin())) {
+						extra_ebai_scope_objs.push_back(state1.make_element_being_analyzed_info_scope_obj({FNDSR, CE, "function template instantiated"}));
+					}
+
+					auto FTD = function_decl->getPrimaryTemplate();
+					if (FTD) {
+						const auto instantiation_FND = FND->getTemplateInstantiationPattern();
+						if (instantiation_FND == FND) {
+							break;
+						}
+						FND = instantiation_FND;
+					} else {
+						break;
 					}
 				}
-				return MaybeInstantiationScopeObj_t{};
-			}();
-
+			}
+		}
+		/* Here we note/report the declaration of the function. */
+		extra_ebai_scope_objs.push_back(state1.make_element_being_analyzed_info_scope_obj({function_declSR, CE, "function declared"}));
+		/* Here we note/report the call expression. */
 		auto ebai_scope_obj = state1.make_element_being_analyzed_info_scope_obj({SR, CE});
 
 		auto CXXMCE = dyn_cast<clang::CXXMemberCallExpr>(CE);
@@ -7990,6 +8029,9 @@ namespace checker {
 
 		auto CXXOCE = dyn_cast<clang::CXXOperatorCallExpr>(CE);
 		auto CXXMD = dyn_cast<const clang::CXXMethodDecl>(function_decl);
+
+
+		/* First some preliminary checks that don't involve annotated lifetimes. */
 
 		if (CXXMCE) {
 			const auto CXXDD = dyn_cast<const clang::CXXDestructorDecl>(function_decl);
@@ -8010,65 +8052,6 @@ namespace checker {
 				}
 			}
 		}
-
-		/* Here we're going to try to evaluate and store the lifetimes of (the resulting value of)
-		this (call) expression. We're presuming that the direct lifetime of any expression is a
-		"temporary lifetime". But the expression may have other associated lifetimes defined by
-		lifetime annotations on the type of the expression. */
-
-		struct CLifetimeValueMappings : public std::vector<std::pair<CAbstractLifetime, CScopeLifetimeInfo1> > {
-			typedef std::vector<std::pair<CAbstractLifetime, CScopeLifetimeInfo1> > base_class;
-			using base_class::base_class;
-			auto find(const CAbstractLifetime& alt) {
-				auto iter = (*this).begin();
-				for (; (*this).end() != iter; iter++) {
-					if (alt == iter->first) {
-						break;
-					}
-				}
-				return iter;
-			}
-		};
-		CLifetimeValueMappings CE_type_rhs_lifetime_value_mappings;
-		CLifetimeValueMappings CE_type_lhs_lifetime_value_mappings;
-
-		std::vector<std::shared_ptr<CPairwiseLifetimeConstraint> > IOA_lt1_constraint_shptrs;
-		CScopeLifetimeInfo1Set expr_rhs_scope_sublifetimes;
-		CScopeLifetimeInfo1Set expr_lhs_scope_sublifetimes;
-
-		IF_DEBUG(const auto FD_qtype_str = function_decl->getType().getAsString();)
-		IF_DEBUG(const auto retval_qtype_str = function_decl->getReturnType().getAsString();)
-		IF_DEBUG(const auto CE_qtype_str = CE->getType().getAsString();)
-		const auto CE_TypePtr1 = CE->getType().getTypePtr();
-
-		auto as_sublifetime_of_tempexpr = [](const CScopeLifetimeInfo1& slti) {
-			CScopeLifetimeInfo1 indirect_lifetime_value;
-			indirect_lifetime_value.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
-			indirect_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos.push_back(slti);
-			return indirect_lifetime_value;
-		};
-
-		if (CXXCE) {
-			auto maybe_tla_ptr = type_lifetime_annotations_if_available(CE_TypePtr1, state1, MR_ptr, Rewrite_ptr);
-			if (maybe_tla_ptr.has_value()) {
-				auto& tla_ref = *(maybe_tla_ptr.value());
-
-				IOA_lt1_constraint_shptrs = tla_ref.m_lifetime_constraint_shptrs;
-
-				/* We initialize the expression "sublifetimes" with the abstract lifetimes of this (constructor)
-				expression's type. Where we can, we will subsequently replace each of these abstract lifetimes
-				with the corresponding concrete lifetime inferred from the (constructor) expression. */
-				expr_rhs_scope_sublifetimes = CScopeLifetimeInfo1Set(tla_ref.m_lifetime_set);
-				expr_lhs_scope_sublifetimes = CScopeLifetimeInfo1Set(tla_ref.m_lifetime_set);
-
-				for (auto& abstract_lifetime : tla_ref.m_lifetime_set.m_primary_lifetimes) {
-					CE_type_rhs_lifetime_value_mappings.push_back({ abstract_lifetime, abstract_lifetime });
-					CE_type_lhs_lifetime_value_mappings.push_back({ abstract_lifetime, abstract_lifetime });
-				}
-			}
-		}
-
-		clang::CallExpr const * CE2 = nullptr;
 
 		auto lifetime_of_the_function_call = CScopeLifetimeInfo1{};
 		lifetime_of_the_function_call.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
@@ -8156,6 +8139,64 @@ namespace checker {
 							state1.register_error(*(MR_ptr->SourceManager), arg_SR, error_desc);
 						}
 					}
+				}
+			}
+		}
+
+
+		/* Here we're going to try to evaluate and store the lifetimes of (the resulting value of)
+		this (call) expression. We're presuming that the direct lifetime of any expression is a
+		"temporary lifetime". But the expression may have other associated lifetimes defined by
+		lifetime annotations on the type of the expression. */
+
+		struct CLifetimeValueMappings : public std::vector<std::pair<CAbstractLifetime, CScopeLifetimeInfo1> > {
+			typedef std::vector<std::pair<CAbstractLifetime, CScopeLifetimeInfo1> > base_class;
+			using base_class::base_class;
+			auto find(const CAbstractLifetime& alt) {
+				auto iter = (*this).begin();
+				for (; (*this).end() != iter; iter++) {
+					if (alt == iter->first) {
+						break;
+					}
+				}
+				return iter;
+			}
+		};
+		CLifetimeValueMappings CE_type_rhs_lifetime_value_mappings;
+		CLifetimeValueMappings CE_type_lhs_lifetime_value_mappings;
+
+		std::vector<std::shared_ptr<CPairwiseLifetimeConstraint> > IOA_lt1_constraint_shptrs;
+		CScopeLifetimeInfo1Set expr_rhs_scope_sublifetimes;
+		CScopeLifetimeInfo1Set expr_lhs_scope_sublifetimes;
+
+		IF_DEBUG(const auto FD_qtype_str = function_decl->getType().getAsString();)
+		IF_DEBUG(const auto retval_qtype_str = function_decl->getReturnType().getAsString();)
+		IF_DEBUG(const auto CE_qtype_str = CE->getType().getAsString();)
+		const auto CE_TypePtr1 = CE->getType().getTypePtr();
+
+		auto as_sublifetime_of_tempexpr = [](const CScopeLifetimeInfo1& slti) {
+			CScopeLifetimeInfo1 indirect_lifetime_value;
+			indirect_lifetime_value.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
+			indirect_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos.push_back(slti);
+			return indirect_lifetime_value;
+		};
+
+		if (CXXCE) {
+			auto maybe_tla_ptr = type_lifetime_annotations_if_available(CE_TypePtr1, state1, MR_ptr, Rewrite_ptr);
+			if (maybe_tla_ptr.has_value()) {
+				auto& tla_ref = *(maybe_tla_ptr.value());
+
+				IOA_lt1_constraint_shptrs = tla_ref.m_lifetime_constraint_shptrs;
+
+				/* We initialize the expression "sublifetimes" with the abstract lifetimes of this (constructor)
+				expression's type. Where we can, we will subsequently replace each of these abstract lifetimes
+				with the corresponding concrete lifetime inferred from the (constructor) expression. */
+				expr_rhs_scope_sublifetimes = CScopeLifetimeInfo1Set(tla_ref.m_lifetime_set);
+				expr_lhs_scope_sublifetimes = CScopeLifetimeInfo1Set(tla_ref.m_lifetime_set);
+
+				for (auto& abstract_lifetime : tla_ref.m_lifetime_set.m_primary_lifetimes) {
+					CE_type_rhs_lifetime_value_mappings.push_back({ abstract_lifetime, abstract_lifetime });
+					CE_type_lhs_lifetime_value_mappings.push_back({ abstract_lifetime, abstract_lifetime });
 				}
 			}
 		}
