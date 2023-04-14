@@ -666,7 +666,9 @@ struct CScopeLifetimeInfo1 {
 	std::optional<CAbstractLifetime> m_maybe_abstract_lifetime;
 	std::optional<CCPPElement1> m_maybe_corresponding_cpp_element;
 	value_ptr1_t<CScopeLifetimeInfo1Set> m_sublifetimes_vlptr;
-	enum class ECategory { None, Automatic, ThisExpression, Immortal, Literal, AbstractLifetime, TemporaryExpression };
+	/* ContainedDynamic means like an element in a dynamic container (like a vector) (that could 
+	potentially be deleted at any time). */
+	enum class ECategory { None, Automatic, ThisExpression, Immortal, Literal, AbstractLifetime, TemporaryExpression, ContainedDynamic };
 	ECategory m_category = ECategory::None;
 };
 inline bool operator==(const CScopeLifetimeInfo1 &LHS, const CScopeLifetimeInfo1 &RHS) {

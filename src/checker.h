@@ -91,24 +91,45 @@ namespace checker {
     };
 
 
-	typedef std::vector<clang::SourceRange> CInstantiationStack;
+	class CElementBeingAnalyzedInfo {
+	public:
+		auto source_range() const { return m_SR; }
+		clang::SourceRange m_SR;
+		std::optional<CCPPElement1> m_maybe_corresponding_cpp_element;
+		std::string m_relevance_str;
+	};
+	typedef std::vector<CElementBeingAnalyzedInfo> CElementBeingAnalyzedInfoStack;
 
 	class CErrorRecord {
 		public:
 		CErrorRecord() : m_id(next_available_id()) {}
-		CErrorRecord(SourceManager& SM, clang::SourceRange const& SR, CInstantiationStack const& instantiation_stack, std::string error_description_str = "", std::string tag_name = "")
-			: m_SR(SR), m_instantiation_stack(instantiation_stack), m_source_location_str(s_source_location_str(SM, SR.getBegin())), m_error_description_str(error_description_str)
+		CErrorRecord(SourceManager& SM, clang::SourceRange const& SR, CElementBeingAnalyzedInfoStack ebai_stack, std::string error_description_str = "", std::string tag_name = "")
+			: m_SR(SR), m_source_location_str(s_source_location_str(SM, SR.getBegin())), m_error_description_str(error_description_str)
 			, m_tag_name(tag_name), m_id(next_available_id()) {
 
-			while (1 <= m_instantiation_stack.size()) {
-				if (m_instantiation_stack.back().getBegin() == m_SR.getBegin()) {
-					m_instantiation_stack.pop_back();
-				} else {
-					break;
+			std::reverse(ebai_stack.begin(), ebai_stack.end());
+
+			auto last_file_id = SM.getFileID(SR.getBegin());
+			auto last_line_num = SM.getPresumedLineNumber(SR.getBegin());
+			auto last_column_num = SM.getPresumedColumnNumber(SR.getBegin());
+
+			for (auto& ebai : ebai_stack) {
+				auto SL = ebai.source_range().getBegin();
+				CElementBeingAnalyzedInfoEx ebaiex{ ebai }; 
+				ebaiex.m_file_id = SM.getFileID(SL);
+				ebaiex.m_filename_str = SM.getFilename(SL);
+				ebaiex.m_line_num = SM.getPresumedLineNumber(SL);
+				ebaiex.m_column_num = SM.getPresumedColumnNumber(SL);
+				ebaiex.m_source_location_str = s_source_location_str(SM, SL);
+
+				bool far_enough_apart = true;
+				if ((ebaiex.m_file_id == last_file_id) && (2/*arbitrary*/ > abs(ebaiex.m_line_num - last_line_num)) && (50/*arbitrary*/ > abs(ebaiex.m_column_num - last_column_num))) {
+					far_enough_apart = false;
 				}
-			}
-			for (auto& instantiation : m_instantiation_stack) {
-				m_instantiation_source_location_str_stack.push_back(s_source_location_str(SM, instantiation.getBegin()));
+				if (far_enough_apart) {
+					m_element_being_analyzed_info_ex_stack.push_back(ebaiex);
+				}
+
 			}
 		}
 
@@ -117,11 +138,14 @@ namespace checker {
 			if ("" != m_tag_name) {
 				retval += " (" + m_tag_name + ") ";
 			}
-
-			auto l_instantiation_source_location_str_stack = m_instantiation_source_location_str_stack;
-			std::reverse(l_instantiation_source_location_str_stack.begin(), l_instantiation_source_location_str_stack.end());
-			for (auto& instantiation_source_location_str : l_instantiation_source_location_str_stack) {
-				std::string str1 = "\n  used here: " + instantiation_source_location_str;
+			for (auto& ebaiex : (*this).m_element_being_analyzed_info_ex_stack) {
+				std::string str1 = "\n  " + ebaiex.m_source_location_str + ": ";
+				if ("" != ebaiex.m_relevance_str) {
+					str1 += ebaiex.m_relevance_str;
+				} else {
+					str1 += "used";
+				}
+				str1 += " here";
 				retval += str1;
 			}
 
@@ -141,8 +165,16 @@ namespace checker {
 
 		clang::SourceRange m_SR;
 		std::string m_source_location_str;
-		CInstantiationStack m_instantiation_stack;
-		std::vector<std::string> m_instantiation_source_location_str_stack;
+		class CElementBeingAnalyzedInfoEx : public CElementBeingAnalyzedInfo {
+			public:
+			typedef CElementBeingAnalyzedInfo base_class;
+			int m_line_num = 0;
+			int m_column_num = 0;
+			clang::FileID m_file_id;
+			std::string m_filename_str;
+			std::string m_source_location_str;
+		};
+		std::vector<CElementBeingAnalyzedInfoEx> m_element_being_analyzed_info_ex_stack;
 		std::string m_error_description_str;
 		std::string m_tag_name;
 		std::string m_severity_str = "error";
@@ -344,33 +376,33 @@ namespace checker {
 		/* Set of detected errors and warnings. */
 		CErrorRecords m_error_records;
 
-		/* The "instantiation stack" is used to keep track of (the location of) items (and subitems) 
-		currently being analyzed. Used for the purpose of providing a call/instantiation stack along 
-		with any errors reported during the analysis. */
-		CInstantiationStack m_instantiation_stack;
+		/* The "element_being_analyzed_info stack" is used to keep track of (the location of) items (and 
+		subitems) currently being analyzed. Used for the purpose of providing a call/instantiation stack 
+		along with any errors reported during the analysis. */
+		CElementBeingAnalyzedInfoStack m_element_being_analyzed_info_stack;
 
-		struct CInstantiationScopeObj {
-			CInstantiationScopeObj(CTUState& state1, clang::SourceRange const& SR) : m_state1_ptr(&state1), m_SR(SR) {
-				m_state1_ptr->m_instantiation_stack.push_back(m_SR);
+		struct CElementBeingAnalyzedInfoScopeObj {
+			CElementBeingAnalyzedInfoScopeObj(CTUState& state1, CElementBeingAnalyzedInfo const& ebai) : m_state1_ptr(&state1), m_ebai(ebai) {
+				m_state1_ptr->m_element_being_analyzed_info_stack.push_back(m_ebai);
 			}
-			CInstantiationScopeObj(const CInstantiationScopeObj& src) : m_state1_ptr(src.m_state1_ptr), m_SR(src.m_SR) {
-				m_state1_ptr->m_instantiation_stack.push_back(m_SR);
+			CElementBeingAnalyzedInfoScopeObj(const CElementBeingAnalyzedInfoScopeObj& src) : m_state1_ptr(src.m_state1_ptr), m_ebai(src.m_ebai) {
+				m_state1_ptr->m_element_being_analyzed_info_stack.push_back(m_ebai);
 			}
-			~CInstantiationScopeObj() {
+			~CElementBeingAnalyzedInfoScopeObj() {
 				assert(m_state1_ptr);
-				m_state1_ptr->m_instantiation_stack.pop_back();
+				m_state1_ptr->m_element_being_analyzed_info_stack.pop_back();
 			}
 			CTUState* m_state1_ptr = nullptr;
-			clang::SourceRange m_SR;
+			CElementBeingAnalyzedInfo m_ebai;
 		};
-		/* An "instantiation scope object", while it exists, indicates that we are in the process of 
-		analyzing the item at the given source location. This is useful for providing a 
+		/* An "element_being_analyzed_info scope object", while it exists, indicates that we are in the 
+		process of analyzing the item at the given source location. This is useful for providing a 
 		call/instantiation stack along with any errors reported during the analysis. */
-		auto make_instantiation_scope_obj(clang::SourceRange const& SR) {
-			return CInstantiationScopeObj(*this, SR);
+		auto make_element_being_analyzed_info_scope_obj(CElementBeingAnalyzedInfo const& ebai) {
+			return CElementBeingAnalyzedInfoScopeObj(*this, ebai);
 		}
 		void register_error(SourceManager& SM, clang::SourceRange const& SR, std::string error_description_str = "", std::string tag_name = "") {
-			auto res = m_error_records.emplace(CErrorRecord(SM, SR, m_instantiation_stack, error_description_str, tag_name));
+			auto res = m_error_records.emplace(CErrorRecord(SM, SR, m_element_being_analyzed_info_stack, error_description_str, tag_name));
 			if (res.second) {
 				std::cout << (*(res.first)).as_a_string1() << " \n\n";
 			}
@@ -1118,6 +1150,47 @@ namespace checker {
 									retval = type_ptr;
 								}
 							}
+						}
+					}
+				}
+			}
+		}
+		return retval;
+	};
+
+	template<typename TCallExpr>
+	auto name_from_param_ordinal_if_available(TCallExpr const * CE, checker::param_ordinal_t param_ordinal) {
+		std::optional<std::string> retval;
+
+		if (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal) {
+		} else {
+			auto zb_index = param_ordinal_t::as_a_zero_based_parameter_index_if_valid(param_ordinal).value();
+
+			auto CXXCE = dyn_cast<clang::CXXConstructExpr>(CE);
+			auto CE2 = dyn_cast<CallExpr>(CE);
+			if (CXXCE) {
+				auto CXXCD = CXXCE->getConstructor();
+				if (CXXCD) {
+					if (CXXCD->getNumParams() <= zb_index) {
+						/* If this happens then either an error should be reported elsewhere
+						or there should be a compile error. */
+					} else {
+						auto PVD = CXXCD->getParamDecl(zb_index);
+						if (PVD) {
+							retval = PVD->getNameAsString();
+						}
+					}
+				}
+			} else if (CE2) {
+				auto FND = CE2->getDirectCallee();
+				if (FND) {
+					if (FND->getNumParams() <= zb_index) {
+						/* If this happens then either an error should be reported elsewhere
+						or there should be a compile error. */
+					} else {
+						auto PVD = FND->getParamDecl(zb_index);
+						if (PVD) {
+							retval = PVD->getNameAsString();
 						}
 					}
 				}
@@ -4226,6 +4299,10 @@ namespace checker {
 			return false;
 		} else if (CScopeLifetimeInfo1::ECategory::Literal == sli2.m_category) {
 			return true;
+		} else if (CScopeLifetimeInfo1::ECategory::ContainedDynamic == sli2.m_category) {
+			/* ContainedDynamic means like an element in a dynamic container (like a vector) (that could 
+			potentially be deleted at any time). */
+			return false;
 		} else if (CScopeLifetimeInfo1::ECategory::TemporaryExpression == sli2.m_category) {
 			if (CScopeLifetimeInfo1::ECategory::TemporaryExpression == sli1.m_category) {
 				if (sli1 == sli2) {
@@ -4262,22 +4339,16 @@ namespace checker {
 					while (scope2 != scope1) {
 						scope1 = get_containing_scope(scope1, context);
 						if (!scope1) {
-							retval = (scope2 == scope1);
 							break;
 						}
 					}
-
-					/* A temporary expression could contain another (sub)expression, but at the moment, that
-					determination is never used, so, for now, we won't bother evaluating it. */
-					return false;
+					retval = (scope2 == scope1);
+					return retval;
 				}
 			} else {
 				return false;
 			}
 		} else if (CScopeLifetimeInfo1::ECategory::TemporaryExpression == sli1.m_category) {
-			/* The lifetime of a temporary expression may or may not be contained in the scope of another 
-			given (non-temporary) scope lifetime, but at the moment, that determination is never used, so,
-			for now, we won't bother evaluating it. */
 			return true;
 		} else if (sli1.m_maybe_abstract_lifetime.has_value() || sli2.m_maybe_abstract_lifetime.has_value()) {
 			if (sli1.m_maybe_abstract_lifetime.has_value() && sli2.m_maybe_abstract_lifetime.has_value()) {
@@ -6824,7 +6895,8 @@ namespace checker {
 			const CXXMemberCallExpr* CXXMCE = MR.Nodes.getNodeAs<clang::CXXMemberCallExpr>("mcsssargtonativereferenceparam1");
 			const CXXOperatorCallExpr* CXXOCE = MR.Nodes.getNodeAs<clang::CXXOperatorCallExpr>("mcsssargtonativereferenceparam1");
 
-			if ((CE != nullptr)/* && (DRE != nullptr)*/)
+			/* Handling of this situation has been moved to function_call_handler2(). */
+			if (false && (CE != nullptr)/* && (DRE != nullptr)*/)
 			{
 				auto SR = nice_source_range(CE->getSourceRange(), Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
@@ -7464,8 +7536,10 @@ namespace checker {
 		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
 			, const CXXMemberCallExpr* CXXMCE = nullptr, const CXXOperatorCallExpr* CXXOCE = nullptr) {
 
-			if ((CXXMCE != nullptr) || (CXXOCE != nullptr))
+			if (false && (CXXMCE != nullptr) || (CXXOCE != nullptr))
 			{
+				/* This case is now handled in function_call_handler2(). */
+
 				auto raw_SR = CXXMCE ? CXXMCE->getSourceRange() : CXXOCE->getSourceRange();
 				auto SR = nice_source_range(raw_SR, Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
@@ -7870,13 +7944,12 @@ namespace checker {
 		auto raw_SR = CE->getSourceRange();
 		auto SR = Rewrite_ptr ? nice_source_range(raw_SR, *Rewrite_ptr) : raw_SR;
 
-		auto iso = state1.make_instantiation_scope_obj(SR);
-
 		//bool filtered_out_by_location_flag = filtered_out_by_location(Ctx, SR.getBegin());
 
 		bool errors_suppressed_by_location_flag = errors_suppressed_by_location(Ctx, SR.getBegin());
-		if ((!errors_suppressed_by_location_flag) && Rewrite_ptr) {
-			errors_suppressed_by_location_flag = state1.m_suppress_check_region_set.contains(CE, *Rewrite_ptr, Ctx);
+		bool errors_suppressed_flag = errors_suppressed_by_location_flag;
+		if ((!errors_suppressed_flag) && Rewrite_ptr) {
+			errors_suppressed_flag = state1.m_suppress_check_region_set.contains(CE, *Rewrite_ptr, Ctx);
 		}
 
 		if (!function_decl) {
@@ -7890,11 +7963,53 @@ namespace checker {
 			: function_decl->getSourceRange();
 		SourceLocation function_declSL = function_declSR.getBegin();
 
+		/* Here we're going to instantiate one or more "element_being_analyzed_info scope objects". These 
+		objects help keep track of the path in the AST tree we followed to arrive at the AST node we are 
+		currently analyzing. This path will be reported, in some form, as part any error messages to help 
+		inform the user of which parts of the code contribute to the manifestation of the error. 
+		Normally we would instantiate just one such object here to note the call expression node we are 
+		analyzing, but if this call expression is located in SaferCPlusPlus (or system) library code, 
+		then this may be insufficiently helpful, so in that case we will also note/report the location of 
+		the function declaration if it is not also located in SaferCPlusPlus (or system) library code, We 
+		use the errors_suppressed_by_location_flag as an indicator of whether or not the code is located 
+		in SaferCPlusPlus (or system) library code. */
+		typedef std::optional<decltype(state1.make_element_being_analyzed_info_scope_obj({function_declSR, CE, "function declared"}))> MaybeInstantiationScopeObj_t;
+		auto ebai_scope_obj2 = [&]() {
+				if (errors_suppressed_by_location_flag) {
+					if (!errors_suppressed_by_location(Ctx, function_declSR.getBegin())) {
+						return MaybeInstantiationScopeObj_t{ state1.make_element_being_analyzed_info_scope_obj({function_declSR, CE, "function declared"}) };
+					}
+				}
+				return MaybeInstantiationScopeObj_t{};
+			}();
+
+		auto ebai_scope_obj = state1.make_element_being_analyzed_info_scope_obj({SR, CE});
+
 		auto CXXMCE = dyn_cast<clang::CXXMemberCallExpr>(CE);
 		auto CXXCE = dyn_cast<clang::CXXConstructExpr>(CE);
 
 		auto CXXOCE = dyn_cast<clang::CXXOperatorCallExpr>(CE);
 		auto CXXMD = dyn_cast<const clang::CXXMethodDecl>(function_decl);
+
+		if (CXXMCE) {
+			const auto CXXDD = dyn_cast<const clang::CXXDestructorDecl>(function_decl);
+			if (CXXDD) {
+				if (MR_ptr) {
+					const std::string error_desc =  std::string("Explicitly calling destructors (such as '") + qfunction_name
+						+ "') is not supported.";
+					state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
+				}
+			}
+		} else if (false) {
+			static const std::string tilda_str = "~";
+			if (string_begins_with(function_name, tilda_str)) {
+				if (MR_ptr) {
+					const std::string error_desc =  std::string("'") + qfunction_name
+						+ "' looks like a destructor. Explicitly calling destructors is not supported.";
+					state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
+				}
+			}
+		}
 
 		/* Here we're going to try to evaluate and store the lifetimes of (the resulting value of)
 		this (call) expression. We're presuming that the direct lifetime of any expression is a
@@ -7949,6 +8064,98 @@ namespace checker {
 				for (auto& abstract_lifetime : tla_ref.m_lifetime_set.m_primary_lifetimes) {
 					CE_type_rhs_lifetime_value_mappings.push_back({ abstract_lifetime, abstract_lifetime });
 					CE_type_lhs_lifetime_value_mappings.push_back({ abstract_lifetime, abstract_lifetime });
+				}
+			}
+		}
+
+		clang::CallExpr const * CE2 = nullptr;
+
+		auto lifetime_of_the_function_call = CScopeLifetimeInfo1{};
+		lifetime_of_the_function_call.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
+		lifetime_of_the_function_call.m_maybe_containing_scope = get_containing_scope(CE, Ctx);
+		lifetime_of_the_function_call.m_maybe_source_range = CE->getSourceRange();
+		lifetime_of_the_function_call.m_maybe_corresponding_cpp_element = CE;
+
+		std::vector<param_ordinal_t> param_ordinals;
+		bool is_member_operator = false;
+		if (CXXMD) {
+			if (CXXMD->isOverloadedOperator()) {
+				is_member_operator = true;
+			}
+			auto param_ordinal = is_member_operator ? param_ordinal_t(param_ordinal_t::member_operator_tag{}, IMPLICIT_THIS_PARAM_ORDINAL)
+				: param_ordinal_t(IMPLICIT_THIS_PARAM_ORDINAL);
+			param_ordinals.push_back(param_ordinal);
+		}
+		const auto num_params = function_decl->getNumParams();
+		for (int i = 0; i < num_params; i += 1) {
+			auto param_ordinal = is_member_operator ? param_ordinal_t(param_ordinal_t::member_operator_tag{}, 1 + i)
+				: param_ordinal_t(1 + i);
+			param_ordinals.push_back(param_ordinal);
+		}
+
+		for (auto& param_ordinal : param_ordinals) {
+			clang::Expr const * arg_EX = arg_from_param_ordinal(CE, param_ordinal);
+			auto maybe_param_type = type_from_param_ordinal_if_available(CE, param_ordinal);
+			if (!(maybe_param_type.has_value())) {
+				continue;
+			}
+			auto param_type_ptr = maybe_param_type.value();
+			if (!param_type_ptr) {
+				continue;
+			}
+			const auto param_qtype = clang::QualType(param_type_ptr, 0/*I'm just assuming zero specifies no qualifiers*/);
+			IF_DEBUG(auto param_qtype_str = param_qtype.getAsString();)
+
+			auto maybe_expr_lifetime_value = evaluate_expression_rhs_lower_bound_lifetimes(state1, arg_EX, Ctx, MR_ptr, Rewrite_ptr);
+			MSE_RETURN_VALUE_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(maybe_expr_lifetime_value, {});
+			if (maybe_expr_lifetime_value.has_value()) {
+				auto& expr_lifetime_value_ref = maybe_expr_lifetime_value.value();
+
+				auto expr_scope_lifetime_info = CScopeLifetimeInfo1{};
+				expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
+
+				CScopeLifetimeInfo1Set lifetime_values;
+
+				if (param_type_ptr->isReferenceType() || (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal)) {
+					/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
+					same as the object it refers to (without an added level of indirection). */
+					lifetime_values.m_primary_lifetime_infos.push_back(expr_lifetime_value_ref.m_scope_lifetime_info);
+				} else {
+					CScopeLifetimeInfo1& arg_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+					/* Here we set the evaluated expression sublifetimes. */
+					lifetime_values = *(arg_slti.m_sublifetimes_vlptr);
+				}
+				for (auto& lifetime_value : lifetime_values.m_primary_lifetime_infos) {
+					auto shallow_lifetime_value = lifetime_value;
+					shallow_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
+					if (!first_is_known_to_be_contained_in_scope_of_second_shallow(lifetime_of_the_function_call, shallow_lifetime_value, Ctx, state1)) {
+						if (MR_ptr) {
+							std::string arg_str;
+							if (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal) {
+								arg_str += std::string(" 'this' pointer");
+							} else {
+								arg_str += std::string(" argument passed to the parameter");
+								auto maybe_param_name = name_from_param_ordinal_if_available(CE, param_ordinal);
+								if (maybe_param_name.has_value()) {
+									const auto& param_name = maybe_param_name.value();
+									arg_str += std::string(" '") + param_name + "'";
+								}
+							}
+							std::string function_species_str = (CXXOCE) ? "operator" :
+								((CXXMCE) ? "member function" : "function");
+
+							auto arg_SR = arg_EX->getSourceRange();
+
+							const std::string error_desc = std::string("Unable to verify that the")
+								+ arg_str + " (of type '" + param_qtype.getAsString() + "') outlives the "
+								+ function_species_str + " call '" + function_decl->getQualifiedNameAsString()
+								+ "'. (This is often addressed by obtaining a scope pointer/reference to the intended argument."
+								+ " If the argument is a reference to an element in a dynamic container, you might instead access"
+								+ " the element via a corresponding non-dynamic/'fixed' interface object which borrows (exclusive"
+								+ " access to) container's contents.)";
+							state1.register_error(*(MR_ptr->SourceManager), arg_SR, error_desc);
+						}
+					}
 				}
 			}
 		}
@@ -8255,7 +8462,7 @@ namespace checker {
 										decltype(IOA_type_lhs_lifetime_value_map)& IOA_type_lhs_lifetime_value_map_ref, 
 										decltype(as_sublifetime_of_tempexpr)& as_sublifetime_of_tempexpr, 
 										decltype(function_decl) const & function_decl, 
-										decltype(errors_suppressed_by_location_flag) const & errors_suppressed_by_location_flag,
+										decltype(errors_suppressed_flag) const & errors_suppressed_flag,
 										clang::SourceRange const & SR, CTUState& state1, 
 										ASTContext& Ctx, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr,
 										bool for_lhs_of_assignment = false
@@ -8289,7 +8496,7 @@ namespace checker {
 														function_or_constructor_str = "constructor ";
 														implicit_or_explicit_str = "";
 													}
-													if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+													if (MR_ptr && (!errors_suppressed_flag)) {
 														std::string error_desc = std::string("Unable to verify that in the '") + function_decl->getQualifiedNameAsString()
 															+ "' member function call expression, the argument corresponding to a parameter with lifetime label id '"
 															+ abstract_lifetime1.m_id + "' has a lifetime (including any sublifetimes) that meets the (minimum required) lifetime set when the object was initialized.";
@@ -8332,7 +8539,7 @@ namespace checker {
 											/* recursively handle the sublifetimes */
 											handle_params_with_lifetime_annotations(lifetime_value_ref.m_sublifetimes_vlptr->m_primary_lifetime_infos, *(abstract_lifetime1.m_sublifetimes_vlptr)
 												, initialized_lifetime_value_map_ref, present_lifetime_value_map_ref, IOA_type_lifetime_value_map_ref, IOA_type_lhs_lifetime_value_map_ref, as_sublifetime_of_tempexpr
-												, function_decl, errors_suppressed_by_location_flag, SR, state1, Ctx, MR_ptr,Rewrite_ptr, for_lhs_of_assignment);
+												, function_decl, errors_suppressed_flag, SR, state1, Ctx, MR_ptr,Rewrite_ptr, for_lhs_of_assignment);
 										}
 									}
 								};
@@ -8343,7 +8550,7 @@ namespace checker {
 
 								CB::handle_params_with_lifetime_annotations(lifetime_values_ref, param_lifetime_mapping1.second
 									, initialized_lifetime_value_map_ref, present_lifetime_value_map_ref, IOA_type_lifetime_value_map_ref, IOA_type_lhs_lifetime_value_map, as_sublifetime_of_tempexpr
-									, function_decl, errors_suppressed_by_location_flag, SR, state1, Ctx, MR_ptr,Rewrite_ptr, for_lhs_of_assignment);
+									, function_decl, errors_suppressed_flag, SR, state1, Ctx, MR_ptr,Rewrite_ptr, for_lhs_of_assignment);
 								return {};
 							};
 
@@ -8412,7 +8619,7 @@ namespace checker {
 									if (std::is_same_v<clang::CXXConstructExpr, TCallOrConstuctorExpr>) {
 										function_or_constructor_str = "constructor ";
 									}
-									if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+									if (MR_ptr && (!errors_suppressed_flag)) {
 										std::string error_desc = std::string("Unable to verify that in the '") + function_decl->getQualifiedNameAsString()
 											+ "' " + implicit_or_explicit_str + function_or_constructor_str + "call expression, the specified '" + constraint_shptr->species_str()
 											+ "' lifetime constraint (applied to lifetime label ids '"
@@ -8466,12 +8673,12 @@ namespace checker {
 						expr_scope_sublifetimes_ref.m_primary_lifetime_infos.push_back(CE_type_lifetime_value_mapping.second);
 
 						auto check_that_lifetime_is_abstract_or_outlives_hard_lower_bound_shallow
-							= [&hard_lower_bound_shallow_lifetime, &qfunction_name, &errors_suppressed_by_location_flag, &SR, &state1, &Ctx, &MR_ptr, &Rewrite_ptr](const CScopeLifetimeInfo1& slti) {
+							= [&hard_lower_bound_shallow_lifetime, &qfunction_name, &errors_suppressed_flag, &SR, &state1, &Ctx, &MR_ptr, &Rewrite_ptr](const CScopeLifetimeInfo1& slti) {
 							if (CScopeLifetimeInfo1::ECategory::AbstractLifetime != slti.m_category) {
 								auto shallow_slti = slti;
 								shallow_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
 								if (!first_is_known_to_be_contained_in_scope_of_second_shallow(hard_lower_bound_shallow_lifetime, shallow_slti, Ctx, state1)) {
-									if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+									if (MR_ptr && (!errors_suppressed_flag)) {
 										std::string error_desc = std::string("At least one of the return value's direct or indirect (referenced object)")
 											+ " lifetimes cannot be verified to (sufficiently) outlive the ('" + qfunction_name + "') call expression.";
 										state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
@@ -8484,7 +8691,7 @@ namespace checker {
 						CE_type_lifetime_value_mapping.second.m_sublifetimes_vlptr->apply_to_all_lifetimes_const(check_that_lifetime_is_abstract_or_outlives_hard_lower_bound_shallow);
 					}
 
-					if (!could_be_a_dynamic_container_accessor) {
+					if (true || !could_be_a_dynamic_container_accessor) {
 						if (is_raw_pointer_or_equivalent(function_decl->getReturnType())
 							|| function_decl->getReturnType()->isReferenceType()) {
 							if (1 > expr_scope_sublifetimes_ref.m_primary_lifetime_infos.size()) {
@@ -8596,6 +8803,9 @@ namespace checker {
 						auto& sublifetimes = expr_scope_lifetime_info.m_sublifetimes_vlptr->m_primary_lifetime_infos;
 						if (1 == sublifetimes.size()) {
 							expr_scope_lifetime_info = sublifetimes.at(0);
+							if (could_be_a_dynamic_container_accessor) {
+								expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::ContainedDynamic;
+							}
 						} else {
 							if (0 != sublifetimes.size()) {
 								/* unexpected */
@@ -8815,6 +9025,8 @@ namespace checker {
 			}
 		}
 
+		//auto ebai_scope_obj = state1.make_element_being_analyzed_info_scope_obj(SR);
+
 		auto& expr_lifetime_values_map_ref = for_lhs_of_assignment ? state1.m_expr_lhs_lb_lifetime_values_map : state1.m_expr_rhs_lb_lifetime_values_map;
 
 		{
@@ -8850,9 +9062,9 @@ namespace checker {
 		}
 		IF_DEBUG(auto qtype_str = qtype.getAsString();)
 
-		bool errors_suppressed_by_location_flag = errors_suppressed_by_location(Ctx, SR.getBegin());
-		if ((!errors_suppressed_by_location_flag) && Rewrite_ptr) {
-			errors_suppressed_by_location_flag = state1.m_suppress_check_region_set.contains(E, *Rewrite_ptr, Ctx);
+		bool errors_suppressed_flag = errors_suppressed_by_location(Ctx, SR.getBegin());
+		if ((!errors_suppressed_flag) && Rewrite_ptr) {
+			errors_suppressed_flag = state1.m_suppress_check_region_set.contains(E, *Rewrite_ptr, Ctx);
 		}
 
 		std::optional<CScopeLifetimeInfo1Set> maybe_sublifetimes;
@@ -9322,6 +9534,25 @@ namespace checker {
 				}
 				if (maybe_expr_lifetime_value.has_value()) {
 					CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+					if (false && (CScopeLifetimeInfo1::ECategory::ContainedDynamic == expr_slti.m_category) || (CScopeLifetimeInfo1::ECategory::None == expr_slti.m_category)) {
+						/* This case is handled by the MCSSSAddressOf::run() handler. */
+						if (MR_ptr) {
+							std::string of_type_str;
+							auto target_qtype = target_EX->getType();
+							if (!(target_qtype.isNull())) {
+								of_type_str = " (of type '" + target_qtype.getAsString() + "')";
+							}
+
+							std::string error_desc = std::string("Unable to verify that the argument")
+								+ of_type_str + " lives long enough to take its address.";
+							if (CScopeLifetimeInfo1::ECategory::ContainedDynamic == expr_slti.m_category) {
+								error_desc += std::string(" (If the argument is a reference to an element in a dynamic container, you might instead access")
+								+ " the element via a corresponding non-dynamic/'fixed' interface object which borrows (exclusive"
+								+ " access to) container's contents.)";
+							}
+							state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
+						}
+					}
 					maybe_sublifetimes = { expr_slti };
 				}
 				break;
@@ -9445,9 +9676,9 @@ namespace checker {
 		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(DD_qtype, retval);
 		const auto TST = DD_qtype->getAs<clang::TemplateSpecializationType>();
 
-		bool errors_suppressed_by_location_flag = errors_suppressed_by_location(Ctx, SR.getBegin());
-		if ((!errors_suppressed_by_location_flag) && Rewrite_ptr) {
-			errors_suppressed_by_location_flag = state1.m_suppress_check_region_set.contains(DD, *Rewrite_ptr, Ctx);
+		bool errors_suppressed_flag = errors_suppressed_by_location(Ctx, SR.getBegin());
+		if ((!errors_suppressed_flag) && Rewrite_ptr) {
+			errors_suppressed_flag = state1.m_suppress_check_region_set.contains(DD, *Rewrite_ptr, Ctx);
 		}
 
 		auto VD = dyn_cast<const clang::VarDecl>(DD);
@@ -9568,7 +9799,7 @@ namespace checker {
 						MSE_RETURN_VALUE_IF_TYPE_IS_NULL(VD_qtype, retval);
 						if (ILE && VD_qtype->isAggregateType()) {
 							if (!(VD_qtype->isPointerType() || VD_qtype->isReferenceType())) {
-								if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+								if (MR_ptr && (!errors_suppressed_flag)) {
 									const std::string error_desc = std::string("Aggregate initialization (of '") + var_qualified_name
 										+ "') is not (currently) supported for types (like '" + qtype_str + "') that have (explicit or "
 										+ "implicit) lifetime annotations.";
@@ -9598,12 +9829,12 @@ namespace checker {
 							auto& hard_lower_bound_shallow_lifetime = shallow_var_slti;
 
 							auto check_that_lifetime_is_abstract_or_outlives_hard_lower_bound_shallow
-								= [&hard_lower_bound_shallow_lifetime, &VD, &errors_suppressed_by_location_flag, &SR, &state1, &Ctx, &MR_ptr, &Rewrite_ptr](const CScopeLifetimeInfo1& slti) {
+								= [&hard_lower_bound_shallow_lifetime, &VD, &errors_suppressed_flag, &SR, &state1, &Ctx, &MR_ptr, &Rewrite_ptr](const CScopeLifetimeInfo1& slti) {
 								if (CScopeLifetimeInfo1::ECategory::AbstractLifetime != slti.m_category) {
 									auto shallow_slti = slti;
 									shallow_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
 									if (!first_is_known_to_be_contained_in_scope_of_second_shallow(hard_lower_bound_shallow_lifetime, shallow_slti, Ctx, state1)) {
-										if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+										if (MR_ptr && (!errors_suppressed_flag)) {
 											std::string error_desc = std::string("At least one of the initialization value's direct or indirect (referenced object)")
 												+ " lifetimes cannot be verified to (sufficiently) outlive the ('" + VD->getQualifiedNameAsString() + "') variable.";
 											state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
@@ -9613,13 +9844,14 @@ namespace checker {
 							};
 
 							auto& vardecl_lb_lifetime_values_map_ref = for_lhs_of_assignment ? state1.m_vardecl_lhs_lb_lifetime_values_map
-								: state1.m_vardecl_rhs_lb_lifetime_values_map;;
+								: state1.m_vardecl_rhs_lb_lifetime_values_map;
+
+							expr_slti.m_sublifetimes_vlptr->apply_to_all_lifetimes_const(check_that_lifetime_is_abstract_or_outlives_hard_lower_bound_shallow);
 
 							if (qtype->isReferenceType()) {
 								/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
 								same as the object it refers to (without an added level of indirection). */
 								retval = CVariableLifetimeValues{ expr_slti, bool(MR_ptr) };
-
 								check_that_lifetime_is_abstract_or_outlives_hard_lower_bound_shallow(expr_slti);
 							} else if (is_raw_pointer_or_equivalent(qtype) && (!(maybe_tlta.has_value()))) {
 								auto slti1 = shallow_var_slti;
@@ -9640,7 +9872,7 @@ namespace checker {
 							int q = 5;
 						}
 					} else {
-						if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+						if (MR_ptr && (!errors_suppressed_flag)) {
 							const std::string error_desc = std::string("(Non-parameter) variable '")
 								+ var_qualified_name + "' of type '" + qtype_str + "' has as an associated lifetime label which "
 								+ "requires that the decalaration have an initialization value (that doesn't seem to be present).";
@@ -9693,7 +9925,7 @@ namespace checker {
 							let it go. */
 							satisfies_checks = true;
 						} else {
-							if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+							if (MR_ptr && (!errors_suppressed_flag)) {
 								const std::string error_desc = std::string("Unable to verify the safety of variable '")
 									+ var_qualified_name + "' of type '" + qtype_str + "' with 'static storage duration'. "
 									+ "'static storage duration' is supported for eligible types wrapped in the "
@@ -9710,7 +9942,7 @@ namespace checker {
 						if (true || is_async_shareable(qtype)) {
 							satisfies_checks = true;
 						} else {
-							if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+							if (MR_ptr && (!errors_suppressed_flag)) {
 								const std::string error_desc = std::string("Unable to verify the safety of variable '")
 									+ var_qualified_name + "' of type '" + qtype_str + "' with 'thread local storage duration'. "
 									+ "'thread local storage duration' is supported for eligible types wrapped in the "
@@ -9735,7 +9967,7 @@ namespace checker {
 
 				if (type_name1 == mse_rsv_static_immutable_obj_str1) {
 					if (clang::StorageDuration::SD_Static != storage_duration) {
-						if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+						if (MR_ptr && (!errors_suppressed_flag)) {
 							const std::string error_desc = std::string("Variable '") + var_qualified_name + "' of type '"
 								+ mse_rsv_static_immutable_obj_str1 + "' must be declared to have 'static' storage duration.";
 							state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
@@ -9743,7 +9975,7 @@ namespace checker {
 					}
 				} else if (type_name1 == mse_rsv_ThreadLocalObj_str) {
 					if (clang::StorageDuration::SD_Thread != storage_duration) {
-						if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+						if (MR_ptr && (!errors_suppressed_flag)) {
 							const std::string error_desc = std::string("Variable '") + var_qualified_name + "' of type '"
 								+ mse_rsv_ThreadLocalObj_str + "' must be declared to have 'thread_local' storage duration.";
 							state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
@@ -9758,7 +9990,7 @@ namespace checker {
 					auto PVD = dyn_cast<const ParmVarDecl>(VD);
 					if (!PVD) {
 						if (!VD->isExternallyDeclarable()) {
-							if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+							if (MR_ptr && (!errors_suppressed_flag)) {
 								const std::string error_desc = std::string("Uninitialized ")
 									+ "scalar variable '" + VD->getNameAsString() + "' (of type '"
 									+ qtype.getAsString() + "') ";
@@ -9776,7 +10008,7 @@ namespace checker {
 			if (init_EX) {
 				auto res = statement_makes_reference_to_decl(*VD, *init_EX);
 				if (res) {
-					if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+					if (MR_ptr && (!errors_suppressed_flag)) {
 						const std::string error_desc = std::string("Reference to variable '")
 							+ VD->getNameAsString() + "' before the completion of its "
 							+ "construction/initialization is not supported.";
@@ -9784,7 +10016,7 @@ namespace checker {
 					}
 				}
 			} else if (false && VD->isExternallyDeclarable()) {
-				if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+				if (MR_ptr && (!errors_suppressed_flag)) {
 					const std::string error_desc = std::string("\"External\"/inline ")
 						+ "variable declarations (such as the declaration of "
 						+ VD->getNameAsString() + "' of type '" + qtype.getAsString()
@@ -9851,7 +10083,7 @@ namespace checker {
 						if (!is_lambda_capture_field) {
 							if (qtype.getTypePtr()->isPointerType()) {
 							} else {
-								if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+								if (MR_ptr && (!errors_suppressed_flag)) {
 									const std::string error_desc = std::string("(Non-pointer) scalar fields (such those of type '")
 										+ qtype.getAsString() + "') require direct initializers.";
 									state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
@@ -9883,7 +10115,7 @@ namespace checker {
 					const auto base_qtype = base.getType();
 					const auto base_qtype_str = base_qtype.getAsString();
 					if (!is_async_shareable(base_qtype)) {
-						if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+						if (MR_ptr && (!errors_suppressed_flag)) {
 							const std::string error_desc = std::string("Unable to verify that the ")
 								+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableObj<> template, '"
 								+ base_qtype_str + "', is eligible to be safely shared (among threads). "
@@ -9901,7 +10133,7 @@ namespace checker {
 					const auto base_qtype = base.getType();
 					const auto base_qtype_str = base_qtype.getAsString();
 					if (!is_async_passable(base_qtype)) {
-						if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+						if (MR_ptr && (!errors_suppressed_flag)) {
 							const std::string error_desc = std::string("Unable to verify that the ")
 								+ "given (adjusted) parameter of the mse::rsv::TAsyncPassableObj<> template, '"
 								+ base_qtype_str + "', is eligible to be safely passed (between threads). "
@@ -9919,7 +10151,7 @@ namespace checker {
 					const auto base_qtype = base.getType();
 					const auto base_qtype_str = base_qtype.getAsString();
 					if ((!is_async_shareable(base_qtype)) || (!is_async_passable(base_qtype))) {
-						if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+						if (MR_ptr && (!errors_suppressed_flag)) {
 							const std::string error_desc = std::string("Unable to verify that the ")
 								+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableAndPassableObj<> template, '"
 								+ base_qtype_str + "', is eligible to be safely shared and passed (among threads). "
@@ -9959,21 +10191,21 @@ namespace checker {
 					}
 				}
 				if (!satisfies_checks) {
-					if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+					if (MR_ptr && (!errors_suppressed_flag)) {
 						const std::string error_desc = std::string("Unsupported use of ")
 							+ "mse::rsv::TFParam<> (in type '" + name + "'). ";
 						state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 					}
 				}
 			} else if (qtype.getTypePtr()->isUnionType()) {
-				if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+				if (MR_ptr && (!errors_suppressed_flag)) {
 					const std::string error_desc = std::string("Native unions (such as '" + qtype.getAsString() + "') are not ")
 						+ "supported. ";
 					state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 				}
 			} else if (true && (std_unique_ptr_str == name)) {
 				if (!qtype.isConstQualified()) {
-					if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+					if (MR_ptr && (!errors_suppressed_flag)) {
 						const std::string error_desc = std::string("std::unique_ptr<>s that are not const qualified are not supported. ")
 							+ "Consider using a reference counting pointer from the SaferCPlusPlus library. ";
 						state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
@@ -9996,7 +10228,7 @@ namespace checker {
 						}
 					}
 					if (null_initialization) {
-						if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+						if (MR_ptr && (!errors_suppressed_flag)) {
 							const std::string error_desc = std::string("Null/default initialization of ")
 								+ "std::unique_ptr<>s (such as those of type '" + qtype.getAsString()
 								+ "') is not supported.";
@@ -10005,7 +10237,7 @@ namespace checker {
 					}
 				}
 			} else {
-				auto check_for_and_handle_unsupported_element = [MR_ptr, errors_suppressed_by_location_flag, &SR](const clang::QualType& qtype, CTUState& state1) {
+				auto check_for_and_handle_unsupported_element = [MR_ptr, errors_suppressed_flag, &SR](const clang::QualType& qtype, CTUState& state1) {
 					std::string element_name;
 					const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 					if (l_CXXRD) {
@@ -10018,7 +10250,7 @@ namespace checker {
 						auto uei_ptr = unsupported_element_info_ptr(element_name);
 						if (uei_ptr) {
 							const auto& unsupported_element_info = *uei_ptr;
-							if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+							if (MR_ptr && (!errors_suppressed_flag)) {
 								std::string error_desc = std::string("'") + element_name + std::string("' is not ")
 									+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
 								if ("" != unsupported_element_info.m_recommended_alternative) {
@@ -10032,7 +10264,7 @@ namespace checker {
 				//check_for_and_handle_unsupported_element(qtype, state1);
 				//apply_to_component_types_if_any(qtype, check_for_and_handle_unsupported_element, state1);
 
-				auto check_for_and_handle_unsupported_element2 = [MR_ptr, errors_suppressed_by_location_flag](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
+				auto check_for_and_handle_unsupported_element2 = [MR_ptr, errors_suppressed_flag](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
 					auto qtype = typeLoc.getType();
 					std::string element_name;
 					const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
@@ -10046,7 +10278,7 @@ namespace checker {
 						auto uei_ptr = unsupported_element_info_ptr(element_name);
 						if (uei_ptr) {
 							const auto& unsupported_element_info = *uei_ptr;
-							if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+							if (MR_ptr && (!errors_suppressed_flag)) {
 								std::string error_desc = std::string("'") + element_name + std::string("' is not ")
 									+ "supported (in type '" + qtype.getAsString() + "' used in this declaration). ";
 								if ("" != unsupported_element_info.m_recommended_alternative) {
@@ -10071,7 +10303,7 @@ namespace checker {
 				unsupported_type_str = "Native union";
 			}
 			if ("" != unsupported_type_str) {
-				if (MR_ptr && (!errors_suppressed_by_location_flag)) {
+				if (MR_ptr && (!errors_suppressed_flag)) {
 					const std::string error_desc = unsupported_type_str + std::string("s are not ")
 						+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
 					state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
@@ -11041,7 +11273,7 @@ namespace checker {
 					return;
 				}
 
-				auto iso = (*this).m_state1.make_instantiation_scope_obj(SR);
+				auto ebai_scope_obj = (*this).m_state1.make_element_being_analyzed_info_scope_obj({SR});
 
 				auto TD = dyn_cast<const clang::TypeDecl>(D);
 				auto DD = dyn_cast<const DeclaratorDecl>(D);
