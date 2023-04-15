@@ -189,6 +189,39 @@ namespace checker {
 	int CErrorRecord::m_next_available_id = 0;
 	class CErrorRecords : public std::set<CErrorRecord> {};
 
+	std::string get_as_quoted_string_for_errmsg(clang::QualType qtype) {
+		std::string qtype_str = qtype.getAsString();
+		std::string retval = "'" + qtype_str + "'";
+		const auto cannonical_qtype = get_cannonical_type(qtype);
+		if (cannonical_qtype != qtype) {
+			const auto cannonical_qtype_str = cannonical_qtype.getAsString();
+			if (cannonical_qtype_str != qtype_str) {
+				auto cannonical_qtype_wo_class_space_str = cannonical_qtype_str;
+				static const std::string class_space_str = "class ";
+				auto class_index = cannonical_qtype_wo_class_space_str.find(class_space_str);
+				while (std::string::npos != class_index) {
+					cannonical_qtype_wo_class_space_str.replace(class_index, class_space_str.length(), "");
+					class_index = cannonical_qtype_wo_class_space_str.find(class_space_str);
+				}
+				if (cannonical_qtype_wo_class_space_str != qtype_str) {
+					auto cannonical_qtype_wo_struct_space_str = cannonical_qtype_wo_class_space_str;
+					static const std::string struct_space_str = "struct ";
+					auto struct_index = cannonical_qtype_wo_struct_space_str.find(struct_space_str);
+					while (std::string::npos != struct_index) {
+						cannonical_qtype_wo_struct_space_str.replace(struct_index, struct_space_str.length(), "");
+						struct_index = cannonical_qtype_wo_struct_space_str.find(struct_space_str);
+					}
+					if (cannonical_qtype_wo_struct_space_str != qtype_str) {
+						if (("std::string" != qtype_str) && ("std::string_view" != qtype_str)) {
+							retval += std::string(" (aka '") + cannonical_qtype_str + "')";
+						}
+					}
+				}
+			}
+		}
+		return retval;
+	}
+
 	clang::FunctionDecl const * enclosing_function_if_any(clang::Expr const * E, clang::ASTContext& context) {
 		clang::FunctionDecl const * retval = nullptr;
 		if (E) {
@@ -859,7 +892,10 @@ namespace checker {
 		if (!type_ptr) {
 			return false;
 		}
-		IF_DEBUG(auto type_str = type_ptr->getTypeClassName();)
+		type_ptr = get_cannonical_type_ptr(type_ptr);
+
+		IF_DEBUG(std::string type_str = get_as_string(type_ptr);)
+		IF_DEBUG(std::string type_classname_str = type_ptr->getTypeClassName();)
 
 		bool is_pointer_or_equivalent = true;
 		if (!type_ptr->isPointerType()) {
@@ -894,7 +930,7 @@ namespace checker {
 		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(peeled_qtype, retval);
 		if (is_raw_pointer_or_equivalent(peeled_qtype)) {
 			if (peeled_qtype->isPointerType()) {
-				retval = peeled_qtype->getPointeeType();
+				retval = get_cannonical_type(peeled_qtype->getPointeeType());
 			} else {
 				auto RD = peeled_qtype->getAsRecordDecl();
 				if (RD) {
@@ -910,7 +946,7 @@ namespace checker {
 				}
 			}
 		} else if (peeled_qtype->isReferenceType()) {
-			retval = peeled_qtype->getPointeeType();
+			retval = get_cannonical_type(peeled_qtype->getPointeeType());
 		}
 		return retval;
 	}
@@ -919,7 +955,7 @@ namespace checker {
 	inline bool contains_non_owning_scope_reference(const clang::Type& type, const CCommonTUState1& tu_state_cref, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
 		bool retval = false;
 
-		const auto qtype = clang::QualType(&type, 0/*I'm just assuming zero specifies no qualifiers*/);
+		const auto qtype = get_cannonical_type(clang::QualType(&type, 0/*I'm just assuming zero specifies no qualifiers*/));
 		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
 
 		DECLARE_CACHED_CONST_STRING(ContainsNonOwningScopeReference_tag_str, mse_namespace_str() + "::us::impl::ContainsNonOwningScopeReferenceTagBase");
@@ -1084,7 +1120,7 @@ namespace checker {
 			if (CXXMCE) {
 				auto RD = CXXMCE->getRecordDecl();
 				if (RD) {
-					auto type_ptr = RD->getTypeForDecl();
+					auto type_ptr = get_cannonical_type_ptr(RD->getTypeForDecl());
 					if (type_ptr) {
 						retval = type_ptr;
 					}
@@ -1099,7 +1135,7 @@ namespace checker {
 						argument. I think. */
 						auto PVD = FND->getParamDecl(0);
 						if (PVD) {
-							auto qtype = PVD->getType();
+							auto qtype = get_cannonical_type(PVD->getType());
 							if (!qtype.isNull()) {
 								auto type_ptr = qtype.getTypePtr();
 								if (type_ptr) {
@@ -1127,7 +1163,7 @@ namespace checker {
 					} else {
 						auto PVD = CXXCD->getParamDecl(zb_index);
 						if (PVD) {
-							auto qtype = PVD->getType();
+							auto qtype = get_cannonical_type(PVD->getType());
 							if (!qtype.isNull()) {
 								auto type_ptr = qtype.getTypePtr();
 								if (type_ptr) {
@@ -1146,7 +1182,7 @@ namespace checker {
 					} else {
 						auto PVD = FND->getParamDecl(zb_index);
 						if (PVD) {
-							auto qtype = PVD->getType();
+							auto qtype = get_cannonical_type(PVD->getType());
 							if (!qtype.isNull()) {
 								auto type_ptr = qtype.getTypePtr();
 								if (type_ptr) {
@@ -1248,8 +1284,12 @@ namespace checker {
 			auto FD = std::get<clang::FunctionDecl const *>(context);
 			auto CXXMD = dyn_cast<const clang::CXXMethodDecl>(FD);
 			if (CXXMD) {
+				if ((CXXMD->getThisType().isNull()) || (CXXMD->getThisType()->getPointeeType().isNull())) {
+					int q = 3;
+					return retval;
+				}
 				IF_DEBUG(const std::string qtype_str = CXXMD->getThisType()->getPointeeType().getAsString();)
-				auto Type_ptr = CXXMD->getThisType()->getPointeeType().getTypePtr();
+				auto Type_ptr = get_cannonical_type(CXXMD->getThisType()->getPointeeType()).getTypePtr();
 				auto containing_RD = Type_ptr->getAsRecordDecl();
 				if (containing_RD) {
 					maybe_containing_RD = containing_RD;
@@ -2162,9 +2202,13 @@ namespace checker {
 			}
 		}
 
-		state1.m_type_lifetime_annotations_map.insert_or_assign(type_decl.getTypeForDecl(), tlta);
+		const auto type_decl_Type_ptr = type_decl.getTypeForDecl();
+		state1.m_type_lifetime_annotations_map.insert_or_assign(type_decl_Type_ptr, tlta);
 
-		auto type_decl_Type_ptr = type_decl.getTypeForDecl();
+		const auto cannonical_type_decl_Type_ptr = get_cannonical_type_ptr(type_decl_Type_ptr);
+		if (cannonical_type_decl_Type_ptr != type_decl_Type_ptr) {
+			state1.m_type_lifetime_annotations_map.insert_or_assign(cannonical_type_decl_Type_ptr, tlta);
+		}
 
 		clang::RecordDecl const * RD = type_decl_Type_ptr ? type_decl_Type_ptr->getAsRecordDecl() : (decltype(RD))(nullptr);
 		if (RD) {
@@ -2264,7 +2308,7 @@ namespace checker {
 
 					if (FD->hasInClassInitializer()) {
 						if (MR_ptr) {
-							std::string error_desc = std::string("Currently, member fields with lifetime annotation aren't permitted to have default values (with field of type '") + FD->getType().getAsString() + "').";
+							std::string error_desc = std::string("Currently, member fields with lifetime annotation aren't permitted to have default values (with field of type ") + get_as_quoted_string_for_errmsg(FD->getType()) + ").";
 							state1.register_error(*(MR_ptr->SourceManager), FD->getSourceRange(), error_desc);
 						}
 					}
@@ -2320,7 +2364,7 @@ namespace checker {
 		if (CXXMD) {
 			auto This_qtype = CXXMD->getThisType();
 			MSE_RETURN_IF_TYPE_IS_NULL(This_qtype);
-			auto This_pointee_qtype = This_qtype->getPointeeType();
+			auto This_pointee_qtype = get_cannonical_type(This_qtype->getPointeeType());
 			MSE_RETURN_IF_TYPE_IS_NULL(This_pointee_qtype);
 			IF_DEBUG(const std::string qtype_str = This_pointee_qtype.getAsString();)
 			auto Type_ptr = This_pointee_qtype.getTypePtr();
@@ -2789,7 +2833,7 @@ namespace checker {
 						if (!(alts1.is_empty())) {
 							size_t num_declared_primary_lifetimes = 0;
 
-							auto found_iter2 = state1.m_type_lifetime_annotations_map.find(param->getType().getTypePtr());
+							auto found_iter2 = state1.m_type_lifetime_annotations_map.find(get_cannonical_type(param->getType()).getTypePtr());
 							if (state1.m_type_lifetime_annotations_map.end() != found_iter2) {
 								auto& tlta = found_iter2->second;
 								num_declared_primary_lifetimes = tlta.m_lifetime_set.m_primary_lifetimes.size();
@@ -2840,7 +2884,7 @@ namespace checker {
 							if (!(alts1.is_empty())) {
 								size_t num_declared_primary_lifetimes = 0;
 
-								auto found_iter2 = state1.m_type_lifetime_annotations_map.find(param->getType().getTypePtr());
+								auto found_iter2 = state1.m_type_lifetime_annotations_map.find(get_cannonical_type(param->getType()).getTypePtr());
 								if (state1.m_type_lifetime_annotations_map.end() != found_iter2) {
 									auto& tlta = found_iter2->second;
 									num_declared_primary_lifetimes = tlta.m_lifetime_set.m_primary_lifetimes.size();
@@ -3208,7 +3252,7 @@ namespace checker {
 
 				if (PVD->hasInit()) {
 					if (MR_ptr) {
-						std::string error_desc = std::string("Currently, parameters with lifetime annotation aren't permitted to have default values (with parameter of type '") + PVD->getType().getAsString() + "').";
+						std::string error_desc = std::string("Currently, parameters with lifetime annotation aren't permitted to have default values (with parameter of type ") + get_as_quoted_string_for_errmsg(PVD->getType()) + ").";
 						state1.register_error(*(MR_ptr->SourceManager), PVD->getSourceRange(), error_desc);
 					}
 				}
@@ -3362,7 +3406,7 @@ namespace checker {
 							int num_declared_primary_lifetimes = 0;
 
 							if (!(param->getType().isNull())) {
-								auto found_iter2 = state1.m_type_lifetime_annotations_map.find(param->getType().getTypePtr());
+								auto found_iter2 = state1.m_type_lifetime_annotations_map.find(get_cannonical_type(param->getType()).getTypePtr());
 								if (state1.m_type_lifetime_annotations_map.end() != found_iter2) {
 									auto& tlta = found_iter2->second;
 									num_declared_primary_lifetimes = tlta.m_lifetime_set.m_primary_lifetimes.size();
@@ -3695,7 +3739,7 @@ namespace checker {
 
 						for (const auto FD : RD->fields()) {
 							const auto field_qtype = FD->getType();
-							auto field_qtype_str = field_qtype.getAsString();
+							IF_DEBUG(auto field_qtype_str = field_qtype.getAsString());
 							auto field_suppress_check_flag = state1.m_suppress_check_region_set.contains(FD, Rewrite, *(MR.Context));
 							if (field_suppress_check_flag) {
 								continue;
@@ -3714,11 +3758,11 @@ namespace checker {
 											*/
 										} else {
 											if (is_lambda) {
-												error_desc = std::string("Native pointers (such as those of type '") + field_qtype.getAsString()
-													+ "') are not supported as captures of (non-xscope) lambdas. ";
+												error_desc = std::string("Native pointers (such as those of type ") + get_as_quoted_string_for_errmsg(field_qtype)
+													+ ") are not supported as captures of (non-xscope) lambdas. ";
 											} else {
-												error_desc = std::string("Native pointers (such as those of type '") + field_qtype.getAsString()
-													+"') are not supported as fields of (non-xscope) structs or classes.";
+												error_desc = std::string("Native pointers (such as those of type ") + get_as_quoted_string_for_errmsg(field_qtype)
+													+ ") are not supported as fields of (non-xscope) structs or classes.";
 											}
 										}
 									}
@@ -3730,36 +3774,36 @@ namespace checker {
 										*/
 									} else {
 										if (is_lambda) {
-											error_desc = std::string("Native references (such as those of type '") + field_qtype.getAsString()
-												+ "') are not supported as captures of (non-xscope) lambdas. ";
+											error_desc = std::string("Native references (such as those of type ") + get_as_quoted_string_for_errmsg(field_qtype)
+												+ ") are not supported as captures of (non-xscope) lambdas. ";
 										} else {
-											error_desc = std::string("Native references (such as those of type '") + field_qtype.getAsString()
-												+"') are not supported as fields of (non-xscope) structs or classes.";
+											error_desc = std::string("Native references (such as those of type ") + get_as_quoted_string_for_errmsg(field_qtype)
+												+") are not supported as fields of (non-xscope) structs or classes.";
 										}
 									}
 								}
 
 								if (g_enforce_scpp_type_indicator_tags && (!has_xscope_tag_base) && is_xscope_type(field_qtype, state1)) {
 									if (is_lambda) {
-										error_desc = std::string("Lambdas that capture variables of xscope type (such as '")
-											+ field_qtype_str + "') must be scope lambdas (usually created via an "
+										error_desc = std::string("Lambdas that capture variables of xscope type (such as ")
+											+ get_as_quoted_string_for_errmsg(field_qtype) + ") must be scope lambdas (usually created via an "
 											+  "'mse::rsv::make_xscope_*_lambda()' wrapper function).";
 									} else {
-										error_desc = std::string("Structs or classes containing fields of xscope type (such as '")
-											+ field_qtype_str + "') must inherit from mse::rsv::XScopeTagBase.";
+										error_desc = std::string("Structs or classes containing fields of xscope type (such as ")
+											+ get_as_quoted_string_for_errmsg(field_qtype) + ") must inherit from mse::rsv::XScopeTagBase.";
 									}
 								}
 								if (g_enforce_scpp_type_indicator_tags && (!has_ContainsNonOwningScopeReference_tag_base)
 									&& contains_non_owning_scope_reference(field_qtype, state1)) {
 									if (is_lambda) {
-										error_desc = std::string("Lambdas that capture items (such as those of type '")
-											+ field_qtype_str + "') that are, or contain, non-owning scope references must be "
+										error_desc = std::string("Lambdas that capture items (such as those of type ")
+											+ get_as_quoted_string_for_errmsg(field_qtype) + ") that are, or contain, non-owning scope references must be "
 											+ "scope 'reference or pointer capture' lambdas (created via the "
 											+ "'mse::rsv::make_xscope_reference_or_pointer_capture_lambda()' "
 											+ "wrapper function).";
 									} else {
-										error_desc = std::string("Structs or classes containing fields (such as those of type '")
-											+ field_qtype_str + "') that are, or contain, non-owning scope references must inherit from "
+										error_desc = std::string("Structs or classes containing fields (such as those of type ")
+											+ get_as_quoted_string_for_errmsg(field_qtype) + ") that are, or contain, non-owning scope references must inherit from "
 											+ "mse::rsv::ContainsNonOwningScopeReferenceTagBase.";
 									}
 								}
@@ -3770,8 +3814,8 @@ namespace checker {
 										lambda capture variables(/fields) from outside the lambda, because they're not 
 										directly accessible from outside? */
 									} else {
-										error_desc = std::string("Structs or classes containing fields (such as '") + field_qtype_str
-											+ "') that yield scope pointers (from their overloaded 'operator&'), or contain an element "
+										error_desc = std::string("Structs or classes containing fields (such as ") + get_as_quoted_string_for_errmsg(field_qtype)
+											+ ") that yield scope pointers (from their overloaded 'operator&'), or contain an element "
 											+ "that does, must inherit from mse::rsv::ReferenceableByScopePointerTagBase.";
 									}
 								}
@@ -3905,7 +3949,7 @@ namespace checker {
 	struct CStaticLifetimeOwnerInfo1Set {
 		CStaticLifetimeOwnerInfo1Set() {}
 		CStaticLifetimeOwnerInfo1Set(const CTUState& state1, const clang::Type * Type_ptr) {
-			auto found_iter = state1.m_type_lifetime_annotations_map.find(Type_ptr);
+			auto found_iter = state1.m_type_lifetime_annotations_map.find(get_cannonical_type_ptr(Type_ptr));
 			if (state1.m_type_lifetime_annotations_map.end() != found_iter) {
 				auto& tlta = found_iter->second;
 				m_maybe_primary_lifetime_owner_infos.resize(tlta.m_lifetime_set.m_primary_lifetimes.size());
@@ -3963,7 +4007,7 @@ namespace checker {
 					TypePtr = TypePtr2;
 				}
 			}
-			auto tlta_iter1 = state1.m_type_lifetime_annotations_map.find(TypePtr);
+			auto tlta_iter1 = state1.m_type_lifetime_annotations_map.find(get_cannonical_type_ptr(TypePtr));
 			if (state1.m_type_lifetime_annotations_map.end() != tlta_iter1) {
 				retval = &(tlta_iter1->second);
 			}
@@ -5070,7 +5114,7 @@ namespace checker {
 
 						auto RD = VD_qtype.getTypePtr()->getAsRecordDecl();
 						if (RD) {
-							auto found_iter = tu_state_ref.m_type_lifetime_annotations_map.find(RD->getTypeForDecl());
+							auto found_iter = tu_state_ref.m_type_lifetime_annotations_map.find(get_cannonical_type_ptr(RD->getTypeForDecl()));
 							if (tu_state_ref.m_type_lifetime_annotations_map.end() != found_iter) {
 								auto& tlta = found_iter->second;
 								if (VD->hasInit()) {
@@ -5193,8 +5237,8 @@ namespace checker {
 						}
 						if (!satisfies_checks) {
 							std::string hint_str1 = std::string("'") + VD->getNameAsString()
-								+ "' (of type '" + VD_qtype.getAsString()
-								+ "') has 'static' storage duration and so may be accessible from different "
+								+ "' (of type " + get_as_quoted_string_for_errmsg(VD_qtype)
+								+ ") has 'static' storage duration and so may be accessible from different "
 								+ "threads. In this case, data race safety could not be verified. If accessibility "
 								+ "from different threads is not required, consider declaring the object "
 								+ "'thread_local'.";
@@ -6058,7 +6102,7 @@ namespace checker {
 
 								auto RD = VD->getType().getTypePtr()->getAsRecordDecl();
 								if (RD) {
-									auto found_iter = tu_state_ref.m_type_lifetime_annotations_map.find(RD->getTypeForDecl());
+									auto found_iter = tu_state_ref.m_type_lifetime_annotations_map.find(get_cannonical_type_ptr(RD->getTypeForDecl()));
 									if (tu_state_ref.m_type_lifetime_annotations_map.end() != found_iter) {
 										auto& tlta = found_iter->second;
 										if (VD->hasInit()) {
@@ -6183,8 +6227,8 @@ namespace checker {
 						}
 						if (!satisfies_checks) {
 							std::string hint_str1 = std::string("'") + VD->getNameAsString()
-								+ "' (of type '" + VD_qtype.getAsString()
-								+ "') has 'static' storage duration and so may be accessible from different "
+								+ "' (of type " + get_as_quoted_string_for_errmsg(VD_qtype)
+								+ ") has 'static' storage duration and so may be accessible from different "
 								+ "threads. In this case, data race safety could not be verified. If accessibility "
 								+ "from different threads is not required, consider declaring the object "
 								+ "'thread_local'.";
@@ -6335,7 +6379,7 @@ namespace checker {
 						auto& src_slo = maybe_expr_slo.value();
 						retval = src_slo;
 
-						auto found_it = tu_state_ref.m_type_lifetime_annotations_map.find(CSTE_qtype.getTypePtr());
+						auto found_it = tu_state_ref.m_type_lifetime_annotations_map.find(get_cannonical_type(CSTE_qtype).getTypePtr());
 						if (tu_state_ref.m_type_lifetime_annotations_map.end() != found_it) {
 							/* The result type of the cast has abstract (annotated) lifetimes associated with it. We cannot in
 							general assume that any (sub)lifetime values of the source object correspond to those of the
@@ -6842,9 +6886,9 @@ namespace checker {
 				IF_DEBUG(std::string qtype_str = VD->getType().getAsString();)
 				if (qtype->isReferenceType()) {
 					if (clang::StorageDuration::SD_Automatic != VD->getStorageDuration()) {
-						const std::string error_desc = std::string("Native references (such as those of type '")
-							+ qtype.getAsString()
-							+ "') that are not local variables (or function parameters) are not supported.";
+						const std::string error_desc = std::string("Native references (such as those of type ")
+							+ get_as_quoted_string_for_errmsg(qtype)
+							+ ") that are not local variables (or function parameters) are not supported.";
 						(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 					}
 					const auto EX = VD->getInit();
@@ -6867,7 +6911,7 @@ namespace checker {
 						}
 						if (!satisfies_checks) {
 							std::string error_desc = std::string("Unable to verify that the ")
-								+ "native reference (of type '" + qtype.getAsString() + "') is safe here.";
+								+ "native reference (of type " + get_as_quoted_string_for_errmsg(qtype) + ") is safe here.";
 							const auto hints_str = res1.hints_str();
 							if (!hints_str.empty()) {
 								error_desc += " (" + hints_str + ")";
@@ -7279,8 +7323,8 @@ namespace checker {
 
 				{
 					const std::string error_desc = std::string("Pointer arithmetic (including ")
-						+ "native array subscripts) is not supported. (The expression in question here is of type '"
-						+ EX->getType().getAsString() + "'.)";
+						+ "native array subscripts) is not supported. (The expression in question here is of type "
+						+ get_as_quoted_string_for_errmsg(EX->getType()) + ".)";
 					(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 				}
 			}
@@ -7412,8 +7456,8 @@ namespace checker {
 
 						if (null_initialization) {
 							const std::string error_desc = std::string("Null initialization of ")
-								+ "native pointers (such as those of type '" + qtype.getAsString()
-								+ "') is not supported.";
+								+ "native pointers (such as those of type " + get_as_quoted_string_for_errmsg(qtype)
+								+ ") is not supported.";
 							(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 						}
 					} else {
@@ -7518,8 +7562,8 @@ namespace checker {
 				if ("" != cast_type_str) {
 					assert(CSTE);
 					const std::string error_desc = cast_type_str
-						+ " casts are not supported (in expression of type '"
-						+ CSTE->getType().getAsString() + "').";
+						+ " casts are not supported (in expression of type "
+						+ get_as_quoted_string_for_errmsg(CSTE->getType()) + ").";
 					(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 				}
 			}
@@ -8130,7 +8174,7 @@ namespace checker {
 							auto arg_SR = arg_EX->getSourceRange();
 
 							const std::string error_desc = std::string("Unable to verify that the")
-								+ arg_str + " (of type '" + param_qtype.getAsString() + "') outlives the "
+								+ arg_str + " (of type " + get_as_quoted_string_for_errmsg(param_qtype) + ") outlives the "
 								+ function_species_str + " call '" + function_decl->getQualifiedNameAsString()
 								+ "'. (This is often addressed by obtaining a scope pointer/reference to the intended argument."
 								+ " If the argument is a reference to an element in a dynamic container, you might instead access"
@@ -9414,7 +9458,7 @@ namespace checker {
 						}
 						retval = CExpressionLifetimeValues{ slti1, bool(MR_ptr) };
 
-						auto found_it = state1.m_type_lifetime_annotations_map.find(CSTE_qtype.getTypePtr());
+						auto found_it = state1.m_type_lifetime_annotations_map.find(get_cannonical_type(CSTE_qtype).getTypePtr());
 						if (state1.m_type_lifetime_annotations_map.end() != found_it) {
 							/* The result type of the cast has abstract (annotated) lifetimes associated with it. We cannot in
 							general assume that any (sub)lifetime values of the source object correspond to those of the
@@ -9581,7 +9625,7 @@ namespace checker {
 							std::string of_type_str;
 							auto target_qtype = target_EX->getType();
 							if (!(target_qtype.isNull())) {
-								of_type_str = " (of type '" + target_qtype.getAsString() + "')";
+								of_type_str = " (of type " + get_as_quoted_string_for_errmsg(target_qtype) + ")";
 							}
 
 							std::string error_desc = std::string("Unable to verify that the argument")
@@ -9711,11 +9755,7 @@ namespace checker {
 			retval.m_failure_due_to_dependent_type_flag = true;
 			return retval;
 		}
-		const std::string qtype_str = DD->getType().getAsString();
-		auto DD_qtype = DD->getType();
-		IF_DEBUG(auto DD_qtype_str = DD_qtype.getAsString();)
-		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(DD_qtype, retval);
-		const auto TST = DD_qtype->getAs<clang::TemplateSpecializationType>();
+		IF_DEBUG(const std::string qtype_str = qtype.getAsString();)
 
 		bool errors_suppressed_flag = errors_suppressed_by_location(Ctx, SR.getBegin());
 		if ((!errors_suppressed_flag) && Rewrite_ptr) {
@@ -9842,7 +9882,7 @@ namespace checker {
 							if (!(VD_qtype->isPointerType() || VD_qtype->isReferenceType())) {
 								if (MR_ptr && (!errors_suppressed_flag)) {
 									const std::string error_desc = std::string("Aggregate initialization (of '") + var_qualified_name
-										+ "') is not (currently) supported for types (like '" + qtype_str + "') that have (explicit or "
+										+ "') is not (currently) supported for types (like " + get_as_quoted_string_for_errmsg(qtype) + ") that have (explicit or "
 										+ "implicit) lifetime annotations.";
 									state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 								}
@@ -9915,7 +9955,7 @@ namespace checker {
 					} else {
 						if (MR_ptr && (!errors_suppressed_flag)) {
 							const std::string error_desc = std::string("(Non-parameter) variable '")
-								+ var_qualified_name + "' of type '" + qtype_str + "' has as an associated lifetime label which "
+								+ var_qualified_name + "' of type " + get_as_quoted_string_for_errmsg(qtype) + " has as an associated lifetime label which "
 								+ "requires that the decalaration have an initialization value (that doesn't seem to be present).";
 							state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 						}
@@ -9968,7 +10008,7 @@ namespace checker {
 						} else {
 							if (MR_ptr && (!errors_suppressed_flag)) {
 								const std::string error_desc = std::string("Unable to verify the safety of variable '")
-									+ var_qualified_name + "' of type '" + qtype_str + "' with 'static storage duration'. "
+									+ var_qualified_name + "' of type " + get_as_quoted_string_for_errmsg(qtype) + " with 'static storage duration'. "
 									+ "'static storage duration' is supported for eligible types wrapped in the "
 									+ "'mse::rsv::TStaticImmutableObj<>' transparent template wrapper. Other supported wrappers include: "
 									+ "mse::rsv::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
@@ -9985,7 +10025,7 @@ namespace checker {
 						} else {
 							if (MR_ptr && (!errors_suppressed_flag)) {
 								const std::string error_desc = std::string("Unable to verify the safety of variable '")
-									+ var_qualified_name + "' of type '" + qtype_str + "' with 'thread local storage duration'. "
+									+ var_qualified_name + "' of type " + get_as_quoted_string_for_errmsg(qtype) + " with 'thread local storage duration'. "
 									+ "'thread local storage duration' is supported for eligible types wrapped in the "
 									+ "'mse::rsv::TThreadLocalObj<>' transparent template wrapper. Other supported wrappers include: "
 									+ "mse::rsv::TStaticImmutableObj<>, mse::rsv::TStaticAtomicObj<>, mse::TAsyncSharedV2ReadWriteAccessRequester<>, mse::TAsyncSharedV2ReadOnlyAccessRequester<>, "
@@ -10060,8 +10100,8 @@ namespace checker {
 				if (MR_ptr && (!errors_suppressed_flag)) {
 					const std::string error_desc = std::string("\"External\"/inline ")
 						+ "variable declarations (such as the declaration of "
-						+ VD->getNameAsString() + "' of type '" + qtype.getAsString()
-						+ "') are not currently supported.";
+						+ VD->getNameAsString() + "' of type " + get_as_quoted_string_for_errmsg(qtype)
+						+ ") are not currently supported.";
 					state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 				}
 			}
@@ -10125,8 +10165,8 @@ namespace checker {
 							if (qtype.getTypePtr()->isPointerType()) {
 							} else {
 								if (MR_ptr && (!errors_suppressed_flag)) {
-									const std::string error_desc = std::string("(Non-pointer) scalar fields (such those of type '")
-										+ qtype.getAsString() + "') require direct initializers.";
+									const std::string error_desc = std::string("(Non-pointer) scalar fields (such those of type ")
+										+ get_as_quoted_string_for_errmsg(qtype) + ") require direct initializers.";
 									state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 								}
 							}
@@ -10154,12 +10194,12 @@ namespace checker {
 				if (1 == CXXRD->getNumBases()) {
 					const auto& base = *(CXXRD->bases_begin());
 					const auto base_qtype = base.getType();
-					const auto base_qtype_str = base_qtype.getAsString();
+					IF_DEBUG(const auto base_qtype_str = base_qtype.getAsString();)
 					if (!is_async_shareable(base_qtype)) {
 						if (MR_ptr && (!errors_suppressed_flag)) {
 							const std::string error_desc = std::string("Unable to verify that the ")
-								+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableObj<> template, '"
-								+ base_qtype_str + "', is eligible to be safely shared (among threads). "
+								+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableObj<> template, "
+								+ get_as_quoted_string_for_errmsg(base_qtype) + ", is eligible to be safely shared (among threads). "
 								+ "If it is known to be so, then this error can be suppressed with a "
 								+ "'check suppression' directive. ";
 							state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
@@ -10172,12 +10212,12 @@ namespace checker {
 				if (1 == CXXRD->getNumBases()) {
 					const auto& base = *(CXXRD->bases_begin());
 					const auto base_qtype = base.getType();
-					const auto base_qtype_str = base_qtype.getAsString();
+					IF_DEBUG(const auto base_qtype_str = base_qtype.getAsString();)
 					if (!is_async_passable(base_qtype)) {
 						if (MR_ptr && (!errors_suppressed_flag)) {
 							const std::string error_desc = std::string("Unable to verify that the ")
-								+ "given (adjusted) parameter of the mse::rsv::TAsyncPassableObj<> template, '"
-								+ base_qtype_str + "', is eligible to be safely passed (between threads). "
+								+ "given (adjusted) parameter of the mse::rsv::TAsyncPassableObj<> template, "
+								+ get_as_quoted_string_for_errmsg(base_qtype) + ", is eligible to be safely passed (between threads). "
 								+ "If it is known to be so, then this error can be suppressed with a "
 								+ "'check suppression' directive. ";
 							state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
@@ -10190,12 +10230,12 @@ namespace checker {
 				if (1 == CXXRD->getNumBases()) {
 					const auto& base = *(CXXRD->bases_begin());
 					const auto base_qtype = base.getType();
-					const auto base_qtype_str = base_qtype.getAsString();
+					IF_DEBUG(const auto base_qtype_str = base_qtype.getAsString();)
 					if ((!is_async_shareable(base_qtype)) || (!is_async_passable(base_qtype))) {
 						if (MR_ptr && (!errors_suppressed_flag)) {
 							const std::string error_desc = std::string("Unable to verify that the ")
-								+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableAndPassableObj<> template, '"
-								+ base_qtype_str + "', is eligible to be safely shared and passed (among threads). "
+								+ "given (adjusted) parameter of the mse::rsv::TAsyncShareableAndPassableObj<> template, "
+								+ get_as_quoted_string_for_errmsg(base_qtype) + ", is eligible to be safely shared and passed (among threads). "
 								+ "If it is known to be so, then this error can be suppressed with a "
 								+ "'check suppression' directive. ";
 							state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
@@ -10240,7 +10280,7 @@ namespace checker {
 				}
 			} else if (qtype.getTypePtr()->isUnionType()) {
 				if (MR_ptr && (!errors_suppressed_flag)) {
-					const std::string error_desc = std::string("Native unions (such as '" + qtype.getAsString() + "') are not ")
+					const std::string error_desc = std::string("Native unions (such as " + get_as_quoted_string_for_errmsg(qtype) + ") are not ")
 						+ "supported. ";
 					state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 				}
@@ -10271,8 +10311,8 @@ namespace checker {
 					if (null_initialization) {
 						if (MR_ptr && (!errors_suppressed_flag)) {
 							const std::string error_desc = std::string("Null/default initialization of ")
-								+ "std::unique_ptr<>s (such as those of type '" + qtype.getAsString()
-								+ "') is not supported.";
+								+ "std::unique_ptr<>s (such as those of type " + get_as_quoted_string_for_errmsg(qtype)
+								+ ") is not supported.";
 							state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 						}
 					}
@@ -10280,11 +10320,14 @@ namespace checker {
 			} else {
 				auto check_for_and_handle_unsupported_element = [MR_ptr, errors_suppressed_flag, &SR](const clang::QualType& qtype, CTUState& state1) {
 					std::string element_name;
+					std::string quoted_element_name_for_errmsg;
 					const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 					if (l_CXXRD) {
 						element_name = l_CXXRD->getQualifiedNameAsString();
+						quoted_element_name_for_errmsg = "'" + element_name + "'";
 					} else {
 						element_name = qtype.getAsString();
+						quoted_element_name_for_errmsg = get_as_quoted_string_for_errmsg(qtype);
 					}
 
 					{
@@ -10292,8 +10335,8 @@ namespace checker {
 						if (uei_ptr) {
 							const auto& unsupported_element_info = *uei_ptr;
 							if (MR_ptr && (!errors_suppressed_flag)) {
-								std::string error_desc = std::string("'") + element_name + std::string("' is not ")
-									+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
+								std::string error_desc = quoted_element_name_for_errmsg + std::string(" is not ")
+									+ "supported (in this declaration of type " + get_as_quoted_string_for_errmsg(qtype) + "). ";
 								if ("" != unsupported_element_info.m_recommended_alternative) {
 									error_desc += "Consider using " + unsupported_element_info.m_recommended_alternative + " instead.";
 								}
@@ -10308,11 +10351,14 @@ namespace checker {
 				auto check_for_and_handle_unsupported_element2 = [MR_ptr, errors_suppressed_flag](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
 					auto qtype = typeLoc.getType();
 					std::string element_name;
+					std::string quoted_element_name_for_errmsg;
 					const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 					if (l_CXXRD) {
 						element_name = l_CXXRD->getQualifiedNameAsString();
+						quoted_element_name_for_errmsg = "'" + element_name + "'";
 					} else {
 						element_name = qtype.getAsString();
+						quoted_element_name_for_errmsg = get_as_quoted_string_for_errmsg(qtype);
 					}
 
 					{
@@ -10320,8 +10366,8 @@ namespace checker {
 						if (uei_ptr) {
 							const auto& unsupported_element_info = *uei_ptr;
 							if (MR_ptr && (!errors_suppressed_flag)) {
-								std::string error_desc = std::string("'") + element_name + std::string("' is not ")
-									+ "supported (in type '" + qtype.getAsString() + "' used in this declaration). ";
+								std::string error_desc = quoted_element_name_for_errmsg + std::string(" is not ")
+									+ "supported (in type " + get_as_quoted_string_for_errmsg(qtype) + " used in this declaration). ";
 								if ("" != unsupported_element_info.m_recommended_alternative) {
 									error_desc += "Consider using " + unsupported_element_info.m_recommended_alternative + " instead.";
 								}
@@ -10346,7 +10392,7 @@ namespace checker {
 			if ("" != unsupported_type_str) {
 				if (MR_ptr && (!errors_suppressed_flag)) {
 					const std::string error_desc = unsupported_type_str + std::string("s are not ")
-						+ "supported (in this declaration of type '" + qtype.getAsString() + "'). ";
+						+ "supported (in this declaration of type " + get_as_quoted_string_for_errmsg(qtype) + "). ";
 					state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 				}
 			}
@@ -10553,8 +10599,8 @@ namespace checker {
 								bool satisfies_checks = slti_second_can_be_assigned_to_first(lhs_lifetime_value, rhs_lifetime_value, *(MR.Context), m_state1);
 
 								if (!satisfies_checks) {
-									std::string error_desc = std::string("Unable to verify that this pointer assignment (of type '")
-										+ (maybe_FD.value())->getType().getAsString() + "') is safe.";
+									std::string error_desc = std::string("Unable to verify that this pointer assignment (of type ")
+										+ get_as_quoted_string_for_errmsg((maybe_FD.value())->getType()) + ") is safe.";
 									std::string hints;
 									if ((!rhs_lifetime_values_evaluated) && (!rhs_hints.empty())) {
 										hints += " (" + rhs_hints + ")";
@@ -10739,8 +10785,8 @@ namespace checker {
 				satisfies_checks = slti_second_can_be_assigned_to_first(lhs_lifetime_value, rhs_lifetime_value, *(MR.Context), state1);
 
 				if (!satisfies_checks) {
-					std::string error_desc = std::string("Unable to verify that this pointer assignment (of type '")
-						+ LHSEX->getType().getAsString() + "') is safe.";
+					std::string error_desc = std::string("Unable to verify that this pointer assignment (of type ")
+						+ get_as_quoted_string_for_errmsg(LHSEX->getType()) + ") is safe.";
 					std::string hints;
 					if ((!lhs_lifetime_values_evaluated) && (!lhs_hints.empty())) {
 						hints += " (" + lhs_hints + ")";
@@ -10983,8 +11029,8 @@ namespace checker {
 				}
 
 				if (!satisfies_checks) {
-					std::string error_desc = std::string("Unable to verify that this assignment (of type '")
-						+ LHSEX->getType().getAsString() + "') satisfies the (annotated) lifetime constraints of the type.";
+					std::string error_desc = std::string("Unable to verify that this assignment (of type ")
+						+ get_as_quoted_string_for_errmsg(LHSEX->getType()) + ") satisfies the (annotated) lifetime constraints of the type.";
 					if (!lhs_lifetime_values_evaluated) {
 						error_desc += " (Unable to evaluate the lifetimes of the left hand side expression.)";
 					} else if (!rhs_lifetime_values_evaluated) {
@@ -11111,7 +11157,7 @@ namespace checker {
 										if (true || string_begins_with(l_source_text, std_move_str)) {
 											/* todo: check for aliases */
 											const std::string error_desc = std::string("Cannot (yet) verify the safety of this explicit use of std::move() with ")
-												+ "an argument type ('" + arg_EX->getType().getAsString() + "') that yields scope pointers (unconditionally via the "
+												+ "an argument type (" + get_as_quoted_string_for_errmsg(arg_EX->getType()) + ") that yields scope pointers (unconditionally via the "
 												+ "'operator &' of some component). "
 												+ "(In particular, explicit use of std::move() with 'mse::TXScopeOwnerPointer<>' "
 												+ "or any object that might contain an 'mse::TXScopeOwnerPointer<>' is not supported.) ";
@@ -11201,8 +11247,8 @@ namespace checker {
 																arg_SR = SR;
 															}
 															const std::string error_desc = std::string("Unable to verify the safety ")
-																+ "of a native reference parameter of type '" + param_type.getAsString()
-																+ "', of the function being passed (to an opaque "
+																+ "of a native reference parameter of type " + get_as_quoted_string_for_errmsg(param_type)
+																+ ", of the function being passed (to an opaque "
 																+ "function/method/operator) here.";
 															(*this).m_state1.register_error(*MR.SourceManager, arg_SR, error_desc);
 														}
@@ -11263,7 +11309,7 @@ namespace checker {
 							}
 						} else if (CXXSVIE) {
 							IF_DEBUG(CXXSVIE->getType().getAsString();)
-							unsupported_expression_str = "Default construction of scalar types (such as '" + CXXSVIE->getType().getAsString() + "')";
+							unsupported_expression_str = "Default construction of scalar types (such as " + get_as_quoted_string_for_errmsg(CXXSVIE->getType()) + ")";
 						}
 						if ("" != unsupported_expression_str) {
 							const std::string error_desc = unsupported_expression_str
