@@ -112,6 +112,9 @@ namespace checker {
 			auto last_file_id = SM.getFileID(SR.getBegin());
 			auto last_line_num = SM.getPresumedLineNumber(SR.getBegin());
 			auto last_column_num = SM.getPresumedColumnNumber(SR.getBegin());
+			auto previous_last_file_id = last_file_id;
+			auto previous_last_line_num = last_line_num;
+			auto previous_last_column_num = last_column_num;
 
 			for (auto& ebai : ebai_stack) {
 				auto SL = ebai.source_range().getBegin();
@@ -123,13 +126,18 @@ namespace checker {
 				ebaiex.m_source_location_str = s_source_location_str(SM, SL);
 
 				bool far_enough_apart = true;
-				if ((ebaiex.m_file_id == last_file_id) && (3/*arbitrary*/ > abs(ebaiex.m_line_num - last_line_num)) && (75/*arbitrary*/ > abs(ebaiex.m_column_num - last_column_num))) {
+				if (((ebaiex.m_file_id == last_file_id) && (3/*arbitrary*/ > abs(ebaiex.m_line_num - last_line_num)) && (75/*arbitrary*/ > abs(ebaiex.m_column_num - last_column_num)))
+					|| ((ebaiex.m_file_id == previous_last_file_id) && (3/*arbitrary*/ > abs(ebaiex.m_line_num - previous_last_line_num)) && (75/*arbitrary*/ > abs(ebaiex.m_column_num - previous_last_column_num)))
+					) {
 					far_enough_apart = false;
 				}
 				if (far_enough_apart) {
 					m_element_being_analyzed_info_ex_stack.push_back(ebaiex);
 				}
 
+				previous_last_file_id = last_file_id;
+				previous_last_line_num = last_line_num;
+				previous_last_column_num = last_column_num;
 				last_file_id = ebaiex.m_file_id;
 				last_line_num = ebaiex.m_line_num;
 				last_column_num = ebaiex.m_column_num;
@@ -11142,8 +11150,8 @@ namespace checker {
 								*/
 								/* errors_suppressed_by_location() returns true for SaferCPlusPlus headers as well
 								as standard and system headers.  */
-								is_potentially_from_standard_header |= filtered_out_by_location(*(MR.SourceManager), FNDSR.getBegin());
-								is_potentially_from_standard_header |= errors_suppressed_by_location(*(MR.SourceManager), FNDSR.getBegin());
+								//is_potentially_from_standard_header |= filtered_out_by_location(*(MR.SourceManager), FNDSR.getBegin());
+								//is_potentially_from_standard_header |= errors_suppressed_by_location(*(MR.SourceManager), FNDSR.getBegin());
 							}
 							if (is_potentially_from_standard_header) {
 								static const std::string std_move_str = "std::move";
@@ -11232,7 +11240,7 @@ namespace checker {
 														const std::string error_desc = std::string("Unable to verify the safety ")
 															+ "of the native reference parameter, '" + param->getNameAsString()
 															+ "', of the function object being passed (to opaque "
-															+ "function/method/operator '" + l_FD->getQualifiedNameAsString() + "') here.";
+															+ "function/method/operator '" + function_decl->getQualifiedNameAsString() + "') here.";
 														(*this).m_state1.register_error(*MR.SourceManager, arg_SR, error_desc);
 													}
 												}
@@ -11249,7 +11257,7 @@ namespace checker {
 															const std::string error_desc = std::string("Unable to verify the safety ")
 																+ "of a native reference parameter of type " + get_as_quoted_string_for_errmsg(param_type)
 																+ ", of the function being passed (to an opaque "
-																+ "function/method/operator) here.";
+																+ "function/method/operator '" + function_decl->getQualifiedNameAsString() + "') here.";
 															(*this).m_state1.register_error(*MR.SourceManager, arg_SR, error_desc);
 														}
 													}
