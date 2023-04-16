@@ -119,66 +119,6 @@ Native references are subject to essentially the same restrictions as non-retarg
 
 So just as this tool wouldn't condone directly taking the address of an element of a (resizable) vector, it wouldn't condone directly creating a reference to an element of a vector either. This means you cannot directly pass a vector element by reference to a function. As with pointers, you would first need to obtain a scope pointer to the element, then you could pass the element (by reference) as a dereference of the scope pointer.
 
-#### Range-based `for` loops by reference
-
-Another common use case for native references that this tool can't generally verify to be safe is range-based `for` loops. So for example in this code:
-
-```cpp
-#include "msemstdvector.h"
-
-void main(int argc, char* argv[]) {
-    mse::mstd::vector<int> vec1{1, 2, 3};
-    for (auto& item : vec1) {
-        //vec1.clear();
-        item += 5;
-    }
-}
-```
-
-the native reference `item` would be flagged as "not verifiably safe". You could instead use [`mse::for_each_ptr()`](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#for_each_ptr) like so
-
-```cpp
-#include "msemstdvector.h"
-#include "msealgorithm.h"
-
-void main(int argc, char* argv[]) {
-    mse::mstd::vector<int> vec1{1, 2, 3};
-    mse::for_each_ptr(vec1.begin(), vec1.end(), [](auto item_ptr){ *item_ptr += 5; });
-}
-```
-
-or the "range-based" version
-
-```cpp
-#include "msemstdvector.h"
-#include "msealgorithm.h"
-#include "msescope.h"
-
-void main(int argc, char* argv[]) {
-    auto xscope_vec1 = mse::make_xscope(mse::mstd::vector<int>{1, 2, 3});
-    mse::xscope_range_for_each_ptr(&xscope_vec1, [](auto item_ptr){ *item_ptr += 5; });
-}
-```
-
-#### Lambda captures
-
-Just as a class or struct that contains fields of scope type, [must itself be a scope type](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#defining-your-own-scope-types), a lambda expression with captures of scope type (including native references) must itself be a "scope lambda". Scope lambdas are created using one of:
-`mse::rsv::make_xscope_reference_or_pointer_capture_lambda()`  
-`mse::rsv::make_xscope_non_reference_or_pointer_capture_lambda()`  
-`mse::rsv::make_xscope_non_capture_lambda()`  
-(This tool will flag attempts to use one not appropriate for the given lambda.)
-
-example:
-```cpp
-#include "msescope.h"
-
-void main(int argc, char* argv[]) {
-    int i1 = 5;
-    auto xscope_lambda1 = mse::rsv::make_xscope_reference_or_pointer_capture_lambda([&] { return i1; });
-    int i2 = xscope_lambda1();
-}
-```
-
 #### Annotating lifetime constraints
 
 [*provisional*]
