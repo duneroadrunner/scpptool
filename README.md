@@ -418,7 +418,7 @@ Just to mention it, base classes are, in terms of lifetime annotations, conceptu
 
 ##### Lifetime annotation implementation caveats
 
-(Note, that at the time of writing, implementation of lifetime safety enforcement is not complete. Safety can be subverted through, for example, cyclic references with user-defined destructors, etc.. Also note that the process of adding lifetime annotated elements to the SaferCPlusPlus library is still in the early stages.)
+(Note, that at the time of writing, implementation of lifetime safety enforcement is not complete. Safety can be subverted through, for example, cyclic references with user-defined destructors, or using a type-erased function container to neutralize lifetime annotation specified restrictions, etc.. Also note that the process of adding lifetime annotated elements to the SaferCPlusPlus library is still in the early stages.)
 
 ##### third party lifetime annotations
 
