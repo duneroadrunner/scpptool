@@ -107,6 +107,12 @@ namespace checker {
 			: m_SR(SR), m_source_location_str(s_source_location_str(SM, SR.getBegin())), m_error_description_str(error_description_str)
 			, m_tag_name(tag_name), m_id(next_available_id()) {
 
+#ifndef NDEBUG
+			if (std::string::npos != m_source_location_str.find(g_target_debug_source_location_str1)) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
+
 			std::reverse(ebai_stack.begin(), ebai_stack.end());
 
 			auto last_file_id = SM.getFileID(SR.getBegin());
@@ -133,14 +139,14 @@ namespace checker {
 				}
 				if (far_enough_apart) {
 					m_element_being_analyzed_info_ex_stack.push_back(ebaiex);
-				}
 
-				previous_last_file_id = last_file_id;
-				previous_last_line_num = last_line_num;
-				previous_last_column_num = last_column_num;
-				last_file_id = ebaiex.m_file_id;
-				last_line_num = ebaiex.m_line_num;
-				last_column_num = ebaiex.m_column_num;
+					previous_last_file_id = last_file_id;
+					previous_last_line_num = last_line_num;
+					previous_last_column_num = last_column_num;
+					last_file_id = ebaiex.m_file_id;
+					last_line_num = ebaiex.m_line_num;
+					last_column_num = ebaiex.m_column_num;
+				}
 			}
 		}
 
@@ -956,6 +962,178 @@ namespace checker {
 		} else if (peeled_qtype->isReferenceType()) {
 			retval = get_cannonical_type(peeled_qtype->getPointeeType());
 		}
+		return retval;
+	}
+
+	inline bool is_recognized_dynamic_container(clang::QualType const& qtype) {
+		bool retval = false;
+		auto const peeled_qtype = remove_mse_transparent_wrappers(qtype);
+		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(peeled_qtype, retval);
+
+		thread_local std::vector<std::string> known_dynamic_container_names;
+		thread_local std::unordered_set<std::string_view> known_dynamic_container_name_svs;
+		thread_local std::unordered_set<std::string_view> known_dynamic_container_truncated_name_svs;
+		thread_local size_t length_of_shortest_container_name = 0;
+		if (0 == known_dynamic_container_name_svs.size()) {
+			known_dynamic_container_names.push_back("std::unique_ptr");
+			known_dynamic_container_names.push_back("std::shared_ptr");
+			known_dynamic_container_names.push_back("std::optional");
+			known_dynamic_container_names.push_back("std::vector");
+			known_dynamic_container_names.push_back("std::basic_string");
+			known_dynamic_container_names.push_back("std::string");
+			known_dynamic_container_names.push_back("std::basic_string_view");
+			known_dynamic_container_names.push_back("std::string_view");
+			known_dynamic_container_names.push_back("std::span");
+			known_dynamic_container_names.push_back("std::list");
+			known_dynamic_container_names.push_back("std::map");
+			known_dynamic_container_names.push_back("std::set");
+			known_dynamic_container_names.push_back("std::multimap");
+			known_dynamic_container_names.push_back("std::multiset");
+			known_dynamic_container_names.push_back("std::unordered_map");
+			known_dynamic_container_names.push_back("std::unordered_set");
+			known_dynamic_container_names.push_back("std::unordered_multimap");
+			known_dynamic_container_names.push_back("std::unordered_multiset");
+			known_dynamic_container_names.push_back("std::dequeue");
+
+			known_dynamic_container_names.push_back("__gnu_cxx::__normal_iterator");
+			//__gnu_cxx::__normal_iterator<int *, std::vector<int>>
+			//std::vector<int>::iterator
+			//known_dynamic_container_names.push_back("const char *");
+
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::us::impl::ns_optional::optional_base2");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::xscope_optional");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::optional");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::mstd::optional");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::optional");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TOptionalElementFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TOptionalElementFixedConstPointer");
+
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::us::impl::gnii_vector");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::nii_vector");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::stnii_vector");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::mtnii_vector");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::mstd::vector");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::impl::ns_gnii_vector::Tgnii_vector_ss_iterator_type");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::impl::ns_gnii_vector::Tgnii_vector_ss_const_iterator_type");
+
+			//mse::mstd::vector<int>::iterator
+
+			//mse::us::impl::gnii_vector
+			//mse::impl::ns_gnii_vector::Tgnii_vector_xscope_cslsstrong_iterator_type
+			//mse::impl::ns_gnii_vector::Tgnii_vector_ss_iterator_type
+			//mse::us::impl::ns_ra_iter::TRAIteratorBase<mse::TNDRegisteredNotNullPointer<mse::us::impl::gnii_vector<int>>>::reference
+
+			//mse::TOptionalElementFixedPointer
+			//mse::us::impl::ns_optional::optional_base2
+
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingNotNullPointer");
+			//known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingNotNullConstPointer");
+			//known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingFixedConstPointer");
+
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredNotNullPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredNotNullConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredFixedConstPointer");
+
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredNotNullPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredNotNullConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredFixedConstPointer");
+
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradNotNullPointer");
+			//known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradNotNullConstPointer");
+			//known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradFixedConstPointer");
+
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyNotNullPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyNotNullConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyFixedConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyNotNullPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyNotNullConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyFixedConstPointer");
+
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyNotNullPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyNotNullConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyFixedConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyNotNullPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyFixedPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyNotNullConstPointer");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyFixedConstPointer");
+
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadWritePointerBase");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadWriteConstPointerBase");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadOnlyPointerBase");
+			known_dynamic_container_names.push_back(mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadOnlyConstPointerBase");
+
+			if (known_dynamic_container_names.size() > 0) {
+				length_of_shortest_container_name = known_dynamic_container_names.front().length();
+			}
+
+			for (auto& name : known_dynamic_container_names) {
+				known_dynamic_container_name_svs.insert(name);
+				if (name.length() < length_of_shortest_container_name) {
+					length_of_shortest_container_name = name.length();
+				}
+			}
+			for (auto name_sv : known_dynamic_container_name_svs) {
+				known_dynamic_container_truncated_name_svs.insert(name_sv.substr(0, length_of_shortest_container_name));
+			}
+		}
+
+		const auto CXXRD = peeled_qtype.getTypePtr()->getAsCXXRecordDecl();
+		if (CXXRD) {
+			auto qname = CXXRD->getQualifiedNameAsString();
+			std::string_view qname_sv{ qname };
+
+			if (string_begins_with(qname_sv, mse_namespace_str()) || (string_begins_with(qname_sv, "std"))
+				|| (string_begins_with(qname_sv, "__gnu_cxx"))) {
+
+				auto truncated_qname_sv = qname_sv.substr(0, length_of_shortest_container_name);
+				auto found_it = known_dynamic_container_truncated_name_svs.find(truncated_qname_sv);
+				if (known_dynamic_container_truncated_name_svs.end() != found_it) {
+					for (auto const & name : known_dynamic_container_names) {
+						if (string_begins_with(qname_sv, name)) {
+							return true;
+						}
+					}
+				}
+				if (string_begins_with(qname_sv, "::us::impl::ns_ra_iter::TRAIteratorBase") || string_begins_with(qname_sv, "::us::impl::ns_ra_iter::TRAConstIteratorBase")) {
+					auto maybe_qtype2 = get_first_template_parameter_if_any(peeled_qtype);
+					if (maybe_qtype2.has_value()) {
+						auto maybe_qtype3 = get_first_template_parameter_if_any(remove_mse_transparent_wrappers(maybe_qtype2.value()));
+						if (maybe_qtype3.has_value()) {
+							retval |= is_recognized_dynamic_container(remove_mse_transparent_wrappers(maybe_qtype3.value()));
+						} else {
+							return true;
+						}
+					} else {
+						return true;
+					}
+				}
+			}
+		}
+
 		return retval;
 	}
 
@@ -2362,7 +2540,7 @@ namespace checker {
 		IF_DEBUG(const auto debug_func_name = func_decl.getNameAsString();)
 		IF_DEBUG(const auto debug_func_qname = func_decl.getQualifiedNameAsString();)
 #ifndef NDEBUG
-		if ("operator=" == debug_func_name) {
+		if ("writelock_ptr" == debug_func_name) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -2391,6 +2569,7 @@ namespace checker {
 
 		CFunctionLifetimeAnnotations flta;
 		flta.m_parse_errors_noted = (nullptr != MR_ptr);
+		bool no_elided_flag = false;
 
 		std::unordered_map<param_ordinal_t, CAbstractLifetimeSet> param_lifetime_map;
 		DECLARE_CACHED_CONST_STRING(lifetime_notes_str, "lifetime_notes");
@@ -2411,6 +2590,7 @@ namespace checker {
 			DECLARE_CACHED_CONST_STRING(lifetime_this, "lifetime_this");
 			DECLARE_CACHED_CONST_STRING(lifetime_encompasses, "lifetime_encompasses");
 			DECLARE_CACHED_CONST_STRING(lifetime_first_can_be_assigned_to_second, "lifetime_first_can_be_assigned_to_second");
+			DECLARE_CACHED_CONST_STRING(lifetime_no_elided, "lifetime_no_elided");
 
 			auto vec = func_decl.getAttrs();
 			struct CLTAStatementInfo {
@@ -2726,6 +2906,11 @@ namespace checker {
 						break;
 					}
 
+					auto lni_range = Parse::find_token_sequence({ lifetime_no_elided }, pretty_str);
+					if (pretty_str.length() > lni_range.begin) {
+						no_elided_flag = true;
+					}
+
 					index2 = pretty_str.find(clang_lifetimebound_str);
 					if (false && (decltype(pretty_str)::npos != index2)) {
 						/* A [[clang::lifetimebound]] attribute on the function will be interpreted as an
@@ -2751,7 +2936,15 @@ namespace checker {
 
 		for (auto param_iter = func_decl.param_begin(); func_decl.param_end() != param_iter; ++param_iter, param_ordinal += 1) {
 			auto param = (*param_iter);
-			IF_DEBUG(const std::string param_qtype_str = param->getType().getAsString();)
+			auto PVD = (*param_iter);
+			if (!PVD) {
+				assert(false); continue;
+			}
+			auto PVD_qtype = PVD->getType();
+			IF_DEBUG(const std::string PVD_qtype_str = PVD->getType().getAsString();)
+			if (PVD_qtype.isNull()) {
+				continue;
+			}
 
 			if (param->hasAttrs()) {
 				auto with_lifetime_prefix = [](std::string_view sv1) -> std::string {
@@ -2966,7 +3159,7 @@ namespace checker {
 								element_name = qtype.getAsString();
 							}
 
-							if (mse_rsv_ltn_parameter_lifetime_labels_str == element_name) {
+							if ((mse_rsv_ltn_parameter_lifetime_labels_str == element_name)) {
 								auto SR = Rewrite_ptr ? nice_source_range(param->getSourceRange(), *Rewrite_ptr)
 									: param->getSourceRange();
 
@@ -3236,11 +3429,10 @@ namespace checker {
 				}
 			}
 		}
+
 		if (1 <= param_lifetime_map.size()) {
 			flta.m_param_lifetime_map = param_lifetime_map;
 		}
-
-		state1.m_function_lifetime_annotations_map.insert_or_assign(&func_decl, flta);
 
 		for (const auto& param_lifetime : flta.m_param_lifetime_map) {
 			auto param_iter = func_decl.param_begin();
@@ -3282,6 +3474,129 @@ namespace checker {
 				state1.m_rhs_to_lifetime_constraint_shptr_mmap.insert(vt1{ lifetime_constraint_shptr->m_second, lifetime_constraint_shptr });
 			}
 		}
+
+		bool could_be_a_dynamic_container_accessor = false;
+		if (CXXMD) {
+			auto this_qtype = CXXMD->getThisType();
+			IF_DEBUG(const std::string this_qtype_str = this_qtype.getAsString();)
+			if (!(this_qtype.isNull())) {
+				auto this_pointee_qtype = this_qtype->getPointeeType();
+				could_be_a_dynamic_container_accessor |= is_recognized_dynamic_container(this_pointee_qtype);
+			}
+		}
+		if (!could_be_a_dynamic_container_accessor) {
+			auto& param_lifetime_map = flta.m_param_lifetime_map;
+
+			auto param_ordinal = is_member_operator ? param_ordinal_t(param_ordinal_t::member_operator_tag{}, 1)
+				: param_ordinal_t(1);
+
+			auto add_elided_lifetime_annotation_if_necessary = [&](checker::param_ordinal_t param_ordinal, clang::QualType const& PVD_qtype, std::string_view param_name) {
+				auto found_it = param_lifetime_map.find(param_ordinal);
+				if (param_lifetime_map.end() == found_it) {
+					/* This parameter doesn't seem to have any explicitly annotated lifetimes. */
+					CAbstractLifetimeSet const* taltas1_ptr = nullptr;
+					auto maybe_taltas_ptr = type_lifetime_annotations_if_available(get_cannonical_type(PVD_qtype).getTypePtr(), state1, MR_ptr, Rewrite_ptr);
+					if (maybe_taltas_ptr.has_value()) {
+						taltas1_ptr = &(maybe_taltas_ptr.value()->m_lifetime_set);
+					} else if (is_raw_pointer_or_equivalent(PVD_qtype) || PVD_qtype->isReferenceType()) {
+						static auto s_elided_pointer_tlta = CTypeLifetimeAnnotations{ CAbstractLifetime{ std::string("__elided raw pointer/reference parameter type lifetime__"), (clang::Decl const *)(nullptr) } };
+						taltas1_ptr = &(s_elided_pointer_tlta.m_lifetime_set);
+					}
+					if (taltas1_ptr) {
+						auto& talts1 = *taltas1_ptr;
+						CAbstractLifetimeSet palts1;
+						for (auto& type_abstract_lifetime : talts1.m_primary_lifetimes) {
+							std::string elided_lifetime_label = "__elided parameter lifetime " + std::to_string(param_ordinal)
+							+ std::string(param_name) + " " + type_abstract_lifetime.m_id + "__";
+							palts1.m_primary_lifetimes.push_back(CAbstractLifetime{ elided_lifetime_label, &func_decl });
+						}
+						if (!(palts1.is_empty())) {
+							/* Since the parameter doesn't have any explicitly specified lifetime labels, we'll add some 
+							elided ones. */
+							param_lifetime_map.insert_or_assign(param_ordinal, palts1);
+						}
+					}
+				}
+			};
+
+			for (auto param_iter = func_decl.param_begin(); func_decl.param_end() != param_iter; ++param_iter, param_ordinal += 1) {
+				auto param = (*param_iter);
+				auto PVD = (*param_iter);
+				if (!PVD) {
+					assert(false); continue;
+				}
+				auto PVD_qtype = PVD->getType();
+				IF_DEBUG(const std::string PVD_qtype_str = PVD->getType().getAsString();)
+				if (PVD_qtype.isNull()) {
+					continue;
+				}
+
+				if (!no_elided_flag) {
+					if (!(PVD->hasDefaultArg())) {
+						add_elided_lifetime_annotation_if_necessary(param_ordinal, PVD_qtype, PVD->getNameAsString());
+					}
+				}
+			}
+			if (CXXMD) {
+				auto this_qtype = CXXMD->getThisType();
+				IF_DEBUG(const std::string this_qtype_str = this_qtype.getAsString();)
+
+				if (!no_elided_flag) {
+					add_elided_lifetime_annotation_if_necessary(IMPLICIT_THIS_PARAM_ORDINAL, this_qtype, "__elided_this_parameter__");
+				}
+			}
+
+			auto rv_qtype = func_decl.getReturnType();
+			IF_DEBUG(const std::string rv_qtype_str = rv_qtype.getAsString();)
+			CAbstractLifetimeSet talts1;
+			auto maybe_tlts = type_lifetime_annotations_if_available(get_cannonical_type(rv_qtype).getTypePtr(), state1, MR_ptr, Rewrite_ptr);
+			if (maybe_tlts.has_value()) {
+				talts1 = maybe_tlts.value()->m_lifetime_set;
+			} else if (is_raw_pointer_or_equivalent(rv_qtype) || rv_qtype->isReferenceType()) {
+				static auto s_elided_pointer_tlta = CTypeLifetimeAnnotations{ CAbstractLifetime{ std::string("__elided raw pointer/reference parameter type lifetime__"), (clang::Decl const *)(nullptr) } };
+				talts1 = s_elided_pointer_tlta.m_lifetime_set;
+			}
+			if (!(talts1.is_empty())) {
+				if (flta.m_return_value_lifetimes.is_empty()) {
+					/* The return value doesn't seem to have any explicitly annotated lifetimes. Depending on the 
+					scenario, we may may give it elided ones. */
+					auto elided_rv_alts = talts1;
+					std::optional<CAbstractLifetime> maybe_elided_return_lifetime;
+
+					auto& param_lifetime_map = flta.m_param_lifetime_map;
+
+					auto found_it = param_lifetime_map.find(IMPLICIT_THIS_PARAM_ORDINAL);
+					if (param_lifetime_map.end() != found_it) {
+						if (1 == found_it->second.m_primary_lifetimes.size()) {
+							/* The elided this parameter seems to have one (elidedly or explictly annotated) lifetime. We'll
+							use it as the return value lifetime. */
+							maybe_elided_return_lifetime = found_it->second.m_primary_lifetimes.front();
+						}
+					} else {
+						/* unexpected */
+						int q = 3;
+					}
+					if (!(maybe_elided_return_lifetime.has_value())) {
+						if (1 == param_lifetime_map.size()) {
+							auto param_lifetimes_ref = param_lifetime_map.begin()->second;
+							if (1 == param_lifetimes_ref.m_primary_lifetimes.size()) {
+								maybe_elided_return_lifetime = param_lifetimes_ref.m_primary_lifetimes.front();
+							}
+						};
+					}
+					if (maybe_elided_return_lifetime.has_value()) {
+						auto const & new_elided_return_lifetime_cref = maybe_elided_return_lifetime.value();
+						for (auto& elided_rv_lifetime_ref : elided_rv_alts.m_primary_lifetimes) {
+							elided_rv_lifetime_ref = new_elided_return_lifetime_cref;
+						}
+					}
+					flta.m_return_value_lifetimes = elided_rv_alts;
+				}
+			}
+		}
+
+		state1.m_function_lifetime_annotations_map.insert_or_assign(&func_decl, flta);
+
 		int q = 5;
 	}
 	void process_function_lifetime_annotations(const clang::ParmVarDecl& parm_var_decl, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
@@ -5671,7 +5986,11 @@ namespace checker {
 									}
 								}
 							} else if (CE) {
-								auto function_qname = CE->getDirectCallee()->getQualifiedNameAsString();
+								std::string function_qname;
+								auto FND = CE->getDirectCallee();
+								if (FND) {
+									function_qname = FND->getQualifiedNameAsString();
+								}
 
 								static const std::string std_move_str = "std::move";
 								if ((std_move_str == function_qname) && (1 == CE->getNumArgs())) {
@@ -7780,173 +8099,6 @@ namespace checker {
 		return retval;
 	}
 
-	inline bool is_recognized_dynamic_container(clang::QualType const& qtype) {
-		bool retval = false;
-		auto const peeled_qtype = remove_mse_transparent_wrappers(qtype);
-		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
-		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(peeled_qtype, retval);
-
-		thread_local std::vector<std::string> known_dynamic_container_names;
-		thread_local std::unordered_set<std::string_view> known_dynamic_container_name_svs;
-		thread_local std::unordered_set<std::string_view> known_dynamic_container_truncated_name_svs;
-		thread_local size_t length_of_shortest_container_name = 0;
-		if (0 == known_dynamic_container_name_svs.size()) {
-			known_dynamic_container_names.push_back("std::unique_ptr");
-			known_dynamic_container_names.push_back("std::shared_ptr");
-			known_dynamic_container_names.push_back("std::optional");
-			known_dynamic_container_names.push_back("std::vector");
-			known_dynamic_container_names.push_back("std::basic_string");
-			known_dynamic_container_names.push_back("std::string");
-			known_dynamic_container_names.push_back("std::basic_string_view");
-			known_dynamic_container_names.push_back("std::string_view");
-			known_dynamic_container_names.push_back("std::span");
-			known_dynamic_container_names.push_back("std::list");
-			known_dynamic_container_names.push_back("std::map");
-			known_dynamic_container_names.push_back("std::set");
-			known_dynamic_container_names.push_back("std::multimap");
-			known_dynamic_container_names.push_back("std::multiset");
-			known_dynamic_container_names.push_back("std::unordered_map");
-			known_dynamic_container_names.push_back("std::unordered_set");
-			known_dynamic_container_names.push_back("std::unordered_multimap");
-			known_dynamic_container_names.push_back("std::unordered_multiset");
-			known_dynamic_container_names.push_back("std::dequeue");
-
-			known_dynamic_container_names.push_back("__gnu_cxx::__normal_iterator");
-			//__gnu_cxx::__normal_iterator<int *, std::vector<int>>
-			//std::vector<int>::iterator
-			//known_dynamic_container_names.push_back("const char *");
-
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::us::impl::ns_optional::optional_base2");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::xscope_optional");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::optional");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::mstd::optional");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::optional");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TOptionalElementFixedPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TOptionalElementFixedConstPointer");
-
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::us::impl::gnii_vector");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::nii_vector");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::stnii_vector");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::mtnii_vector");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::mstd::vector");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::impl::ns_gnii_vector::Tgnii_vector_ss_iterator_type");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::impl::ns_gnii_vector::Tgnii_vector_ss_const_iterator_type");
-
-			//mse::mstd::vector<int>::iterator
-
-			//mse::us::impl::gnii_vector
-			//mse::impl::ns_gnii_vector::Tgnii_vector_xscope_cslsstrong_iterator_type
-			//mse::impl::ns_gnii_vector::Tgnii_vector_ss_iterator_type
-			//mse::us::impl::ns_ra_iter::TRAIteratorBase<mse::TNDRegisteredNotNullPointer<mse::us::impl::gnii_vector<int>>>::reference
-
-			//mse::TOptionalElementFixedPointer
-			//mse::us::impl::ns_optional::optional_base2
-
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingNotNullPointer");
-			//known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingFixedPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingConstPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingNotNullConstPointer");
-			//known_dynamic_container_names.push_back(mse_namespace_str() + "::TRefCountingFixedConstPointer");
-
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredNotNullPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredFixedPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredConstPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredNotNullConstPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDRegisteredFixedConstPointer");
-
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredNotNullPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredFixedPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredConstPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredNotNullConstPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNDCRegisteredFixedConstPointer");
-
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradNotNullPointer");
-			//known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradFixedPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradConstPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradNotNullConstPointer");
-			//known_dynamic_container_names.push_back(mse_namespace_str() + "::TNoradFixedConstPointer");
-
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyNotNullPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyFixedPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyConstPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyNotNullConstPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TAnyFixedConstPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyNotNullPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyFixedPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyConstPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyNotNullConstPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopeAnyFixedConstPointer");
-
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyNotNullPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyFixedPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyConstPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyNotNullConstPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TPolyFixedConstPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyNotNullPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyFixedPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyConstPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyNotNullConstPointer");
-			known_dynamic_container_names.push_back(mse_namespace_str() + "::TXScopePolyFixedConstPointer");
-
-			if (known_dynamic_container_names.size() > 0) {
-				length_of_shortest_container_name = known_dynamic_container_names.front().length();
-			}
-
-			for (auto& name : known_dynamic_container_names) {
-				known_dynamic_container_name_svs.insert(name);
-				if (name.length() < length_of_shortest_container_name) {
-					length_of_shortest_container_name = name.length();
-				}
-			}
-			for (auto name_sv : known_dynamic_container_name_svs) {
-				known_dynamic_container_truncated_name_svs.insert(name_sv.substr(0, length_of_shortest_container_name));
-			}
-		}
-
-		const auto CXXRD = peeled_qtype.getTypePtr()->getAsCXXRecordDecl();
-		if (CXXRD) {
-			auto qname = CXXRD->getQualifiedNameAsString();
-			std::string_view qname_sv{ qname };
-
-			if (string_begins_with(qname_sv, mse_namespace_str()) || (string_begins_with(qname_sv, "std"))
-				|| (string_begins_with(qname_sv, "__gnu_cxx"))) {
-
-				auto truncated_qname_sv = qname_sv.substr(0, length_of_shortest_container_name);
-				auto found_it = known_dynamic_container_truncated_name_svs.find(truncated_qname_sv);
-				if (known_dynamic_container_truncated_name_svs.end() != found_it) {
-					for (auto const & name : known_dynamic_container_names) {
-						if (string_begins_with(qname_sv, name)) {
-							return true;
-						}
-					}
-				}
-				if (string_begins_with(qname_sv, "::us::impl::ns_ra_iter::TRAIteratorBase") || string_begins_with(qname_sv, "::us::impl::ns_ra_iter::TRAConstIteratorBase")) {
-					auto maybe_qtype2 = get_first_template_parameter_if_any(peeled_qtype);
-					if (maybe_qtype2.has_value()) {
-						auto maybe_qtype3 = get_first_template_parameter_if_any(remove_mse_transparent_wrappers(maybe_qtype2.value()));
-						if (maybe_qtype3.has_value()) {
-							retval |= is_recognized_dynamic_container(remove_mse_transparent_wrappers(maybe_qtype3.value()));
-						} else {
-							return true;
-						}
-					} else {
-						return true;
-					}
-				}
-			}
-		}
-
-		return retval;
-	}
-
 	template<typename TCallOrConstuctorExpr>
 	inline std::string function_call_handler2(CTUState& state1, const clang::FunctionDecl* function_decl
 		, const TCallOrConstuctorExpr* CE, ASTContext& Ctx, MatchFinder::MatchResult const * MR_ptr/* = nullptr*/, Rewriter* Rewrite_ptr/* = nullptr*/) {
@@ -9147,7 +9299,7 @@ namespace checker {
 		const auto E_ip = EX2;
 
 		auto qtype = E_ip->getType();
-		if (qtype.isNull()) {
+		if (qtype.isNull() || qtype->isDependentType()) {
 			/* Cannot properly evaluate (presumably) because this is a template definition. Proper
 			evaluation should occur in any instantiation of the template. */
 			retval.m_failure_due_to_dependent_type_flag = true;
@@ -9757,7 +9909,7 @@ namespace checker {
 		auto SR = Rewrite_ptr ? nice_source_range(DD->getSourceRange(), *Rewrite_ptr) : DD->getSourceRange();
 
 		const auto qtype = DD->getType();
-		if (qtype.isNull()) {
+		if (qtype.isNull() || qtype->isDependentType()) {
 			/* Cannot properly evaluate (presumably) because this is a template definition. Proper
 			evaluation should occur in any instantiation of the template. */
 			retval.m_failure_due_to_dependent_type_flag = true;
@@ -10608,13 +10760,13 @@ namespace checker {
 
 								if (!satisfies_checks) {
 									std::string error_desc = std::string("Unable to verify that this pointer assignment (of type ")
-										+ get_as_quoted_string_for_errmsg((maybe_FD.value())->getType()) + ") is safe.";
+										+ get_as_quoted_string_for_errmsg((maybe_FD.value())->getType()) + ") is safe and valid.";
 									std::string hints;
 									if ((!rhs_lifetime_values_evaluated) && (!rhs_hints.empty())) {
 										hints += " (" + rhs_hints + ")";
 									}
 									if (hints.empty()) {
-										hints += " (Possibly due to being unable to verify that the new target object outlives the (scope) pointer.)";
+										hints += " (Possibly due to being unable to verify that the object(s) referenced by the new pointer live long enough.)";
 									}
 									error_desc += hints;
 
@@ -10794,7 +10946,7 @@ namespace checker {
 
 				if (!satisfies_checks) {
 					std::string error_desc = std::string("Unable to verify that this pointer assignment (of type ")
-						+ get_as_quoted_string_for_errmsg(LHSEX->getType()) + ") is safe.";
+						+ get_as_quoted_string_for_errmsg(LHSEX->getType()) + ") is safe and valid.";
 					std::string hints;
 					if ((!lhs_lifetime_values_evaluated) && (!lhs_hints.empty())) {
 						hints += " (" + lhs_hints + ")";
@@ -10803,7 +10955,7 @@ namespace checker {
 						hints += " (" + rhs_hints + ")";
 					}
 					if (hints.empty()) {
-						hints += " (Possibly due to being unable to verify that the new target object outlives the (scope) pointer.)";
+						hints += " (Possibly due to being unable to verify that the object(s) referenced by the new pointer live long enough.)";
 					}
 					error_desc += hints;
 
