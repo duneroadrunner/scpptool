@@ -499,13 +499,13 @@ usage example:
         //arrwp2.swap(arrwp4);    // scpptool would complain
         
         {
-            auto arrwp2_xslptaptr = mse::rsv::TXSLTAPointer<decltype(arrwp2)>{ &arrwp2 };
-            auto xslta_iter1 = mse::rsv::make_xslta_begin_iterator(arrwp2_xslptaptr);
-            auto xslta_iter2 = mse::rsv::make_xslta_end_iterator(arrwp2_xslptaptr);
+            auto arrwp2_xsltaptr = mse::rsv::TXSLTAPointer<decltype(arrwp2)>{ &arrwp2 };
+            auto xslta_iter1 = mse::rsv::make_xslta_begin_iterator(arrwp2_xsltaptr);
+            auto xslta_iter2 = mse::rsv::make_xslta_end_iterator(arrwp2_xsltaptr);
             
-            auto xslta_citer3 = mse::rsv::make_xslta_begin_const_iterator(arrwp2_xslptaptr);
+            auto xslta_citer3 = mse::rsv::make_xslta_begin_const_iterator(arrwp2_xsltaptr);
             xslta_citer3 = xslta_iter1;
-            xslta_citer3 = mse::rsv::make_xslta_begin_const_iterator(arrwp2_xslptaptr);
+            xslta_citer3 = mse::rsv::make_xslta_begin_const_iterator(arrwp2_xsltaptr);
             xslta_citer3 += 1;
             auto res1 = *(*xslta_citer3);
             auto res2 = *(xslta_citer3[0]);
