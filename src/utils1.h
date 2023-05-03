@@ -561,6 +561,7 @@ struct CAbstractLifetime {
 	lifetime_id_t m_id;
 	//std::variant<clang::FunctionDecl const *, clang::Decl const *> m_context;
 	CLifetimeContext m_context;
+	bool m_is_elided = false;
 	bool operator==(const CAbstractLifetime& rhs) const {
 		return ((rhs.m_id == m_id) && (rhs.m_context == m_context));
 	}

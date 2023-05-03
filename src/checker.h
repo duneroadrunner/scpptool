@@ -393,6 +393,7 @@ namespace checker {
 		std::unordered_map<param_ordinal_t, CAbstractLifetimeSet> m_param_lifetime_map;
 		std::vector<std::shared_ptr<CPairwiseLifetimeConstraint> > m_lifetime_constraint_shptrs;
 		CAbstractLifetimeSet m_return_value_lifetimes;
+		bool m_return_value_lifetimes_is_elided = false;
 		bool m_parse_errors_noted = false;
 	};
 
@@ -1297,89 +1298,86 @@ namespace checker {
 		return retval;
 	};
 
-	template<typename TCallExpr>
-	auto type_from_param_ordinal_if_available(TCallExpr const * CE, checker::param_ordinal_t param_ordinal) {
+	auto type_from_param_ordinal_if_available(clang::FunctionDecl const * FND, checker::param_ordinal_t param_ordinal) {
 		std::optional<clang::Type const *> retval;
+		if (!FND) {
+			return retval;
+		}
 
 		if (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal) {
-			auto CXXMCE = dyn_cast<CXXMemberCallExpr>(CE);
-			auto CXXOCE = dyn_cast<clang::CXXOperatorCallExpr>(CE);
-			if (CXXMCE) {
-				auto RD = CXXMCE->getRecordDecl();
-				if (RD) {
-					auto type_ptr = get_cannonical_type_ptr(RD->getTypeForDecl());
+			auto CXXMD = dyn_cast<clang::CXXMethodDecl>(FND);
+
+			if (CXXMD) {
+				auto this_qtype = CXXMD->getThisType();
+				if ((!(this_qtype.getTypePtr())) || (!(this_qtype->isPointerType()))) {
+					assert(false);
+					return retval;
+				}
+				//IF_DEBUG(auto this_qtype_str = this_qtype.getAsString();)
+				auto CXXRD = this_qtype->getPointeeCXXRecordDecl();;
+				if (CXXRD) {
+					auto type_ptr = get_cannonical_type_ptr(CXXRD->getTypeForDecl());
 					if (type_ptr) {
 						retval = type_ptr;
 					}
 				}
-			} else if (CXXOCE) {
-				auto FND = CXXOCE->getDirectCallee();
-				if (FND) {
-					if (FND->getNumParams() < 1) {
-						/* This should never happen, right? */
-					} else {
-						/* For CXXOperatorCallExpr, they just make the "ImplicitObjectArgument" (if any) the first
-						argument. I think. */
-						auto PVD = FND->getParamDecl(0);
-						if (PVD) {
-							auto qtype = get_cannonical_type(PVD->getType());
-							if (!qtype.isNull()) {
-								auto type_ptr = qtype.getTypePtr();
-								if (type_ptr) {
-									retval = type_ptr;
-								}
+			} else {
+				if (FND->getNumParams() < 1) {
+					/* This should never happen, right? */
+				} else {
+					/* For CXXOperatorCallExpr, they just make the "ImplicitObjectArgument" (if any) the first
+					argument. I think. */
+					auto PVD = FND->getParamDecl(0);
+					if (PVD) {
+						auto qtype = get_cannonical_type(PVD->getType());
+						if (!qtype.isNull()) {
+							auto type_ptr = qtype.getTypePtr();
+							if (type_ptr) {
+								retval = type_ptr;
 							}
 						}
 					}
 				}
-			} else {
-				//assert(false);?
-				//todo: report error?
 			}
 		} else {
 			auto zb_index = param_ordinal_t::as_a_zero_based_parameter_index_if_valid(param_ordinal).value();
 
-			auto CXXCE = dyn_cast<clang::CXXConstructExpr>(CE);
-			auto CE2 = dyn_cast<CallExpr>(CE);
-			if (CXXCE) {
-				auto CXXCD = CXXCE->getConstructor();
-				if (CXXCD) {
-					if (CXXCD->getNumParams() <= zb_index) {
-						/* If this happens then either an error should be reported elsewhere
-						or there should be a compile error. */
-					} else {
-						auto PVD = CXXCD->getParamDecl(zb_index);
-						if (PVD) {
-							auto qtype = get_cannonical_type(PVD->getType());
-							if (!qtype.isNull()) {
-								auto type_ptr = qtype.getTypePtr();
-								if (type_ptr) {
-									retval = type_ptr;
-								}
-							}
-						}
-					}
-				}
-			} else if (CE2) {
-				auto FND = CE2->getDirectCallee();
-				if (FND) {
-					if (FND->getNumParams() <= zb_index) {
-						/* If this happens then either an error should be reported elsewhere
-						or there should be a compile error. */
-					} else {
-						auto PVD = FND->getParamDecl(zb_index);
-						if (PVD) {
-							auto qtype = get_cannonical_type(PVD->getType());
-							if (!qtype.isNull()) {
-								auto type_ptr = qtype.getTypePtr();
-								if (type_ptr) {
-									retval = type_ptr;
-								}
-							}
+			if (FND->getNumParams() <= zb_index) {
+				/* If this happens then either an error should be reported elsewhere
+				or there should be a compile error. */
+			} else {
+				auto PVD = FND->getParamDecl(zb_index);
+				if (PVD) {
+					auto qtype = get_cannonical_type(PVD->getType());
+					if (!qtype.isNull()) {
+						auto type_ptr = qtype.getTypePtr();
+						if (type_ptr) {
+							retval = type_ptr;
 						}
 					}
 				}
 			}
+		}
+		return retval;
+	};
+	template<typename TCallExpr>
+	auto type_from_param_ordinal_if_available(TCallExpr const * CE, checker::param_ordinal_t param_ordinal) {
+		std::optional<clang::Type const *> retval;
+
+		auto CXXCE = dyn_cast<clang::CXXConstructExpr>(CE);
+		auto CE2 = dyn_cast<CallExpr>(CE);
+		if (CXXCE) {
+			auto CXXCD = CXXCE->getConstructor();
+			auto FND = cast<clang::FunctionDecl>(CXXCD);
+			if (!FND) {
+				int q = 3;
+			}
+			retval = type_from_param_ordinal_if_available(FND, param_ordinal);
+		} else if (CE2) {
+			auto FND = CE2->getDirectCallee();
+			retval = type_from_param_ordinal_if_available(FND, param_ordinal);
+		} else {
+			int q = 3;
 		}
 		return retval;
 	};
@@ -3495,6 +3493,35 @@ namespace checker {
 		}
 
 		if (!no_elided_flag) {
+			/* In certain cases we add implicit ("elided") lifetime annotations, mostly as described in the 
+			"Lifetime elision" section of the document: https://discourse.llvm.org/t/rfc-lifetime-annotations-for-c/61377 .
+			Quoting from that document:
+			<excerpt>
+
+			As in Rust, to avoid unnecessary annotation clutter, we allow lifetime annotations to be elided 
+			(omitted) from a function signature when they conform to certain regular patterns. Lifetime 
+			elision is merely a shorthand for these regular lifetime patterns. Elided lifetimes are treated 
+			exactly as if they had been spelled out explicitly; in particular, they are subject to lifetime 
+			verification, so they are just as safe as explicitly annotated lifetimes.
+
+			We propose to use the same rules as in Rust, as these transfer naturally to C++. We call 
+			lifetimes on parameters input lifetimes and lifetimes on return values output lifetimes. (Note 
+			that all lifetimes on parameters are called input lifetimes, even if those parameters are output 
+			parameters.) Here are the rules:
+
+			  1. Each input lifetime that is elided (i.e., not stated explicitly) becomes a distinct 
+			  	lifetime.
+		      2 If there is exactly one input lifetime (whether stated explicitly or elided), that lifetime 
+			  	is assigned to all elided output lifetimes.
+		      3. If there are multiple input lifetimes but one of them applies to the implicit this 
+			  	parameter, that lifetime is assigned to all elided output lifetimes.
+
+			</excerpt>
+
+			We slightly tweak the rule in the case of functions that take a parameter by reference and return 
+			the same type sans reference (as commented below).
+			*/
+
 			bool could_be_a_dynamic_container_accessor = false;
 			if (CXXMD && (!(CXXMD->isStatic())) && (!CXXCD)) {
 				auto this_qtype = CXXMD->getThisType();
@@ -3530,7 +3557,7 @@ namespace checker {
 								}
 								std::string elided_lifetime_label = "__elided parameter lifetime " + param_index_string
 								+ std::string(param_name) + " " + type_abstract_lifetime.m_id + "__";
-								palts1.m_primary_lifetimes.push_back(CAbstractLifetime{ elided_lifetime_label, &func_decl });
+								palts1.m_primary_lifetimes.push_back(CAbstractLifetime{ elided_lifetime_label, &func_decl, true/*is_elided*/ });
 							}
 							if (!(palts1.is_empty())) {
 								/* Since the parameter doesn't have any explicitly specified lifetime labels, we'll add some 
@@ -3593,7 +3620,7 @@ namespace checker {
 						auto found_it = param_lifetime_map.find(IMPLICIT_THIS_PARAM_ORDINAL);
 						if (param_lifetime_map.end() != found_it) {
 							if (1 == found_it->second.m_primary_lifetimes.size()) {
-								/* The elided this parameter seems to have one (elidedly or explictly annotated) lifetime. We'll
+								/* The elided `this` parameter seems to have one (elided or explictly annotated) lifetime. We'll
 								use it as the return value lifetime. */
 								maybe_elided_return_lifetime = found_it->second.m_primary_lifetimes.front();
 							}
@@ -3605,7 +3632,39 @@ namespace checker {
 							if (1 == param_lifetime_map.size()) {
 								auto param_lifetimes_ref = param_lifetime_map.begin()->second;
 								if (1 == param_lifetimes_ref.m_primary_lifetimes.size()) {
-									maybe_elided_return_lifetime = param_lifetimes_ref.m_primary_lifetimes.front();
+									auto maybe_param_type_ptr = type_from_param_ordinal_if_available(&func_decl, param_lifetime_map.begin()->first);
+									if (maybe_param_type_ptr.has_value()) {
+										auto param_type_ptr = maybe_param_type_ptr.value();
+										assert(param_type_ptr);
+
+										/* This function seems to have one (elided or explictly annotated) input parameter lifetime. We'll
+										use it as the return value lifetime. */
+
+										auto new_elided_return_lifetime = param_lifetimes_ref.m_primary_lifetimes.front();
+
+										if (param_type_ptr->isReferenceType()) {
+											auto param_target_qtype = param_type_ptr->getPointeeType();
+											auto rv_qtype = func_decl.getReturnType();
+											if ((!(param_target_qtype.isNull())) && (!(rv_qtype.isNull()))) {
+												const auto param_target_type_ptr = get_cannonical_type_ptr(param_target_qtype.getTypePtr());
+												const auto rv_type_ptr = get_cannonical_type_ptr(rv_qtype.getTypePtr());
+												if (param_target_type_ptr == rv_type_ptr) {
+													auto const & sublifetimes_cref = param_lifetimes_ref.m_primary_lifetimes.front().m_sublifetimes_vlptr->m_primary_lifetimes;
+													if (1 == sublifetimes_cref.size()) {
+														/* It seems that the input parameter is a reference and the return value is the same type as the 
+														paramter except without the reference. So instead of using the lifetime of the reference for the 
+														return value, we'll use the lifetime of target object of the reference. */
+
+														new_elided_return_lifetime = sublifetimes_cref.front();
+													} else {
+														/* unexpected */
+														int q = 3;
+													}
+												}
+											}
+										}
+										maybe_elided_return_lifetime = new_elided_return_lifetime;
+									}
 								}
 							};
 						}
@@ -3615,7 +3674,10 @@ namespace checker {
 								elided_rv_lifetime_ref = new_elided_return_lifetime_cref;
 							}
 						}
-						flta.m_return_value_lifetimes = elided_rv_alts;
+						if (!(elided_rv_alts.is_empty())) {
+							flta.m_return_value_lifetimes = elided_rv_alts;
+							flta.m_return_value_lifetimes_is_elided = true;
+						}
 					}
 				}
 			}
@@ -7610,8 +7672,16 @@ namespace checker {
 								satisfies_checks = slti_second_can_be_assigned_to_first(rvsli, lbsli, *(MR.Context), m_state1);
 							}
 							if (!satisfies_checks) {
-								const std::string error_desc = std::string("Unable to verify that the return value")
+								std::string error_desc = std::string("Unable to verify that the return value")
 									+ " (of type " + get_as_quoted_string_for_errmsg(return_qtype) + ") conforms to the lifetime specified.";
+
+								assert(1 <= rv_abstract_lifetimes.m_primary_lifetimes.size());
+								if (rv_abstract_lifetimes.m_primary_lifetimes.front().m_is_elided) {
+									error_desc += std::string(" (The specified return value lifetime seems to be an implicit/'elided' one. If this elided")
+									+ " return value lifetime does match the intended one, an explicit return value lifetime annotation, or"
+									+ " the 'lifetime_no_elided' annotation can be used to prevent the elided lifetime from being applied.)";
+								}
+
 								(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 							}
 							return;
