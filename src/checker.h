@@ -2566,7 +2566,7 @@ namespace checker {
 		IF_DEBUG(const auto debug_func_name = func_decl.getNameAsString();)
 		IF_DEBUG(const auto debug_func_qname = func_decl.getQualifiedNameAsString();)
 #ifndef NDEBUG
-		if (std::string::npos != debug_func_qname.find("CB::foo1")) {
+		if (std::string::npos != debug_func_qname.find("make_xscope_specialized_first_and_last_helper1")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -3612,7 +3612,6 @@ namespace checker {
 					if (flta.m_return_value_lifetimes.is_empty()) {
 						/* The return value doesn't seem to have any explicitly annotated lifetimes. Depending on the 
 						scenario, we may may give it elided ones. */
-						auto elided_rv_alts = talts1;
 						std::optional<CAbstractLifetime> maybe_elided_return_lifetime;
 
 						auto& param_lifetime_map = flta.m_param_lifetime_map;
@@ -3620,13 +3619,12 @@ namespace checker {
 						auto found_it = param_lifetime_map.find(IMPLICIT_THIS_PARAM_ORDINAL);
 						if (param_lifetime_map.end() != found_it) {
 							if (1 == found_it->second.m_primary_lifetimes.size()) {
-								/* The elided `this` parameter seems to have one (elided or explictly annotated) lifetime. We'll
-								use it as the return value lifetime. */
+								/* An implicit `this` parameter lifetime is present. We'll use it as the return value lifetime. */
 								maybe_elided_return_lifetime = found_it->second.m_primary_lifetimes.front();
+							} else {
+								/* unexpected */
+								int q = 3;
 							}
-						} else {
-							/* unexpected */
-							int q = 3;
 						}
 						if (!(maybe_elided_return_lifetime.has_value())) {
 							if (1 == param_lifetime_map.size()) {
@@ -3670,13 +3668,15 @@ namespace checker {
 						}
 						if (maybe_elided_return_lifetime.has_value()) {
 							auto const & new_elided_return_lifetime_cref = maybe_elided_return_lifetime.value();
+
+							auto elided_rv_alts = talts1;
 							for (auto& elided_rv_lifetime_ref : elided_rv_alts.m_primary_lifetimes) {
 								elided_rv_lifetime_ref = new_elided_return_lifetime_cref;
 							}
-						}
-						if (!(elided_rv_alts.is_empty())) {
-							flta.m_return_value_lifetimes = elided_rv_alts;
-							flta.m_return_value_lifetimes_is_elided = true;
+							if (!(elided_rv_alts.is_empty())) {
+								flta.m_return_value_lifetimes = elided_rv_alts;
+								flta.m_return_value_lifetimes_is_elided = true;
+							}
 						}
 					}
 				}
