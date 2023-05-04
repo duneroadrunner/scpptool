@@ -416,6 +416,20 @@ In the annotation of the `swap2()` function, we introduce the use of the `first_
 
 Just to mention it, base classes are, in terms of lifetime annotations, conceptually treated just like member fields. You can use the `labels_for_base_class()` annotation (on the derived type) to assign lifetime labels to the first base class.
 
+##### Lifetime elision
+
+In certain cases we add implicit ("elided") lifetime annotations to function interfaces, generally as described in the "Lifetime elision" section of the "[[RFC] Lifetime annotations for C++](https://discourse.llvm.org/t/rfc-lifetime-annotations-for-c/61377)" document. Quoting from that document:
+
+> As in Rust, to avoid unnecessary annotation clutter, we allow lifetime annotations to be elided (omitted) from a function signature when they conform to certain regular patterns. Lifetime elision is merely a shorthand for these regular lifetime patterns. Elided lifetimes are treated exactly as if they had been spelled out explicitly; in particular, they are subject to lifetime verification, so they are just as safe as explicitly annotated lifetimes.
+> 
+> We propose to use the same rules as in Rust, as these transfer naturally to C++. We call lifetimes on parameters *input lifetimes* and lifetimes on return values *output lifetimes*. (Note that all lifetimes on parameters are called input lifetimes, even if those parameters are output parameters.) Here are the rules:
+> 
+> 	1. Each input lifetime that is elided (i.e., not stated explicitly) becomes a distinct lifetime.
+> 	2. If there is exactly one input lifetime (whether stated explicitly or elided), that lifetime is assigned to all elided output lifetimes.
+> 	3. If there are multiple input lifetimes but one of them applies to the implicit `this` parameter, that lifetime is assigned to all elided output lifetimes.
+
+Note that we slightly tweak the rule in the case of functions (without an implicit `this` parameter) that take a parameter by (native) reference and return a value of the same type sans reference, and that type is itself a reference object type that has one lifetime associated with it. In this case, instead of using the lifetime of the (native) reference as the elided output lifetime, we use the lifetime of the referenced object (that has the same type as the return value).
+
 ##### Lifetime annotation implementation caveats
 
 (Note, that at the time of writing, implementation of lifetime safety enforcement is not complete. Safety can be subverted through, for example, cyclic references with user-defined destructors, or using a type-erased function container to neutralize lifetime annotation specified restrictions, etc.. Also note that the process of adding lifetime annotated elements to the SaferCPlusPlus library is still in the early stages.)
