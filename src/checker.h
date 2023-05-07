@@ -3631,35 +3631,62 @@ namespace checker {
 								auto param_lifetimes_ref = param_lifetime_map.begin()->second;
 								if (1 == param_lifetimes_ref.m_primary_lifetimes.size()) {
 									auto maybe_param_type_ptr = type_from_param_ordinal_if_available(&func_decl, param_lifetime_map.begin()->first);
-									if (maybe_param_type_ptr.has_value()) {
+									auto rv_qtype = func_decl.getReturnType();
+									if (maybe_param_type_ptr.has_value() && (!(rv_qtype.isNull()))) {
 										auto param_type_ptr = maybe_param_type_ptr.value();
 										assert(param_type_ptr);
+										auto rv_type_ptr = rv_qtype.getTypePtr();
+										assert(rv_type_ptr);
 
 										/* This function seems to have one (elided or explictly annotated) input parameter lifetime. We'll
-										use it as the return value lifetime. */
+										use it as the return value lifetime if we can. */
+										auto const & param_lifetime = param_lifetimes_ref.m_primary_lifetimes.front();
 
-										auto new_elided_return_lifetime = param_lifetimes_ref.m_primary_lifetimes.front();
+										auto param_maybe_tlta_ptr = type_lifetime_annotations_if_available(param_type_ptr, state1, MR_ptr, Rewrite_ptr);
+										auto rv_maybe_tlta_ptr = type_lifetime_annotations_if_available(rv_type_ptr, state1, MR_ptr, Rewrite_ptr);
+										if (param_maybe_tlta_ptr.has_value() && param_maybe_tlta_ptr.value() && rv_maybe_tlta_ptr.has_value() && rv_maybe_tlta_ptr.value()) {
+											auto const & param_tlta = *(param_maybe_tlta_ptr.value());
+											auto const & rv_tlta = *(rv_maybe_tlta_ptr.value());
 
-										if (param_type_ptr->isReferenceType()) {
-											auto param_target_qtype = param_type_ptr->getPointeeType();
-											auto rv_qtype = func_decl.getReturnType();
-											if ((!(param_target_qtype.isNull())) && (!(rv_qtype.isNull()))) {
-												const auto param_target_type_ptr = get_cannonical_type_ptr(param_target_qtype.getTypePtr());
-												const auto rv_type_ptr = get_cannonical_type_ptr(rv_qtype.getTypePtr());
-												if (param_target_type_ptr == rv_type_ptr) {
-													auto const & sublifetimes_cref = param_lifetimes_ref.m_primary_lifetimes.front().m_sublifetimes_vlptr->m_primary_lifetimes;
-													if (1 == sublifetimes_cref.size()) {
-														/* It seems that the input parameter is a reference and the return value is the same type as the 
-														paramter except without the reference, and that type has exactly one lifetime. So instead of using 
-														the lifetime of the reference for the return value, we'll use the lifetime of target object of the 
-														reference. */
-
-														new_elided_return_lifetime = sublifetimes_cref.front();
+											struct CB {
+												static int sublifetime_depth(CAbstractLifetimeSet const & alts) {
+													int depth = 0;
+													if (1 <= alts.m_primary_lifetimes.size()) {
+														depth = 1;
+														int max_branch_depth = 0;
+														for (auto& alt : alts.m_primary_lifetimes) {
+															const auto branch_depth = sublifetime_depth(*(alt.m_sublifetimes_vlptr));
+															if (branch_depth < max_branch_depth) {
+																max_branch_depth = branch_depth;
+															}
+														}
+														depth += max_branch_depth;
 													}
+													return depth;
 												}
+											};
+
+											auto const param_lifetime_depth = CB::sublifetime_depth(param_tlta.m_lifetime_set);
+											auto const rv_lifetime_depth = CB::sublifetime_depth(rv_tlta.m_lifetime_set);
+
+											if (param_lifetime_depth == rv_lifetime_depth) {
+												/* We'll use the (lone) parameter lifetime as the return value lifetime. */
+												maybe_elided_return_lifetime = param_lifetime;
+											} else if (param_lifetime_depth == (rv_lifetime_depth + 1)) {
+												/* The parameter type level of indirection (i.e. lifetime depth) is one greater than that of the 
+												return type. This could be a situation where the parameter is passed by reference, but the 
+												corresponding return value isn't. */
+												if (1 == param_lifetime.m_sublifetimes_vlptr->m_primary_lifetimes.size()) {
+													/* The parameter has only one target referenced object (i.e. one sublifetime), and we'll use that
+													sublifetime as the return value lifetime. */
+													auto & param_sublifetime = param_lifetime.m_sublifetimes_vlptr->m_primary_lifetimes.front();
+													maybe_elided_return_lifetime = param_sublifetime;
+												}
+											} else {
+												/* The level of indirection (i.e. the (sub)lifetime depth) of the parameter and return type don't match. */
+												int q = 5;
 											}
 										}
-										maybe_elided_return_lifetime = new_elided_return_lifetime;
 									}
 								}
 							};
