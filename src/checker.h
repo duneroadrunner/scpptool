@@ -3650,13 +3650,11 @@ namespace checker {
 													auto const & sublifetimes_cref = param_lifetimes_ref.m_primary_lifetimes.front().m_sublifetimes_vlptr->m_primary_lifetimes;
 													if (1 == sublifetimes_cref.size()) {
 														/* It seems that the input parameter is a reference and the return value is the same type as the 
-														paramter except without the reference. So instead of using the lifetime of the reference for the 
-														return value, we'll use the lifetime of target object of the reference. */
+														paramter except without the reference, and that type has exactly one lifetime. So instead of using 
+														the lifetime of the reference for the return value, we'll use the lifetime of target object of the 
+														reference. */
 
 														new_elided_return_lifetime = sublifetimes_cref.front();
-													} else {
-														/* unexpected */
-														int q = 3;
 													}
 												}
 											}
@@ -8744,7 +8742,7 @@ namespace checker {
 					present_lhs_maybe_lifetime_value_map.insert_or_assign(item.first, item.second);
 				}
 
-				if (CXXCE) {
+				if (false && CXXCE) {
 					/* Here we iterate over each parameter with an associated abstract lifetime (annotation). */
 					for (const auto& param_lifetime_mapping1 : flta.m_param_lifetime_map) {
 						clang::Expr const * arg1_EX = arg_from_param_ordinal(CE, param_lifetime_mapping1.first);
@@ -8770,6 +8768,7 @@ namespace checker {
 									sloi1.m_maybe_source_range = arg1_EX->getSourceRange();
 									sloi1.m_maybe_corresponding_cpp_element = arg1_EX;
 								}
+								slti_set_default_lower_bound_lifetimes_where_needed(sloi1, param_Type, state1);
 								auto lifetime_values_ptr = &(sloi1.m_sublifetimes_vlptr->m_primary_lifetime_infos);
 
 								std::vector<CScopeLifetimeInfo1> ref_lifetime_values;
