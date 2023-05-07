@@ -428,7 +428,7 @@ In certain cases we add implicit ("elided") lifetime annotations to function int
 > 	2. If there is exactly one input lifetime (whether stated explicitly or elided), that lifetime is assigned to all elided output lifetimes.
 > 	3. If there are multiple input lifetimes but one of them applies to the implicit `this` parameter, that lifetime is assigned to all elided output lifetimes.
 
-Note that we slightly tweak the rule in the case of functions (without an implicit `this` parameter) that take a parameter by (native) reference and return a value of the same type sans reference, and that type is itself a reference object type that has one lifetime associated with it. In this case, instead of using the lifetime of the (native) reference as the elided output lifetime, we use the lifetime of the referenced object (that has the same type as the return value).
+Note that we add a little additional qualification and modification to the rules as quoted. Specifically, we only apply the input lifetime to the return value if the level of indirection (i.e. the depth of the (sub)lifetimes) of the input parameter and return types match. Or, if the the input parameter type lifetime has one more level of indirection than the return type lifetime (as might happen in the case, for example, where the input parameter is passed by reference, but the corresponding return value is not returned by reference), then we will use the input lifetime with the first level of indirection removed, so that it matches the return lifetime.
 
 ##### Lifetime annotation implementation caveats
 
