@@ -463,6 +463,23 @@ namespace checker {
 		std::unordered_map<clang::FunctionDecl const *, CFunctionLifetimeAnnotations> m_function_lifetime_annotations_map;
 
 		std::unordered_map<const clang::Type *, CTypeLifetimeAnnotations> m_type_lifetime_annotations_map;
+		void insert_or_assign_type_lifetime_annotations(const clang::Type * TypePtr, CTypeLifetimeAnnotations const& tlta) {
+			(*this).m_type_lifetime_annotations_map.insert_or_assign(TypePtr, tlta);
+
+			const auto cannonical_TypePtr = get_cannonical_type_ptr(TypePtr);
+			if (cannonical_TypePtr != TypePtr) {
+				auto found_it = (*this).m_type_lifetime_annotations_map.find(cannonical_TypePtr);
+				if ((*this).m_type_lifetime_annotations_map.end() != found_it) {
+					if (tlta.m_lifetime_set.m_primary_lifetimes.size() > found_it->second.m_lifetime_set.m_primary_lifetimes.size()) {
+						/* Ideally this won't happen. It seems that we've processed this type before and came up with a 
+						different result. This would sometimes occur when we used to evaluate uninstantiated templates. */
+						(*this).m_type_lifetime_annotations_map.insert_or_assign(cannonical_TypePtr, tlta);
+					}
+				} else {
+					(*this).m_type_lifetime_annotations_map.insert_or_assign(cannonical_TypePtr, tlta);
+				}
+			}
+		}
 
 		std::unordered_multimap<CAbstractLifetime, std::shared_ptr<CPairwiseLifetimeConstraint> > m_lhs_to_lifetime_constraint_shptr_mmap;
 		std::unordered_multimap<CAbstractLifetime, std::shared_ptr<CPairwiseLifetimeConstraint> > m_rhs_to_lifetime_constraint_shptr_mmap;
@@ -1298,8 +1315,8 @@ namespace checker {
 		return retval;
 	};
 
-	auto type_from_param_ordinal_if_available(clang::FunctionDecl const * FND, checker::param_ordinal_t param_ordinal) {
-		std::optional<clang::Type const *> retval;
+	auto qtype_from_param_ordinal_if_available(clang::FunctionDecl const * FND, checker::param_ordinal_t param_ordinal) {
+		std::optional<clang::QualType> retval;
 		if (!FND) {
 			return retval;
 		}
@@ -1309,18 +1326,8 @@ namespace checker {
 
 			if (CXXMD) {
 				auto this_qtype = CXXMD->getThisType();
-				if ((!(this_qtype.getTypePtr())) || (!(this_qtype->isPointerType()))) {
-					assert(false);
-					return retval;
-				}
 				//IF_DEBUG(auto this_qtype_str = this_qtype.getAsString();)
-				auto CXXRD = this_qtype->getPointeeCXXRecordDecl();;
-				if (CXXRD) {
-					auto type_ptr = get_cannonical_type_ptr(CXXRD->getTypeForDecl());
-					if (type_ptr) {
-						retval = type_ptr;
-					}
-				}
+				retval = get_cannonical_type(this_qtype);
 			} else {
 				if (FND->getNumParams() < 1) {
 					/* This should never happen, right? */
@@ -1330,12 +1337,7 @@ namespace checker {
 					auto PVD = FND->getParamDecl(0);
 					if (PVD) {
 						auto qtype = get_cannonical_type(PVD->getType());
-						if (!qtype.isNull()) {
-							auto type_ptr = qtype.getTypePtr();
-							if (type_ptr) {
-								retval = type_ptr;
-							}
-						}
+						retval = qtype;
 					}
 				}
 			}
@@ -1349,20 +1351,15 @@ namespace checker {
 				auto PVD = FND->getParamDecl(zb_index);
 				if (PVD) {
 					auto qtype = get_cannonical_type(PVD->getType());
-					if (!qtype.isNull()) {
-						auto type_ptr = qtype.getTypePtr();
-						if (type_ptr) {
-							retval = type_ptr;
-						}
-					}
+					retval = qtype;
 				}
 			}
 		}
 		return retval;
 	};
 	template<typename TCallExpr>
-	auto type_from_param_ordinal_if_available(TCallExpr const * CE, checker::param_ordinal_t param_ordinal) {
-		std::optional<clang::Type const *> retval;
+	auto qtype_from_param_ordinal_if_available(TCallExpr const * CE, checker::param_ordinal_t param_ordinal) {
+		std::optional<clang::QualType> retval;
 
 		auto CXXCE = dyn_cast<clang::CXXConstructExpr>(CE);
 		auto CE2 = dyn_cast<CallExpr>(CE);
@@ -1372,10 +1369,10 @@ namespace checker {
 			if (!FND) {
 				int q = 3;
 			}
-			retval = type_from_param_ordinal_if_available(FND, param_ordinal);
+			retval = qtype_from_param_ordinal_if_available(FND, param_ordinal);
 		} else if (CE2) {
 			auto FND = CE2->getDirectCallee();
-			retval = type_from_param_ordinal_if_available(FND, param_ordinal);
+			retval = qtype_from_param_ordinal_if_available(FND, param_ordinal);
 		} else {
 			int q = 3;
 		}
@@ -1576,6 +1573,8 @@ namespace checker {
 
 	inline auto type_lifetime_annotations_if_available(const clang::Type * TypePtr, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr)
 		-> std::optional<CTypeLifetimeAnnotations const *>;
+	inline auto type_lifetime_annotations_if_available(clang::QualType const & qtype, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr)
+		-> std::optional<CTypeLifetimeAnnotations const *>;
 
 	auto populate_lifetime_alias_map(const clang::Type * TypePtr2, const CAbstractLifetimeSet& alts, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr)
 		-> CAbstractLifetimeSet {
@@ -1607,7 +1606,7 @@ namespace checker {
 					continue;
 				}
 				if ("" != alias.m_id) {
-					auto maybe_tlta_ptr = type_lifetime_annotations_if_available(template_arg_type.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
+					auto maybe_tlta_ptr = type_lifetime_annotations_if_available(template_arg_type, state1, MR_ptr, Rewrite_ptr);
 					if (maybe_tlta_ptr.has_value()) {
 						auto unaliased_prefix1 = "__lifetime_set_" + alias.m_id;
 						auto& tlta = *(maybe_tlta_ptr.value());
@@ -1819,7 +1818,7 @@ namespace checker {
 
 					auto template_arg_type = template_args_maybe_types.at(target_targ_index).value();
 					if (!(template_arg_type.isNull())) {
-						auto maybe_tlta_ptr = type_lifetime_annotations_if_available(template_arg_type.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
+						auto maybe_tlta_ptr = type_lifetime_annotations_if_available(template_arg_type, state1, MR_ptr, Rewrite_ptr);
 						if (maybe_tlta_ptr.has_value()) {
 							auto unaliased_prefix1 = "__lifetime_set_" + alias.m_id;
 							auto& tlta = *(maybe_tlta_ptr.value());
@@ -2403,26 +2402,26 @@ namespace checker {
 
 				} while (false);
 			}
-		}
-
-		const auto type_decl_Type_ptr = type_decl.getTypeForDecl();
-		state1.m_type_lifetime_annotations_map.insert_or_assign(type_decl_Type_ptr, tlta);
-
-		const auto cannonical_type_decl_Type_ptr = get_cannonical_type_ptr(type_decl_Type_ptr);
-		if (cannonical_type_decl_Type_ptr != type_decl_Type_ptr) {
-			auto found_it = state1.m_type_lifetime_annotations_map.find(cannonical_type_decl_Type_ptr);
-			if (state1.m_type_lifetime_annotations_map.end() != found_it) {
-				if (tlta.m_lifetime_set.m_primary_lifetimes.size() > found_it->second.m_lifetime_set.m_primary_lifetimes.size()) {
-					/* Ideally this won't happen. It seems that we've processed this type before and came up with a 
-					different result. This would sometimes occur when we used to evaluate uninstantiated templates. */
-					state1.m_type_lifetime_annotations_map.insert_or_assign(cannonical_type_decl_Type_ptr, tlta);
+		} else if (type_ptr->isReferenceType()) {
+			/* Adding lifetime annotations to a (non-const) raw pointer can change whether a (re-)assignment
+			operation is valid or not. But since (raw) references don't support (re-)assignment, there's no 
+			risk of (unintentionally) invalidating any assignment operation by adding a lifetime annotation. 
+			So, we're going to give reference types an implicit lifetime label. */
+			CAbstractLifetime alt1{ "__implicit raw reference lifetime__", &type_decl };
+			auto maybe_pointee_tlta_ptr = type_lifetime_annotations_if_available(type_ptr->getPointeeType(), state1, MR_ptr, Rewrite_ptr);
+			if (maybe_pointee_tlta_ptr.has_value()) {
+				auto const & pointee_tlta_ptr = maybe_pointee_tlta_ptr.value();
+				if (!(pointee_tlta_ptr->m_lifetime_set.is_empty())) {
+					/* The target of this raw pointer or reference has lifetime annotations */
+					*(alt1.m_sublifetimes_vlptr) = pointee_tlta_ptr->m_lifetime_set;
 				}
-			} else {
-				state1.m_type_lifetime_annotations_map.insert_or_assign(cannonical_type_decl_Type_ptr, tlta);
 			}
+			tlta.m_lifetime_set = { alt1 };
 		}
 
-		clang::RecordDecl const * RD = type_decl_Type_ptr ? type_decl_Type_ptr->getAsRecordDecl() : (decltype(RD))(nullptr);
+		state1.insert_or_assign_type_lifetime_annotations(type_ptr, tlta);
+
+		clang::RecordDecl const * RD = type_ptr ? type_ptr->getAsRecordDecl() : (decltype(RD))(nullptr);
 		if (RD) {
 			for (auto FD : RD->fields()) {
 				if (FD->hasAttrs()) {
@@ -2545,6 +2544,61 @@ namespace checker {
 		}
 		int q = 5;
 	}
+	void process_type_lifetime_annotations(const clang::Type * TypePtr, CTUState& state1, MatchFinder::MatchResult const * MR_ptr/* = nullptr*/, Rewriter* Rewrite_ptr/* = nullptr*/) {
+		if (TypePtr) {
+			auto TD = TypePtr->getAsRecordDecl();
+			if (TD) {
+				IF_DEBUG(auto type_str = TD->getNameAsString();)
+				process_type_lifetime_annotations(*TD, state1, MR_ptr, Rewrite_ptr);
+			} else if (TypePtr->isReferenceType()) {
+				/* Adding lifetime annotations to a (non-const) raw pointer can change whether a (re-)assignment
+				operation is valid or not. But since (raw) references don't support (re-)assignment, there's no 
+				risk of (unintentionally) invalidating any assignment operation by adding a lifetime annotation. 
+				So, we're going to give reference types an implicit lifetime label. */
+				CTypeLifetimeAnnotations tlta;
+				CAbstractLifetime alt1{ "__implicit raw reference lifetime__", (clang::Decl const *)(nullptr) };
+				auto maybe_pointee_tlta_ptr = type_lifetime_annotations_if_available(TypePtr->getPointeeType(), state1, MR_ptr, Rewrite_ptr);
+				if (maybe_pointee_tlta_ptr.has_value()) {
+					auto const & pointee_tlta_ptr = maybe_pointee_tlta_ptr.value();
+					if (!(pointee_tlta_ptr->m_lifetime_set.is_empty())) {
+						/* The target of this raw pointer or reference has lifetime annotations */
+						*(alt1.m_sublifetimes_vlptr) = pointee_tlta_ptr->m_lifetime_set;
+					}
+				}
+				tlta.m_lifetime_set = { alt1 };
+
+				state1.insert_or_assign_type_lifetime_annotations(TypePtr, tlta);
+			}
+		}
+	}
+	void process_type_lifetime_annotations(clang::QualType const & qtype, CTUState& state1, MatchFinder::MatchResult const * MR_ptr/* = nullptr*/, Rewriter* Rewrite_ptr/* = nullptr*/) {
+		if (qtype.isNull()) {
+			return;
+		}
+		auto TypePtr = qtype.getTypePtr();
+		if (is_raw_pointer_or_equivalent(qtype) && qtype.isConstQualified()) {
+			/* Adding lifetime annotations to a (non-const) raw pointer can change whether a (re-)assignment
+			operation is valid or not. But since const pointers (not to be confused with pointer-to-const) 
+			don't support (re-)assignment, there's no risk of (unintentionally) invalidating any assignment 
+			operation by adding a lifetime annotation. So, we're going to give const pointer types an implicit 
+			lifetime label. */
+			CTypeLifetimeAnnotations tlta;
+			CAbstractLifetime alt1{ "__implicit const pointer or equivalent lifetime__", (clang::Decl const *)(nullptr) };
+			auto maybe_pointee_tlta_ptr = type_lifetime_annotations_if_available(TypePtr->getPointeeType(), state1, MR_ptr, Rewrite_ptr);
+			if (maybe_pointee_tlta_ptr.has_value()) {
+				auto const & pointee_tlta_ptr = maybe_pointee_tlta_ptr.value();
+				if (!(pointee_tlta_ptr->m_lifetime_set.is_empty())) {
+					/* The target of this raw pointer or reference has lifetime annotations */
+					*(alt1.m_sublifetimes_vlptr) = pointee_tlta_ptr->m_lifetime_set;
+				}
+			}
+			tlta.m_lifetime_set = { alt1 };
+
+			state1.insert_or_assign_type_lifetime_annotations(TypePtr, tlta);
+			return;
+		}
+		process_type_lifetime_annotations(TypePtr, state1, MR_ptr, Rewrite_ptr);
+	}
 	void process_type_lifetime_annotations(const clang::FieldDecl& field_decl, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
 		auto record_decl1 = field_decl.getParent();
 		if (record_decl1) {
@@ -2566,7 +2620,7 @@ namespace checker {
 		IF_DEBUG(const auto debug_func_name = func_decl.getNameAsString();)
 		IF_DEBUG(const auto debug_func_qname = func_decl.getQualifiedNameAsString();)
 #ifndef NDEBUG
-		if (std::string::npos != debug_func_qname.find("make_xscope_specialized_first_and_last_helper1")) {
+		if (std::string::npos != debug_func_qname.find("mse::rsv::TXSLTARAIterator<mse::rsv::TXSLTAPointer<mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 2>>>::operator*")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -3539,7 +3593,7 @@ namespace checker {
 					if (param_lifetime_map.end() == found_it) {
 						/* This parameter doesn't seem to have any explicitly annotated lifetimes. */
 						CAbstractLifetimeSet const* taltas1_ptr = nullptr;
-						auto maybe_taltas_ptr = type_lifetime_annotations_if_available(get_cannonical_type(PVD_qtype).getTypePtr(), state1, MR_ptr, Rewrite_ptr);
+						auto maybe_taltas_ptr = type_lifetime_annotations_if_available(get_cannonical_type(PVD_qtype), state1, MR_ptr, Rewrite_ptr);
 						if (maybe_taltas_ptr.has_value()) {
 							taltas1_ptr = &(maybe_taltas_ptr.value()->m_lifetime_set);
 						} else if (is_raw_pointer_or_equivalent(PVD_qtype) || PVD_qtype->isReferenceType()) {
@@ -3598,18 +3652,18 @@ namespace checker {
 					}
 				}
 
-				auto rv_qtype = func_decl.getReturnType();
-				IF_DEBUG(const std::string rv_qtype_str = rv_qtype.getAsString();)
-				CAbstractLifetimeSet talts1;
-				auto maybe_tlts = type_lifetime_annotations_if_available(get_cannonical_type(rv_qtype).getTypePtr(), state1, MR_ptr, Rewrite_ptr);
-				if (maybe_tlts.has_value()) {
-					talts1 = maybe_tlts.value()->m_lifetime_set;
-				} else if (is_raw_pointer_or_equivalent(rv_qtype) || rv_qtype->isReferenceType()) {
-					static auto s_elided_pointer_tlta = CTypeLifetimeAnnotations{ CAbstractLifetime{ std::string("__elided raw pointer/reference parameter type lifetime__"), (clang::Decl const *)(nullptr) } };
-					talts1 = s_elided_pointer_tlta.m_lifetime_set;
-				}
-				if (!(talts1.is_empty())) {
-					if (flta.m_return_value_lifetimes.is_empty()) {
+				if (flta.m_return_value_lifetimes.is_empty()) {
+					auto rv_qtype = func_decl.getReturnType();
+					IF_DEBUG(const std::string rv_qtype_str = rv_qtype.getAsString();)
+					CAbstractLifetimeSet talts1;
+					auto maybe_tlts = type_lifetime_annotations_if_available(get_cannonical_type(rv_qtype), state1, MR_ptr, Rewrite_ptr);
+					if (maybe_tlts.has_value()) {
+						talts1 = maybe_tlts.value()->m_lifetime_set;
+					} else if (is_raw_pointer_or_equivalent(rv_qtype) || rv_qtype->isReferenceType()) {
+						static auto s_elided_pointer_tlta = CTypeLifetimeAnnotations{ CAbstractLifetime{ std::string("__elided raw pointer/reference parameter type lifetime__"), (clang::Decl const *)(nullptr) } };
+						talts1 = s_elided_pointer_tlta.m_lifetime_set;
+					}
+					if (!(talts1.is_empty())) {
 						/* The return value doesn't seem to have any explicitly annotated lifetimes. Depending on the 
 						scenario, we may may give it elided ones. */
 						std::optional<CAbstractLifetime> maybe_elided_return_lifetime;
@@ -3630,20 +3684,17 @@ namespace checker {
 							if (1 == param_lifetime_map.size()) {
 								auto param_lifetimes_ref = param_lifetime_map.begin()->second;
 								if (1 == param_lifetimes_ref.m_primary_lifetimes.size()) {
-									auto maybe_param_type_ptr = type_from_param_ordinal_if_available(&func_decl, param_lifetime_map.begin()->first);
+									auto maybe_param_qtype = qtype_from_param_ordinal_if_available(&func_decl, param_lifetime_map.begin()->first);
 									auto rv_qtype = func_decl.getReturnType();
-									if (maybe_param_type_ptr.has_value() && (!(rv_qtype.isNull()))) {
-										auto param_type_ptr = maybe_param_type_ptr.value();
-										assert(param_type_ptr);
-										auto rv_type_ptr = rv_qtype.getTypePtr();
-										assert(rv_type_ptr);
+									if (maybe_param_qtype.has_value() && (!(rv_qtype.isNull()))) {
+										auto param_qtype = maybe_param_qtype.value();
 
 										/* This function seems to have one (elided or explictly annotated) input parameter lifetime. We'll
 										use it as the return value lifetime if we can. */
 										auto const & param_lifetime = param_lifetimes_ref.m_primary_lifetimes.front();
 
-										auto param_maybe_tlta_ptr = type_lifetime_annotations_if_available(param_type_ptr, state1, MR_ptr, Rewrite_ptr);
-										auto rv_maybe_tlta_ptr = type_lifetime_annotations_if_available(rv_type_ptr, state1, MR_ptr, Rewrite_ptr);
+										auto param_maybe_tlta_ptr = type_lifetime_annotations_if_available(param_qtype, state1, MR_ptr, Rewrite_ptr);
+										auto rv_maybe_tlta_ptr = type_lifetime_annotations_if_available(rv_qtype, state1, MR_ptr, Rewrite_ptr);
 										if (param_maybe_tlta_ptr.has_value() && param_maybe_tlta_ptr.value() && rv_maybe_tlta_ptr.has_value() && rv_maybe_tlta_ptr.value()) {
 											auto const & param_tlta = *(param_maybe_tlta_ptr.value());
 											auto const & rv_tlta = *(rv_maybe_tlta_ptr.value());
@@ -4434,6 +4485,7 @@ namespace checker {
 		-> std::optional<CTypeLifetimeAnnotations const *> {
 		std::optional<CTypeLifetimeAnnotations const *> retval;
 		if (TypePtr) {
+			process_type_lifetime_annotations(TypePtr, state1, MR_ptr, Rewrite_ptr);
 			auto TD = TypePtr->getAsRecordDecl();
 			if (TD) {
 				IF_DEBUG(auto type_str = TD->getNameAsString();)
@@ -4452,12 +4504,23 @@ namespace checker {
 		}
 		return retval;
 	}
+	inline auto type_lifetime_annotations_if_available(clang::QualType const & qtype, CTUState& state1, MatchFinder::MatchResult const * MR_ptr/* = nullptr*/, Rewriter* Rewrite_ptr/* = nullptr*/)
+		-> std::optional<CTypeLifetimeAnnotations const *> {
+		std::optional<CTypeLifetimeAnnotations const *> retval;
+		if (qtype.isNull()) {
+			return retval;
+		}
+
+		process_type_lifetime_annotations(qtype, state1, MR_ptr, Rewrite_ptr);
+		retval = type_lifetime_annotations_if_available(qtype.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
+		return retval;
+	}
 	inline auto type_lifetime_annotations_if_available(const clang::VarDecl& var_decl, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) 
 		-> std::optional<CTypeLifetimeAnnotations const *> {
 		std::optional<CTypeLifetimeAnnotations const *> retval;
 		auto qtype = var_decl.getType();
-		IF_DEBUG(auto qtype_str = qtype.getAsString();)
 		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+		IF_DEBUG(auto qtype_str = qtype.getAsString();)
 		if (qtype->isPointerType() || qtype->isReferenceType()) {
 			process_variable_lifetime_annotations(var_decl, state1, MR_ptr, Rewrite_ptr);
 			auto vlta_iter1 = state1.m_vardecl_lifetime_annotations_map.find(&var_decl);
@@ -4478,8 +4541,8 @@ namespace checker {
 		-> std::optional<CTypeLifetimeAnnotations const *> {
 		std::optional<CTypeLifetimeAnnotations const *> retval;
 		auto qtype = field_decl.getType();
-		IF_DEBUG(auto qtype_str = qtype.getAsString();)
 		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+		IF_DEBUG(auto qtype_str = qtype.getAsString();)
 		if (qtype->isPointerType() || qtype->isReferenceType()) {
 			process_type_lifetime_annotations(field_decl, state1, MR_ptr, Rewrite_ptr);
 			auto fltv_iter1 = state1.m_fielddecl_to_abstract_lifetime_map.find(&field_decl);
@@ -4501,11 +4564,11 @@ namespace checker {
 		std::optional<CTypeLifetimeAnnotations const *> retval;
 		auto E_ii = &expr;
 		if (MR_ptr) {
-			E_ii = IgnoreParenImpNoopCasts(&expr, *(MR_ptr->Context));
+			//E_ii = IgnoreParenImpNoopCasts(&expr, *(MR_ptr->Context));
 		}
 		auto qtype = E_ii->getType();
-		IF_DEBUG(auto qtype_str = qtype.getAsString();)
 		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+		IF_DEBUG(auto qtype_str = qtype.getAsString();)
 		auto DRE = dyn_cast<const clang::DeclRefExpr>(E_ii);
 		auto ME = dyn_cast<const clang::MemberExpr>(E_ii);
 		if (DRE) {
@@ -4564,7 +4627,7 @@ namespace checker {
 						/* We're going to have homogeneous initializer lists implicitly inherit any lifetime
 						annotations of their element type. */
 						auto elem_qtype = sf_ILE_qtype->getPointeeType();
-						retval = type_lifetime_annotations_if_available(elem_qtype.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
+						retval = type_lifetime_annotations_if_available(elem_qtype, state1, MR_ptr, Rewrite_ptr);
 						return retval;
 					}
 				} else if (CXXILE) {
@@ -4574,12 +4637,12 @@ namespace checker {
 					}
 					if (sub_E_ii && (sub_E_ii != CXXILE)) {
 						/* We're expecting sub_E_ii to be a clang::InitListExpr (pointer). */
-						retval = type_lifetime_annotations_if_available(*sub_E_ii, state1, MR_ptr, Rewrite_ptr);
+						retval = type_lifetime_annotations_if_available(get_cannonical_type(sub_E_ii->getType()), state1, MR_ptr, Rewrite_ptr);
 						return retval;
 					}
 				}
 			}
-			retval = type_lifetime_annotations_if_available(qtype.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
+			retval = type_lifetime_annotations_if_available(qtype, state1, MR_ptr, Rewrite_ptr);
 		}
 		return retval;
 	}
@@ -4614,7 +4677,7 @@ namespace checker {
 			slti_set_default_lower_bound_lifetimes_where_needed(slti, peeled_qtype->getPointeeType(), state1);
 		} else {
 			if ((*(slti.m_sublifetimes_vlptr)).is_empty()) {
-				auto maybe_tlta_ptr = type_lifetime_annotations_if_available(peeled_qtype.getTypePtr(), state1);
+				auto maybe_tlta_ptr = type_lifetime_annotations_if_available(peeled_qtype, state1);
 				if (maybe_tlta_ptr.has_value()) {
 					auto const & tlta_cref = *(maybe_tlta_ptr.value());
 					auto num_lifetimes = tlta_cref.m_lifetime_set.m_primary_lifetimes.size();
@@ -6772,6 +6835,18 @@ namespace checker {
 					auto containing_ref_EX = containing_object_ref_expr_from_member_expr(ME);
 					auto containing_qtype = containing_ref_EX->getType();
 					IF_DEBUG(const auto containing_ref_qtype_str = containing_qtype.getAsString();)
+					if (ME->isArrow()) {
+						if (is_raw_pointer_or_equivalent(containing_qtype)) {
+							containing_qtype = pointee_type_if_any(containing_qtype).value();
+						} else {
+							int q = 3;
+						}
+					}
+					if (containing_qtype->isReferenceType()) {
+						containing_qtype = containing_qtype->getPointeeType();
+					}
+					IF_DEBUG(const auto containing_qtype_str = containing_qtype.getAsString();)
+
 					retval = lhs_lifetime_owner_if_available(containing_ref_EX, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 					if (retval.has_value()) {
 						auto& retval_slo_ref = retval.value();
@@ -6810,7 +6885,7 @@ namespace checker {
 						sublifetimes are, in general, not. We still need to evaluate them. */
 						expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
 
-						auto maybe_tlta = type_lifetime_annotations_if_available(containing_qtype.getTypePtr(), tu_state_ref, MR_ptr, Rewrite_ptr);
+						auto maybe_tlta = type_lifetime_annotations_if_available(containing_qtype, tu_state_ref, MR_ptr, Rewrite_ptr);
 						if (maybe_tlta.has_value()) {
 							/* The parent/containing type seems to have (zero or more) annotated lifetimes. */
 
@@ -6880,7 +6955,7 @@ namespace checker {
 						auto& src_slo = maybe_expr_slo.value();
 						retval = src_slo;
 
-						auto maybe_tlta_ptr = type_lifetime_annotations_if_available(get_cannonical_type(CSTE_qtype).getTypePtr(), tu_state_ref);
+						auto maybe_tlta_ptr = type_lifetime_annotations_if_available(*CSTE, tu_state_ref);
 						if (maybe_tlta_ptr.has_value()) {
 							auto const & tlta = *(maybe_tlta_ptr.value());
 							/* The result type of the cast has abstract (annotated) lifetimes associated with it. We cannot in
@@ -6937,7 +7012,7 @@ namespace checker {
 												sublifetimes are, in general, not. We still need to evaluate them. */
 												expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
 
-												auto maybe_tlta = type_lifetime_annotations_if_available(sub_E_ip_qtype.getTypePtr(), tu_state_ref, MR_ptr, Rewrite_ptr);
+												auto maybe_tlta = type_lifetime_annotations_if_available(*sub_E_ip, tu_state_ref, MR_ptr, Rewrite_ptr);
 												if (maybe_tlta.has_value()) {
 													/* The parent/containing type seems to have (zero or more) annotated lifetimes. */
 
@@ -8507,15 +8582,11 @@ namespace checker {
 			if ((!arg_EX) || arg_EX->isDefaultArgument()) {
 				continue;
 			}
-			auto maybe_param_type = type_from_param_ordinal_if_available(CE, param_ordinal);
-			if (!(maybe_param_type.has_value())) {
+			auto maybe_param_qtype = qtype_from_param_ordinal_if_available(CE, param_ordinal);
+			if (!(maybe_param_qtype.has_value())) {
 				continue;
 			}
-			auto param_type_ptr = maybe_param_type.value();
-			if (!param_type_ptr) {
-				continue;
-			}
-			const auto param_qtype = clang::QualType(param_type_ptr, 0/*I'm just assuming zero specifies no qualifiers*/);
+			auto param_qtype = maybe_param_qtype.value();
 			IF_DEBUG(auto param_qtype_str = param_qtype.getAsString();)
 
 			auto maybe_expr_lifetime_value = evaluate_expression_rhs_lower_bound_lifetimes(state1, arg_EX, Ctx, MR_ptr, Rewrite_ptr);
@@ -8525,7 +8596,7 @@ namespace checker {
 
 				CScopeLifetimeInfo1Set lifetime_values;
 
-				if (param_type_ptr->isReferenceType() || (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal)) {
+				if (param_qtype->isReferenceType() || (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal)) {
 					/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
 					same as the object it refers to (without an added level of indirection). */
 					lifetime_values.m_primary_lifetime_infos.push_back(expr_lifetime_value_ref.m_scope_lifetime_info);
@@ -8608,7 +8679,7 @@ namespace checker {
 		};
 
 		if (CXXCE) {
-			auto maybe_tla_ptr = type_lifetime_annotations_if_available(CE_TypePtr1, state1, MR_ptr, Rewrite_ptr);
+			auto maybe_tla_ptr = type_lifetime_annotations_if_available(*CE, state1, MR_ptr, Rewrite_ptr);
 			if (maybe_tla_ptr.has_value()) {
 				auto& tla_ref = *(maybe_tla_ptr.value());
 
@@ -8705,7 +8776,7 @@ namespace checker {
 					IF_DEBUG(const auto IOA_qtype_str = IOA_E->getType().getAsString();)
 					const auto IOA_TypePtr1 = IOA_E->getType().getTypePtr();
 
-					auto maybe_tla_ptr = type_lifetime_annotations_if_available(IOA_TypePtr1, state1, MR_ptr, Rewrite_ptr);
+					auto maybe_tla_ptr = type_lifetime_annotations_if_available(*IOA_E, state1, MR_ptr, Rewrite_ptr);
 					if (!(maybe_tla_ptr.has_value())) {
 						if (IOA_TypePtr1) {
 							auto TD = IOA_TypePtr1->getAsTagDecl();
@@ -8713,7 +8784,7 @@ namespace checker {
 								process_type_lifetime_annotations(*TD, state1, MR_ptr, Rewrite_ptr);
 							}
 						}
-						maybe_tla_ptr = type_lifetime_annotations_if_available(IOA_TypePtr1, state1, MR_ptr, Rewrite_ptr);
+						maybe_tla_ptr = type_lifetime_annotations_if_available(*IOA_E, state1, MR_ptr, Rewrite_ptr);
 					}
 
 					if (maybe_tla_ptr.has_value()) {
@@ -8769,124 +8840,14 @@ namespace checker {
 					present_lhs_maybe_lifetime_value_map.insert_or_assign(item.first, item.second);
 				}
 
-				if (false && CXXCE) {
-					/* Here we iterate over each parameter with an associated abstract lifetime (annotation). */
-					for (const auto& param_lifetime_mapping1 : flta.m_param_lifetime_map) {
-						clang::Expr const * arg1_EX = arg_from_param_ordinal(CE, param_lifetime_mapping1.first);
-						auto maybe_param_type = type_from_param_ordinal_if_available(CE, param_lifetime_mapping1.first);
-						if ((!(maybe_param_type.has_value())) || (!arg1_EX)) {
-						} else {
-							auto& param_Type = *(maybe_param_type.value());
-
-							auto lambda1 = [&](bool for_lhs_of_assignment = false) -> CMaybeExpressionLifetimeValuesWithHints {
-								CScopeLifetimeInfo1 sloi1;
-								/* Now we try to evaluate the "concrete" lifetime of the corresponding argument in the contructor expression. */
-								auto maybe_expr_lifetime_value = for_lhs_of_assignment ? evaluate_expression_lhs_lower_bound_lifetimes(state1, arg1_EX, Ctx, MR_ptr, Rewrite_ptr)
-									: evaluate_expression_rhs_lower_bound_lifetimes(state1, arg1_EX, Ctx, MR_ptr, Rewrite_ptr);
-								MSE_RETURN_VALUE_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(maybe_expr_lifetime_value, {});
-								if (maybe_expr_lifetime_value.has_value()) {
-									CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
-									sloi1 = expr_slti;
-								} else {
-									/* We generally don't expect to get here, but if for some reason a lower bound for the argument
-									lifetime isn't available, we'll just use the shortest viable lifetime. */
-									sloi1.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
-									sloi1.m_maybe_containing_scope = get_containing_scope(arg1_EX, Ctx);
-									sloi1.m_maybe_source_range = arg1_EX->getSourceRange();
-									sloi1.m_maybe_corresponding_cpp_element = arg1_EX;
-								}
-								slti_set_default_lower_bound_lifetimes_where_needed(sloi1, param_Type, state1);
-								auto lifetime_values_ptr = &(sloi1.m_sublifetimes_vlptr->m_primary_lifetime_infos);
-
-								std::vector<CScopeLifetimeInfo1> ref_lifetime_values;
-								if (param_Type.isReferenceType()) {
-									/* Generally, a type's annotated (primary) lifetimes correspond to a lifetime value's
-									"sublifetimes". But in the case of (raw) references, its sole (primary) lifetime corresponds
-									to lifetime value's primary lifetime. So instead of having a separate code path for (raw)
-									reference types, we'll create a "stand-in" set of "sublifetimes" for the reference type 
-									consisting of just the primary lifetime value. */
-									ref_lifetime_values.push_back(sloi1);
-									lifetime_values_ptr = &ref_lifetime_values;
-								}
-								auto& lifetime_values_ref = (*lifetime_values_ptr);
-								size_t lv_index = 0;
-
-								for (const auto abstract_lifetime1 : param_lifetime_mapping1.second.m_primary_lifetimes) {
-									if (lifetime_values_ref.size() <= lv_index) {
-										/* todo: report error? */
-										break;
-									}
-									auto& lifetime_value_ref = lifetime_values_ref.at(lv_index);
-									lv_index += 1;
-
-									std::optional<CScopeLifetimeInfo1> corresponding_initialized_maybe_scope_lifetime/* = abstract_lifetime1*/;
-									auto found_it = initialized_rhs_maybe_lifetime_value_map.find(abstract_lifetime1);
-									if (initialized_rhs_maybe_lifetime_value_map.end() != found_it) {
-										corresponding_initialized_maybe_scope_lifetime = found_it->second;
-									}
-									std::optional<CScopeLifetimeInfo1> corresponding_present_maybe_scope_lifetime = corresponding_initialized_maybe_scope_lifetime;
-
-									if ((corresponding_present_maybe_scope_lifetime.has_value())
-										&& (CScopeLifetimeInfo1::ECategory::AbstractLifetime == corresponding_present_maybe_scope_lifetime.value().m_category)) {
-
-										corresponding_present_maybe_scope_lifetime = lifetime_value_ref;
-										corresponding_initialized_maybe_scope_lifetime = lifetime_value_ref;
-									} else {
-										/* We're determining the lower/upper bound of the lifetime values bound to this abstract lifetime label. */
-										auto corresponding_initialized_scope_lifetime = lifetime_value_ref;
-										if (corresponding_initialized_maybe_scope_lifetime.has_value()) {
-											corresponding_initialized_scope_lifetime = for_lhs_of_assignment ? upper_bound_of_lifetimes_slti(corresponding_initialized_maybe_scope_lifetime.value(), lifetime_value_ref, Ctx, state1)
-												: lower_bound_of_lifetimes_slti(corresponding_initialized_maybe_scope_lifetime.value(), lifetime_value_ref, Ctx, state1);
-										}
-										corresponding_initialized_maybe_scope_lifetime = corresponding_initialized_scope_lifetime;
-
-										auto corresponding_present_scope_lifetime = lifetime_value_ref;
-										if (corresponding_present_maybe_scope_lifetime.has_value()) {
-											corresponding_present_scope_lifetime = for_lhs_of_assignment ? upper_bound_of_lifetimes_slti(corresponding_present_maybe_scope_lifetime.value(), lifetime_value_ref, Ctx, state1)
-												: lower_bound_of_lifetimes_slti(corresponding_present_maybe_scope_lifetime.value(), lifetime_value_ref, Ctx, state1);
-										}
-										corresponding_present_maybe_scope_lifetime = corresponding_present_scope_lifetime;
-									}
-
-									auto& initialized_maybe_lifetime_value_map_ref = for_lhs_of_assignment ? initialized_lhs_maybe_lifetime_value_map : initialized_rhs_maybe_lifetime_value_map;
-									initialized_maybe_lifetime_value_map_ref.insert_or_assign( abstract_lifetime1, corresponding_initialized_maybe_scope_lifetime );
-
-									auto& present_maybe_lifetime_value_map_ref = for_lhs_of_assignment ? present_lhs_maybe_lifetime_value_map : present_rhs_maybe_lifetime_value_map;
-									present_maybe_lifetime_value_map_ref.insert_or_assign( abstract_lifetime1, corresponding_present_maybe_scope_lifetime );
-								}
-								return {};
-							};
-
-							auto rhs_res = lambda1(false/*for_lhs_of_assignment*/);
-							MSE_RETURN_VALUE_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(rhs_res, {});
-
-							auto lhs_res = lambda1(true/*for_lhs_of_assignment*/);
-							MSE_RETURN_VALUE_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(lhs_res, {});
-						}
-					}
-
-					for (auto& initialized_rhs_maybe_lifetime_value_mapping : initialized_rhs_maybe_lifetime_value_map) {
-						auto& abstract_lifetime1 = initialized_rhs_maybe_lifetime_value_mapping.first;
-						auto found_it = CE_type_rhs_maybe_lifetime_value_mappings.find(abstract_lifetime1);
-						if (CE_type_rhs_maybe_lifetime_value_mappings.end() != found_it) {
-							found_it->second = initialized_rhs_maybe_lifetime_value_mapping.second;
-						}
-					}
-					for (auto& initialized_lhs_maybe_lifetime_value_mapping : initialized_lhs_maybe_lifetime_value_map) {
-						auto& abstract_lifetime1 = initialized_lhs_maybe_lifetime_value_mapping.first;
-						auto found_it = CE_type_lhs_maybe_lifetime_value_mappings.find(abstract_lifetime1);
-						if (CE_type_lhs_maybe_lifetime_value_mappings.end() != found_it) {
-							found_it->second = initialized_lhs_maybe_lifetime_value_mapping.second;
-						}
-					}
-				} else {
+				{
 					/* Here we iterate over each function parameter with an associated abstract lifetime (annotation). */
 					for (const auto& param_lifetime_mapping1 : flta.m_param_lifetime_map) {
 						clang::Expr const * arg1_EX = arg_from_param_ordinal(CE, param_lifetime_mapping1.first);
-						auto maybe_param_type = type_from_param_ordinal_if_available(CE, param_lifetime_mapping1.first);
-						if ((!(maybe_param_type.has_value())) || (!arg1_EX)) {
+						auto maybe_param_qtype = qtype_from_param_ordinal_if_available(CE, param_lifetime_mapping1.first);
+						if ((!(maybe_param_qtype.has_value())) || (!arg1_EX)) {
 						} else {
-							auto& param_Type = *(maybe_param_type.value());
+							auto param_qtype = maybe_param_qtype.value();
 
 							auto lambda1 = [&](bool for_lhs_of_assignment = false) -> CMaybeExpressionLifetimeValuesWithHints {
 								CScopeLifetimeInfo1 sloi1;
@@ -8905,11 +8866,11 @@ namespace checker {
 									sloi1.m_maybe_source_range = arg1_EX->getSourceRange();
 									sloi1.m_maybe_corresponding_cpp_element = arg1_EX;
 								}
-								slti_set_default_lower_bound_lifetimes_where_needed(sloi1, param_Type, state1);
+								slti_set_default_lower_bound_lifetimes_where_needed(sloi1, param_qtype, state1);
 								auto lifetime_values_ptr = &(sloi1.m_sublifetimes_vlptr->m_primary_lifetime_infos);
 
 								std::vector<CScopeLifetimeInfo1> ref_lifetime_values;
-								if (param_Type.isReferenceType() || (IMPLICIT_THIS_PARAM_ORDINAL == param_lifetime_mapping1.first)) {
+								if (param_qtype->isReferenceType() || (IMPLICIT_THIS_PARAM_ORDINAL == param_lifetime_mapping1.first)) {
 									/* Generally, a type's annotated (primary) lifetimes correspond to a lifetime value's
 									"sublifetimes". But in the case of (raw) references, its sole (primary) lifetime corresponds
 									to lifetime value's primary lifetime. So instead of having a separate code path for (raw)
@@ -9758,7 +9719,7 @@ namespace checker {
 						sublifetimes are, in general, not. We still need to evaluate them. */
 						expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
 
-						auto maybe_tlta = type_lifetime_annotations_if_available(containing_qtype.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
+						auto maybe_tlta = type_lifetime_annotations_if_available(containing_qtype, state1, MR_ptr, Rewrite_ptr);
 						if (maybe_tlta.has_value()) {
 							/* The parent/containing type seems to have (zero or more) annotated lifetimes. */
 
@@ -9941,7 +9902,7 @@ namespace checker {
 						}
 						retval = CExpressionLifetimeValues{ slti1, bool(MR_ptr) };
 
-						auto maybe_tlta_ptr = type_lifetime_annotations_if_available(get_cannonical_type(CSTE_qtype).getTypePtr(), state1);
+						auto maybe_tlta_ptr = type_lifetime_annotations_if_available(*CSTE, state1);
 						if (maybe_tlta_ptr.has_value()) {
 							auto const & tlta = *(maybe_tlta_ptr.value());
 							/* The result type of the cast has abstract (annotated) lifetimes associated with it. We cannot in
@@ -9995,7 +9956,7 @@ namespace checker {
 												sublifetimes are, in general, not. We still need to evaluate them. */
 												expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
 
-												auto maybe_tlta = type_lifetime_annotations_if_available(sub_E_ip_qtype.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
+												auto maybe_tlta = type_lifetime_annotations_if_available(*sub_E_ip, state1, MR_ptr, Rewrite_ptr);
 												if (maybe_tlta.has_value()) {
 													/* The parent/containing type seems to have (zero or more) annotated lifetimes. */
 
