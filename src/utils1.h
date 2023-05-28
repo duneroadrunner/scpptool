@@ -328,11 +328,11 @@ inline auto get_cannonical_type_ptr(clang::Type const * type_ptr) -> clang::Type
 	if (!type_ptr) {
 		return type_ptr;
 	}
-	auto cannonical_qtype = type_ptr->getCanonicalTypeUnqualified();
-	if (cannonical_qtype.isNull()) {
+	auto cannonical_type = type_ptr->getCanonicalTypeUnqualified();
+	if (cannonical_type.isNull()) {
 		return type_ptr;
 	}
-	auto cannonical_type_ptr = cannonical_qtype->getTypePtr();
+	auto cannonical_type_ptr = cannonical_type->getTypePtr();
 
 #ifndef NDEBUG
 	const std::string type_str = get_as_string(type_ptr);
@@ -1787,7 +1787,7 @@ inline std::vector<clang::QualType> types_from_template_arg(const clang::Templat
 	return retval;
 }
 
-inline std::vector<clang::QualType> shallow_component_types_if_any(const clang::QualType& qtype) {
+inline std::vector<clang::QualType> shallow_template_arg_types_if_any(const clang::QualType& qtype, bool exclude_params_with_default = false) {
 	std::vector<clang::QualType> retval;
 	IF_DEBUG(const auto qtype_str = qtype.getAsString();)
 	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
@@ -1799,9 +1799,39 @@ inline std::vector<clang::QualType> shallow_component_types_if_any(const clang::
 
 		auto CTSD = clang::dyn_cast<const clang::ClassTemplateSpecializationDecl>(CXXRD);
 		if (CTSD) {
-			const auto& template_args = CTSD->getTemplateInstantiationArgs();
+			clang::TemplateParameterList * tparam_list_ptr = nullptr;
+			if (exclude_params_with_default) {
+				auto CTD2 = CTSD->getSpecializedTemplate();
+				if (CTD2) {
+					tparam_list_ptr = CTD2->getTemplateParameters();
+				}
+			}
+
+			//const auto& template_args = CTSD->getTemplateInstantiationArgs();
+			const auto& template_args = CTSD->getTemplateArgs();
 			const auto num_args = template_args.size();
-			for (int i = 0; i < int(num_args); i += 1) {
+			for (size_t i = 0; i < num_args; i += 1) {
+				if (tparam_list_ptr) {
+					const auto tparam_list_size = tparam_list_ptr->size();
+					if (tparam_list_ptr->size() > i) {
+						assert(exclude_params_with_default);
+						auto ND = tparam_list_ptr->getParam(i);
+						if (ND && (clang::Decl::Kind::TemplateTypeParm == ND->getKind())) {
+							IF_DEBUG(const auto name = ND->getNameAsString();)
+							const clang::TemplateTypeParmDecl* ttpd = static_cast<const clang::TemplateTypeParmDecl*>(ND);
+							if (ttpd && ttpd->hasDefaultArgument()) {
+								continue;
+							} else {
+								int q = 5;
+							}
+						}
+					} else {
+						/* I suppose it could happen that there are more arguments than parameters if some of the parameters are
+						actually parameter packs or whatever? */
+						int q = 5;
+					}
+				}
+
 				const auto template_arg = template_args[i];
 				auto res = types_from_template_arg(template_arg);
 				retval.insert(retval.end(), res.begin(), res.end());
@@ -1818,15 +1848,15 @@ inline std::vector<clang::QualType> shallow_component_types_if_any(const clang::
 }
 
 template<typename TLambda, typename ...Args>
-inline void apply_to_component_types_if_any(const clang::QualType& qtype, const TLambda& lambda, Args&&...args) {
-	const auto targs = shallow_component_types_if_any(qtype);
+inline void apply_to_template_arg_types_if_any(const clang::QualType& qtype, const TLambda& lambda, Args&&...args) {
+	const auto targs = shallow_template_arg_types_if_any(qtype);
 	for (const auto& targ : targs) {
-		apply_to_component_types_if_any(targ, lambda, args...);
+		apply_to_template_arg_types_if_any(targ, lambda, args...);
 		lambda(targ, args...);
 	}
 }
 
-inline std::vector<clang::TypeLoc> shallow_component_types_if_any(clang::TypeLoc typeLoc) {
+inline std::vector<clang::TypeLoc> shallow_template_arg_types_if_any(clang::TypeLoc typeLoc) {
 	std::vector<clang::TypeLoc> retval;
 	auto qtype = typeLoc.getType();
 	IF_DEBUG(const auto qtype_str = qtype.getAsString();)
@@ -1874,16 +1904,16 @@ inline std::vector<clang::TypeLoc> shallow_component_types_if_any(clang::TypeLoc
 }
 
 template<typename TLambda, typename ...Args>
-inline void apply_to_component_types_if_any(const clang::TypeLoc& typeLoc, const TLambda& lambda, Args&&...args) {
-	const auto targs = shallow_component_types_if_any(typeLoc);
+inline void apply_to_template_arg_types_if_any(const clang::TypeLoc& typeLoc, const TLambda& lambda, Args&&...args) {
+	const auto targs = shallow_template_arg_types_if_any(typeLoc);
 	for (const auto& targ : targs) {
-		apply_to_component_types_if_any(targ, lambda, args...);
+		apply_to_template_arg_types_if_any(targ, lambda, args...);
 		lambda(targ, targ.getSourceRange(), args...);
 	}
 }
 template<typename TLambda, typename ...Args>
-inline void apply_to_component_types_if_any(const clang::DeclaratorDecl& ddecl, const TLambda& lambda, Args&&...args) {
-	apply_to_component_types_if_any(ddecl.getTypeSourceInfo()->getTypeLoc(), lambda, args...);
+inline void apply_to_template_arg_types_if_any(const clang::DeclaratorDecl& ddecl, const TLambda& lambda, Args&&...args) {
+	apply_to_template_arg_types_if_any(ddecl.getTypeSourceInfo()->getTypeLoc(), lambda, args...);
 }
 
 template <typename DescendantT, typename NodeT>
