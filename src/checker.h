@@ -1907,7 +1907,7 @@ namespace checker {
 				std::string template_parameters_str;
 				for (auto& tparam_ND : *tparam_list) {
 					const auto tp_name = tparam_ND->getNameAsString();
-					template_parameters_str += tp_name;
+					template_parameters_str += "'" + tp_name + "'";
 					template_parameters_str += ", ";
 				}
 				if (std::string(", ").length() < template_parameters_str.length()) {
@@ -1961,29 +1961,68 @@ namespace checker {
 
 		auto retval = CAbstractLifetimeSet{};
 
+		std::vector<std::optional<clang::QualType> > template_args_maybe_types;
+		clang::TemplateParameterList * tparam_list_ptr = nullptr;
 		auto FTD = func_decl.getPrimaryTemplate();
-		if (!FTD) {
-			return retval;
-		}
-		auto tparam_list = FTD->getTemplateParameters();
-		if (tparam_list) {
-			const auto template_args_ptr = func_decl.getTemplateSpecializationArgs();
-			if (template_args_ptr) {
-				const auto& template_args = *template_args_ptr;
-				std::vector<std::optional<clang::QualType> > template_args_maybe_types;
+		if (FTD) {
+			tparam_list_ptr = FTD->getTemplateParameters();
+			if (tparam_list_ptr) {
+				const auto template_args_ptr = func_decl.getTemplateSpecializationArgs();
+				if (template_args_ptr) {
+					const auto& template_args = *template_args_ptr;
 
-				const auto num_args = template_args.size();
-				for (int i = 0; i < int(num_args); i += 1) {
-					const auto template_arg = template_args[i];
-					if ((clang::TemplateArgument::ArgKind::Type != template_arg.getKind()) || template_arg.isNull()) {
-						template_args_maybe_types.push_back({});
-					} else {
-						const auto ta_qtype = template_arg.getAsType();
-						IF_DEBUG(const auto ta_qtype_str = ta_qtype.getAsString();)
-						template_args_maybe_types.push_back(ta_qtype);
+					const auto num_args = template_args.size();
+					for (int i = 0; i < int(num_args); i += 1) {
+						const auto template_arg = template_args[i];
+						if ((clang::TemplateArgument::ArgKind::Type != template_arg.getKind()) || template_arg.isNull()) {
+							template_args_maybe_types.push_back({});
+						} else {
+							const auto ta_qtype = template_arg.getAsType();
+							IF_DEBUG(const auto ta_qtype_str = ta_qtype.getAsString();)
+							template_args_maybe_types.push_back(ta_qtype);
+						}
+					}
+					/* Here we look for the alias of interest against the set of the function's template arguments, with
+					error messages suppressed (for example in the case that the specified template argument is not one of 
+					the function's template arguments). */
+					auto res1 = infer_alias_mapping_from_template_arg(tparam_list_ptr, template_args_maybe_types, func_decl.getSourceRange(), target_tparam_name_sv, alias, state1);
+					if (!(res1.is_empty())) {
+						/* The alias of interest seems to have been found. We will reobtain the alias without suppressing any 
+						potential error messages this time. */
+						retval = infer_alias_mapping_from_template_arg(tparam_list_ptr, template_args_maybe_types, func_decl.getSourceRange(), target_tparam_name_sv, alias, state1, MR_ptr, Rewrite_ptr);
 					}
 				}
-				retval = infer_alias_mapping_from_template_arg(tparam_list, template_args_maybe_types, func_decl.getSourceRange(), target_tparam_name_sv, alias, state1, MR_ptr, Rewrite_ptr);
+			}
+		}
+		if (retval.is_empty()) {
+			/* We did not successfully find the alias of interest when searching against the set of the 
+			function's template arguments (if any). */
+
+			auto CXXCD = dyn_cast<const clang::CXXConstructorDecl>(&func_decl);
+			auto CXXMD = dyn_cast<const clang::CXXMethodDecl>(&func_decl);
+			if (CXXMD) {
+				/* The given function seems to be a member function. So we'll see if we can find the alias of interest
+				among the parent type's template arguments (if any) (with error messages suppressed). */
+				auto This_qtype = CXXMD->getThisType();
+				MSE_RETURN_VALUE_IF_TYPE_IS_NULL(This_qtype, retval);
+				assert(This_qtype->isPointerType());
+				auto This_pointee_qtype = This_qtype->getPointeeType();
+				MSE_RETURN_VALUE_IF_TYPE_IS_NULL(This_pointee_qtype, retval);
+				auto This_pointee_type_ptr = This_pointee_qtype.getTypePtr();
+				assert(This_pointee_type_ptr);
+				auto res2 = infer_alias_mapping_from_template_arg(This_pointee_type_ptr, target_tparam_name_sv, alias, state1);
+				if (!(res2.is_empty())) {
+					/* The alias of interest seems to have been found. We will reobtain the alias without suppressing any 
+					potential error messages this time. */
+					retval = infer_alias_mapping_from_template_arg(This_pointee_type_ptr, target_tparam_name_sv, alias, state1, MR_ptr, Rewrite_ptr);
+				} else {
+					/* We do not seem to have successfully found the alias of interest. */
+					if (1 <= template_args_maybe_types.size()) {
+						/* We will run the (presumably futile) search against the function template arguments again, but this 
+						time with error messages enabled. */
+						retval = infer_alias_mapping_from_template_arg(tparam_list_ptr, template_args_maybe_types, func_decl.getSourceRange(), target_tparam_name_sv, alias, state1, MR_ptr, Rewrite_ptr);
+					}
+				}
 			}
 		}
 		return retval;
@@ -1994,7 +2033,7 @@ namespace checker {
 
 		auto retval = CAbstractLifetimeSet{};
 
-		for (auto& lifetime : alts1.m_primary_lifetimes) {
+		for (auto lifetime : alts1.m_primary_lifetimes) {
 			auto found_it = state1.m_lifetime_alias_map.find(lifetime);
 			if (state1.m_lifetime_alias_map.end() != found_it) {
 				/* This lifetime is actually an alias (for a set of lifetimes). */
@@ -5054,7 +5093,7 @@ namespace checker {
 
 	/* We support assignment between annotated and non-annotated pointers. But the structure of their
 	lifetime values can be different, so they may need to be adjusted as necessary to match. */
-	inline void slti_set_default_lower_bound_lifetimes_to_match_where_needed(CScopeLifetimeInfo1& sli1, const CScopeLifetimeInfo1& sli2) {
+	inline void slti_set_default_lower_bound_lifetimes_to_match_where_needed(CScopeLifetimeInfo1& sli1, CScopeLifetimeInfo1& sli2) {
 		auto diff1 = int(sli2.m_sublifetimes_vlptr->m_primary_lifetime_infos.size()) - int(sli1.m_sublifetimes_vlptr->m_primary_lifetime_infos.size());
 		auto& smaller_sli_ref = (0 <= diff1) ? sli1 : sli2;
 		auto diff2 = abs(diff1);
@@ -5648,7 +5687,7 @@ namespace checker {
 		return retval;
 	}
 
-	CScopeLifetimeInfo1 bound_lifetime_slti(const CScopeLifetimeInfo1& lhs_lifetime_info, const CScopeLifetimeInfo1& rhs_lifetime_info, ASTContext& Ctx, const CTUState& tu_state_cref, bool for_lhs_of_assignment = false) {
+	CScopeLifetimeInfo1 bound_lifetime_slti(CScopeLifetimeInfo1 lhs_lifetime_info, CScopeLifetimeInfo1 rhs_lifetime_info, ASTContext& Ctx, const CTUState& tu_state_cref, bool for_lhs_of_assignment = false) {
 		CScopeLifetimeInfo1 lbl;
 		{
 			auto shallow_lhs_lifetime_info = lhs_lifetime_info;
@@ -9238,7 +9277,7 @@ namespace checker {
 
 								struct CB {
 									static void handle_params_with_lifetime_annotations(
-										decltype(lifetime_values_ref) & lifetime_values_ref, 
+										std::vector<CScopeLifetimeInfo1> const/*&*/ lifetime_values_ref, 
 										CAbstractLifetimeSet const & alts, 
 										decltype(initialized_rhs_maybe_lifetime_value_map)& initialized_maybe_lifetime_value_map_ref, 
 										decltype(present_rhs_maybe_lifetime_value_map)& present_maybe_lifetime_value_map_ref, 
@@ -9258,7 +9297,7 @@ namespace checker {
 												/* todo: report error? */
 												break;
 											}
-											auto& lifetime_value_ref = lifetime_values_ref.at(lv_index);
+											auto const/*&*/ lifetime_value_ref = lifetime_values_ref.at(lv_index);
 											lv_index += 1;
 
 											auto found_it3 = IOA_type_lhs_maybe_lifetime_value_map_ref.find(abstract_lifetime1);

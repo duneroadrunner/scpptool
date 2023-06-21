@@ -466,6 +466,24 @@ public:
 		(*(*this)) = *src;
 		return *this;
 	}
+	_Ty const& operator*() const {
+		return base_class::operator*();
+	}
+	_Ty& operator*() {
+		return base_class::operator*();
+	}
+	_Ty const* operator->() const {
+		return base_class::operator->();
+	}
+	_Ty* operator->() {
+		return base_class::operator->();
+	}
+	_Ty const* get() const {
+		return base_class::get();
+	}
+	_Ty* get() {
+		return base_class::get();
+	}
 };
 
 template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
@@ -2156,16 +2174,19 @@ struct Parse {
 					}
 					return retval;
 				} else if ('[' == first_ch) {
-					if (('[' == second_ch)) {
-						/* open annotation delimiter, right? */
+					if (false && ('[' == second_ch)) {
+						/* Not sure if there's a case when two consecutive '['s is not an open annotation delimiter, but since we
+						can't unambiguously identify close annotation delimiters, we won't bother identifying open annotation 
+						delimiters. */
 						retval = { start_pos, start_pos + 2 };
 					} else {
 						retval = { start_pos, start_pos + 1 };
 					}
 					return retval;
 				} else if (']' == first_ch) {
-					if ((']' == second_ch)) {
-						/* close annotation delimiter, right? */
+					if (false && (']' == second_ch)) {
+						/* Two consecutive ']'s could be a close annotation delimiter, but could also be just
+						two independent ']'s. */
 						retval = { start_pos, start_pos + 2 };
 					} else {
 						retval = { start_pos, start_pos + 1 };
