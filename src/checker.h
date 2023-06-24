@@ -3774,7 +3774,11 @@ namespace checker {
 			} else {
 				static const std::string std_move_str = "std::move";
 				static const std::string function_get_str = "std::get";
-				if (((std_move_str == func_qname_str) || (function_get_str == func_qname_str)) && (1 == func_decl.getNumParams())) {
+				static const std::string std_begin_str = "std::begin";
+				static const std::string std_end_str = "std::end";
+				if (((std_move_str == func_qname_str) || (function_get_str == func_qname_str) || (std_begin_str == func_qname_str) || (std_end_str == func_qname_str))
+					&& (1 == func_decl.getNumParams())) {
+					
 					auto abstract_lifetime = CAbstractLifetime{ "_implict lifetime label for legacy element_"
 						, &func_decl, true/*is_elided*/ };
 					flta.m_param_lifetime_map.insert_or_assign(param_ordinal_t(1), CAbstractLifetimeSet{ abstract_lifetime });
