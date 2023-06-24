@@ -480,6 +480,7 @@ usage example:
 ```cpp
     #include "mseslta.h"
     #include "msemsearray.h"
+    #include "msealgorithm.h"
     
     void main(int argc, char* argv[]) {
         int i1 = 3;
@@ -512,6 +513,23 @@ usage example:
         //std::swap(arrwp2, arrwp4);    // scpptool would complain
         //arrwp2.swap(arrwp4);    // scpptool would complain
         
+        {
+            auto xslta_iter1 = std::begin(arr2);
+            auto xslta_iter2 = std::end(arr2);
+            
+            auto xslta_citer3 = std::cbegin(arr2);
+            xslta_citer3 = xslta_iter1;
+            xslta_citer3 = std::cbegin(arr2);
+            xslta_citer3 += 1;
+            auto res1 = *(*xslta_citer3);
+            auto res2 = *(xslta_citer3[0]);
+            
+            std::cout << "\n";
+            for (auto xslta_iter5 = xslta_iter1; xslta_iter2 != xslta_iter5; ++xslta_iter5) {
+                std::cout << *(*xslta_iter5) << " ";
+            }
+            std::cout << "\n";
+        }
         {
             auto arrwp2_xsltaptr = mse::rsv::TXSLTAPointer<decltype(arrwp2)>{ &arrwp2 };
             auto xslta_iter1 = mse::rsv::make_xslta_begin_iterator(arrwp2_xsltaptr);
