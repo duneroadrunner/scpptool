@@ -473,7 +473,7 @@ usage example:
 
 ##### rsv::xslta_array
 
-`rsv::xslta_array<>` is a lifetime annotated array. Somewhat based on [`xscope_nii_array<>`](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#xscope_nii_array).
+`rsv::xslta_array<>` is a lifetime annotated array.
 
 usage example:
 
