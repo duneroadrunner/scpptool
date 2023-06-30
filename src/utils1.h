@@ -638,7 +638,10 @@ struct CAbstractLifetimeSet {
 			if (lifetime.m_id == label_id) {
 				return lifetime;
 			};
-			lifetime.m_sublifetimes_vlptr->lifetime_from_label_id_if_present(label_id);
+			auto maybe_found_lifetime = lifetime.m_sublifetimes_vlptr->lifetime_from_label_id_if_present(label_id);
+			if (maybe_found_lifetime.has_value()) {
+				return maybe_found_lifetime;
+			}
 		}
 		return retval;
 	}

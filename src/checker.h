@@ -1578,26 +1578,60 @@ namespace checker {
 				auto sub_alts = parse_lifetime_ids(sublifetime_label_ids, context, attr_SR, state1, MR_ptr, Rewrite_ptr);
 				*(abstract_lifetime.m_sublifetimes_vlptr) = sub_alts;
 			}
+
 			abstract_lifetime.m_id = primary_lifetime_label_id_str;
-			if (maybe_containing_type_alts.has_value()) {
-				/* This lifetime label is attached to a member function. So we check to see if the same 
-				label has been used by a lifetime label that has already been defined for the parent type. 
-				If so, then we'll presume that this label refers to that one. */
-				auto maybe_existing_alt = maybe_containing_type_alts.value().lifetime_from_label_id_if_present(primary_lifetime_label_id_str);
-				if (maybe_existing_alt.has_value()) {
-					abstract_lifetime = maybe_existing_alt.value();
+
+			auto check_and_handle_label_referring_to_lifetime_of_parent_type = [&](CAbstractLifetime& alt) {
+				if (maybe_containing_type_alts.has_value()) {
+					/* This lifetime label is attached to a member function. So we check to see if the same 
+					label has been used by a lifetime label that has already been defined for the parent type. 
+					If so, then we'll presume that this label refers to that one. */
+					auto maybe_existing_alt = maybe_containing_type_alts.value().lifetime_from_label_id_if_present(alt.m_id);
+					if (maybe_existing_alt.has_value()) {
+						auto sublifetimes_bak = *(alt.m_sublifetimes_vlptr);
+						alt = maybe_existing_alt.value();
+						*(alt.m_sublifetimes_vlptr) = sublifetimes_bak;
+					}
 				}
-			}
-			if (maybe_containing_RD.has_value()) {
-				/* This lifetime label is attached to a member function. So we check to see if the same 
-				label has been used by a lifetime set alias that has already been defined for the parent
-				type. If so, then we'll presume that this label refers to that alias. */
-				auto containing_RD = maybe_containing_RD.value();
-				auto abstract_lifetime2 = abstract_lifetime;
-				abstract_lifetime2.m_context = containing_RD;
-				auto found_it = state1.m_lifetime_alias_map.find(abstract_lifetime2);
-				if (state1.m_lifetime_alias_map.end() != found_it) {
-					abstract_lifetime = abstract_lifetime2;
+				if (maybe_containing_RD.has_value()) {
+					/* This lifetime label is attached to a member function. So we check to see if the same 
+					label has been used by a lifetime set alias that has already been defined for the parent
+					type. If so, then we'll presume that this label refers to that alias. */
+					auto containing_RD = maybe_containing_RD.value();
+					auto abstract_lifetime2 = alt;
+					abstract_lifetime2.m_context = containing_RD;
+					auto found_it = state1.m_lifetime_alias_map.find(abstract_lifetime2);
+					if (state1.m_lifetime_alias_map.end() != found_it) {
+						auto sublifetimes_bak = *(alt.m_sublifetimes_vlptr);
+						alt = abstract_lifetime2;
+						*(alt.m_sublifetimes_vlptr) = sublifetimes_bak;
+					}
+				}
+			};
+
+			apply_to_all_lifetimes(abstract_lifetime, check_and_handle_label_referring_to_lifetime_of_parent_type);
+
+			if (false) {
+				if (maybe_containing_type_alts.has_value()) {
+					/* This lifetime label is attached to a member function. So we check to see if the same 
+					label has been used by a lifetime label that has already been defined for the parent type. 
+					If so, then we'll presume that this label refers to that one. */
+					auto maybe_existing_alt = maybe_containing_type_alts.value().lifetime_from_label_id_if_present(primary_lifetime_label_id_str);
+					if (maybe_existing_alt.has_value()) {
+						abstract_lifetime = maybe_existing_alt.value();
+					}
+				}
+				if (maybe_containing_RD.has_value()) {
+					/* This lifetime label is attached to a member function. So we check to see if the same 
+					label has been used by a lifetime set alias that has already been defined for the parent
+					type. If so, then we'll presume that this label refers to that alias. */
+					auto containing_RD = maybe_containing_RD.value();
+					auto abstract_lifetime2 = abstract_lifetime;
+					abstract_lifetime2.m_context = containing_RD;
+					auto found_it = state1.m_lifetime_alias_map.find(abstract_lifetime2);
+					if (state1.m_lifetime_alias_map.end() != found_it) {
+						abstract_lifetime = abstract_lifetime2;
+					}
 				}
 			}
 
@@ -3772,6 +3806,8 @@ namespace checker {
 					}
 				}
 			} else {
+				static const std::string std_swap_str = "std::swap";
+
 				static const std::string std_move_str = "std::move";
 				static const std::string function_get_str = "std::get";
 				static const std::string std_begin_str = "std::begin";
@@ -3781,9 +3817,23 @@ namespace checker {
 					
 					auto abstract_lifetime = CAbstractLifetime{ "_implict lifetime label for legacy element_"
 						, &func_decl, true/*is_elided*/ };
+					flta.m_lifetime_set.m_primary_lifetimes.push_back(abstract_lifetime);
 					flta.m_param_lifetime_map.insert_or_assign(param_ordinal_t(1), CAbstractLifetimeSet{ abstract_lifetime });
 					assert(0 == flta.m_return_value_lifetimes.m_primary_lifetimes.size());
 					flta.m_return_value_lifetimes.m_primary_lifetimes.push_back(abstract_lifetime);
+				} else if ((std_swap_str == func_qname_str) && (2 == func_decl.getNumParams())) {
+					const std::string label1 = "_implict 1_";
+					const std::string label2 = "_implict 2_";
+					auto abstract_lifetime1 = CAbstractLifetime{ label1, &func_decl, true/*is_elided*/ };
+					auto abstract_lifetime2 = CAbstractLifetime{ label2, &func_decl, true/*is_elided*/ };
+					flta.m_lifetime_set.m_primary_lifetimes.push_back(abstract_lifetime1);
+					flta.m_lifetime_set.m_primary_lifetimes.push_back(abstract_lifetime2);
+					flta.m_param_lifetime_map.insert_or_assign(param_ordinal_t(1), CAbstractLifetimeSet{ abstract_lifetime1 });
+					flta.m_param_lifetime_map.insert_or_assign(param_ordinal_t(2), CAbstractLifetimeSet{ abstract_lifetime2 });
+					flta.m_lifetime_constraint_shptrs.push_back(std::make_shared<CFirstCanBeAssignedToSecond>(
+									CFirstCanBeAssignedToSecond{ abstract_lifetime1, abstract_lifetime2 }));
+					flta.m_lifetime_constraint_shptrs.push_back(std::make_shared<CFirstCanBeAssignedToSecond>(
+									CFirstCanBeAssignedToSecond{ abstract_lifetime2, abstract_lifetime1 }));
 				} else if ((((operator_star_str == operator_name) || (operator_arrow_str == operator_name)) && (1 == func_decl.getNumParams()))
 					|| (((operator_subscript_str == operator_name)) && (2 == func_decl.getNumParams()))
 					) {
@@ -9016,7 +9066,23 @@ namespace checker {
 								}
 							}
 							std::string function_species_str = (CXXOCE) ? "operator" :
-								((CXXMCE) ? "member function" : "function");
+								((CXXMCE) ? "member function" : (CXXCE ? "constructor" : "function"));
+							if (CXXCE) {
+								auto CXXCD = CXXCE->getConstructor();
+								if (CXXCD) {
+									std::string new_function_species_str;
+									if (!(CXXCD->isExplicit())) {
+										new_function_species_str += "(implicit) ";
+									}
+									if (!(CXXCD->isCopyConstructor())) {
+										new_function_species_str += "copy ";
+									} else if (!(CXXCD->isMoveConstructor())) {
+										new_function_species_str += "move ";
+									}
+									new_function_species_str += "constructor";
+									function_species_str = new_function_species_str;
+								}
+							}
 
 							auto arg_SR = arg_EX->getSourceRange();
 
@@ -9026,7 +9092,7 @@ namespace checker {
 								+ "'. (This is often addressed by obtaining a scope pointer/reference to the intended argument."
 								+ " If the argument is a reference to an element in a dynamic container, you might instead access"
 								+ " the element via a corresponding non-dynamic/'fixed' interface object which borrows (exclusive"
-								+ " access to) container's contents.)";
+								+ " access to) the container's contents.)";
 							state1.register_error(*(MR_ptr->SourceManager), arg_SR, error_desc);
 						}
 					}
@@ -10468,6 +10534,28 @@ namespace checker {
 
 				retval = CExpressionLifetimeValues{ slti1, bool(MR_ptr) };
 				break;
+			}
+
+			auto CXXBTE = dyn_cast<const clang::CXXBindTemporaryExpr>(E_ip);
+			if (CXXBTE) {
+				/* Even though CXXBindTemporaryExpr is an implicit node, it may still get presented for evaluation 
+				because its input and output type may be different. */
+				return evaluate_expression_lower_bound_lifetimes(state1, CXXBTE->getSubExpr(), Ctx, MR_ptr, Rewrite_ptr, for_lhs_of_assignment);
+			}
+
+			auto CXXFCE = dyn_cast<const clang::CXXFunctionalCastExpr>(E_ip);
+			if (CXXFCE) {
+				/* Unexpected. This is an implicit node that we expect to have been skipped over. But we'll leave this 
+				handling code just in case. */
+				int i = 3;
+				return evaluate_expression_lower_bound_lifetimes(state1, CXXFCE->getSubExpr(), Ctx, MR_ptr, Rewrite_ptr, for_lhs_of_assignment);
+			}
+			auto EWC = dyn_cast<const clang::ExprWithCleanups>(E_ip);
+			if (EWC) {
+				/* Unexpected. This is an implicit node that we expect to have been skipped over. But we'll leave this 
+				handling code just in case. */
+				int i = 3;
+				return evaluate_expression_lower_bound_lifetimes(state1, EWC->getSubExpr(), Ctx, MR_ptr, Rewrite_ptr, for_lhs_of_assignment);
 			}
 
 			if (is_raw_pointer_or_equivalent(qtype)) {
