@@ -490,28 +490,28 @@ usage example:
         /* The lifetime (lower bound) associated with the rsv::xslta_array<>, and each of its 
         contained elements, is the lower bound of all of the lifetimes of the elements in the initializer 
         list. */
-        auto arrwp2 = mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 2>{ &i1, &i2 };
-        auto ilaptr3 = arrwp2.front();
+        auto arr2 = mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 2>{ &i1, &i2 };
+        auto ilaptr3 = arr2.front();
         //ilaptr3 = &i3;    // scpptool would complain
         ilaptr3 = &i1;
         
-        /* Note that although the initializer list used in the declaration of arrwp3 is different than the
-        initializer list used for arrwp2, the lower bound of the lifetimes of both initializer lists is
+        /* Note that although the initializer list used in the declaration of arr3 is different than the
+        initializer list used for arr2, the lower bound of the lifetimes of both initializer lists is
         the same. */
-        auto arrwp3 = mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 2>{ &i2, &i2 };
+        auto arr3 = mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 2>{ &i2, &i2 };
         
-        /* Since the (lower bound) lifetime values of arrwp2 and arrwp3 are the same, their values can be 
+        /* Since the (lower bound) lifetime values of arr2 and arr3 are the same, their values can be 
         safely swapped.*/
-        std::swap(arrwp2, arrwp3);
-        arrwp2.swap(arrwp3);
+        std::swap(arr2, arr3);
+        arr2.swap(arr3);
         
-        /* The lower bound lifetime of arrwp4's initializer list is not the same as that of arrwp2. */
-        auto arrwp4 = mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 2>{ &i3, &i1 };
+        /* The lower bound lifetime of arr4's initializer list is not the same as that of arr2. */
+        auto arr4 = mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 2>{ &i3, &i1 };
         
-        /* Since the (lower bound) lifetime values of arrwp2 and arrwp4 are not the same, their values 
+        /* Since the (lower bound) lifetime values of arr2 and arr4 are not the same, their values 
         cannot be safely swapped.*/
-        //std::swap(arrwp2, arrwp4);    // scpptool would complain
-        //arrwp2.swap(arrwp4);    // scpptool would complain
+        //std::swap(arr2, arr4);    // scpptool would complain
+        //arr2.swap(arr4);    // scpptool would complain
         
         {
             auto xslta_iter1 = std::begin(arr2);
@@ -531,13 +531,13 @@ usage example:
             std::cout << "\n";
         }
         {
-            auto arrwp2_xsltaptr = mse::rsv::TXSLTAPointer<decltype(arrwp2)>{ &arrwp2 };
-            auto xslta_iter1 = mse::rsv::make_xslta_begin_iterator(arrwp2_xsltaptr);
-            auto xslta_iter2 = mse::rsv::make_xslta_end_iterator(arrwp2_xsltaptr);
+            auto arr2_xsltaptr = mse::rsv::TXSLTAPointer<decltype(arr2)>{ &arr2 };
+            auto xslta_iter1 = mse::rsv::make_xslta_begin_iterator(arr2_xsltaptr);
+            auto xslta_iter2 = mse::rsv::make_xslta_end_iterator(arr2_xsltaptr);
             
-            auto xslta_citer3 = mse::rsv::make_xslta_begin_const_iterator(arrwp2_xsltaptr);
+            auto xslta_citer3 = mse::rsv::make_xslta_begin_const_iterator(arr2_xsltaptr);
             xslta_citer3 = xslta_iter1;
-            xslta_citer3 = mse::rsv::make_xslta_begin_const_iterator(arrwp2_xsltaptr);
+            xslta_citer3 = mse::rsv::make_xslta_begin_const_iterator(arr2_xsltaptr);
             xslta_citer3 += 1;
             auto res1 = *(*xslta_citer3);
             auto res2 = *(xslta_citer3[0]);
