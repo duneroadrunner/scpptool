@@ -514,8 +514,11 @@ usage example:
         //arr2.swap(arr4);    // scpptool would complain
         
         {
+            /* The standard iterator operations. */
             auto xslta_iter1 = std::begin(arr2);
             auto xslta_iter2 = std::end(arr2);
+            //xslta_iter1[0] = &i3;    // scpptool would complain
+            xslta_iter1[0] = &i1;
             
             auto xslta_citer3 = std::cbegin(arr2);
             xslta_citer3 = xslta_iter1;
@@ -531,9 +534,12 @@ usage example:
             std::cout << "\n";
         }
         {
+            /* The same iterator operations using the SaferCPlusPlus library's make_*_iterator() functions. */
             auto arr2_xsltaptr = mse::rsv::TXSLTAPointer<decltype(arr2)>{ &arr2 };
             auto xslta_iter1 = mse::rsv::make_xslta_begin_iterator(arr2_xsltaptr);
             auto xslta_iter2 = mse::rsv::make_xslta_end_iterator(arr2_xsltaptr);
+            //xslta_iter1[0] = &i3;    // scpptool would complain
+            xslta_iter1[0] = &i1;
             
             auto xslta_citer3 = mse::rsv::make_xslta_begin_const_iterator(arr2_xsltaptr);
             xslta_citer3 = xslta_iter1;
