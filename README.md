@@ -109,7 +109,7 @@ The main differences between "traditional C++" and the safe subset that this too
 
 #### Restrictions on the use of native pointers and references
 
-First, this tool does not allow null values for raw pointers. (If you need null pointer values, you can wrap the pointer in an [`optional`](#xslta_optional-xslta_fixed_optional-xslta_borrowing_fixed_optional), or use one of the provided smart pointers which safely support null values.)
+First, this tool does not allow null values for raw pointers. (If you need null pointer values, you can wrap the pointer in an [`optional<>`](#xslta_optional-xslta_fixed_optional-xslta_borrowing_fixed_optional), or use one of the provided smart pointers which safely support null values.)
 
 Also, raw pointers and references are considered to be [scope](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#scope-pointers) references, which essentially means that their lifetime must be (verifyiably at compile-time) bounded by an (execution) scope, and any object they target must (verifyiably at compile-time) live at least to the end of that bounding scope.
 
@@ -683,7 +683,7 @@ usage example:
 `rsv::xslta_fixed_optional<>` is a lifetime annotated optional whose empty/non-empty status is fixed and determined at construction. 
 `rsv::xslta_borrowing_fixed_optional<>` is a lifetime annotated optional whose empty/non-empty status is fixed and (exclusively) "borrows" the contents of the specified `rsv::xslta_optional<>`. 
 
-Conceptually, you can think of an optional as kind of like a [`vector`](#xslta_vector-xslta_fixed_vector-xslta_borrowing_fixed_vector) with at most one element.
+Conceptually, you can think of an optional as kind of like a [`vector<>`](#xslta_vector-xslta_fixed_vector-xslta_borrowing_fixed_vector) with at most one element.
 
 usage example:
 
