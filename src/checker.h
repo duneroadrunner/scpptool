@@ -990,7 +990,7 @@ namespace checker {
 	}
 	bool is_raw_pointer_or_equivalent(const clang::QualType& qtype) {
 		IF_DEBUG(auto qtype_str = qtype.getAsString();)
-		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, false);
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, false);
 		return is_raw_pointer_or_equivalent(qtype.getTypePtr());
 	}
 
@@ -998,7 +998,7 @@ namespace checker {
 		std::optional<clang::QualType> retval;
 		auto peeled_qtype = remove_mse_transparent_wrappers(qtype);
 		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
-		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(peeled_qtype, retval);
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(peeled_qtype, retval);
 		if (is_raw_pointer_or_equivalent(peeled_qtype)) {
 			if (peeled_qtype->isPointerType()) {
 				retval = get_cannonical_type(peeled_qtype->getPointeeType());
@@ -1026,7 +1026,7 @@ namespace checker {
 		bool retval = false;
 		auto const peeled_qtype = remove_mse_transparent_wrappers(qtype);
 		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
-		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(peeled_qtype, retval);
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(peeled_qtype, retval);
 
 		thread_local std::vector<std::string> known_dynamic_container_names;
 		thread_local std::unordered_set<std::string_view> known_dynamic_container_name_svs;
@@ -1243,7 +1243,7 @@ namespace checker {
 		bool retval = false;
 
 		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
-		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, retval);
 		const auto TP = qtype.getTypePtr();
 		if (!TP) { assert(false); } else {
 			retval = contains_non_owning_scope_reference(*TP, tu_state_cref, MR_ptr, Rewrite_ptr);
@@ -1265,7 +1265,7 @@ namespace checker {
 		bool retval = false;
 
 		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
-		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, retval);
 		const auto TP = qtype.getTypePtr();
 		if (!TP) { assert(false); } else {
 			retval = referenceable_by_scope_pointer(*TP, tu_state_cref);
@@ -1313,7 +1313,7 @@ namespace checker {
 		bool retval = false;
 
 		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
-		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, retval);
 		const auto TP = qtype.getTypePtr();
 		if (!TP) { assert(false); } else {
 			retval = is_xscope_type(*TP, tu_state_cref, MR_ptr, Rewrite_ptr);
@@ -2038,10 +2038,10 @@ namespace checker {
 				/* The given function seems to be a member function. So we'll see if we can find the alias of interest
 				among the parent type's template arguments (if any) (with error messages suppressed). */
 				auto This_qtype = CXXMD->getThisType();
-				MSE_RETURN_VALUE_IF_TYPE_IS_NULL(This_qtype, retval);
+				MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(This_qtype, retval);
 				assert(This_qtype->isPointerType());
 				auto This_pointee_qtype = This_qtype->getPointeeType();
-				MSE_RETURN_VALUE_IF_TYPE_IS_NULL(This_pointee_qtype, retval);
+				MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(This_pointee_qtype, retval);
 				auto This_pointee_type_ptr = This_pointee_qtype.getTypePtr();
 				assert(This_pointee_type_ptr);
 				auto res2 = infer_alias_mapping_from_template_arg(This_pointee_type_ptr, target_tparam_name_sv, alias, state1);
@@ -2742,9 +2742,9 @@ namespace checker {
 		auto CXXMD = dyn_cast<const clang::CXXMethodDecl>(&func_decl);
 		if (CXXMD) {
 			auto This_qtype = CXXMD->getThisType();
-			MSE_RETURN_IF_TYPE_IS_NULL(This_qtype);
+			MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(This_qtype);
 			auto This_pointee_qtype = get_cannonical_type(This_qtype->getPointeeType());
-			MSE_RETURN_IF_TYPE_IS_NULL(This_pointee_qtype);
+			MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(This_pointee_qtype);
 			IF_DEBUG(const std::string qtype_str = This_pointee_qtype.getAsString();)
 			auto Type_ptr = This_pointee_qtype.getTypePtr();
 			auto containing_RD = Type_ptr->getAsRecordDecl();
@@ -3329,7 +3329,7 @@ namespace checker {
 							DECLARE_CACHED_CONST_STRING(mse_rsv_ltn_encompasses_lifetime_str, mse_namespace_str() + "::rsv::ltn::encompasses");
 
 							auto qtype = typeLoc.getType();
-							MSE_RETURN_IF_TYPE_IS_NULL(qtype);
+							MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype);
 							std::string element_name;
 							const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 							if (l_CXXRD) {
@@ -3346,7 +3346,7 @@ namespace checker {
 
 								auto process_parameter_lifetime = [&mse_rsv_ltn_pll_str, &param_lifetime_map, &func_decl, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
 									auto qtype = typeLoc.getType();
-									MSE_RETURN_IF_TYPE_IS_NULL(qtype);
+									MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype);
 									std::string element_name;
 									const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 									if (l_CXXRD) {
@@ -3401,7 +3401,7 @@ namespace checker {
 											size_t component_index = 0;
 											auto process_parameter_lifetime_component = [&maybe_param_ordinal, &maybe_lifetime_label_id, &component_index, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
 												auto qtype = typeLoc.getType();
-												MSE_RETURN_IF_TYPE_IS_NULL(qtype);
+												MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype);
 												std::string element_name;
 												const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 												if (l_CXXRD) {
@@ -3560,7 +3560,7 @@ namespace checker {
 									size_t component_index = 0;
 									auto process_parameter_lifetime_component = [&maybe_first_lifetime_label_id, &maybe_second_lifetime_label_id, &component_index, &MR_ptr](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
 										auto qtype = typeLoc.getType();
-										MSE_RETURN_IF_TYPE_IS_NULL(qtype);
+										MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype);
 										std::string element_name;
 										const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 										if (l_CXXRD) {
@@ -4951,7 +4951,7 @@ namespace checker {
 
 		std::optional<CTypeLifetimeAnnotations const *> retval;
 		auto qtype = var_decl.getType();
-		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, retval);
 		IF_DEBUG(auto qtype_str = qtype.getAsString();)
 		if (is_raw_pointer_or_equivalent(qtype) || qtype->isReferenceType()) {
 			process_variable_lifetime_annotations(var_decl, state1, MR_ptr, Rewrite_ptr);
@@ -4974,7 +4974,7 @@ namespace checker {
 		-> std::optional<CTypeLifetimeAnnotations const *> {
 		std::optional<CTypeLifetimeAnnotations const *> retval;
 		auto qtype = field_decl.getType();
-		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, retval);
 		IF_DEBUG(auto qtype_str = qtype.getAsString();)
 		if (is_raw_pointer_or_equivalent(qtype) || qtype->isReferenceType()) {
 			process_type_lifetime_annotations(field_decl, state1, MR_ptr, Rewrite_ptr);
@@ -5009,7 +5009,7 @@ namespace checker {
 			}
 		}
 		auto qtype = E_ii->getType();
-		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, retval);
 		IF_DEBUG(auto qtype_str = qtype.getAsString();)
 		auto DRE = dyn_cast<const clang::DeclRefExpr>(E_ii);
 		auto ME = dyn_cast<const clang::MemberExpr>(E_ii);
@@ -5065,7 +5065,7 @@ namespace checker {
 						sf_ILE = ILE;
 					}
 					auto sf_ILE_qtype = sf_ILE->getType();
-					MSE_RETURN_VALUE_IF_TYPE_IS_NULL(sf_ILE_qtype, retval);
+					MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(sf_ILE_qtype, retval);
 					if (sf_ILE_qtype->isArrayType()) {
 						/* We're going to have homogeneous initializer lists implicitly inherit any lifetime
 						annotations of their element type. */
@@ -5091,7 +5091,7 @@ namespace checker {
 	}
 
 	inline void slti_set_default_lower_bound_lifetimes_where_needed(CScopeLifetimeInfo1& slti, clang::QualType const& qtype) {
-		MSE_RETURN_IF_TYPE_IS_NULL(qtype);
+		MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype);
 		auto peeled_qtype = remove_mse_transparent_wrappers(qtype);
 		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
 		if (is_raw_pointer_or_equivalent(peeled_qtype)) {
@@ -5111,7 +5111,7 @@ namespace checker {
 		}
 	}
 	inline void slti_set_default_lower_bound_lifetimes_where_needed(CScopeLifetimeInfo1& slti, clang::QualType const& qtype, CTUState& state1) {
-		MSE_RETURN_IF_TYPE_IS_NULL(qtype);
+		MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype);
 		auto peeled_qtype = remove_mse_transparent_wrappers(qtype);
 		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
 		if (is_raw_pointer_or_equivalent(peeled_qtype)) {
@@ -5988,18 +5988,18 @@ namespace checker {
 		} else if (DRE1) {
 			const auto DRE1_qtype = DRE1->getType();
 			IF_DEBUG(const auto DRE1_qtype_str = DRE1_qtype.getAsString();)
-			MSE_RETURN_VALUE_IF_TYPE_IS_NULL(DRE1_qtype, retval);
+			MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(DRE1_qtype, retval);
 
 			auto D1 = DRE1->getDecl();
 			const auto D1_qtype = D1->getType();
 			IF_DEBUG(const auto D1_qtype_str = D1_qtype.getAsString();)
-			MSE_RETURN_VALUE_IF_TYPE_IS_NULL(D1_qtype, retval);
+			MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(D1_qtype, retval);
 
 			auto VD = dyn_cast<const clang::VarDecl>(D1);
 			if (VD) {
 				const auto VD_qtype = VD->getType();
 				IF_DEBUG(const auto VD_qtype_str = VD_qtype.getAsString();)
-				MSE_RETURN_VALUE_IF_TYPE_IS_NULL(VD_qtype, retval);
+				MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(VD_qtype, retval);
 
 				const auto storage_duration = VD->getStorageDuration();
 				if ((clang::StorageDuration::SD_Automatic == storage_duration)
@@ -6144,7 +6144,7 @@ namespace checker {
 																				auto PVD = CD->getParamDecl(param_index);
 																				if (PVD) {
 																					const auto PVD_qtype = PVD->getType();
-																					MSE_RETURN_VALUE_IF_TYPE_IS_NULL(PVD_qtype, retval);
+																					MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(PVD_qtype, retval);
 																					if (PVD_qtype->isReferenceType()) {
 																						if (maybe_res1.value().m_maybe_sublifetime_owners_vlptr.has_value()) {
 																							auto& sublifetime_owners_vlptr = maybe_res1.value().m_maybe_sublifetime_owners_vlptr.value();
@@ -6198,7 +6198,7 @@ namespace checker {
 					} else {
 						const auto VD_qtype = VD->getType();
 						IF_DEBUG(const auto VD_qtype_str = VD_qtype.getAsString();)
-						MSE_RETURN_VALUE_IF_TYPE_IS_NULL(VD_qtype, retval);
+						MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(VD_qtype, retval);
 						if (is_raw_pointer_or_equivalent(VD_qtype)) {
 							const auto pointee_VD_qtype = pointee_type_if_any(VD_qtype).value();
 							IF_DEBUG(const auto pointee_VD_qtype_str = pointee_VD_qtype.getAsString();)
@@ -6266,7 +6266,7 @@ namespace checker {
 						auto found_iter = tu_state_ref.m_fielddecl_to_abstract_lifetime_map.find(FD);
 						if (tu_state_ref.m_fielddecl_to_abstract_lifetime_map.end() != found_iter) {
 							const auto FD_qtype = FD->getType();
-							MSE_RETURN_VALUE_IF_TYPE_IS_NULL(FD_qtype, retval);
+							MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(FD_qtype, retval);
 							if (FD_qtype->isReferenceType()) {
 								if (1 <= (*found_iter).second.m_primary_lifetimes.size()) {
 									CScopeLifetimeInfo1 sli1;
@@ -6324,7 +6324,7 @@ namespace checker {
 						if (UOSE) {
 							const auto UOSE_qtype = UOSE->getType();
 							IF_DEBUG(const auto UOSE_qtype_str = UOSE_qtype.getAsString();)
-							MSE_RETURN_VALUE_IF_TYPE_IS_NULL(UOSE_qtype, retval);
+							MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(UOSE_qtype, retval);
 
 							if (is_raw_pointer_or_equivalent(UOSE_qtype)) {
 								/* The declrefexpression is a direct dereference of a native pointer. */
@@ -6347,7 +6347,7 @@ namespace checker {
 						if (UOSE) {
 							const auto UOSE_qtype = UOSE->getType();
 							IF_DEBUG(const auto UOSE_qtype_str = UOSE_qtype.getAsString();)
-							MSE_RETURN_VALUE_IF_TYPE_IS_NULL(UOSE_qtype, retval);
+							MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(UOSE_qtype, retval);
 
 							auto maybe_slo1 = rhs_lifetime_owner_if_available(UOSE, Ctx, tu_state_ref, MR_ptr, Rewrite_ptr);
 							if (maybe_slo1.has_value()) {
@@ -6372,7 +6372,7 @@ namespace checker {
 					auto CO = dyn_cast<const clang::ConditionalOperator>(EX);
 					if (CXXCE) {
 						const auto qtype = CXXCE->getType();
-						MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+						MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, retval);
 						const auto CXXCE_rw_type_ptr = remove_mse_transparent_wrappers(qtype).getTypePtr();
 						if (is_raw_pointer_or_equivalent(qtype)) {
 							const auto numArgs = CXXCE->getNumArgs();
@@ -6497,7 +6497,7 @@ namespace checker {
 									if (arg_EX) {
 										const auto arg_EX_qtype = arg_EX->getType();
 										IF_DEBUG(const auto arg_EX_qtype_str = arg_EX_qtype.getAsString();)
-										MSE_RETURN_VALUE_IF_TYPE_IS_NULL(arg_EX_qtype, retval);
+										MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(arg_EX_qtype, retval);
 
 										const auto CXXRD = remove_mse_transparent_wrappers(arg_EX_qtype).getTypePtr()->getAsCXXRecordDecl();
 										if (CXXRD) {
@@ -6599,7 +6599,7 @@ namespace checker {
 									potential_owner_EX = IgnoreParenImpNoopCasts(CXXMCE->getImplicitObjectArgument(), Ctx);
 								} else {
 									const auto CXXMCE_qtype = CXXMCE->getType();
-									MSE_RETURN_VALUE_IF_TYPE_IS_NULL(CXXMCE_qtype, retval);
+									MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(CXXMCE_qtype, retval);
 									if (contains_non_owning_scope_reference(CXXMCE_qtype, tu_state_ref)) {
 										auto maybe_lb_lifetime_owner = rhs_lifetime_owner_of_returned_reference_object_if_available(CXXMCE, Ctx, tu_state_ref);
 										if (maybe_lb_lifetime_owner.has_value()) {
@@ -6624,7 +6624,7 @@ namespace checker {
 									potential_owner_EX = IgnoreParenImpNoopCasts(CE->getArg(0), Ctx);
 								} else {
 									const auto CE_qtype = CE->getType();
-									MSE_RETURN_VALUE_IF_TYPE_IS_NULL(CE_qtype, retval);
+									MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(CE_qtype, retval);
 									if (contains_non_owning_scope_reference(CE_qtype, tu_state_ref)) {
 										auto maybe_lb_lifetime_owner = rhs_lifetime_owner_of_returned_reference_object_if_available(CE, Ctx, tu_state_ref);
 										if (maybe_lb_lifetime_owner.has_value()) {
@@ -6639,7 +6639,7 @@ namespace checker {
 							if (potential_owner_EX_ii) {
 								const auto potential_owner_EX_ii_qtype = potential_owner_EX_ii->getType();
 								IF_DEBUG(const auto potential_owner_EX_ii_qtype_str = potential_owner_EX_ii_qtype.getAsString();)
-								MSE_RETURN_VALUE_IF_TYPE_IS_NULL(potential_owner_EX_ii_qtype, retval);
+								MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(potential_owner_EX_ii_qtype, retval);
 
 								const auto CXXRD = remove_mse_transparent_wrappers(potential_owner_EX_ii_qtype).getTypePtr()->getAsCXXRecordDecl();
 								if (CXXRD) {
@@ -6762,7 +6762,7 @@ namespace checker {
 			for (size_t i = 0; i < CXXMCE->getNumArgs(); i+=1) {
 				const auto arg_EX_ii = IgnoreParenImpNoopCasts(CXXMCE->getArg(i), Ctx);
 				const auto arg_EX_ii_qtype = arg_EX_ii->getType();
-				MSE_RETURN_VALUE_IF_TYPE_IS_NULL(arg_EX_ii_qtype, retval);
+				MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(arg_EX_ii_qtype, retval);
 				if (contains_non_owning_scope_reference(arg_EX_ii_qtype, tu_state_ref)) {
 					lifetime_owners.push_back(rhs_lifetime_owner_if_available(CXXMCE->getArg(i), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr));
 				}
@@ -6988,7 +6988,7 @@ namespace checker {
 					) {
 					auto VD_qtype = VD->getType();
 					IF_DEBUG(auto VD_qtype_str = VD_qtype.getAsString();)
-					MSE_RETURN_VALUE_IF_TYPE_IS_NULL(VD_qtype, retval);
+					MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(VD_qtype, retval);
 
 					CScopeLifetimeInfo1 var_shallow_slti;
 					var_shallow_slti.m_category = (clang::StorageDuration::SD_Automatic == storage_duration) 
@@ -7086,7 +7086,7 @@ namespace checker {
 
 								auto VD_qtype = VD->getType();
 								IF_DEBUG(auto VD_qtype_str = VD_qtype.getAsString();)
-								MSE_RETURN_VALUE_IF_TYPE_IS_NULL(VD_qtype, retval);
+								MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(VD_qtype, retval);
 
 								if (VD_qtype->isPointerType()) {
 									if (VD->hasInit()) {
@@ -7162,7 +7162,7 @@ namespace checker {
 																						if (PVD) {
 																							auto PVD_qtype = PVD->getType();
 																							IF_DEBUG(auto PVD_qtype_str = PVD_qtype.getAsString();)
-																							MSE_RETURN_VALUE_IF_TYPE_IS_NULL(PVD_qtype, retval);
+																							MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(PVD_qtype, retval);
 																							if (PVD_qtype->isReferenceType()) {
 																								if (maybe_res1.value().m_maybe_sublifetime_owners_vlptr.has_value()) {
 																									auto& sublifetime_owners_vlptr = maybe_res1.value().m_maybe_sublifetime_owners_vlptr.value();
@@ -7387,7 +7387,7 @@ namespace checker {
 				if (sub_E_ip && (sub_E_ip != CSTE)) {
 					auto CSTE_qtype = CSTE->getType();
 					IF_DEBUG(auto CSTE_qtype_str = CSTE_qtype.getAsString();)
-					MSE_RETURN_VALUE_IF_TYPE_IS_NULL(CSTE_qtype, retval);
+					MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(CSTE_qtype, retval);
 
 					auto cast_kind = CSTE->getCastKind();
 					IF_DEBUG(auto cast_kind_str = CSTE->getCastKindName();)
@@ -7421,14 +7421,14 @@ namespace checker {
 								similar fashion. */
 								auto sub_E_ip_qtype = sub_E_ip->getType();
 								IF_DEBUG(auto sub_E_ip_qtype_str = sub_E_ip_qtype.getAsString();)
-								MSE_RETURN_VALUE_IF_TYPE_IS_NULL(sub_E_ip_qtype, retval);
+								MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(sub_E_ip_qtype, retval);
 
 								auto CXXRD = sub_E_ip_qtype->getAsCXXRecordDecl();
 								if (CXXRD) {
 									for (auto& CXXBS : CXXRD->bases()) {
 										auto base_qtype = CXXBS.getType();
 										IF_DEBUG(auto base_qtype_str = base_qtype.getAsString();)
-										MSE_RETURN_VALUE_IF_TYPE_IS_NULL(base_qtype, retval);
+										MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(base_qtype, retval);
 
 										auto base_cnqtype = base_qtype.getCanonicalType(); base_cnqtype.removeLocalConst();
 										IF_DEBUG(auto base_cnqtype_str = base_cnqtype.getAsString();)
@@ -7618,7 +7618,7 @@ namespace checker {
 								if (potential_owner_EX_ii) {
 									const auto potential_owner_EX_ii_qtype = potential_owner_EX_ii->getType();
 									IF_DEBUG(const auto potential_owner_EX_ii_qtype_str = potential_owner_EX_ii_qtype.getAsString();)
-									MSE_RETURN_VALUE_IF_TYPE_IS_NULL(potential_owner_EX_ii_qtype, retval);
+									MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(potential_owner_EX_ii_qtype, retval);
 
 									const auto CXXRD = remove_mse_transparent_wrappers(potential_owner_EX_ii->getType()).getTypePtr()->getAsCXXRecordDecl();
 									if (CXXRD) {
@@ -7935,6 +7935,7 @@ namespace checker {
 
 				auto qtype = VD->getType();
 				IF_DEBUG(std::string qtype_str = VD->getType().getAsString();)
+				MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype);
 				if (qtype->isReferenceType()) {
 					if (clang::StorageDuration::SD_Automatic != VD->getStorageDuration()) {
 						const std::string error_desc = std::string("Native references (such as those of type ")
@@ -8057,7 +8058,7 @@ namespace checker {
 								if (MTE) {
 									auto MTE_qtype = MTE->getType();
 									IF_DEBUG(auto MTE_qtype_str = MTE_qtype.getAsString();)
-									MSE_RETURN_IF_TYPE_IS_NULL(MTE_qtype);
+									MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(MTE_qtype);
 									if (!(MTE_qtype->isReferenceType())) {
 										/* This argument is a temporary (non-reference) (that should outlive
 										the function parameter). */
@@ -8134,7 +8135,7 @@ namespace checker {
 				}
 				auto E_qtype = E->getType();
 				IF_DEBUG(auto E_qtype_str = E_qtype.getAsString();)
-				MSE_RETURN_IF_TYPE_IS_NULL(E_qtype);
+				MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(E_qtype);
 
 				bool rv_lifetime_annotation_is_present = false;
 
@@ -8143,7 +8144,7 @@ namespace checker {
 					return;
 				}
 				auto return_qtype = FND->getReturnType();
-				MSE_RETURN_IF_TYPE_IS_NULL(return_qtype);
+				MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(return_qtype);
 				IF_DEBUG(auto return_qtype_str = return_qtype.getAsString();)
 				auto return_type_ptr = return_qtype.getTypePtr();
 				if (!return_type_ptr) {
@@ -8808,7 +8809,7 @@ namespace checker {
 			return false;
 		}
 		auto qtype = VD->getType();
-		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, retval);
 		retval = qtype.isConstQualified();
 		return retval;
 	}
@@ -9162,7 +9163,7 @@ namespace checker {
 						auto& expr_lifetime_value_ref = maybe_expr_lifetime_value.value();
 						auto CE_qtype = CE->getType();
 						IF_DEBUG(auto CE_qtype_str = CE_qtype.getAsString();)
-						MSE_RETURN_VALUE_IF_TYPE_IS_NULL(CE_qtype, {});
+						MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(CE_qtype, {});
 
 						auto expr_scope_lifetime_info = CScopeLifetimeInfo1{};
 						expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
@@ -10273,7 +10274,7 @@ namespace checker {
 					if (true) {
 						auto sf_ILE_qtype = sf_ILE->getType();
 						IF_DEBUG(auto sf_ILE_qtype_str = sf_ILE_qtype.getAsString();)
-						MSE_RETURN_VALUE_IF_TYPE_IS_NULL(sf_ILE_qtype, retval);
+						MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(sf_ILE_qtype, retval);
 						all_the_same_type = sf_ILE_qtype->isArrayType();
 					} else {
 						const auto first_qtype = first_init_E->getType();
@@ -10326,7 +10327,7 @@ namespace checker {
 				if (sub_E_ip && (sub_E_ip != CSTE)) {
 					const auto CSTE_qtype = CSTE->getType();
 					IF_DEBUG(auto CSTE_qtype_str = CSTE_qtype.getAsString();)
-					MSE_RETURN_VALUE_IF_TYPE_IS_NULL(CSTE_qtype, retval);
+					MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(CSTE_qtype, retval);
 					const auto sub_E_ip_qtype = sub_E_ip->getType();
 					IF_DEBUG(auto sub_E_ip_qtype_str = sub_E_ip_qtype.getAsString();)
 					const auto cn_sub_E_ip_qtype = get_cannonical_type(sub_E_ip_qtype);
@@ -10388,14 +10389,14 @@ namespace checker {
 								similar fashion. */
 								auto sub_E_ip_qtype = sub_E_ip->getType();
 								IF_DEBUG(auto sub_E_ip_qtype_str = sub_E_ip_qtype.getAsString();)
-								MSE_RETURN_VALUE_IF_TYPE_IS_NULL(sub_E_ip_qtype, retval);
+								MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(sub_E_ip_qtype, retval);
 
 								auto CXXRD = sub_E_ip_qtype->getAsCXXRecordDecl();
 								if (CXXRD) {
 									for (auto& CXXBS : CXXRD->bases()) {
 										auto base_qtype = CXXBS.getType();
 										IF_DEBUG(auto base_qtype_str = base_qtype.getAsString();)
-										MSE_RETURN_VALUE_IF_TYPE_IS_NULL(base_qtype, retval);
+										MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(base_qtype, retval);
 
 										auto base_cnqtype = base_qtype.getCanonicalType(); base_cnqtype.removeLocalConst();
 										IF_DEBUG(auto base_cnqtype_str = base_cnqtype.getAsString();)
@@ -10842,7 +10843,7 @@ namespace checker {
 						auto ILE = dyn_cast<const clang::InitListExpr>(init_E);
 						auto VD_qtype = VD->getType();
 						IF_DEBUG(auto VD_qtype_str = VD_qtype.getAsString();)
-						MSE_RETURN_VALUE_IF_TYPE_IS_NULL(VD_qtype, retval);
+						MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(VD_qtype, retval);
 						if (ILE && VD_qtype->isAggregateType()) {
 							if (!(VD_qtype->isPointerType() || VD_qtype->isReferenceType())) {
 								if (MR_ptr && (!errors_suppressed_flag)) {
@@ -11086,7 +11087,7 @@ namespace checker {
 				auto reference_removed_qtype = VD->getType();
 				auto VD_qtype = VD->getType();
 				IF_DEBUG(auto VD_qtype_str = VD_qtype.getAsString();)
-				MSE_RETURN_VALUE_IF_TYPE_IS_NULL(VD_qtype, retval);
+				MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(VD_qtype, retval);
 				if (VD_qtype->isReferenceType()) {
 					/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
 					same as the object it refers to (without an added level of indirection). */
@@ -11590,7 +11591,7 @@ namespace checker {
 				} else if (maybe_FD.has_value()) {
 					auto FD_qtype = (maybe_FD.value())->getType();
 					IF_DEBUG(auto FD_qtype_str = FD_qtype.getAsString();)
-					MSE_RETURN_IF_TYPE_IS_NULL(FD_qtype);
+					MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(FD_qtype);
 					if (FD_qtype->isPointerType()) {
 						{
 							const std::string error_desc = std::string("Default initialization of ")
@@ -12197,7 +12198,10 @@ namespace checker {
 												for (const auto& param : l_FD->parameters()) {
 													auto param_qtype = param->getType();
 													IF_DEBUG(auto param_qtype_str = param_qtype.getAsString();)
-													MSE_RETURN_IF_TYPE_IS_NULL(param_qtype);
+													//MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(param_qtype);
+													if (qtype.isNull()) {
+														return;
+													}
 													if (param_qtype->isReferenceType()) {
 														auto arg_SR = arg_EX_ii->getSourceRange();
 														if (arg_SR.isInvalid()) {
@@ -12343,7 +12347,7 @@ namespace checker {
 					const std::string qtype_str = DD->getType().getAsString();
 					auto DD_qtype = DD->getType();
 					IF_DEBUG(auto DD_qtype_str = DD_qtype.getAsString();)
-					MSE_RETURN_IF_TYPE_IS_NULL(DD_qtype);
+					MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(DD_qtype);
 					const auto TST = DD_qtype->getAs<clang::TemplateSpecializationType>();
 
 					auto rhs_res = evaluate_declaration_rhs_lower_bound_lifetimes(MR, Rewrite, m_state1, DD);
@@ -12356,7 +12360,7 @@ namespace checker {
 					clang::Type const * TypePtr = nullptr;
 					if (MR.Context) {
 						auto qtype = MR.Context->getTypeDeclType(TD);
-						MSE_RETURN_IF_TYPE_IS_NULL(qtype);
+						MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype);
 						TypePtr = qtype.getTypePtr();
 					}
 					{
@@ -12438,10 +12442,10 @@ namespace checker {
 					if (D->getType() != DRE->getType()) {
 						auto D_qtype = D->getType();
 						IF_DEBUG(auto D_qtype_str = D_qtype.getAsString();)
-						MSE_RETURN_IF_TYPE_IS_NULL(D_qtype);
+						MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(D_qtype);
 						auto DRE_qtype = DRE->getType();
 						IF_DEBUG(auto DRE_qtype_str = DRE_qtype.getAsString();)
-						MSE_RETURN_IF_TYPE_IS_NULL(DRE_qtype);
+						MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(DRE_qtype);
 						if (D_qtype->isReferenceType() == DRE_qtype->isReferenceType()) {
 							/* just a break-point site for debugging */
 							int q = 5;

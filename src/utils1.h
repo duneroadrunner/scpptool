@@ -102,13 +102,14 @@
                     return; \
                 }
 
-#define MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval) \
-	if (qtype.isNull()) { \
+#define MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, retval) \
+	if (qtype.isNull() || ("auto" == qtype.getAsString()) || ("const auto" == qtype.getAsString()) \
+	 || (string_begins_with(qtype.getAsString(), "auto ")) || (string_begins_with(qtype.getAsString(), "const auto "))) { \
 		/* Cannot properly evaluate (presumably) because this is a template definition. Proper \
 		evaluation should occur in any instantiation of the template. */ \
 		return retval; \
 	}
-#define MSE_RETURN_IF_TYPE_IS_NULL(qtype) MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, )
+#define MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype) MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, )
 
 
 inline const std::string& mse_namespace_str() {
@@ -1084,7 +1085,7 @@ inline std::vector<std::optional<clang::QualType> > get_template_args_maybe_type
 }
 inline std::vector<std::optional<clang::QualType> > get_template_args_maybe_types(const clang::QualType qtype) {
 	std::vector<std::optional<clang::QualType> > retval;
-	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, retval);
 	return get_template_args_maybe_types(qtype.getTypePtr());
 }
 
@@ -1100,12 +1101,12 @@ inline std::optional<clang::QualType> get_first_template_parameter_if_any(const 
 }
 inline std::optional<clang::QualType> get_first_template_parameter_if_any(const clang::QualType qtype) {
 	std::optional<clang::QualType> retval;
-	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, retval);
 	return get_first_template_parameter_if_any(qtype.getTypePtr());
 }
 
 inline clang::QualType remove_reference(const clang::QualType& qtype) {
-	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, qtype);
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, qtype);
 	if (qtype->isReferenceType()) {
 		return qtype->getPointeeType();
 	}
@@ -1113,7 +1114,7 @@ inline clang::QualType remove_reference(const clang::QualType& qtype) {
 }
 
 inline clang::QualType remove_fparam_wrappers(clang::QualType qtype) {
-	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, qtype);
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, qtype);
 	qtype = get_cannonical_type(qtype);
 	const auto CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 	if (CXXRD) {
@@ -1151,7 +1152,7 @@ inline clang::QualType remove_fparam_wrappers(clang::QualType qtype) {
 }
 
 inline clang::QualType remove_return_value_wrappers(clang::QualType qtype) {
-	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, qtype);
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, qtype);
 	qtype = get_cannonical_type(qtype);
 	const auto CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 	if (CXXRD) {
@@ -1189,7 +1190,7 @@ inline clang::QualType remove_return_value_wrappers(clang::QualType qtype) {
 }
 
 inline clang::QualType remove_mse_transparent_wrappers(clang::QualType qtype) {
-	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, qtype);
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, qtype);
 	qtype = get_cannonical_type(qtype);
 	clang::QualType retval = remove_return_value_wrappers(remove_fparam_wrappers(qtype));
 	const auto CXXRD = retval.getTypePtr()->getAsCXXRecordDecl();
@@ -1581,7 +1582,7 @@ public:
 	}
 	bool raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(clang::QualType qtype) const {
 		bool retval = false;
-		MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, retval);
 		qtype = get_cannonical_type(qtype);
 		if (qtype.getTypePtr()->isPointerType()) {
 			const auto pointee_qtype = qtype->getPointeeType();
@@ -1666,7 +1667,7 @@ inline bool is_async_shareable(const clang::QualType qtype) {
 	bool retval = false;
 
 	IF_DEBUG(std::string qtype_str = qtype.getAsString();)
-	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, retval);
 	const auto TP = qtype.getTypePtr();
 	if (!TP) { assert(false); } else {
 		retval = is_async_shareable(*TP);
@@ -1727,7 +1728,7 @@ inline bool is_async_passable(const clang::QualType qtype) {
 	bool retval = false;
 
 	IF_DEBUG(std::string qtype_str = qtype.getAsString();)
-	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, retval);
 	const auto TP = qtype.getTypePtr();
 	if (!TP) { assert(false); } else {
 		retval = is_async_passable(*TP);
@@ -1811,7 +1812,7 @@ inline std::vector<clang::QualType> types_from_template_arg(const clang::Templat
 inline std::vector<clang::QualType> shallow_template_arg_types_if_any(const clang::QualType& qtype, bool exclude_params_with_default = false) {
 	std::vector<clang::QualType> retval;
 	IF_DEBUG(const auto qtype_str = qtype.getAsString();)
-	MSE_RETURN_VALUE_IF_TYPE_IS_NULL(qtype, retval);
+	MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, retval);
 	//const auto TP = &type;
 	const auto TP = remove_fparam_wrappers(qtype);
 	const auto CXXRD = TP->getAsCXXRecordDecl();
