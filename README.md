@@ -109,7 +109,7 @@ The main differences between "traditional C++" and the safe subset that this too
 
 #### Restrictions on the use of native pointers and references
 
-First, this tool does not allow null values for raw pointers. (If you need null pointer values, you can wrap the pointer in an [`optional<>`](https://github.com/duneroadrunner/scpptool/blob/master/README.md#xslta_optional-xslta_fixed_optional-xslta_borrowing_fixed_optional), or use one of the provided smart pointers which safely support null values.)
+First, this tool does not allow null values for raw pointers. (If you need null pointer values, you can wrap the pointer in an [`optional<>`](#xslta_optional-xslta_fixed_optional-xslta_borrowing_fixed_optional), or use one of the provided smart pointers which safely support null values.)
 
 Also, raw pointers and references are considered to be [scope](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#scope-pointers) references, which essentially means that their lifetime must be (verifyiably at compile-time) bounded by an (execution) scope, and any object they target must (verifyiably at compile-time) live at least to the end of that bounding scope.
 
