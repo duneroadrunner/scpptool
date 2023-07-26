@@ -2732,8 +2732,10 @@ namespace checker {
 		IF_DEBUG(const auto debug_func_name = func_decl.getNameAsString();)
 		IF_DEBUG(const auto debug_func_qname = func_decl.getQualifiedNameAsString();)
 #ifndef NDEBUG
-		if (std::string::npos != debug_func_qname.find("good_foo1")) {
-			int q = 5;
+		if (std::string::npos != debug_func_qname.find("++")) {
+			if (std::string::npos != debug_func_qname.find("XSLTA")) {
+				int q = 5;
+			}
 		}
 #endif /*!NDEBUG*/
 
@@ -5974,15 +5976,40 @@ namespace checker {
 		auto CXXTE = dyn_cast<const clang::CXXThisExpr>(EX);
 		auto SL = dyn_cast<const clang::StringLiteral>(EX);
 		if (MTE) {
-			auto lifetime_extending_decl = MTE->getExtendingDecl();
-			if (lifetime_extending_decl) {
-				/* The expression has "scope lifetime" by virtue of being a "lifetime-extended" temporary. */
-				auto le_VD = dyn_cast<const clang::VarDecl>(lifetime_extending_decl);
-				if (le_VD) {
-					retval = le_VD;
+			{
+				CScopeLifetimeInfo1 sloi1;
+
+				auto const TE = MTE->getSubExpr();
+				auto const TE_qtype = TE->getType();
+
+				auto maybe_expr_lifetime_value = evaluate_expression_rhs_lower_bound_lifetimes(tu_state_ref, TE, Ctx, MR_ptr, Rewrite_ptr);
+				//MSE_RETURN_VALUE_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(maybe_expr_lifetime_value, maybe_expr_lifetime_value);
+				if (maybe_expr_lifetime_value.has_value()) {
+					CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+					sloi1 = expr_slti;
+				} else {
+					/* We generally don't expect to get here, but if for some reason a lower bound for the argument
+					lifetime isn't available, we'll just use the shortest viable lifetime. */
+					sloi1.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
+					sloi1.m_maybe_containing_scope = get_containing_scope(MTE, Ctx);
+					sloi1.m_maybe_source_range = MTE->getSourceRange();
+					sloi1.m_maybe_corresponding_cpp_element = MTE;
 				}
-			} else {
-				retval = MTE;
+				slti_set_default_lower_bound_lifetimes_where_needed(sloi1, TE_qtype, tu_state_ref);
+
+				auto lifetime_extending_decl = MTE->getExtendingDecl();
+				if (lifetime_extending_decl) {
+					/* The expression has "scope lifetime" by virtue of being a "lifetime-extended" temporary. */
+					auto le_VD = dyn_cast<const clang::VarDecl>(lifetime_extending_decl);
+					if (le_VD) {
+						sloi1.m_category = CScopeLifetimeInfo1::ECategory::Automatic;
+						sloi1.m_maybe_containing_scope = get_containing_scope(le_VD, Ctx);
+						sloi1.m_maybe_source_range = le_VD->getSourceRange();
+						sloi1.m_maybe_corresponding_cpp_element = MTE;
+					}
+				}
+
+				retval = sloi1;
 			}
 			return retval;
 		} else if (DRE1) {
@@ -10883,7 +10910,8 @@ namespace checker {
 									if (!first_is_known_to_be_contained_in_scope_of_second_shallow(hard_lower_bound_shallow_lifetime, shallow_slti, Ctx, state1)) {
 										if (MR_ptr && (!errors_suppressed_flag)) {
 											std::string error_desc = std::string("At least one of the initialization value's direct or indirect (referenced object)")
-												+ " lifetimes cannot be verified to (sufficiently) outlive the ('" + VD->getQualifiedNameAsString() + "') variable.";
+												+ " lifetimes cannot be verified to (sufficiently) outlive the ('" + VD->getQualifiedNameAsString() + "') variable (of type '."
+												+ VD->getType().getAsString() + "').";
 											state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 										}
 									}
