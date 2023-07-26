@@ -3814,8 +3814,10 @@ namespace checker {
 				static const std::string function_get_str = "std::get";
 				static const std::string std_begin_str = "std::begin";
 				static const std::string std_end_str = "std::end";
-				if (((std_move_str == func_qname_str) || (function_get_str == func_qname_str) || (std_begin_str == func_qname_str) || (std_end_str == func_qname_str))
-					&& (1 == func_decl.getNumParams())) {
+				static const std::string std_cbegin_str = "std::cbegin";
+				static const std::string std_cend_str = "std::cend";
+				if (((std_move_str == func_qname_str) || (function_get_str == func_qname_str) || (std_begin_str == func_qname_str) || (std_end_str == func_qname_str)
+					|| (std_cbegin_str == func_qname_str) || (std_cend_str == func_qname_str)) && (1 == func_decl.getNumParams())) {
 					
 					auto abstract_lifetime = CAbstractLifetime{ "_implict lifetime label for legacy element_"
 						, &func_decl, true/*is_elided*/ };
