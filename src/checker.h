@@ -2732,10 +2732,8 @@ namespace checker {
 		IF_DEBUG(const auto debug_func_name = func_decl.getNameAsString();)
 		IF_DEBUG(const auto debug_func_qname = func_decl.getQualifiedNameAsString();)
 #ifndef NDEBUG
-		if (std::string::npos != debug_func_qname.find("++")) {
-			if (std::string::npos != debug_func_qname.find("XSLTA")) {
-				int q = 5;
-			}
+		if (std::string::npos != debug_func_qname.find("operator TXSLTAPointer")) {
+			int q = 5;
 		}
 #endif /*!NDEBUG*/
 
@@ -10064,6 +10062,12 @@ namespace checker {
 			|| (clang::CastKind::CK_DerivedToBase == ICE->getCastKind() || (clang::CastKind::CK_ArrayToPointerDecay == ICE->getCastKind()))));
 		condition1 |= (EX2_qtype != E_qtype);
 		if (condition1) {
+			IF_DEBUG(const std::string E_qtype_str = E_qtype.getAsString();)
+			IF_DEBUG(const std::string E_qtype_cann_str = get_cannonical_type(E_qtype).getAsString();)
+			IF_DEBUG(const std::string E_qtype_cann_tail_str = E_qtype_cann_str.substr((E_qtype_cann_str.length() > 64) ? (E_qtype_cann_str.length() - 64) : 0);)
+			IF_DEBUG(const std::string EX2_qtype_str = EX2_qtype.getAsString();)
+			IF_DEBUG(const std::string EX2_qtype_cann_str = get_cannonical_type(EX2_qtype).getAsString();)
+			IF_DEBUG(const std::string EX2_qtype_cann_tail_str = EX2_qtype_cann_str.substr((EX2_qtype_cann_str.length() > 64) ? (EX2_qtype_cann_str.length() - 64) : 0);)
 			int q = 5;
 		} else {
 			EX2 = IgnoreParenImpNoopCasts(E, Ctx);
@@ -10643,8 +10647,8 @@ namespace checker {
 #endif /*!NDEBUG*/
 
 			/* Here we try to evaluate the direct lifetime of the expression. */
-			auto maybe_expr_owner = for_lhs_of_assignment ? lhs_lifetime_owner_if_available(E, Ctx, state1, MR_ptr, Rewrite_ptr)
-				: rhs_lifetime_owner_if_available(E, Ctx, state1, MR_ptr, Rewrite_ptr);
+			auto maybe_expr_owner = for_lhs_of_assignment ? lhs_lifetime_owner_if_available(E_ip, Ctx, state1, MR_ptr, Rewrite_ptr)
+				: rhs_lifetime_owner_if_available(E_ip, Ctx, state1, MR_ptr, Rewrite_ptr);
 			if (maybe_expr_owner.has_value()) {
 				auto& expr_owner = maybe_expr_owner.value();
 				if (std::holds_alternative<const VarDecl*>(expr_owner)) {
@@ -10912,8 +10916,8 @@ namespace checker {
 									if (!first_is_known_to_be_contained_in_scope_of_second_shallow(hard_lower_bound_shallow_lifetime, shallow_slti, Ctx, state1)) {
 										if (MR_ptr && (!errors_suppressed_flag)) {
 											std::string error_desc = std::string("At least one of the initialization value's direct or indirect (referenced object)")
-												+ " lifetimes cannot be verified to (sufficiently) outlive the ('" + VD->getQualifiedNameAsString() + "') variable (of type '."
-												+ VD->getType().getAsString() + "').";
+												+ " lifetimes cannot be verified to (sufficiently) outlive the ('" + VD->getQualifiedNameAsString() + "') variable (of type "
+												+ get_as_quoted_string_for_errmsg(VD->getType()) + ").";
 											state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
 										}
 									}
