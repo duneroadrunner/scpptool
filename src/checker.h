@@ -4966,6 +4966,8 @@ namespace checker {
 
 				retval = type_lifetime_annotations_if_available(qtype.getTypePtr(), state1, MR_ptr, Rewrite_ptr
 					, true/*use_implicit_lifetime_annotation_for_pointer*/);
+			} else {
+				retval = type_lifetime_annotations_if_available(qtype.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
 			}
 		} else {
 			retval = type_lifetime_annotations_if_available(qtype.getTypePtr(), state1, MR_ptr, Rewrite_ptr);
@@ -8937,6 +8939,13 @@ namespace checker {
 		}
 #endif /*!NDEBUG*/
 
+		static const std::vector<std::string> ignore_qnames = { "__assert_fail" };
+		for (auto const& ignore_qname : ignore_qnames) {
+			if (ignore_qname == qfunction_name) {
+				return {};
+			}
+		}
+
 		/* Here we're going to instantiate one or more "element_being_analyzed_info scope objects". These 
 		objects help keep track of the path in the AST tree we followed to arrive at the AST node we are 
 		currently analyzing. This path will be reported, in some form, as part any error messages to help 
@@ -10872,6 +10881,9 @@ namespace checker {
 					if (VD->hasInit()) {
 						auto init_E = VD->getInit();
 						assert(init_E);
+						auto init_E_qtype = init_E->getType();
+						MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(init_E_qtype, retval);
+						IF_DEBUG(auto init_E_qtype_str = init_E_qtype.getAsString();)
 
 						auto ILE = dyn_cast<const clang::InitListExpr>(init_E);
 						auto VD_qtype = VD->getType();
@@ -10906,6 +10918,21 @@ namespace checker {
 							shallow_var_slti.m_maybe_containing_scope = get_containing_scope(VD, Ctx);
 							shallow_var_slti.m_maybe_source_range = VD->getSourceRange();
 
+							if (VD_qtype->isReferenceType()) {
+								auto VD_pointee_qtype = VD_qtype->getPointeeType();
+								MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(VD_pointee_qtype, retval);
+								if (VD_pointee_qtype.isConstQualified()) {
+
+									if (CScopeLifetimeInfo1::ECategory::TemporaryExpression == expr_slti.m_category) {
+										/* todo: verify that init_E is actually a temporary? */
+										/* Temporaries assigned to const references are subject to life extension. */
+										expr_slti.m_category = shallow_var_slti.m_category;
+										expr_slti.m_maybe_containing_scope = shallow_var_slti.m_maybe_containing_scope;
+										expr_slti.m_maybe_source_range = shallow_var_slti.m_maybe_source_range;
+									}
+								}
+							}
+
 							auto& hard_lower_bound_shallow_lifetime = shallow_var_slti;
 
 							auto check_that_lifetime_is_abstract_or_outlives_hard_lower_bound_shallow
@@ -10927,7 +10954,7 @@ namespace checker {
 							auto& vardecl_lb_lifetime_values_map_ref = for_lhs_of_assignment ? state1.m_vardecl_lhs_lb_lifetime_values_map
 								: state1.m_vardecl_rhs_lb_lifetime_values_map;
 
-							slti_set_default_lower_bound_lifetimes_where_needed(expr_slti, init_E->getType(), state1);
+							slti_set_default_lower_bound_lifetimes_where_needed(expr_slti, init_E_qtype, state1);
 
 							expr_slti.m_sublifetimes_vlptr->apply_to_all_lifetimes_const(check_that_lifetime_is_abstract_or_outlives_hard_lower_bound_shallow);
 
