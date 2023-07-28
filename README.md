@@ -11,7 +11,7 @@ Unfortunately even these minimized changes are not insignificant. For example, t
 
 A notable difference between this tool and some others in development and in other languages is that the safe subset it enforces is (like traditional C++) not "flow sensitive". That is, whether an operation is allowed (by the tool/compiler) or not depends only on the declaration of the elements involved, not any other preceding operations or code. This is(/was) a common property of "statically typed" languages, that [arguably](#flow-insensitive-analysis) contributes to "scalability".
 
-Some code samples of conforming safe code can be found in the examples for the [provided library elements](#lifetime-annotated-elements-in-the-safercplusplus-library).
+Some samples of conforming safe code can be found in the examples for the [provided library elements](#lifetime-annotated-elements-in-the-safercplusplus-library).
 
 Note that due to its dependency on the clang/llvm libraries this tool only supports code that's compatible with the clang compiler.
 
