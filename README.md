@@ -33,7 +33,8 @@ Note that this tool is still in development and not well tested.
         1. [TXSLTAPointer](#txsltapointer)
         2. [xslta_array](#xslta_array)
         3. [xslta_vector, xslta_fixed_vector, xslta_borrowing_fixed_vector](#xslta_vector-xslta_fixed_vector-xslta_borrowing_fixed_vector)
-        4. [xslta_optional, xslta_fixed_optional, xslta_borrowing_fixed_optional](#xslta_optional-xslta_fixed_optional-xslta_borrowing_fixed_optional)
+        4. [TXSLTARandomAccessSection, TXSLTARandomAccessConstSection](#txsltarandomaccesssection-txsltarandomaccessconstsection)
+        5. [xslta_optional, xslta_fixed_optional, xslta_borrowing_fixed_optional](#xslta_optional-xslta_fixed_optional-xslta_borrowing_fixed_optional)
 		</details>
     5. [SaferCPlusPlus elements](#safercplusplus-elements)
     6. [Elements not (yet) addressed](#elements-not-yet-addressed)
@@ -673,6 +674,113 @@ usage example:
             could resize the vector or move its contents (subsequent to initialization). It can be initialized from 
             an rsv::xslta_vector<>. */
             auto f_vec1 = mse::rsv::xslta_fixed_vector<typename decltype(vec2)::value_type>(vec2);
+        }
+    }
+```
+
+### TXSLTARandomAccessSection, TXSLTARandomAccessConstSection
+
+`rsv::TXSLTARandomAccessSection<>` is a lifetime annotated [`TXScopeRandomAccessSection<>`](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#txscoperandomaccesssection-txscoperandomaccessconstsection-trandomaccesssection-trandomaccessconstsection).
+
+A "random access section" is basically a convenient interface to access a (contiguous) subsection of an existing array or vector. You construct them, using the `make_xslta_random_access_section(...)` functions, by specifying an iterator to the start of the section, and the length of the section. Random access sections support most of the member functions and operators that [std::basic_string_view](http://en.cppreference.com/w/cpp/string/basic_string_view) does, except that the "[substr()](http://en.cppreference.com/w/cpp/string/basic_string_view/substr)" member function is named "xslta_subsection()".
+
+Note that for convenience, random access sections can be constructed from just a pointer or reference to a supported container object.
+
+usage example:
+
+```cpp
+    #include "mseslta.h"
+    #include "msemsearray.h" //random access sections are defined in this file
+    #include "msemsevector.h"
+    
+    class J {
+    public:
+        /* Remember that these functions will have implicit/elided lifetime annotations applied to their parameters. */
+        template<class _TRASection>
+        static void foo13lta(_TRASection ra_section) {
+            for (typename _TRASection::size_type i = 0; i < ra_section.size(); i += 1) {
+                ra_section[i] = ra_section[0];
+            }
+        }
+        template<class _TRAConstSection>
+        static int foo14lta(_TRAConstSection const_ra_section) {
+            int retval = 0;
+            for (typename _TRAConstSection::size_type i = 0; i < const_ra_section.size(); i += 1) {
+                retval += *(const_ra_section[i]);
+            }
+            return retval;
+        }
+        template<class _TRAConstSection>
+        static int foo15lta(_TRAConstSection const_ra_section) {
+            int retval = 0;
+            for (const auto& const_item : const_ra_section) {
+                retval += *const_item;
+            }
+            return retval;
+        }
+    };
+
+    void main(int argc, char* argv[]) {
+        int i1 = 3;
+        int i2 = 5;
+        int i3 = 7;
+        int i4 = 11;
+        int i5 = 13;
+
+        mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 4> array1{ &i1, &i2, &i3, &i4 };
+        mse::rsv::xslta_vector<mse::rsv::TXSLTAPointer<int> > vec1{ &i1, &i2, &i3, &i4, &i5 };
+        auto bfvec1 = mse::rsv::make_xslta_borrowing_fixed_vector(&vec1);
+
+        auto xslta_ra_section1 = mse::rsv::make_xslta_random_access_section(array1.begin(), 2);
+        J::foo13lta(xslta_ra_section1);
+
+        auto xslta_ra_const_section2 = mse::rsv::make_xslta_random_access_const_section(++bfvec1.begin(), 3);
+        auto res6 = J::foo15lta(xslta_ra_const_section2);
+        auto res7 = J::foo14lta(xslta_ra_const_section2);
+
+        auto xslta_ra_section1_xslta_iter1 = xslta_ra_section1.begin();
+        auto xslta_ra_section1_xslta_iter2 = xslta_ra_section1.end();
+        auto xslta_ra_section1_xslta_iter1b = xslta_ra_section1.xslta_begin();
+        auto xslta_ra_section1_xslta_iter2b = xslta_ra_section1.xslta_end();
+        auto res8 = xslta_ra_section1_xslta_iter2 - xslta_ra_section1_xslta_iter1;
+        bool res9 = (xslta_ra_section1_xslta_iter1 < xslta_ra_section1_xslta_iter2);
+
+        /* The library provides the rsv::xslta_random_access_subsection() function which takes a random access section and a
+        tuple containing a start index and a length and returns a random access section spanning the indicated
+        subsection. You could use this function to implement the equivalent of a "first_half()" function like so: */
+        auto xslta_ra_section3 = mse::rsv::xslta_random_access_subsection(xslta_ra_section1, std::make_tuple(0, xslta_ra_section1.length() / 2));
+        assert(xslta_ra_section3.length() == 1);
+
+        {
+            auto vector1 = mse::rsv::xslta_fixed_vector<mse::rsv::TXSLTAPointer<int> >{ &i1, &i2, &i3 };
+            auto xslta_ra_csection1 = mse::rsv::make_xslta_random_access_const_section(&vector1);
+
+            typedef decltype(xslta_ra_csection1) xslta_ra_csection1_t;
+            /* You can (also) construct a TXSLTARandomAccessSection<> by passing (a reference to) the container, or a
+            pointer to the container. (The former is for conformance with the interface of std::span<>, etc..) */
+            auto xslta_ra_csection1b = xslta_ra_csection1_t(vector1);
+            auto xslta_ra_csection1c = xslta_ra_csection1_t(&vector1);
+
+            class CD {
+            public:
+                static bool second_is_longer(xslta_ra_csection1_t xslta_ra_csection1, xslta_ra_csection1_t xslta_ra_csection2) {
+
+                    return (xslta_ra_csection1.size() > xslta_ra_csection2.size()) ? false : true;
+                }
+
+                /* Here we will demonstrate the creation of type-erased random access sections by instantiation with
+                type-erased iterators. */
+                static bool second_is_longer_CSSSXSTE(mse::rsv::TXSLTARandomAccessConstSection<mse::rsv::TXSLTACSSSXSTERAConstIterator<mse::rsv::TXSLTAPointer<int> > > xslta_ra_csection1
+                    , mse::rsv::TXSLTARandomAccessConstSection<mse::rsv::TXSLTACSSSXSTERAConstIterator<mse::rsv::TXSLTAPointer<int> > > xslta_ra_csection2) {
+                    return (xslta_ra_csection1.size() > xslta_ra_csection2.size()) ? false : true;
+                }
+            };
+
+            auto res1 = CD::second_is_longer(xslta_ra_csection1, mse::rsv::make_xslta_random_access_const_section(
+                mse::rsv::xslta_fixed_vector<mse::rsv::TXSLTAPointer<int> >{ &i1, & i2, & i3, & i4 }));
+
+            auto res2 = CD::second_is_longer_CSSSXSTE(mse::rsv::make_xslta_random_access_const_section(mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 3>{ &i1, & i2, & i3 })
+                , mse::rsv::make_xslta_random_access_const_section(mse::rsv::xslta_fixed_vector<mse::rsv::TXSLTAPointer<int> >{ &i1, & i2, & i3, & i4 }));
         }
     }
 ```
