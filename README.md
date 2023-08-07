@@ -443,7 +443,7 @@ Note that we add a little qualification and modification to the rules as quoted.
 
 ##### Lifetime annotation implementation caveats
 
-(Note, that at the time of writing, implementation of lifetime safety enforcement is not complete. Safety can be subverted through, for example, cyclic references with user-defined destructors, or using a type-erased function container to neutralize lifetime annotation specified restrictions, etc.. Also note that the process of adding lifetime annotated elements to the SaferCPlusPlus library is still in progress.)
+(Note, that at the time of writing, implementation of lifetime safety enforcement is not complete. Safety can be subverted through, for example, cyclic references with user-defined destructors, or using a type-erased function container to neutralize lifetime annotation specified restrictions, etc.. Also note that while the most essential elements are already available, the process of adding lifetime annotated elements to the SaferCPlusPlus library is still in progress.)
 
 ##### third party lifetime annotations
 
@@ -451,7 +451,7 @@ Note that other static lifetime analyzers in development introduce their own dis
 
 ##### Lifetime annotated elements in the SaferCPlusPlus library
 
-The process of adding lifetime annotated elements to the SaferCPlusPlus library is still in progress.
+While the most essential elements are already available, the process of adding lifetime annotated elements to the SaferCPlusPlus library is still in progress.
 
 Since lifetime annotations require the scpptool for enforcement, lifetime annotated elements generally reside in the `mse::rsv` namespace, like the other elements that require scpptool for safety enforcement. Most lifetime annotated elements are "[scope](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#scope-pointers)" elements and conform to the corresponding restrictions. 
 
