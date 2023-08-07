@@ -31,11 +31,12 @@ Note that this tool is still in development and not well tested.
 
         1. [Overview](#lifetime-annotated-elements-in-the-safercplusplus-library)
         1. [TXSLTAPointer](#txsltapointer)
-        2. [xslta_array](#xslta_array)
-        3. [xslta_vector, xslta_fixed_vector, xslta_borrowing_fixed_vector](#xslta_vector-xslta_fixed_vector-xslta_borrowing_fixed_vector)
-        4. [TXSLTARandomAccessSection, TXSLTARandomAccessConstSection](#txsltarandomaccesssection-txsltarandomaccessconstsection)
-        5. [TXSLTACSSSXSTERandomAccessIterator and TXSLTACSSSXSTERandomAccessSection](#txsltacsssxsterandomaccessiterator-and-txsltacsssxsterandomaccesssection)
-        6. [xslta_optional, xslta_fixed_optional, xslta_borrowing_fixed_optional](#xslta_optional-xslta_fixed_optional-xslta_borrowing_fixed_optional)
+        2. [TXSLTAOwnerPointer](#txsltaownerpointer)
+        3. [xslta_array](#xslta_array)
+        4. [xslta_vector, xslta_fixed_vector, xslta_borrowing_fixed_vector](#xslta_vector-xslta_fixed_vector-xslta_borrowing_fixed_vector)
+        5. [TXSLTARandomAccessSection, TXSLTARandomAccessConstSection](#txsltarandomaccesssection-txsltarandomaccessconstsection)
+        6. [TXSLTACSSSXSTERandomAccessIterator and TXSLTACSSSXSTERandomAccessSection](#txsltacsssxsterandomaccessiterator-and-txsltacsssxsterandomaccesssection)
+        7. [xslta_optional, xslta_fixed_optional, xslta_borrowing_fixed_optional](#xslta_optional-xslta_fixed_optional-xslta_borrowing_fixed_optional)
 		</details>
     5. [SaferCPlusPlus elements](#safercplusplus-elements)
     6. [Elements not (yet) addressed](#elements-not-yet-addressed)
@@ -481,6 +482,14 @@ usage example:
     }
 ```
 
+##### TXSLTAOwnerPointer
+
+`rsv::TXSLTAOwnerPointer<>` is a ["lifetime annotated"](#annotating-lifetime-constraints) version of [`TXSLTAOwnerPointer<>`](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#txscopeownerpointer).
+
+`rsv::TXSLTAOwnerPointer<>` is kind of like an `std::unique_ptr<>` whose use is restricted by the rules of scope objects. You can use it when you want to give scope lifetime to objects that are too large to be declared directly on the stack. 
+
+Instead of its constructor taking a native pointer pointing to an already allocated object, it takes an (often temporary) instance of the desired value and allocates the object itself. You may also use `rsv::make_xslta_owner<>()` to create a `TXSLTAOwnerPointer<>` in a manner akin to `std::make_unique<>()`.
+
 ##### xslta_array
 
 `rsv::xslta_array<>` is a [lifetime annotated](#annotating-lifetime-constraints) array.
@@ -790,9 +799,9 @@ See also [`TXSLTACSSSXSTERandomAccessSection`](#txsltacsssxsterandomaccessiterat
 
 ##### TXSLTACSSSXSTERandomAccessIterator and TXSLTACSSSXSTERandomAccessSection
 
-`TXSLTACSSSXSTERandomAccessIterator<>` and `TXSLTACSSSXSTERandomAccessSection<>` are "type-erased" template classes that can be used to enable functions to take as arguments iterators or sections of various container types (like arrays or (fixed size) vectors) without making the functions into template functions. But in this case there are limitations on what types can be converted. In exchange for these limitations, these types require less overhead. The "CSSSXSTE" part of the typenames stands for "Contiguous Sequence, Static Structure, XSLTA, Type-Erased". So the first restriction is that the target container must be recognized as a "contiguous sequence" (basically an array or vector). It also must be recognized as having a "static structure". This essentially means that the container cannot be resized. (At least not while the TXSLTACSSSXSTERandomAccessIterator<> or TXSLTACSSSXSTERandomAccessSection<> exists.) And these iterators and sections are ["lifetime annotated"](#annotating-lifetime-constraints).
+`rsv::TXSLTACSSSXSTERandomAccessIterator<>` and `rsv::TXSLTACSSSXSTERandomAccessSection<>` are "type-erased" template classes that can be used to enable functions to take as arguments iterators or sections of various container types (like arrays or (fixed size) vectors) without making the functions into template functions. But in this case there are limitations on what types can be converted. In exchange for these limitations, these types require less overhead. The "CSSSXSTE" part of the typenames stands for "Contiguous Sequence, Static Structure, XSLTA, Type-Erased". So the first restriction is that the target container must be recognized as a "contiguous sequence" (basically an array or vector). It also must be recognized as having a "static structure". This essentially means that the container cannot be resized. (At least not while the `rsv::TXSLTACSSSXSTERandomAccessIterator<>` or `rsv::TXSLTACSSSXSTERandomAccessSection<>` exists.) And these iterators and sections are ["lifetime annotated"](#annotating-lifetime-constraints).
 
-`TXSLTACSSSXSTERandomAccessSection<>` might be considered, in essence, the primary safe counterpart of `std::span<>`.
+`rsv::TXSLTACSSSXSTERandomAccessSection<>` might be considered, in essence, the primary safe counterpart of `std::span<>`.
 
 usage example:
 
