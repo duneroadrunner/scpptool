@@ -34,7 +34,8 @@ Note that this tool is still in development and not well tested.
         2. [xslta_array](#xslta_array)
         3. [xslta_vector, xslta_fixed_vector, xslta_borrowing_fixed_vector](#xslta_vector-xslta_fixed_vector-xslta_borrowing_fixed_vector)
         4. [TXSLTARandomAccessSection, TXSLTARandomAccessConstSection](#txsltarandomaccesssection-txsltarandomaccessconstsection)
-        5. [xslta_optional, xslta_fixed_optional, xslta_borrowing_fixed_optional](#xslta_optional-xslta_fixed_optional-xslta_borrowing_fixed_optional)
+        5. [TXSLTACSSSXSTERandomAccessIterator and TXSLTACSSSXSTERandomAccessSection](#txsltacsssxsterandomaccessiterator-and-txsltacsssxsterandomaccesssection)
+        6. [xslta_optional, xslta_fixed_optional, xslta_borrowing_fixed_optional](#xslta_optional-xslta_fixed_optional-xslta_borrowing_fixed_optional)
 		</details>
     5. [SaferCPlusPlus elements](#safercplusplus-elements)
     6. [Elements not (yet) addressed](#elements-not-yet-addressed)
@@ -678,7 +679,7 @@ usage example:
     }
 ```
 
-### TXSLTARandomAccessSection, TXSLTARandomAccessConstSection
+##### TXSLTARandomAccessSection, TXSLTARandomAccessConstSection
 
 `rsv::TXSLTARandomAccessSection<>` is a lifetime annotated [`TXScopeRandomAccessSection<>`](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#txscoperandomaccesssection-txscoperandomaccessconstsection-trandomaccesssection-trandomaccessconstsection).
 
@@ -782,6 +783,121 @@ usage example:
             auto res2 = CD::second_is_longer_CSSSXSTE(mse::rsv::make_xslta_random_access_const_section(mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 3>{ &i1, & i2, & i3 })
                 , mse::rsv::make_xslta_random_access_const_section(mse::rsv::xslta_fixed_vector<mse::rsv::TXSLTAPointer<int> >{ &i1, & i2, & i3, & i4 }));
         }
+    }
+```
+
+See also [`TXSLTACSSSXSTERandomAccessSection`](#txsltacsssxsterandomaccessiterator-and-txsltacsssxsterandomaccesssection).
+
+##### TXSLTACSSSXSTERandomAccessIterator and TXSLTACSSSXSTERandomAccessSection
+
+`TXSLTACSSSXSTERandomAccessIterator<>` and `TXSLTACSSSXSTERandomAccessSection<>` are "type-erased" template classes that can be used to enable functions to take as arguments iterators or sections of various container types (like arrays or (fixed size) vectors) without making the functions into template functions. But in this case there are limitations on what types can be converted. In exchange for these limitations, these types require less overhead. The "CSSSXSTE" part of the typenames stands for "Contiguous Sequence, Static Structure, XSLTA, Type-Erased". So the first restriction is that the target container must be recognized as a "contiguous sequence" (basically an array or vector). It also must be recognized as having a "static structure". This essentially means that the container cannot be resized. (At least not while the TXSLTACSSSXSTERandomAccessIterator<> or TXSLTACSSSXSTERandomAccessSection<> exists.) And these iterators and sections are ["lifetime annotated"](#annotating-lifetime-constraints-in-function-interfaces).
+
+`TXSLTACSSSXSTERandomAccessSection<>` might be considered, in essence, the primary safe counterpart of `std::span<>`.
+
+usage example:
+
+```cpp
+    #include "msemslta.h"
+    #include "msemsearray.h" //TXSLTACSSSXSTERandomAccessIterator/Section are defined in this header
+    #include "msemsevector.h"
+    
+    void main(int argc, char* argv[]) {
+        int i1 = 3;
+        int i2 = 5;
+        int i3 = 7;
+        int i4 = 11;
+        int i5 = 13;
+
+        auto array1 = mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 4>{ &i1, &i2, &i3, &i4 };
+        auto array2 = mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 5>{ &i1, &i2, &i3, &i4, &i5 };
+        auto vec1 = mse::rsv::xslta_vector<mse::rsv::TXSLTAPointer<int>>{ &i1, &i2, &i3, &i4, &i5 };
+        auto bfvec1 = mse::rsv::make_xslta_borrowing_fixed_vector(&vec1);
+        class B {
+        public:
+            /* Remember that these functions will have implicit/elided lifetime annotations applied to their 
+            parameters (that don't have explicit annotations). */
+            static void foo1(mse::rsv::TXSLTACSSSXSTERandomAccessIterator<mse::rsv::TXSLTAPointer<int>> ra_iter1) {
+                ra_iter1[1] = ra_iter1[2];
+            }
+            static mse::rsv::TXSLTAPointer<int> foo2(mse::rsv::TXSLTACSSSXSTERandomAccessConstIterator<mse::rsv::TXSLTAPointer<int>> const_ra_iter1 MSE_ATTR_PARAM_STR("mse::lifetime_labels(_[99])"))
+                MSE_ATTR_FUNC_STR("mse::lifetime_notes{ label(99); return_value(99) }") {
+
+                const_ra_iter1 += 2;
+                --const_ra_iter1;
+                const_ra_iter1--;
+                return const_ra_iter1[2];
+            }
+            static void foo3(mse::rsv::TXSLTACSSSXSTERandomAccessSection<mse::rsv::TXSLTAPointer<int>> ra_section) {
+                for (mse::rsv::TXSLTACSSSXSTERandomAccessSection<mse::rsv::TXSLTAPointer<int>>::size_type i = 0; i < ra_section.size(); i += 1) {
+                    ra_section[i] = ra_section[0];
+                }
+            }
+            static int foo4(mse::rsv::TXSLTACSSSXSTERandomAccessConstSection<mse::rsv::TXSLTAPointer<int>> const_ra_section) {
+                int retval = 0;
+                for (mse::rsv::TXSLTACSSSXSTERandomAccessSection<mse::rsv::TXSLTAPointer<int>>::size_type i = 0; i < const_ra_section.size(); i += 1) {
+                    retval += *(const_ra_section[i]);
+                }
+                return retval;
+            }
+            static int foo5(mse::rsv::TXSLTACSSSXSTERandomAccessConstSection<mse::rsv::TXSLTAPointer<int>> const_ra_section) {
+                int retval = 0;
+                for (const auto& const_item : const_ra_section) {
+                    retval += *(const_item);
+                }
+                return retval;
+            }
+        };
+
+        auto xs_array_iter1 = mse::rsv::make_xslta_begin_iterator(&array1);
+        xs_array_iter1++;
+
+        auto res1 = B::foo2(xs_array_iter1);
+        B::foo1(xs_array_iter1);
+
+        auto xs_msearray_const_iter2 = mse::rsv::make_xslta_begin_const_iterator(&array2);
+        xs_msearray_const_iter2 += 2;
+        auto res2 = B::foo2(xs_msearray_const_iter2);
+
+        auto res3 = B::foo2(mse::rsv::make_xslta_begin_const_iterator(&bfvec1));
+
+        auto bfvec1_iter2 = ++mse::rsv::make_xslta_begin_iterator(&bfvec1);
+        B::foo1(bfvec1_iter2);
+        auto bfvec1_iter1 = mse::rsv::make_xslta_begin_iterator(&bfvec1);
+        auto res4 = B::foo2(bfvec1_iter1);
+
+        auto bfvec1_begin_iter1 = mse::rsv::make_xslta_begin_iterator(&bfvec1);
+        mse::rsv::TXSLTACSSSXSTERandomAccessIterator<mse::rsv::TXSLTAPointer<int>> xs_te_iter1 = bfvec1_begin_iter1;
+        auto bfvec1_end_iter1 = mse::rsv::make_xslta_end_iterator(&bfvec1);
+        mse::rsv::TXSLTACSSSXSTERandomAccessIterator<mse::rsv::TXSLTAPointer<int>> xs_te_iter2 = bfvec1_end_iter1;
+        auto res5 = xs_te_iter2 - xs_te_iter1;
+        xs_te_iter2 = xs_te_iter1;
+
+        mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 4> array3 = mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 4>({ &i1, &i2, &i3, &i4 });
+        auto array_scpiter3 = mse::rsv::make_xslta_begin_iterator(&array3);
+        ++array_scpiter3;
+        B::foo1(array_scpiter3);
+
+        mse::rsv::TXSLTACSSSXSTERandomAccessSection<mse::rsv::TXSLTAPointer<int>> xscp_ra_section1(xs_array_iter1++, 2);
+        B::foo3(xscp_ra_section1);
+        auto xs_mstd_vec_iter1 = mse::rsv::make_xslta_begin_iterator(&bfvec1);
+        mse::rsv::TXSLTACSSSXSTERandomAccessSection<mse::rsv::TXSLTAPointer<int>> xscp_ra_section2(++xs_mstd_vec_iter1, 3);
+
+        auto res6 = B::foo5(xscp_ra_section2);
+        B::foo3(xscp_ra_section2);
+        auto res7 = B::foo4(xscp_ra_section2);
+
+        auto xs_ra_section1 = mse::rsv::make_xslta_random_access_section(xs_array_iter1, 2);
+        B::foo3(xs_ra_section1);
+        auto xs_ra_const_section2 = mse::rsv::make_xslta_random_access_const_section(mse::rsv::make_xslta_begin_const_iterator(&bfvec1), 2);
+        B::foo4(xs_ra_const_section2);
+
+        auto nii_array4 = mse::rsv::xslta_array<mse::rsv::TXSLTAPointer<int>, 4>{ &i1, &i2, &i3, &i4 };
+        auto xscp_ra_section3 = mse::rsv::make_xslta_csssxste_random_access_section(&nii_array4);
+
+        auto xscp_ra_section1_xscp_iter1 = mse::rsv::make_xslta_begin_iterator(xscp_ra_section1);
+        auto xscp_ra_section1_xscp_iter2 = mse::rsv::make_xslta_end_iterator(xscp_ra_section1);
+        auto res8 = xscp_ra_section1_xscp_iter2 - xscp_ra_section1_xscp_iter1;
+        bool res9 = (xscp_ra_section1_xscp_iter1 < xscp_ra_section1_xscp_iter2);
     }
 ```
 
