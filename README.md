@@ -80,7 +80,7 @@ So for example:
 
 `scpptool hello_world.cpp -- -I./msetl -std=c++17 -I'/home/user1/clang+llvm-15.0.6-x86_64-linux-gnu-ubuntu-18.04/lib/clang/15.0.6/include'`
 
-(If you happen to have version 15 of the clang compiler installed on your system then you may be able to omit the lengthy "include directory specifier" option.)
+(If you happen to have version 15 of the clang compiler installed on your system then you may be able to omit the lengthy "include directory specifier" option.) Note that (though not necessary) you might want to include `-DMSE_SCOPEPOINTER_DISABLED` in the compiler options. This disables the enforcement of the [scope](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#scope-pointers) object restrictions by the SaferCPlusPlus library via the type system, as scpptool will itself enforce those restrictions.
 
 ### Local Suppression of the Checks
 
