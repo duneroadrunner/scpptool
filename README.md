@@ -484,7 +484,7 @@ usage example:
 
 ##### TXSLTAOwnerPointer
 
-`rsv::TXSLTAOwnerPointer<>` is a ["lifetime annotated"](#annotating-lifetime-constraints) version of [`TXSLTAOwnerPointer<>`](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#txscopeownerpointer).
+`rsv::TXSLTAOwnerPointer<>` is a ["lifetime annotated"](#annotating-lifetime-constraints) version of [`TXScopeOwnerPointer<>`](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#txscopeownerpointer).
 
 `rsv::TXSLTAOwnerPointer<>` is kind of like an `std::unique_ptr<>` whose use is restricted by the rules of scope objects. You can use it when you want to give scope lifetime to objects that are too large to be declared directly on the stack. 
 
