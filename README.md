@@ -45,7 +45,7 @@ Note that this tool is still in development and not well tested.
 
 ### How to Build:
 
-On Ubuntu Linux: Download the [llvm 15.0.6 pre-built binaries](https://github.com/llvm/llvm-project/releases/tag/llvmorg-15.0.6) and extract them to a directory of your choosing. Download the [scpptool source code](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract it to a directory of your choosing. (Depending on your operating system version, llvm you may or may not need to install additional libraries.)
+On Ubuntu Linux: Download the [llvm 15.0.6 pre-built binaries](https://github.com/llvm/llvm-project/releases/tag/llvmorg-15.0.6) and extract them to a directory of your choosing. Download the [scpptool source code](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract it to a directory of your choosing. (Depending on your operating system version, llvm may or may not need additional libraries to be installed.)
 
 From the `src` subdirectory of the scpptool directory, you can build the tool by typing:
 ```
