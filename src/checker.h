@@ -8604,50 +8604,57 @@ namespace checker {
 				auto const * const CSTE = dyn_cast<const clang::CastExpr>(EXii);
 				if (CSTE) {
 					const auto cast_kind = CSTE->getCastKind();
-					if (clang::CK_IntegralToPointer == CSTE->getCastKind()) {
-						cast_type_str = "Integral-to-pointer";
-					} else if (clang::CK_NoOp == CSTE->getCastKind()) {
-						/* If the cast is a no-op, I guess we won't complain. */
-						//cast_type_str = "";
-					} else {
+					do {
+						if (clang::CK_IntegralToPointer == CSTE->getCastKind()) {
+							cast_type_str = "Integral-to-pointer";
+							break;
+						}
+						if (clang::CK_NoOp == CSTE->getCastKind()) {
+							/* If the cast is a no-op, I guess we won't complain. */
+							//cast_type_str = "";
+							break;
+						}
+
 						auto const * const CSCE = dyn_cast<const CStyleCastExpr>(EXii);
 						if (CSCE) {
 							cast_type_str = "'C-style'";
-						} else {
-							auto const * const CXXRCE = dyn_cast<const CXXReinterpretCastExpr>(EXii);
-							if (CXXRCE) {
-								cast_type_str = "Reinterpret";
-							} else {
-								auto const * const CXXCCE = dyn_cast<const CXXConstCastExpr>(EXii);
-								if (CXXCCE) {
-									cast_type_str = "Const";
-								} else {
-									auto const * const CXXFCE = dyn_cast<const CXXFunctionalCastExpr>(EXii);
-									if (CXXFCE) {
-										const auto qtype = CXXFCE->getType();
-										IF_DEBUG(const std::string qtype_str = CXXFCE->getType().getAsString();)
+							break;
+						}
+						auto const * const CXXRCE = dyn_cast<const CXXReinterpretCastExpr>(EXii);
+						if (CXXRCE) {
+							cast_type_str = "Reinterpret";
+							break;
+						}
+						auto const * const CXXCCE = dyn_cast<const CXXConstCastExpr>(EXii);
+						if (CXXCCE) {
+							cast_type_str = "Const";
+							break;
+						}
+						{
+							auto const * const CXXFCE = dyn_cast<const CXXFunctionalCastExpr>(EXii);
+							if (CXXFCE) {
+								const auto qtype = CXXFCE->getType();
+								IF_DEBUG(const std::string qtype_str = CXXFCE->getType().getAsString();)
 
-										const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
-										if (CXXRD) {
-											auto name = CXXRD->getQualifiedNameAsString();
-											const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
-											if (tmplt_CXXRD) {
-												name = tmplt_CXXRD->getQualifiedNameAsString();
-											}
-											DECLARE_CACHED_CONST_STRING(mse_rsv_tfparam_str1, mse_namespace_str() + "::rsv::TFParam");
-											if (mse_rsv_tfparam_str1 == name) {
-												if (1 == CXXRD->getNumBases()) {
-													cast_type_str = "Explicit mse::rsv::TFParam<> functional";
-												} else {
-													/* This branch shouldn't happen. Unless the library's been changed somehow. */
-												}
-											}
+								const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+								if (CXXRD) {
+									auto name = CXXRD->getQualifiedNameAsString();
+									const auto tmplt_CXXRD = CXXRD->getTemplateInstantiationPattern();
+									if (tmplt_CXXRD) {
+										name = tmplt_CXXRD->getQualifiedNameAsString();
+									}
+									DECLARE_CACHED_CONST_STRING(mse_rsv_tfparam_str1, mse_namespace_str() + "::rsv::TFParam");
+									if (mse_rsv_tfparam_str1 == name) {
+										if (1 == CXXRD->getNumBases()) {
+											cast_type_str = "Explicit mse::rsv::TFParam<> functional";
+										} else {
+											/* This branch shouldn't happen. Unless the library's been changed somehow. */
 										}
 									}
 								}
 							}
 						}
-					}
+					} while (false);
 				}
 				if ("" != cast_type_str) {
 					assert(CSTE);
@@ -10378,6 +10385,15 @@ namespace checker {
 					const auto cast_kind = CSTE->getCastKind();
 					IF_DEBUG(auto cast_kind_str = CSTE->getCastKindName();)
 					const auto cf_ND = CSTE->getConversionFunction();
+
+					if (false && clang::CastKind::CK_NullToPointer == cast_kind) {
+						/* We may need to enable this error at some point, but so far these cases seem to be already covered by
+						the "reference does not live long enough" errors. */
+						if (MR_ptr) {
+							std::string error_desc = std::string("(Implicit or explicit) 'NULL (/zero literal) to (raw) pointer' cast.");
+							state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
+						}
+					}
 
 					bool reference_cast_or_equivalent = CSTE_qtype->isReferenceType();
 					reference_cast_or_equivalent |= (clang::CastKind::CK_UncheckedDerivedToBase == cast_kind);
@@ -12224,17 +12240,28 @@ namespace checker {
 									static const std::string free_str = "free";
 									static const std::string calloc_str = "calloc";
 									static const std::string alloca_str = "alloca";
+									static const std::string std_allocator_str = "std::allocator";
+									static const std::string std_allocator_traits_str = "std::allocator_traits";
+									static const std::string std_destroy_str = "std::destroy";
+									static const std::string std_construct_str = "std::construct";
+									static const std::string std_ranges_destroy_str = "std::ranges::destroy";
+									static const std::string std_ranges_construct_str = "std::ranges::construct";
 									std::string unsupported_function_str;
-									if (malloc_str == qualified_function_name) {
-										unsupported_function_str = malloc_str;
-									} else if (realloc_str == qualified_function_name) {
-										unsupported_function_str = realloc_str;
-									} else if (free_str == qualified_function_name) {
-										unsupported_function_str = free_str;
-									} else if (calloc_str == qualified_function_name) {
-										unsupported_function_str = calloc_str;
-									} else if (alloca_str == qualified_function_name) {
-										unsupported_function_str = alloca_str;
+									if ((malloc_str == qualified_function_name)
+										|| (realloc_str == qualified_function_name)
+										|| (free_str == qualified_function_name)
+										|| (calloc_str == qualified_function_name)
+										|| (alloca_str == qualified_function_name)
+										/* note that `new` and `delete` are operators (rather than functions) and addressed elsewhere */
+										|| (string_begins_with(qualified_function_name, std_allocator_str))
+										|| (string_begins_with(qualified_function_name, std_allocator_traits_str))
+										|| (string_begins_with(qualified_function_name, std_destroy_str))
+										|| (string_begins_with(qualified_function_name, std_construct_str))
+										|| (string_begins_with(qualified_function_name, std_ranges_destroy_str))
+										|| (string_begins_with(qualified_function_name, std_ranges_construct_str))
+										) {
+
+										unsupported_function_str = qualified_function_name;
 									}
 									if ("" != unsupported_function_str) {
 										const std::string error_desc = std::string("The '") + unsupported_function_str
