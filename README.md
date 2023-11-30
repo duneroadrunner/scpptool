@@ -478,7 +478,7 @@ Instead of its constructor taking a native pointer pointing to an already alloca
 
 `rsv::xslta_array<>` is a [lifetime annotated](#annotating-lifetime-constraints) array.
 
-usage example:
+usage example: ([link to interactive version](https://godbolt.org/z/5Kx9q1dEW))
 
 ```cpp
     #include "mseslta.h"
