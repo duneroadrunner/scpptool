@@ -172,7 +172,7 @@ MSE_ATTR_FUNC_STR("mse::lifetime_notes{ labels(42, 99); encompasses(42, 99) }")
     i2_ptr_ref = i1_ptr_ref; // the lifetime annotations tell us that this is safe
 }
 
-void main(int argc, char* argv[]) {
+int main(int argc, char* argv[]) {
     int i1 = 5;
     int* i_ptr1 = &i1;
     {
@@ -232,7 +232,7 @@ struct CLARefObj1 {
     int* m_i_ptr MSE_ATTR_STR("mse::lifetime_label(99)");
 } MSE_ATTR_STR("mse::lifetime_label(99)");
 
-void main(int argc, char* argv[]) {
+int main(int argc, char* argv[]) {
     int i1 = 5;
     int* i_ptr1 = &i1;
 
@@ -448,7 +448,7 @@ usage example: ([link to interactive version](https://godbolt.org/z/7d4MrG413))
 ```cpp
     #include "mseslta.h"
     
-    void main(int argc, char* argv[]) {
+    int main(int argc, char* argv[]) {
         int i1 = 3;
         int i2 = 5;
         int i3 = 7;
@@ -485,7 +485,7 @@ usage example: ([link to interactive version](https://godbolt.org/z/5Kx9q1dEW))
     #include "msemsearray.h"
     #include "msealgorithm.h"
     
-    void main(int argc, char* argv[]) {
+    int main(int argc, char* argv[]) {
         int i1 = 3;
         int i2 = 5;
         int i3 = 7;
@@ -570,14 +570,14 @@ usage example: ([link to interactive version](https://godbolt.org/z/5Kx9q1dEW))
 
 Some other static safety enforcers/analyzers try to automatically and implicitly put vectors (and other dynamic containers) into a "fixed (size/structure) mode" without requiring the programmer to instantiate a "borrowing fixed" object. But such tools rely on "flow sensitive" analysis, which [arguably](#flow-insensitive-analysis) has undesirable scalability implications.
 
-usage example:
+usage example: ([link to interactive version](https://godbolt.org/z/Mqc737Wan))
 
 ```cpp
     #include "mseslta.h"
     #include "msemsevector.h"
     #include "msealgorithm.h"
     
-    void main(int argc, char* argv[]) {
+    int main(int argc, char* argv[]) {
         int i1 = 3;
         int i2 = 5;
         int i3 = 7;
@@ -714,7 +714,7 @@ usage example:
         }
     };
 
-    void main(int argc, char* argv[]) {
+    int main(int argc, char* argv[]) {
         int i1 = 3;
         int i2 = 5;
         int i3 = 7;
@@ -794,7 +794,7 @@ usage example:
     #include "msemsearray.h" //TXSLTACSSSXSTERandomAccessIterator/Section are defined in this header
     #include "msemsevector.h"
     
-    void main(int argc, char* argv[]) {
+    int main(int argc, char* argv[]) {
         int i1 = 3;
         int i2 = 5;
         int i3 = 7;
@@ -909,7 +909,7 @@ usage example:
     #include "msemseoptional.h"
     #include "msealgorithm.h"
     
-    void main(int argc, char* argv[]) {
+    int main(int argc, char* argv[]) {
         int i1 = 3;
         int i2 = 5;
         int i3 = 7;
