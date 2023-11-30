@@ -787,7 +787,7 @@ See also [`TXSLTACSSSXSTERandomAccessSection`](#txsltacsssxsterandomaccessiterat
 
 `rsv::TXSLTACSSSXSTERandomAccessSection<>` might be considered, in essence, the primary safe counterpart of `std::span<>`.
 
-usage example:
+usage example: ([link to interactive version](https://godbolt.org/z/h5x78nbE1))
 
 ```cpp
     #include "msemslta.h"
