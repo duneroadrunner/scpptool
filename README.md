@@ -443,7 +443,7 @@ Since lifetime annotations require the scpptool for enforcement, lifetime annota
 
 `rsv::TXSLTAPointer<>` is just a (zero-overhead) class that acts like a [lifetime annotated](#annotating-lifetime-constraints) pointer. Like raw pointers, `rsv::TXSLTAPointer<>` is considered a [scope](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#scope-pointers) object and is subject to the restrictions of scope objects.
 
-usage example:
+usage example: ([link to interactive version](https://godbolt.org/z/7d4MrG413))
 
 ```cpp
     #include "mseslta.h"
