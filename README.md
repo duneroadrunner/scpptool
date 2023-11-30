@@ -680,7 +680,7 @@ A "random access section" is basically a convenient interface to access a (conti
 
 Note that for convenience, random access sections can be constructed from just a pointer or reference to a supported container object.
 
-usage example:
+usage example: ([link to interactive version](https://godbolt.org/z/Tj7hajxz6))
 
 ```cpp
     #include "mseslta.h"
