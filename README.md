@@ -790,7 +790,7 @@ See also [`TXSLTACSSSXSTERandomAccessSection`](#txsltacsssxsterandomaccessiterat
 usage example: ([link to interactive version](https://godbolt.org/z/h5x78nbE1))
 
 ```cpp
-    #include "msemslta.h"
+    #include "mseslta.h"
     #include "msemsearray.h" //TXSLTACSSSXSTERandomAccessIterator/Section are defined in this header
     #include "msemsevector.h"
     
@@ -902,11 +902,11 @@ usage example: ([link to interactive version](https://godbolt.org/z/h5x78nbE1))
 
 Conceptually, you can think of an optional as kind of like a [`vector<>`](#xslta_vector-xslta_fixed_vector-xslta_borrowing_fixed_vector) with at most one element.
 
-usage example:
+usage example: ([link to interactive version](https://godbolt.org/z/jcvEb463r))
 
 ```cpp
     #include "mseslta.h"
-    #include "msemseoptional.h"
+    #include "mseoptional.h"
     #include "msealgorithm.h"
     
     int main(int argc, char* argv[]) {
