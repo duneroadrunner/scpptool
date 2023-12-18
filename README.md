@@ -7,7 +7,7 @@ scpptool is a command line tool to help enforce a memory and data race safe subs
 
 This safety necessarily comes at some (modest) expense of either flexibility or performance. Elements with a choice of tradeoffs are provided in the SaferCPlusPlus library. The goal is not to introduce new coding paradigms, but instead to impose only the minimum restrictions and departures from traditional C++ necessary to achieve practical performant memory safety.
 
-Unfortunately even these minimized changes are not insignificant. For example, the tool does not support the standard library containers, but instead provides largely compatible replacement implementations. The other big restriction probably being that null values are not supported for raw pointers.
+Unfortunately even these minimized changes are not insignificant. For example, the tool considers the standard library containers "unsafe" (and will complain when they are used), and instead provides largely compatible replacement implementations. The other big restriction probably being that null values are not supported for raw pointers.
 
 A notable difference between this tool and some others in development and in other languages is that the safe subset it enforces is (like traditional C++) not "flow sensitive". That is, whether an operation is allowed (by the tool/compiler) or not depends only on the declaration of the elements involved, not any other preceding operations or code. This is(/was) a common property of "statically typed" languages, that [arguably](#flow-insensitive-analysis) contributes to "scalability".
 
