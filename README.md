@@ -64,7 +64,23 @@ So for example:
 
 `scpptool hello_world.cpp -- -I./msetl -std=c++17 -I'/home/user1/clang+llvm-15.0.6-x86_64-linux-gnu-ubuntu-18.04/lib/clang/15.0.6/include'`
 
-(If you happen to have version 15 of the clang compiler installed on your system then you may be able to omit the lengthy "include directory specifier" option.) Note that (though not necessary) you might want to include `-DMSE_SCOPEPOINTER_DISABLED` in the compiler options. This disables the enforcement of the [scope](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#scope-pointers) object restrictions by the SaferCPlusPlus library via the type system, as scpptool will itself enforce those restrictions.
+Note that (though not necessary) you might want to include `-DMSE_SCOPEPOINTER_DISABLED` in the compiler options. This disables the enforcement of the [scope](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#scope-pointers) object restrictions by the SaferCPlusPlus library via the type system, as scpptool will itself enforce the necessary restrictions.
+
+If you happen to have version 15 of the clang compiler installed on your system then you may be able to omit the last lengthy "include directory specifier" option. Otherwise, you can make a bash script that automatically adds it. For example, you might create an (executable) script file called `myscpptool.sh` that might contain something like:
+
+```bash
+#!/bin/bash
+
+# obtaining the directory of this script file, which we'll assume also contains the scpptool executable
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
+# executing scpptool with the given arguments and an additional include argument for the standard headers needed by scpptool
+$SCRIPT_DIR/scpptool $@ -I'/home/user1/clang+llvm-15.0.6-x86_64-linux-gnu-ubuntu-18.04/lib/clang/15.0.6/include/' -DMSE_SCOPEPOINTER_DISABLED
+```
+
+So that you could then, for example, invoke scpptool like so:
+
+`myscpptool.sh hello_world.cpp -- -I./msetl -std=c++17`
 
 ### Local Suppression of the Checks
 
