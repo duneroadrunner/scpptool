@@ -66,7 +66,7 @@ So for example:
 
 Note that (though not necessary) you might want to include `-DMSE_SCOPEPOINTER_DISABLED` in the compiler options. This disables the enforcement of the [scope](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#scope-pointers) object restrictions by the SaferCPlusPlus library via the type system, as scpptool will itself enforce the necessary restrictions.
 
-If you happen to have version 15 of the clang compiler installed on your system then you may be able to omit the last lengthy "include directory specifier" option. Otherwise, you can make a bash script that automatically adds it. For example, you might create an (executable) script file called `myscpptool.sh` that might contain something like:
+If you happen to have version 15 of the clang compiler installed on your system then you may be able to omit the lengthy last "include directory specifier" option. Otherwise, you can make a bash script that automatically adds it. For example, you might create an (executable) script file called `myscpptool.sh` that might contain something like:
 
 ```bash
 #!/bin/bash
