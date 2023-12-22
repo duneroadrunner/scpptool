@@ -694,7 +694,7 @@ usage example: ([link to interactive version](https://godbolt.org/z/Mqc737Wan))
 
 A "random access section" is basically a convenient interface to access a (contiguous) subsection of an existing array or vector. You construct them, using the `make_xslta_random_access_section(...)` functions, by specifying an iterator to the start of the section, and the length of the section. Random access sections support most of the member functions and operators that [std::basic_string_view](http://en.cppreference.com/w/cpp/string/basic_string_view) does, except that the "[substr()](http://en.cppreference.com/w/cpp/string/basic_string_view/substr)" member function is named "xslta_subsection()".
 
-Note that for convenience, random access sections can be constructed from just a pointer or reference to a supported container object.
+Note that for convenience, random access sections can be constructed from just a pointer or reference to a supported container object. Also note that these `TXSLTARandomAccessSection<>`s are not the library elements that most directly correspond to `std::span<>`s, as they are "tied" to the iterator type of their template argument. [`TXSLTACSSSXSTERandomAccessSection<>`](#txsltacsssxsterandomaccessiterator-and-txsltacsssxsterandomaccesssection)s more closely correspond to `std::span<>`s.
 
 usage example: ([link to interactive version](https://godbolt.org/z/Tj7hajxz6))
 
