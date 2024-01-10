@@ -1,5 +1,5 @@
 
-July 2023
+Jan 2024
 
 ### Overview
 
@@ -37,7 +37,7 @@ Note that this tool is still in development and not well tested.
         5. [TXSLTARandomAccessSection, TXSLTARandomAccessConstSection](#txsltarandomaccesssection-txsltarandomaccessconstsection)
         6. [TXSLTACSSSXSTERandomAccessIterator and TXSLTACSSSXSTERandomAccessSection](#txsltacsssxsterandomaccessiterator-and-txsltacsssxsterandomaccesssection)
         7. [xslta_optional, xslta_fixed_optional, xslta_borrowing_fixed_optional](#xslta_optional-xslta_fixed_optional-xslta_borrowing_fixed_optional)
-		</details>
+        </details>
     5. [SaferCPlusPlus elements](#safercplusplus-elements)
     6. [Elements not (yet) addressed](#elements-not-yet-addressed)
 6. [Autotranslation](#autotranslation)
@@ -138,8 +138,8 @@ By default, this tool enforces that targets of scope (raw) pointers outlive the 
 typedef int* int_ptr_t;
 
 void foo1(int_ptr_t& i1_ptr_ref, int_ptr_t& i2_ptr_ref) {
-	int_ptr_t i3_ptr = i1_ptr_ref; // clearly safe
-	i2_ptr_ref = i1_ptr_ref; // ???
+    int_ptr_t i3_ptr = i1_ptr_ref; // clearly safe
+    i2_ptr_ref = i1_ptr_ref; // ???
 }
 ```
 
@@ -292,12 +292,12 @@ Ok, but if we want to use our annotated `CLARefObj1` type as a reference type, y
 struct CLARefObj1 {
     CLARefObj1(int* i_ptr MSE_ATTR_PARAM_STR("mse::lifetime_label(99)")) : m_i_ptr(i_ptr) {}
 
-	int& operator*() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(99) }") {
-		return *m_i_ptr;
-	}
-	int* operator->() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(99) }") {
-		return m_i_ptr;
-	}
+    int& operator*() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(99) }") {
+        return *m_i_ptr;
+    }
+    int* operator->() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(99) }") {
+        return m_i_ptr;
+    }
 
     int* m_i_ptr MSE_ATTR_STR("mse::lifetime_label(99)");
 } MSE_ATTR_STR("mse::lifetime_label(99)");
@@ -328,12 +328,12 @@ struct CLARefObj2 {
     CLARefObj2(int* i_ptr MSE_ATTR_PARAM_STR("mse::lifetime_label(99)"), float* fl_ptr MSE_ATTR_PARAM_STR("mse::lifetime_label(42)"))
         : m_i_ptr(i_ptr), m_fl_ptr(fl_ptr) {}
 
-	int* first() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(99) }") {
-		return m_i_ptr;
-	}
-	float* second() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(42) }") {
-		return m_fl_ptr;
-	}
+    int* first() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(99) }") {
+        return m_i_ptr;
+    }
+    float* second() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(42) }") {
+        return m_fl_ptr;
+    }
 
     int* m_i_ptr MSE_ATTR_STR("mse::lifetime_label(99)");
     float* m_fl_ptr MSE_ATTR_STR("mse::lifetime_label(42)");
@@ -351,12 +351,12 @@ struct TLARefObj2 {
         , U val2 MSE_ATTR_PARAM_STR("mse::lifetime_label(alias_12$)"))
         : m_val1(val1), m_val2(val2) {}
 
-	T first() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(alias_11$) }") {
-		return m_val1;
-	}
-	U second() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(alias_12$) }") {
-		return m_val2;
-	}
+    T first() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(alias_11$) }") {
+        return m_val1;
+    }
+    U second() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(alias_12$) }") {
+        return m_val2;
+    }
 
     T m_val1 MSE_ATTR_STR("mse::lifetime_label(alias_11$)");
     U m_val2 MSE_ATTR_STR("mse::lifetime_label(alias_12$)");
@@ -400,20 +400,20 @@ In the [first example](#annotating-function-interfaces) we saw a straightforward
 ```cpp
 template<typename T>
 void swap1(T& item1 MSE_ATTR_PARAM_STR("mse::lifetime_label(42 [alias_421$])"), T& item2 MSE_ATTR_PARAM_STR("mse::lifetime_label(99 [alias_991$])"))
-	MSE_ATTR_FUNC_STR("mse::lifetime_set_alias_from_template_parameter_by_name(T, alias_421$)")
-	MSE_ATTR_FUNC_STR("mse::lifetime_set_alias_from_template_parameter_by_name(T, alias_991$)")
-	MSE_ATTR_FUNC_STR("mse::lifetime_labels(42, 99, alias_421$, alias_991$)")
-	MSE_ATTR_FUNC_STR("mse::lifetime_notes{ encompasses(alias_421$, alias_991$); encompasses(alias_991$, alias_421$) }")
+    MSE_ATTR_FUNC_STR("mse::lifetime_set_alias_from_template_parameter_by_name(T, alias_421$)")
+    MSE_ATTR_FUNC_STR("mse::lifetime_set_alias_from_template_parameter_by_name(T, alias_991$)")
+    MSE_ATTR_FUNC_STR("mse::lifetime_labels(42, 99, alias_421$, alias_991$)")
+    MSE_ATTR_FUNC_STR("mse::lifetime_notes{ encompasses(alias_421$, alias_991$); encompasses(alias_991$, alias_421$) }")
 {
-	MSE_SUPPRESS_CHECK_IN_XSCOPE std::swap(item1, item2);
+    MSE_SUPPRESS_CHECK_IN_XSCOPE std::swap(item1, item2);
 }
 
 template<typename T>
 void swap2(T& item1 MSE_ATTR_PARAM_STR("mse::lifetime_label(42)"), T& item2 MSE_ATTR_PARAM_STR("mse::lifetime_label(99)"))
-	MSE_ATTR_FUNC_STR("mse::lifetime_labels(42, 99)")
-	MSE_ATTR_FUNC_STR("mse::lifetime_notes{ first_can_be_assigned_to_second(42, 99); first_can_be_assigned_to_second(99, 42) }")
+    MSE_ATTR_FUNC_STR("mse::lifetime_labels(42, 99)")
+    MSE_ATTR_FUNC_STR("mse::lifetime_notes{ first_can_be_assigned_to_second(42, 99); first_can_be_assigned_to_second(99, 42) }")
 {
-	MSE_SUPPRESS_CHECK_IN_XSCOPE std::swap(item1, item2);
+    MSE_SUPPRESS_CHECK_IN_XSCOPE std::swap(item1, item2);
 }
 ```
 
@@ -425,7 +425,26 @@ In the annotation of the `swap2()` function, we introduce the use of the `first_
 
 ##### Annotating base classes
 
-Just to mention it, base classes are, in terms of lifetime annotations, conceptually treated just like member fields. You can use the `labels_for_base_class()` annotation (on the derived type) to assign lifetime labels to the first base class.
+Base classes are, in terms of lifetime annotations, conceptually treated just like member fields. You can use the `labels_for_base_class()` annotation (on the derived type) to assign lifetime labels to the first base class.
+
+```cpp
+    struct CLARefObj1 {
+        CLARefObj1(int* i_ptr MSE_ATTR_PARAM_STR("mse::lifetime_label(99)")) : m_i_ptr(i_ptr) {}
+
+        int& operator*() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(99) }") {
+            return *m_i_ptr;
+        }
+        int* operator->() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(99) }") {
+            return m_i_ptr;
+        }
+
+        int* m_i_ptr MSE_ATTR_STR("mse::lifetime_label(99)");
+    } MSE_ATTR_STR("mse::lifetime_label(99)");
+
+    struct CLARefObj11 : public CLARefObj1 {
+        CLARefObj11(int* i_ptr MSE_ATTR_PARAM_STR("mse::lifetime_label(99)")) : CLARefObj1(i_ptr) {}
+    } MSE_ATTR_STR("mse::lifetime_label(99)") MSE_ATTR_STR("mse::lifetime_label_for_base_class(99)");
+```
 
 ##### Lifetime elision
 
