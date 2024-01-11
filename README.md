@@ -367,6 +367,16 @@ struct TLARefObj2 {
 
 We use the `mse::lifetime_set_alias_from_template_parameter_by_name()` annotation to define a lifetime label alias for the set of (reference) lifetimes the specified template parameter type has (or rather, will have whenever the template is instantiated).
 
+##### Annotating base classes
+
+Base classes are, in terms of lifetime annotations, conceptually treated just like member fields. You can use the `labels_for_base_class()` annotation (on the derived type) to assign lifetime labels to the first base class.
+
+```cpp
+    struct CLARefObj11 : public CLARefObj1 {
+        CLARefObj11(int* i_ptr MSE_ATTR_PARAM_STR("mse::lifetime_label(42)")) : CLARefObj1(i_ptr) {}
+    } MSE_ATTR_STR("mse::lifetime_label(42)") MSE_ATTR_STR("mse::lifetime_label_for_base_class(42)");
+```
+
 ##### Accessing sublifetimes
 
 Now, if we can revisit the earlier part where we were learning to associate lifetime labels with function parameters, and consider a situation where we are interested in, not the lifetime of the parameter directly, but perhaps the lifespan (lower bound) of an object that the parameter references. We can use the `CLARefObj2` `struct` we defined earlier for this example:
@@ -422,29 +432,6 @@ Note that the `swap` functions take (raw) reference parameters. Determining whet
 So in our annotation of the `swap1()` function we assign "lifetime set alias" labels to the sublifetimes (if any) of the arguments. Then we use the `encompasses` constraint to ensure that none of the sublifetimes of one argument outlives the corresponding sublifetime of the other.
 
 In the annotation of the `swap2()` function, we introduce the use of the `first_can_be_assigned_to_second` constraint to make the annotation a little cleaner. The `first_can_be_assigned_to_second` constraint is similar to the `encompasses` constraint except that it ignores the "direct" lifetime (lower bound) and only constrains the sublifetimes (if any). Using the `first_can_be_assigned_to_second` constraint eliminates the need to assign lifetime (set alias) labels to the argument sublifetimes.
-
-##### Annotating base classes
-
-Base classes are, in terms of lifetime annotations, conceptually treated just like member fields. You can use the `labels_for_base_class()` annotation (on the derived type) to assign lifetime labels to the first base class.
-
-```cpp
-    struct CLARefObj1 {
-        CLARefObj1(int* i_ptr MSE_ATTR_PARAM_STR("mse::lifetime_label(99)")) : m_i_ptr(i_ptr) {}
-
-        int& operator*() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(99) }") {
-            return *m_i_ptr;
-        }
-        int* operator->() const MSE_ATTR_FUNC_STR("mse::lifetime_notes{ return_value(99) }") {
-            return m_i_ptr;
-        }
-
-        int* m_i_ptr MSE_ATTR_STR("mse::lifetime_label(99)");
-    } MSE_ATTR_STR("mse::lifetime_label(99)");
-
-    struct CLARefObj11 : public CLARefObj1 {
-        CLARefObj11(int* i_ptr MSE_ATTR_PARAM_STR("mse::lifetime_label(99)")) : CLARefObj1(i_ptr) {}
-    } MSE_ATTR_STR("mse::lifetime_label(99)") MSE_ATTR_STR("mse::lifetime_label_for_base_class(99)");
-```
 
 ##### Lifetime elision
 
