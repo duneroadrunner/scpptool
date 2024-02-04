@@ -1210,7 +1210,7 @@ namespace checker {
 		return tl_known_dynamic_nonowning_container_names;
 	}
 
-	inline bool is_recognized_dynamic_container(clang::QualType const& qtype) {
+	inline bool is_recognized_unprotected_dynamic_container(clang::QualType const& qtype) {
 		bool retval = false;
 		auto const peeled_qtype = remove_mse_transparent_wrappers(qtype);
 		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
@@ -1262,7 +1262,7 @@ namespace checker {
 					if (maybe_qtype2.has_value()) {
 						auto maybe_qtype3 = get_first_template_parameter_if_any(remove_mse_transparent_wrappers(maybe_qtype2.value()));
 						if (maybe_qtype3.has_value()) {
-							retval |= is_recognized_dynamic_container(remove_mse_transparent_wrappers(maybe_qtype3.value()));
+							retval |= is_recognized_unprotected_dynamic_container(remove_mse_transparent_wrappers(maybe_qtype3.value()));
 						} else {
 							return true;
 						}
@@ -1274,6 +1274,252 @@ namespace checker {
 		}
 
 		return retval;
+	}
+
+	inline bool is_recognized_protected_dynamic_owning_container(clang::QualType const& qtype) {
+		bool retval = false;
+		auto const peeled_qtype = remove_mse_transparent_wrappers(qtype);
+		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(peeled_qtype, retval);
+
+		thread_local std::vector<std::string> tl_known_dynamic_owning_container_names;
+		thread_local std::unordered_set<std::string_view> known_dynamic_owning_container_name_svs;
+		thread_local std::unordered_set<std::string_view> known_dynamic_owning_container_truncated_name_svs;
+		thread_local size_t length_of_shortest_container_name = 0;
+		if (0 == known_dynamic_owning_container_name_svs.size()) {
+			tl_known_dynamic_owning_container_names = known_protected_dynamic_owning_container_names();
+
+			if (tl_known_dynamic_owning_container_names.size() > 0) {
+				length_of_shortest_container_name = tl_known_dynamic_owning_container_names.front().length();
+			}
+
+			for (auto& name : tl_known_dynamic_owning_container_names) {
+				known_dynamic_owning_container_name_svs.insert(name);
+				if (name.length() < length_of_shortest_container_name) {
+					length_of_shortest_container_name = name.length();
+				}
+			}
+			for (auto name_sv : known_dynamic_owning_container_name_svs) {
+				known_dynamic_owning_container_truncated_name_svs.insert(name_sv.substr(0, length_of_shortest_container_name));
+			}
+		}
+
+		const auto CXXRD = peeled_qtype.getTypePtr()->getAsCXXRecordDecl();
+		if (CXXRD) {
+			auto qname = CXXRD->getQualifiedNameAsString();
+			std::string_view qname_sv{ qname };
+
+			if (string_begins_with(qname_sv, mse_namespace_str()) || (string_begins_with(qname_sv, "std"))
+				|| (string_begins_with(qname_sv, "__gnu_cxx"))) {
+
+				auto truncated_qname_sv = qname_sv.substr(0, length_of_shortest_container_name);
+				auto found_it = known_dynamic_owning_container_truncated_name_svs.find(truncated_qname_sv);
+				if (known_dynamic_owning_container_truncated_name_svs.end() != found_it) {
+					for (auto const & name : tl_known_dynamic_owning_container_names) {
+						if (string_begins_with(qname_sv, name)) {
+							return true;
+						}
+					}
+				}
+				if (string_begins_with(qname_sv, "::us::impl::ns_ra_iter::TRAIteratorBase") || string_begins_with(qname_sv, "::us::impl::ns_ra_iter::TRAConstIteratorBase")) {
+					auto maybe_qtype2 = get_first_template_parameter_if_any(peeled_qtype);
+					if (maybe_qtype2.has_value()) {
+						auto maybe_qtype3 = get_first_template_parameter_if_any(remove_mse_transparent_wrappers(maybe_qtype2.value()));
+						if (maybe_qtype3.has_value()) {
+							retval |= is_recognized_protected_dynamic_owning_container(remove_mse_transparent_wrappers(maybe_qtype3.value()));
+						} else {
+							return true;
+						}
+					} else {
+						return true;
+					}
+				}
+			}
+		}
+
+		return retval;
+	}
+
+	inline bool is_recognized_owning_container(clang::QualType const& qtype) {
+		bool retval = false;
+		auto const peeled_qtype = remove_mse_transparent_wrappers(qtype);
+		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(peeled_qtype, retval);
+
+		thread_local std::vector<std::string> tl_known_container_names;
+		thread_local std::unordered_set<std::string_view> known_container_name_svs;
+		thread_local std::unordered_set<std::string_view> known_container_truncated_name_svs;
+		thread_local size_t length_of_shortest_container_name = 0;
+		if (0 == known_container_name_svs.size()) {
+			tl_known_container_names = known_unprotected_dynamic_owning_container_names();
+
+			auto tmp_known_protected_owning_container_names = known_protected_dynamic_owning_container_names();
+			tl_known_container_names.insert(tl_known_container_names.end(), tmp_known_protected_owning_container_names.begin(), tmp_known_protected_owning_container_names.end());
+
+			auto tmp_known_fixed_owning_container_names = known_fixed_owning_container_names();
+			tl_known_container_names.insert(tl_known_container_names.end(), tmp_known_fixed_owning_container_names.begin(), tmp_known_fixed_owning_container_names.end());
+
+			if (tl_known_container_names.size() > 0) {
+				length_of_shortest_container_name = tl_known_container_names.front().length();
+			}
+
+			for (auto& name : tl_known_container_names) {
+				known_container_name_svs.insert(name);
+				if (name.length() < length_of_shortest_container_name) {
+					length_of_shortest_container_name = name.length();
+				}
+			}
+			for (auto name_sv : known_container_name_svs) {
+				known_container_truncated_name_svs.insert(name_sv.substr(0, length_of_shortest_container_name));
+			}
+		}
+
+		const auto CXXRD = peeled_qtype.getTypePtr()->getAsCXXRecordDecl();
+		if (CXXRD) {
+			auto qname = CXXRD->getQualifiedNameAsString();
+			std::string_view qname_sv{ qname };
+
+			if (string_begins_with(qname_sv, mse_namespace_str()) || (string_begins_with(qname_sv, "std"))
+				|| (string_begins_with(qname_sv, "__gnu_cxx"))) {
+
+				auto truncated_qname_sv = qname_sv.substr(0, length_of_shortest_container_name);
+				auto found_it = known_container_truncated_name_svs.find(truncated_qname_sv);
+				if (known_container_truncated_name_svs.end() != found_it) {
+					for (auto const & name : tl_known_container_names) {
+						if (string_begins_with(qname_sv, name)) {
+							return true;
+						}
+					}
+				}
+			}
+		}
+
+		return retval;
+	}
+
+	inline void apply_to_all_owned_types(std::optional<clang::Decl const *> maybe_D, clang::QualType qtype, const std::function<void(std::optional<clang::Decl const *>, clang::QualType qtype)>& fn1) {
+		MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype);
+		IF_DEBUG(const auto qtype_str = qtype.getAsString();)
+
+		if (is_recognized_owning_container(qtype)) {
+			auto template_args_maybe_types = get_template_args_maybe_types(qtype);
+			for (auto& template_arg_maybe_type: template_args_maybe_types) {
+				if (template_arg_maybe_type.has_value()) {
+					auto template_arg_qtype = template_arg_maybe_type.value();
+					IF_DEBUG(auto template_arg_qtype_str = template_arg_qtype.getAsString();)
+
+					apply_to_all_owned_types(maybe_D, template_arg_qtype, fn1);
+				}
+			}
+		}
+
+		const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+		if (CXXRD) {
+			for (auto& CXXBS : CXXRD->bases()) {
+				const auto base_qtype = CXXBS.getType();
+				IF_DEBUG(const auto base_qtype_str = base_qtype.getAsString();)
+
+				apply_to_all_owned_types(CXXRD, base_qtype, fn1);
+			}
+		}
+
+		auto RD = qtype.getTypePtr()->getAsRecordDecl();
+		if (RD) {
+			auto qname = RD->getQualifiedNameAsString();
+
+			for (const auto FD : RD->fields()) {
+				const auto field_qtype = FD->getType();
+				IF_DEBUG(const auto field_qtype_str = field_qtype.getAsString();)
+
+				apply_to_all_owned_types(FD, field_qtype, fn1);
+			}
+		}
+
+		fn1(maybe_D, qtype);
+	}
+
+	inline void check_for_unannotated_references_in_dynamic_containers(clang::Decl const& decl_cref, clang::QualType qtype, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
+		auto& root_decl_cref = decl_cref;
+		auto lambda1 = [&root_decl_cref, &state1, &MR_ptr, &Rewrite_ptr](std::optional<clang::Decl const *> maybe_D, clang::QualType qtype) {
+			if (is_recognized_protected_dynamic_owning_container(qtype)) {
+				auto& maybe_dynamic_owning_container_D = maybe_D;
+
+				auto check_for_unannotated_reference_shallow = 
+					[&root_decl_cref, &maybe_dynamic_owning_container_D, &state1, &MR_ptr, &Rewrite_ptr]
+					(std::optional<clang::Decl const *> maybe_D, clang::QualType qtype) {
+
+					auto D = &root_decl_cref;
+					if (maybe_D.has_value() && maybe_D.value()) {
+						D = maybe_D.value();
+					} else if (maybe_dynamic_owning_container_D.has_value() && maybe_dynamic_owning_container_D.value()) {
+						D = maybe_dynamic_owning_container_D.value();
+					}
+					auto SR = Rewrite_ptr ? nice_source_range(D->getSourceRange(), *Rewrite_ptr)
+						: D->getSourceRange();
+
+					RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+					if (MR_ptr) {
+						auto MR = *MR_ptr;
+						RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+					}
+
+					if (qtype->isReferenceType() || is_raw_pointer_or_equivalent(qtype)) {
+						bool is_lt_annotated = false;
+						auto VD = dyn_cast<const clang::VarDecl>(D);
+						if (VD) {
+							if (state1.corresponding_abstract_lifetime_set_if_any(VD).has_value()) {
+								is_lt_annotated = true;
+							}
+						} else {
+							auto FD = dyn_cast<const clang::FieldDecl>(D);
+							if (FD) {
+								if (state1.corresponding_abstract_lifetime_set_if_any(FD).has_value()) {
+									is_lt_annotated = true;
+								}
+							}
+						}
+
+						if (!is_lt_annotated) {
+							if (MR_ptr) {
+								auto dynamic_owning_container_SR = SR;
+								std::string of_container_type_str;
+
+								if (maybe_dynamic_owning_container_D.has_value() && maybe_dynamic_owning_container_D.value()) {
+									auto dynamic_owning_container_D = maybe_dynamic_owning_container_D.value();
+
+									dynamic_owning_container_SR = Rewrite_ptr ? nice_source_range(dynamic_owning_container_D->getSourceRange(), *Rewrite_ptr)
+										: dynamic_owning_container_D->getSourceRange();
+
+									std::optional<clang::QualType> maybe_container_qtype;
+									auto VD = dyn_cast<const clang::VarDecl>(dynamic_owning_container_D);
+									if (VD) {
+										maybe_container_qtype = VD->getType();
+									} else {
+										auto FD = dyn_cast<const clang::FieldDecl>(dynamic_owning_container_D);
+										if (FD) {
+											maybe_container_qtype = FD->getType();
+										}
+									}
+									if (maybe_container_qtype.has_value()) {
+										auto container_qtype = maybe_container_qtype.value();
+	
+										of_container_type_str = std::string(" (of type ") + get_as_quoted_string_for_errmsg(container_qtype) + ")";
+									}
+								}
+
+								std::string error_desc = std::string("Unannotated raw pointer or reference (of type ") + get_as_quoted_string_for_errmsg(qtype)
+									+ ") contained in dynamic container" + of_container_type_str + " is not supported.";
+								state1.register_error(*(MR_ptr->SourceManager), dynamic_owning_container_SR, error_desc);
+							}
+						}
+					}
+				};
+
+				apply_to_all_owned_types(maybe_D, qtype, check_for_unannotated_reference_shallow);
+			}
+		};
+
+		apply_to_all_owned_types(&decl_cref, qtype, lambda1);
 	}
 
 	inline bool contains_non_owning_scope_reference(const clang::QualType qtype, const CCommonTUState1& tu_state_cref, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr);
@@ -3962,7 +4208,7 @@ namespace checker {
 				IF_DEBUG(const std::string this_qtype_str = this_qtype.getAsString();)
 				if (!(this_qtype.isNull())) {
 					auto this_pointee_qtype = this_qtype->getPointeeType();
-					could_be_a_dynamic_container_accessor |= is_recognized_dynamic_container(this_pointee_qtype);
+					could_be_a_dynamic_container_accessor |= is_recognized_unprotected_dynamic_container(this_pointee_qtype);
 				}
 			}
 			if (!could_be_a_dynamic_container_accessor) {
@@ -9723,7 +9969,7 @@ namespace checker {
 					}
 					if (IOA_E) {
 						if (!is_known_to_be_const_declared_variable(IOA_E)) {
-							could_be_a_dynamic_container_accessor |= is_recognized_dynamic_container(IOA_E->getType());
+							could_be_a_dynamic_container_accessor |= is_recognized_unprotected_dynamic_container(IOA_E->getType());
 						}
 					}
 				}
@@ -12520,6 +12766,8 @@ namespace checker {
 					IF_DEBUG(auto DD_qtype_str = DD_qtype.getAsString();)
 					MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(DD_qtype);
 					const auto TST = DD_qtype->getAs<clang::TemplateSpecializationType>();
+
+					check_for_unannotated_references_in_dynamic_containers(*DD, qtype, m_state1, &MR, &Rewrite);
 
 					auto rhs_res = evaluate_declaration_rhs_lower_bound_lifetimes(MR, Rewrite, m_state1, DD);
 					MSE_RETURN_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(rhs_res);
