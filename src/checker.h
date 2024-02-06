@@ -9627,39 +9627,57 @@ namespace checker {
 
 						auto& IOA_type_lifetime_set_cref = tla_ref.m_lifetime_set;
 
-						auto lambda1 = [&](bool for_lhs_of_assignment = false) -> CMaybeExpressionLifetimeValuesWithHints {
-							auto maybe_expr_lifetime_value = for_lhs_of_assignment ? evaluate_expression_lhs_lower_bound_lifetimes(state1, IOA_E, Ctx, MR_ptr, Rewrite_ptr)
-								: evaluate_expression_rhs_lower_bound_lifetimes(state1, IOA_E, Ctx, MR_ptr, Rewrite_ptr);
-							MSE_RETURN_VALUE_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(maybe_expr_lifetime_value, maybe_expr_lifetime_value);
-							if (maybe_expr_lifetime_value.has_value()) {
-								auto &this_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
-								(for_lhs_of_assignment ? maybe_this_lhs_slti : maybe_this_rhs_slti) = this_slti;
+						if (0 != IOA_type_lifetime_set_cref.m_primary_lifetimes.size()) {
+							auto lambda1 = [&](bool for_lhs_of_assignment = false) -> CMaybeExpressionLifetimeValuesWithHints {
+								auto maybe_expr_lifetime_value = for_lhs_of_assignment ? evaluate_expression_lhs_lower_bound_lifetimes(state1, IOA_E, Ctx, MR_ptr, Rewrite_ptr)
+									: evaluate_expression_rhs_lower_bound_lifetimes(state1, IOA_E, Ctx, MR_ptr, Rewrite_ptr);
+								MSE_RETURN_VALUE_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(maybe_expr_lifetime_value, maybe_expr_lifetime_value);
+								if (maybe_expr_lifetime_value.has_value()) {
+									auto &this_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
+									(for_lhs_of_assignment ? maybe_this_lhs_slti : maybe_this_rhs_slti) = this_slti;
 
-								/* The actual lifetime values for this object are available. */
-								auto& sublifetime_values_ref = this_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos;
+									/* The actual lifetime values for this object are available. */
+									auto sublifetime_values_ptr = &(this_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos);
+									auto& tmp1_sublifetime_values_ref = this_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos;
+									auto sltv_size1 = (*sublifetime_values_ptr).size();
 
-								const auto IOA_type_abstract_lifetime_end_iter = IOA_type_lifetime_set_cref.m_primary_lifetimes.cend();
-								auto IOA_type_abstract_lifetime_iter1 = IOA_type_lifetime_set_cref.m_primary_lifetimes.cbegin();
-								const auto IOA_lifetime_values_end_iter = sublifetime_values_ref.end();
-								auto IOA_lifetime_values_iter1 = sublifetime_values_ref.begin();
-								/* Here we are iterating over each of the object type's (annotated) abstract lifetimes. */
-								for (; (IOA_type_abstract_lifetime_end_iter != IOA_type_abstract_lifetime_iter1) && (IOA_lifetime_values_end_iter != IOA_lifetime_values_iter1)
-									; IOA_type_abstract_lifetime_iter1++, IOA_lifetime_values_iter1++) {
+									auto default_sublifetime_values = std::vector<CScopeLifetimeInfo1>{ IOA_type_lifetime_set_cref.m_primary_lifetimes.size(), this_slti };
 
-									/* Here we're adding a mapping between each abstract lifetime (of the object's type) and the actual lifetime
-									value (assigned at object initialization) associated with it. */
-									auto& IOA_type_maybe_lifetime_value_map = for_lhs_of_assignment ? IOA_type_lhs_maybe_lifetime_value_map : IOA_type_rhs_maybe_lifetime_value_map;
-									IOA_type_maybe_lifetime_value_map.insert_or_assign( *IOA_type_abstract_lifetime_iter1, *IOA_lifetime_values_iter1 );
+									if ((*sublifetime_values_ptr).size() != IOA_type_lifetime_set_cref.m_primary_lifetimes.size()) {
+										/* For some reason the number of evaluated lifetime values does not match the number of declared lifetimes. */
+										if (0 != (*sublifetime_values_ptr).size()) {
+											if (MR_ptr && (!errors_suppressed_flag)) {
+												std::string error_desc = std::string("Unable to deduce all the lifetime values associated with the implicit object (of type ") + get_as_quoted_string_for_errmsg(IOA_E->getType()) + ").";
+												state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
+											}
+										}
+										sublifetime_values_ptr = &default_sublifetime_values;
+									}
+									auto& sublifetime_values_ref = *sublifetime_values_ptr;
+
+									const auto IOA_type_abstract_lifetime_end_iter = IOA_type_lifetime_set_cref.m_primary_lifetimes.cend();
+									auto IOA_type_abstract_lifetime_iter1 = IOA_type_lifetime_set_cref.m_primary_lifetimes.cbegin();
+									const auto IOA_lifetime_values_end_iter = sublifetime_values_ref.end();
+									auto IOA_lifetime_values_iter1 = sublifetime_values_ref.begin();
+									/* Here we are iterating over each of the object type's (annotated) abstract lifetimes. */
+									for (; (IOA_type_abstract_lifetime_end_iter != IOA_type_abstract_lifetime_iter1) && (IOA_lifetime_values_end_iter != IOA_lifetime_values_iter1)
+										; IOA_type_abstract_lifetime_iter1++, IOA_lifetime_values_iter1++) {
+
+										/* Here we're adding a mapping between each abstract lifetime (of the object's type) and the actual lifetime
+										value (assigned at object initialization) associated with it. */
+										auto& IOA_type_maybe_lifetime_value_map = for_lhs_of_assignment ? IOA_type_lhs_maybe_lifetime_value_map : IOA_type_rhs_maybe_lifetime_value_map;
+										IOA_type_maybe_lifetime_value_map.insert_or_assign( *IOA_type_abstract_lifetime_iter1, *IOA_lifetime_values_iter1 );
+									}
 								}
-							}
-							return {};
-						};
+								return {};
+							};
 
-						auto rhs_res = lambda1(false/*for_lhs_of_assignment*/);
-						MSE_RETURN_VALUE_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(rhs_res, {});
+							auto rhs_res = lambda1(false/*for_lhs_of_assignment*/);
+							MSE_RETURN_VALUE_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(rhs_res, {});
 
-						auto lhs_res = lambda1(true/*for_lhs_of_assignment*/);
-						MSE_RETURN_VALUE_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(lhs_res, {});
+							auto lhs_res = lambda1(true/*for_lhs_of_assignment*/);
+							MSE_RETURN_VALUE_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(lhs_res, {});
+						}
 					} else {
 						int q = 3;
 					}
