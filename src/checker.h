@@ -1397,7 +1397,9 @@ namespace checker {
 		return retval;
 	}
 
-	inline void apply_to_all_owned_types(clang::QualType qtype, const std::function<void(clang::QualType qtype, std::optional<clang::Decl const *>)>& fn1, std::optional<clang::Decl const *> maybe_D = {}) {
+	inline void apply_to_all_owned_types(clang::QualType qtype, const std::function<void(clang::QualType qtype, std::optional<clang::Decl const *>, std::optional<clang::CXXBaseSpecifier const *>)>& fn1
+		, std::optional<clang::Decl const *> maybe_D = {}, std::optional<clang::CXXBaseSpecifier const *> maybe_CXXBS = {}) {
+
 		MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype);
 		IF_DEBUG(const auto qtype_str = qtype.getAsString();)
 
@@ -1419,7 +1421,7 @@ namespace checker {
 				const auto base_qtype = CXXBS.getType();
 				IF_DEBUG(const auto base_qtype_str = base_qtype.getAsString();)
 
-				apply_to_all_owned_types(base_qtype, fn1, CXXRD);
+				apply_to_all_owned_types(base_qtype, fn1, CXXRD, &CXXBS);
 			}
 		}
 
@@ -1435,7 +1437,7 @@ namespace checker {
 			}
 		}
 
-		fn1(qtype, maybe_D);
+		fn1(qtype, maybe_D, maybe_CXXBS);
 	}
 
 	inline bool contains_non_owning_scope_reference(const clang::QualType qtype, const CCommonTUState1& tu_state_cref, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr);
@@ -1445,7 +1447,7 @@ namespace checker {
 		const auto qtype = get_cannonical_type(clang::QualType(&type, 0/*I'm just assuming zero specifies no qualifiers*/));
 		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
 
-		auto contains_non_owning_scope_reference_shallow = [&retval, &tu_state_cref, &MR_ptr, &Rewrite_ptr](clang::QualType qtype_param, std::optional<clang::Decl const *> maybe_D = {}) {
+		auto contains_non_owning_scope_reference_shallow = [&retval, &tu_state_cref, &MR_ptr, &Rewrite_ptr](clang::QualType qtype_param, std::optional<clang::Decl const *> maybe_D = {}, std::optional<clang::CXXBaseSpecifier const *> maybe_CXXBS = {}) {
 			if (retval) {
 				return;
 			}
@@ -12683,7 +12685,7 @@ namespace checker {
 
 	inline void check_for_unannotated_reference_objects_in_dynamic_containers(clang::Decl const& decl_cref, clang::QualType qtype, CTUState& state1, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
 		auto& root_decl_cref = decl_cref;
-		auto lambda1 = [&root_decl_cref, &state1, &MR_ptr, &Rewrite_ptr](clang::QualType qtype, std::optional<clang::Decl const *> maybe_D = {}) {
+		auto lambda1 = [&root_decl_cref, &state1, &MR_ptr, &Rewrite_ptr](clang::QualType qtype, std::optional<clang::Decl const *> maybe_D = {}, std::optional<clang::CXXBaseSpecifier const *> maybe_CXXBS = {}) {
 			thread_local std::unordered_set<clang::Type const *> tl_already_processed_set;
 			auto found_it = tl_already_processed_set.find(qtype.getTypePtr());
 			if (tl_already_processed_set.end() != found_it) {
@@ -12695,7 +12697,7 @@ namespace checker {
 
 				auto check_for_unannotated_reference_shallow = 
 					[&root_decl_cref, &maybe_dynamic_owning_container_D, &state1, &MR_ptr, &Rewrite_ptr]
-					(clang::QualType qtype, std::optional<clang::Decl const *> maybe_D = {}) {
+					(clang::QualType qtype, std::optional<clang::Decl const *> maybe_D = {}, std::optional<clang::CXXBaseSpecifier const *> maybe_CXXBS = {}) {
 
 					IF_DEBUG(auto qtype_str = qtype.getAsString();)
 
@@ -12732,6 +12734,8 @@ namespace checker {
 					if (maybe_tlt_annotations.has_value() && (1 <= maybe_tlt_annotations.value()->m_lifetime_set.m_primary_lifetimes.size())) {
 						bool is_not_lt_annotated = false;
 						bool is_field = false;
+						bool is_base_class = false;
+
 						if (maybe_D.has_value()) {
 							auto D = maybe_D.value();
 							auto DD = dyn_cast<DeclaratorDecl>(D);
@@ -12746,6 +12750,14 @@ namespace checker {
 										}
 									}
 								}
+							}
+						}
+						if ((!is_not_lt_annotated) && maybe_CXXBS.has_value()) {
+							auto CXXBS = maybe_CXXBS.value();
+							is_base_class = true;
+							auto maybe_abstract_lifetime_set = state1.corresponding_abstract_lifetime_set_if_any(CXXBS);
+							if ((!maybe_abstract_lifetime_set.has_value()) || (0 == maybe_abstract_lifetime_set.value().m_primary_lifetimes.size())) {
+								is_not_lt_annotated = true;
 							}
 						}
 						if ((!is_not_lt_annotated) && (!is_field)) {
@@ -12782,9 +12794,10 @@ namespace checker {
 									}
 								}
 
-								std::string field_str = is_field ? " field" : "";
+								const std::string field_str = is_field ? " field" : "";
+								const std::string base_class_str = is_base_class ? " base class" : "";
 
-								std::string error_desc = std::string("Unannotated reference object") + field_str + " (of type " + get_as_quoted_string_for_errmsg(qtype)
+								const std::string error_desc = std::string("Unannotated reference object") + field_str + base_class_str + " (of type " + get_as_quoted_string_for_errmsg(qtype)
 									+ ") contained in dynamic container" + of_container_type_str + " is not supported.";
 								state1.register_error(*(MR_ptr->SourceManager), dynamic_owning_container_SR, error_desc);
 							}
