@@ -1398,10 +1398,23 @@ namespace checker {
 	}
 
 	inline void apply_to_all_owned_types(clang::QualType qtype, const std::function<void(clang::QualType qtype, std::optional<clang::Decl const *>, std::optional<clang::CXXBaseSpecifier const *>)>& fn1
-		, std::optional<clang::Decl const *> maybe_D = {}, std::optional<clang::CXXBaseSpecifier const *> maybe_CXXBS = {}) {
+		, std::optional<clang::Decl const *> maybe_D = {}, std::optional<clang::CXXBaseSpecifier const *> maybe_CXXBS = {}, int depth = 0) {
 
 		MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype);
 		IF_DEBUG(const auto qtype_str = qtype.getAsString();)
+
+		depth += 1;
+		thread_local std::unordered_set<clang::Type const *> tl_already_processed_set;
+		if (20/*arbitrary*/ < depth) {
+			/* to prevent infinite recursion */
+			auto found_it = tl_already_processed_set.find(qtype.getTypePtr());
+			if (tl_already_processed_set.end() != found_it) {
+				int q = 5;
+				return;
+			} else {
+				tl_already_processed_set.insert(qtype.getTypePtr());
+			}
+		}
 
 		if (is_recognized_owning_container(qtype)) {
 			auto template_args_maybe_types = get_template_args_maybe_types(qtype);
@@ -1410,7 +1423,7 @@ namespace checker {
 					auto template_arg_qtype = template_arg_maybe_type.value();
 					IF_DEBUG(auto template_arg_qtype_str = template_arg_qtype.getAsString();)
 
-					apply_to_all_owned_types(template_arg_qtype, fn1, maybe_D);
+					apply_to_all_owned_types(template_arg_qtype, fn1, maybe_D, {}, depth);
 				}
 			}
 		}
@@ -1421,7 +1434,7 @@ namespace checker {
 				const auto base_qtype = CXXBS.getType();
 				IF_DEBUG(const auto base_qtype_str = base_qtype.getAsString();)
 
-				apply_to_all_owned_types(base_qtype, fn1, CXXRD, &CXXBS);
+				apply_to_all_owned_types(base_qtype, fn1, CXXRD, &CXXBS, depth);
 			}
 		}
 
@@ -1433,7 +1446,7 @@ namespace checker {
 				const auto field_qtype = FD->getType();
 				IF_DEBUG(const auto field_qtype_str = field_qtype.getAsString();)
 
-				apply_to_all_owned_types(field_qtype, fn1, FD);
+				apply_to_all_owned_types(field_qtype, fn1, FD, {}, depth);
 			}
 		}
 
@@ -9471,6 +9484,8 @@ namespace checker {
 		if (CXXCE && CXXCE->getConstructor() && CXXCE->getConstructor()->isCopyOrMoveConstructor()) {
 			if (1 == CE->getNumArgs()) {
 				auto lambda1 = [&](bool for_lhs_of_assignment = false) -> CMaybeExpressionLifetimeValuesWithHints {
+					IF_DEBUG(auto arg_qtype_str = CE->getArg(0)->getType().getAsString();)
+
 					auto maybe_expr_lifetime_value = for_lhs_of_assignment ? evaluate_expression_lhs_lower_bound_lifetimes(state1, CE->getArg(0), Ctx, MR_ptr, Rewrite_ptr)
 						: evaluate_expression_rhs_lower_bound_lifetimes(state1, CE->getArg(0), Ctx, MR_ptr, Rewrite_ptr);
 					MSE_RETURN_VALUE_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(maybe_expr_lifetime_value, maybe_expr_lifetime_value);
@@ -12690,6 +12705,8 @@ namespace checker {
 			auto found_it = tl_already_processed_set.find(qtype.getTypePtr());
 			if (tl_already_processed_set.end() != found_it) {
 				return;
+			} else {
+				tl_already_processed_set.insert(qtype.getTypePtr());
 			}
 
 			if (is_recognized_protected_dynamic_owning_container(qtype)) {
@@ -12807,7 +12824,6 @@ namespace checker {
 
 				apply_to_all_owned_types(qtype, check_for_unannotated_reference_shallow, maybe_D);
 			}
-			tl_already_processed_set.insert(qtype.getTypePtr());
 		};
 
 		apply_to_all_owned_types(qtype, lambda1, &decl_cref);
