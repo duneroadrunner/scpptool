@@ -694,6 +694,44 @@ usage example: ([link to interactive version](https://godbolt.org/z/Mqc737Wan))
     }
 ```
 
+##### xslta_accessing_fixed_vector
+
+Note that the [`rsv::xslta_borrowing_fixed_vector<>`](#xslta_vector-xslta_fixed_vector-xslta_borrowing_fixed_vector) described above can only be obtained from a non-`const` pointer to the lending vector. In situations where only a `const` pointer to the vector is available, `rsv::xslta_borrowing_fixed_vector<>` has a counterpart, `rsv::xslta_accessing_fixed_vector<>`, which can be obtained from a `const` pointer to supported vectors (including [`rsv::xslta_vector<>`](#xslta_vector-xslta_fixed_vector-xslta_borrowing_fixed_vector)).
+
+`rsv::xslta_accessing_fixed_vector<>`, like `rsv::xslta_borrowing_fixed_vector<>`, ensures, while it exists, that the vector contents are not deallocated/relocated/resized. But unlike `rsv::xslta_borrowing_fixed_vector<>`, `rsv::xslta_accessing_fixed_vector<>`'s access to the vector contents is not exclusive. So, for example, multiple `rsv::xslta_accessing_fixed_vector<>`s corresponding to the same vector can exist and be used at the same time. This lack of exclusivity results in `rsv::xslta_accessing_fixed_vector<>` being branded as ineligible to be passed to or shared with asynchronous threads.
+
+usage example: 
+
+```cpp
+    #include "mseslta.h"
+    #include "msemsevector.h"
+    
+    int main(int argc, char* argv[]) {
+        int i1 = 3;
+        int i2 = 5;
+        int i3 = 7;
+
+        /* The lifetime (lower bound) associated with the rsv::xslta_array<>, and each of its
+        contained elements, is the lower bound of all of the lifetimes of the elements in the initializer
+        list. */
+        auto vec2 = mse::rsv::xslta_vector<mse::rsv::TXSLTAPointer<int> >{ &i1, &i2 };
+
+        {
+            auto const& vec2_cref = vec2;
+
+            /* Obtaining an rsv::xslta_accessing_fixed_vector<> requires a non-const pointer to the lending vector. 
+			When only a const pointer is available we can instead use rsv::xslta_accessing_fixed_vector<> for supported  vector types. */
+            auto af_vec2a = mse::rsv::make_xslta_accessing_fixed_vector(&vec2_cref);
+            // or
+            //auto af_vec2a = mse::rsv::xslta_accessing_fixed_vector(&vec2_cref);
+
+            auto& elem_ref1 = af_vec2a[0];
+            elem_ref1 = &i1;
+            //elem_ref1 = &i3;    // scpptool would complain (because i3 does not live long enough)
+        }
+    }
+```
+
 ##### TXSLTARandomAccessSection, TXSLTARandomAccessConstSection
 
 `rsv::TXSLTARandomAccessSection<>` is a lifetime annotated [`TXScopeRandomAccessSection<>`](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#txscoperandomaccesssection-txscoperandomaccessconstsection-trandomaccesssection-trandomaccessconstsection).
