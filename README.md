@@ -1038,6 +1038,34 @@ usage example: ([link to interactive version](https://godbolt.org/z/jcvEb463r))
 
 `rsv::xslta_accessing_fixed_optional<>` is the [`rsv::xslta_accessing_fixed_vector<>`](#xslta_accessing_fixed_vector) counterpart for `optional`s.
 
+usage example: ([link to interactive version](https://godbolt.org/z/G4jhKdY4E))
+
+```cpp
+    #include "mseslta.h"
+    #include "mseoptional.h"
+    
+    int main(int argc, char* argv[]) {
+        int i1 = 3;
+        int i2 = 5;
+        int i3 = 7;
+
+        auto opt2 = mse::rsv::xslta_optional<mse::rsv::TXSLTAPointer<int> >{ &i2 };
+
+        {
+            auto const& opt2_cref = opt2;
+
+            /* Obtaining an rsv::xslta_borrowing_fixed_optional<> requires a non-const pointer to the lending optional. 
+			When only a const pointer is available we can instead use rsv::xslta_accessing_fixed_optional<> for supported optional types. */
+            auto af_opt2a = mse::rsv::make_xslta_accessing_fixed_optional(&opt2_cref);
+            // or
+            //auto af_opt2a = mse::rsv::xslta_accessing_fixed_optional(&opt2_cref);
+
+            auto& elem_ref1 = af_opt2a.value();
+            int i4 = *elem_ref1;
+        }
+    }
+```
+
 #### SaferCPlusPlus elements
 
 Most of the restrictions required to ensure safety of the elements in the SaferCPlusPlus library are implemented in the type system. However, some of the necessary restrictions cannot be implemented in the type system. This tool is meant to enforce those remaining restrictions. Elements requiring enforcement help are generally relegated to the `mse::rsv` namespace. One exception is the restriction that scope types (regardless of the namespace in which they reside), cannot be used as members of structs/classes that are not themselves scope types. The tool will flag any violations of this restriction.
