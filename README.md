@@ -592,7 +592,7 @@ usage example: ([link to interactive version](https://godbolt.org/z/5Kx9q1dEW))
 
 Some other static safety enforcers/analyzers try to automatically and implicitly put vectors (and other dynamic containers) into a "fixed (size/structure) mode" without requiring the programmer to instantiate a "borrowing fixed" object. But such tools rely on "flow sensitive" analysis, which [arguably](#flow-insensitive-analysis) has undesirable scalability implications.
 
-usage example: ([link to interactive version](https://godbolt.org/z/Mqc737Wan))
+usage example: ([link to interactive version](https://godbolt.org/z/K9YenzE8h))
 
 ```cpp
     #include "mseslta.h"
@@ -700,7 +700,7 @@ Note that the [`rsv::xslta_borrowing_fixed_vector<>`](#xslta_vector-xslta_fixed_
 
 `rsv::xslta_accessing_fixed_vector<>`, like `rsv::xslta_borrowing_fixed_vector<>`, ensures, while it exists, that the vector contents are not deallocated/relocated/resized. But unlike `rsv::xslta_borrowing_fixed_vector<>`, `rsv::xslta_accessing_fixed_vector<>`'s access to the vector contents is not exclusive. So, for example, multiple `rsv::xslta_accessing_fixed_vector<>`s corresponding to the same vector can exist and be used at the same time. This lack of exclusivity results in `rsv::xslta_accessing_fixed_vector<>` being branded as ineligible to be passed to or shared with asynchronous threads.
 
-usage example: 
+usage example: ([link to interactive version](https://godbolt.org/z/7o3oYqWaE))
 
 ```cpp
     #include "mseslta.h"
@@ -726,8 +726,7 @@ usage example:
             //auto af_vec2a = mse::rsv::xslta_accessing_fixed_vector(&vec2_cref);
 
             auto& elem_ref1 = af_vec2a[0];
-            elem_ref1 = &i1;
-            //elem_ref1 = &i3;    // scpptool would complain (because i3 does not live long enough)
+            int i4 = *elem_ref1;
         }
     }
 ```
