@@ -1034,6 +1034,10 @@ usage example: ([link to interactive version](https://godbolt.org/z/jcvEb463r))
     }
 ```
 
+##### xslta_accessing_fixed_optional
+
+`rsv::xslta_accessing_fixed_optional<>` is the [`rsv::xslta_accessing_fixed_vector<>`](#xslta_accessing_fixed_vector) counterpart for `optional`s.
+
 #### SaferCPlusPlus elements
 
 Most of the restrictions required to ensure safety of the elements in the SaferCPlusPlus library are implemented in the type system. However, some of the necessary restrictions cannot be implemented in the type system. This tool is meant to enforce those remaining restrictions. Elements requiring enforcement help are generally relegated to the `mse::rsv` namespace. One exception is the restriction that scope types (regardless of the namespace in which they reside), cannot be used as members of structs/classes that are not themselves scope types. The tool will flag any violations of this restriction.
