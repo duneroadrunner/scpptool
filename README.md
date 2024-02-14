@@ -1055,7 +1055,7 @@ usage example: ([link to interactive version](https://godbolt.org/z/G4jhKdY4E))
             auto const& opt2_cref = opt2;
 
             /* Obtaining an rsv::xslta_borrowing_fixed_optional<> requires a non-const pointer to the lending optional. 
-			When only a const pointer is available we can instead use rsv::xslta_accessing_fixed_optional<> for supported optional types. */
+            When only a const pointer is available we can instead use rsv::xslta_accessing_fixed_optional<> for supported optional types. */
             auto af_opt2a = mse::rsv::make_xslta_accessing_fixed_optional(&opt2_cref);
             // or
             //auto af_opt2a = mse::rsv::xslta_accessing_fixed_optional(&opt2_cref);
