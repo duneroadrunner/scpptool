@@ -1065,6 +1065,13 @@ namespace checker {
 			tl_known_fixed_nonowning_container_names.push_back(mse_namespace_str() + "::xscope_borrowing_fixed_nii_basic_string");
 			tl_known_fixed_nonowning_container_names.push_back(mse_namespace_str() + "::xscope_borrowing_fixed_optional");
 			tl_known_fixed_nonowning_container_names.push_back(mse_namespace_str() + "::xscope_borrowing_fixed_any");
+			tl_known_fixed_nonowning_container_names.push_back(mse_namespace_str() + "::rsv::xslta_borrowing_fixed_vector");
+
+			tl_known_fixed_nonowning_container_names.push_back(mse_namespace_str() + "::xscope_accessing_fixed_nii_vector");
+			tl_known_fixed_nonowning_container_names.push_back(mse_namespace_str() + "::xscope_accessing_fixed_nii_basic_string");
+			tl_known_fixed_nonowning_container_names.push_back(mse_namespace_str() + "::xscope_accessing_fixed_optional");
+			tl_known_fixed_nonowning_container_names.push_back(mse_namespace_str() + "::xscope_accessing_fixed_any");
+			tl_known_fixed_nonowning_container_names.push_back(mse_namespace_str() + "::rsv::xslta_accessing_fixed_vector");
 		}
 		return tl_known_fixed_nonowning_container_names;
 	}
