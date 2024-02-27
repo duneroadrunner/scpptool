@@ -64,8 +64,6 @@ So for example:
 
 `scpptool hello_world.cpp -- -I./msetl -std=c++17 -I'/home/user1/clang+llvm-15.0.6-x86_64-linux-gnu-ubuntu-18.04/lib/clang/15.0.6/include'`
 
-Note that (though not necessary) you might want to include `-DMSE_SCOPEPOINTER_DISABLED` in the compiler options. This disables the enforcement of the [scope](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#scope-pointers) object restrictions by the SaferCPlusPlus library via the type system, as scpptool will itself enforce the necessary restrictions.
-
 If you happen to have version 15 of the clang compiler installed on your system then you may be able to omit the lengthy last "include directory specifier" option. Otherwise, you can make a bash script that automatically adds it. For example, you might create an (executable) script file called `myscpptool.sh` that might contain something like:
 
 ```bash
@@ -118,7 +116,7 @@ Also, raw pointers and references are considered to be [scope](https://github.co
 
 These restrictions imposed on scope reference types are generally not super-onerous, but, for example, if you wanted a raw pointer that targets an object owned by a smart pointer with shared ownership, you would first need to instantiate a ["strong pointer store" object](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#make_xscope_strong_pointer_store) that ensures that the target object will outlive the raw pointer's bounding scope. (Btw, `std::shared_ptr<>` is not supported for other safety reasons, but [safe implementations](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#reference-counting-pointers) of smart pointers with shared ownership are available.)
 
-When the value of one pointer is assigned to another, some static analyzers will attempt to determine the lifetime of the target object based on the "most recent" value that was assigned to the source pointer. scpptool does not do this. scpptool infers a lower bound for the target object based solely on the declaration of the source pointer ([not any subsequent assignment operation](#flow-insensitive-analysis)). By default, the only assumption made is that target object outlives the source pointer. 
+When the value of one pointer is assigned to another, some static analyzers will attempt to determine the lifetime of the target object based on the "most recent" value that was assigned to the source pointer. scpptool does not do this. scpptool infers a lower bound for the target object lifespan based solely on the declaration of the source pointer ([not any subsequent assignment operation](#flow-insensitive-analysis)). By default, the only assumption made is that the target object outlives the source pointer. 
 
 If [lifetime annotations](#annotating-lifetime-constraints) are applied to the pointer, then it can be assumed that the target object (also) outlives the pointer's intialization value target object. Often [`rsv::TXSLTAPointer<>`](#txsltapointer) will be used in place of raw pointers. It acts just like a raw pointer with lifetime annotations.
 
