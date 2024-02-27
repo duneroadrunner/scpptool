@@ -453,7 +453,7 @@ Note that we add a little qualification and modification to the rules as quoted.
 
 Note that other static lifetime analyzers in development introduce their own distinct lifetime annotations (including the lifetime profile checker and [others](https://discourse.llvm.org/t/rfc-lifetime-annotations-for-c/61377)). Those analyzers may not recognize the lifetime annotations introduced here, so to be compliant with those analyzers you may have to use their lifetime annotations as well. Ideally, in the future scpptool would also support those lifetime annotations, reducing the need for redundant annotations.
 
-##### Lifetime annotated elements in the SaferCPlusPlus library
+#### Lifetime annotated elements in the SaferCPlusPlus library
 
 While the most essential elements are already available, the process of adding lifetime annotated elements to the SaferCPlusPlus library is still in progress.
 
