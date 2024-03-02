@@ -45,40 +45,25 @@ Note that this tool is still in development and not well tested.
 
 ### How to Build:
 
-On Ubuntu Linux: Download the [llvm 15.0.6 pre-built binaries](https://github.com/llvm/llvm-project/releases/tag/llvmorg-15.0.6) and extract them to a directory of your choosing. Download the [scpptool source code](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract it to a directory of your choosing. (Depending on your operating system version, llvm may or may not need additional libraries to be installed.)
+Ubuntu Linux is currently the only tested platform. (But there's no intrinsic reason it shouldn't work on any platform for which clang/llvm is avalable.)
 
-From the `src` subdirectory of the scpptool directory, you can build the tool by typing:
-```
-make LLVM_CONF={the llvm 15 directory}/bin/llvm-config
-```
+The first step is to [download](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract (or clone) the repository. Then just run the `build_myscpptool.sh` script. 
 
-Substituting the `{the llvm 15 directory}` part with the directory where you extracted llvm 15. (You can also add the `BUILD_MODE=DEBUG` option. Currently, the debug build is more extensively tested.)
+If you're not running an Ubuntu x86_64 system, then it will instruct you to download the clang/llvm pre-built binaries for your system and indicate the directory where they were extracted to.
+
+The build script does not require root privileges. 
 
 ### How to Use:
 
-The syntax is as follows:
+The usage syntax is as follows:
 
-`scpptool {source filename(s)} -- {compiler options} -I'{the llvm 15 directory}/lib/clang/15.0.6/include'`
+`{scpptool src directory}/myscpptool.sh {source filename(s)} -- {compiler options}`
+
+where the {scpptool src directory} is `src` subdirectory of the repository you downloaded (or cloned).
 
 So for example:
 
-`scpptool hello_world.cpp -- -I./msetl -std=c++17 -I'/home/user1/clang+llvm-15.0.6-x86_64-linux-gnu-ubuntu-18.04/lib/clang/15.0.6/include'`
-
-If you happen to have version 15 of the clang compiler installed on your system then you may be able to omit the lengthy last "include directory specifier" option. Otherwise, you can make a bash script that automatically adds it. For example, you might create an (executable) script file called `myscpptool.sh` that might contain something like:
-
-```bash
-#!/bin/bash
-
-# obtaining the directory of this script file, which we'll assume also contains the scpptool executable
-SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-
-# executing scpptool with the given arguments and an additional include argument for the standard headers needed by scpptool
-$SCRIPT_DIR/scpptool $@ -I'/home/user1/clang+llvm-15.0.6-x86_64-linux-gnu-ubuntu-18.04/lib/clang/15.0.6/include/' -DMSE_SCOPEPOINTER_DISABLED
-```
-
-So that you could then, for example, invoke scpptool like so:
-
-`myscpptool.sh hello_world.cpp -- -I./msetl -std=c++17`
+`~/dev/scpptool-master/src/myscpptool.sh hello_world.cpp -- -I./msetl -std=c++17`
 
 ### Local Suppression of the Checks
 
