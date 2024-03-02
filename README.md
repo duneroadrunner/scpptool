@@ -49,7 +49,7 @@ Ubuntu Linux is currently the only tested platform. (But there's no intrinsic re
 
 The first step is to [download](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract (or clone) the repository. Then just run the `build_myscpptool.sh` script. 
 
-If you're not running an Ubuntu x86_64 system, then it will instruct you to download the clang/llvm pre-built binaries for your system and indicate the directory where they were extracted to.
+If you're not running an Ubuntu x86_64 system, then it will instruct you to download the clang/llvm pre-built binaries for your system and indicate the directory where they were extracted to. (On some systems, clang/llvm may require you to install other prerequisites. Those should be indicated by compile errors. At which point you can just install the requirements and rerun the build script.)
 
 The build script does not require root privileges. 
 
