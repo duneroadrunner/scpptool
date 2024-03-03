@@ -13,7 +13,7 @@ A notable difference between this tool and some others in development and in oth
 
 Some samples of conforming safe code can be found in the examples for the [provided library elements](#lifetime-annotated-elements-in-the-safercplusplus-library).
 
-Note that due to its dependency on the clang/llvm libraries this tool only supports code that's compatible with the clang compiler.
+Note that due to its dependency on the clang+llvm libraries this tool only supports code that's compatible with the clang compiler.
 
 Note that this tool is still in development and not well tested.
 
@@ -45,11 +45,11 @@ Note that this tool is still in development and not well tested.
 
 ### How to Build:
 
-Ubuntu Linux is currently the only tested platform. (But there's no intrinsic reason it shouldn't work on any platform for which clang/llvm is avalable.)
+Ubuntu Linux is currently the only tested platform. (But there's no intrinsic reason it shouldn't work on any platform for which clang+llvm is avalable.)
 
-The first step is to [download](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract (or clone) the repository. Then just run the `build_myscpptool.sh` script. 
+First, [download](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract the repository (or clone it). Then just run the `build_myscpptool.sh` script. 
 
-If you're not running an Ubuntu x86_64 system, then it will instruct you to download the clang/llvm pre-built binaries for your system and indicate the directory where they were extracted to. (On some systems, clang/llvm may require you to install other prerequisites. Those should be indicated by compile errors. At which point you can just install the requirements and rerun the build script.)
+If you're not running an Ubuntu x86_64 system, then it will instruct you to download the clang+llvm pre-built binaries for your system and indicate the directory where they were extracted to. (On some systems, clang+llvm may require you to install other prerequisites. Those should be indicated by link errors. At which point you can just install the requirements and rerun the build script.)
 
 The build script does not require root privileges. 
 
@@ -59,11 +59,13 @@ The usage syntax is as follows:
 
 `{scpptool src directory}/myscpptool.sh {source filename(s)} -- {compiler options}`
 
-where the {scpptool src directory} is `src` subdirectory of the repository you downloaded (or cloned).
+where the {scpptool src directory} is the `src` subdirectory of the repository you downloaded (or cloned).
 
 So for example:
 
 `~/dev/scpptool-master/src/myscpptool.sh hello_world.cpp -- -I./msetl -std=c++17`
+
+(Note, you cannot omit the double dashes `--` even if you have no compiler options.)
 
 ### Local Suppression of the Checks
 
