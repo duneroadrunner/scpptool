@@ -53,19 +53,21 @@ If you're not running an Ubuntu x86_64 system, then it will instruct you to down
 
 The build script does not require root privileges. 
 
+(For those developing on Windows, the easiest route may be to build the tool in a WSL Ubuntu distro, and then invoke the tool from windows using the `wsl -e` command.)
+
 ### How to Use:
 
 The usage syntax is as follows:
 
-`{scpptool src directory}/myscpptool.sh {source filename(s)} -- {compiler options}`
+`{scpptool src directory}/scpptool {source filename(s)} -- {compiler options}`
 
 where the {scpptool src directory} is the `src` subdirectory of the repository you downloaded (or cloned).
 
 So for example:
 
-`~/dev/scpptool-master/src/myscpptool.sh hello_world.cpp -- -I./msetl -std=c++17`
+`~/dev/scpptool-master/src/scpptool hello_world.cpp -- -I./msetl -std=c++17`
 
-(Note, you cannot omit the double dashes `--` even if you have no compiler options.)
+(Note, the double dashes `--` cannot be omitted even if there are no compiler options.)
 
 ### Local Suppression of the Checks
 
