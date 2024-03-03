@@ -71,9 +71,9 @@ echo "
 Build complete. 
 
 
-Once you verify that scpptool is working properly, you may delete the clang+llvm-15.0.6 tar file downloaded manually or by this build script, and the directory extracted from it.
+Once you've verified that scpptool is working properly, you may then delete the clang+llvm-15.0.6 tar file that was downloaded manually or by this build script, and the directory extracted from it.
 
-Note that scpptool uses a clang include directory located in the relative path '../lib/clang/15.0.6' created by this script. So copying or moving the scpptool executable would also require moving that include directory so that the relative path remains the same.
+Note that scpptool uses a clang include directory located in the relative path '../lib/clang/15.0.6' created by this script. So copying or moving the scpptool executable may also require moving that include directory so that the relative path remains the same.
 
 
 The usage syntax is as follows:
