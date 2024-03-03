@@ -1,6 +1,6 @@
 #!/bin/bash
 
-currentdir1=$PWD
+originaldir=$PWD
 
 # obtaining the directory of this script file
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
@@ -60,40 +60,35 @@ else
     exit -1
 fi
 
-clangincludedir=$llvmdir/lib/clang/15.0.6/include
+srcclangincludedir=$llvmdir/lib/clang/15.0.6/include
 
-# Here we're making a shell script to run scpptool
-echo '#!/bin/bash
-
-# obtaining the directory of this script file, which we will assume also contains the scpptool executable
-SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-
-# executing scpptool with the given arguments and an additional include argument for the standard headers needed by scpptool
-$SCRIPT_DIR/scpptool $@ -I' $clangincludedir '
-' > myscpptool.sh
-
-chmod +x myscpptool.sh
+mkdir ../lib
+mkdir ../lib/clang
+mkdir ../lib/clang/15.0.6
+cp -n -r $srcclangincludedir ../lib/clang/15.0.6
 
 echo "
 Build complete. 
 
 
+Once you verify that scpptool is working properly, you may delete the clang+llvm-15.0.6 tar file downloaded manually or by this build script, and the directory extracted from it.
+
+Note that scpptool uses a clang include directory located in the relative path '../lib/clang/15.0.6' created by this script. So copying or moving the scpptool executable would also require moving that include directory so that the relative path remains the same.
+
+
 The usage syntax is as follows:
 
-{scpptool src directory}/myscpptool.sh {source filename(s)} -- {compiler options}
+{scpptool src directory}/scpptool {source filename(s)} -- {compiler options}
 
 where the {scpptool src directory} is $srcdir
 
 So for example:
 
-$srcdir/myscpptool.sh hello_world.cpp -- -I./msetl -std=c++17
-
-
-(Note that the path to the clang include directory used is hard-coded into myscpptool.sh, so that directory cannot be moved without updating myscpptool.sh accordingly.)
+$srcdir/scpptool hello_world.cpp -- -I./msetl -std=c++17
 
 "
 
-cd $currentdir1
+cd $originaldir
 
 exit 0
 
