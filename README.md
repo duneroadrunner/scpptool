@@ -591,7 +591,7 @@ usage example: ([link to interactive version](https://godbolt.org/z/K9YenzE8h))
         int i2 = 5;
         int i3 = 7;
 
-        /* The lifetime (lower bound) associated with the rsv::xslta_array<>, and each of its
+        /* The lifetime (lower bound) associated with the rsv::xslta_vector<>, and each of its
         contained elements, is the lower bound of all of the lifetimes of the elements in the initializer
         list. */
         auto vec2 = mse::rsv::xslta_vector<mse::rsv::TXSLTAPointer<int> >{ &i1, &i2 };
