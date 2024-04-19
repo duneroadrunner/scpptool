@@ -11357,12 +11357,15 @@ namespace checker {
 				if (!satisfies_checks) {
 					if (clang::StorageDuration::SD_Static == storage_duration) {
 						DECLARE_CACHED_CONST_STRING(const_char_star_str, "const char *");
+						DECLARE_CACHED_CONST_STRING(std_once_flag_str, "std::once_flag");
 						if ((qtype.isConstQualified()) && (is_async_shareable(qtype))) {
 							satisfies_checks = true;
 						} else if (qtype.getAsString() == const_char_star_str) {
 							/* This isn't technically safe, but presumably this is likely
 							to be a string literal, which should be fine, so for now we'll
 							let it go. */
+							satisfies_checks = true;
+						} else if (qtype.getAsString() == std_once_flag_str) {
 							satisfies_checks = true;
 						} else {
 							if (MR_ptr && (!errors_suppressed_flag)) {
