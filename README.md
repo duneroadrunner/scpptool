@@ -55,6 +55,8 @@ The build script does not require root privileges.
 
 (For those developing on Windows, the easiest route may be to build the tool in a WSL Ubuntu distro, and then invoke the tool from windows using the `wsl -e` command.)
 
+(Note that the scpptool executable uses a clang include directory located in the relative path '../lib/clang/15.0.6' created by the build script. So copying or moving the scpptool executable would also require copying or moving that include directory so that the relative path remains the same.)
+
 ### How to Use:
 
 The usage syntax is as follows:
