@@ -1658,7 +1658,13 @@ inline bool is_async_shareable(const clang::Type& type) {
 	} else if (TP->isMemberPointerType()) {
 		return true;
 	} else {
-		/* todo: support pointers to non-capture lamdas and any other types we're forgetting */
+		auto const type_str = get_as_string(TP);
+		DECLARE_CACHED_CONST_STRING(std_once_flag_str, "std::once_flag");
+		if (type_str == std_once_flag_str) {
+			return true;
+		} else {
+			/* todo: support pointers to non-capture lamdas and any other types we're forgetting */
+		}
 	}
 
 	return retval;
