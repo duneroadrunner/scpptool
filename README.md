@@ -45,7 +45,7 @@ Note that this tool is still in development and not well tested.
 
 ### How to Build:
 
-Ubuntu Linux is currently the only tested platform. (But there's no intrinsic reason it shouldn't work on any platform for which clang+llvm is avalable.)
+Ubuntu Linux is currently the only tested platform. (But there's no intrinsic reason it shouldn't work on any platform for which clang+llvm is available.)
 
 First, [download](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract the repository (or clone it). Then just run the `build_myscpptool.sh` script. 
 
