@@ -115,7 +115,7 @@ If [lifetime annotations](#annotating-lifetime-constraints) are applied to the p
 
 This tool does not support directly taking (raw) references to elements in a dynamic (resizable) container (such as a vector). The preferred way of obtaining a (raw) reference to an element in a dynamic container is via a corresponding ["borrowing fixed (size)"](#xslta_vector-xslta_fixed_vector-xslta_borrowing_fixed_vector) (proxy) container that, while it exists, ensures that no elements are removed or relocated.
 
-Operations that could resize (or relocate) the contents of a "safe" dynamic container implementation provided by the library will incur some extra overhead. But these sorts of operations are generally avoided inside performance critical inner loops anyway because they often incur unnecessary cost even without the extra overhead.
+Operations that could resize (or relocate) the contents of a "safe" dynamic container implementation provided by the library will incur some extra overhead. But these sorts of operations are generally avoided inside performance-critical inner loops anyway because they often incur unnecessary cost even without the extra overhead.
 
 #### Annotating lifetime constraints
 
