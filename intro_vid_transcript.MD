@@ -1,5 +1,5 @@
 
-##A Quick Intro To The scpptool (Essentially) Safe Subset of C++
+### A Quick Intro To The scpptool (Essentially) Safe Subset of C++
 
 This video is an introduction to programming in the scpptool safe subset of C++. scpptool is a static analyzer that analyzes your C++ source code and complains about any code that it cannot verify to be memory and data race safe. 
 
