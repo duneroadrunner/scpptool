@@ -1,3 +1,6 @@
+May 2024
+
+Intro video transcript:
 
 ### A Quick Intro To The scpptool (Essentially) Safe Subset of C++
 
