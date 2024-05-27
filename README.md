@@ -25,6 +25,8 @@ Quick intro video (text-to-speech narration) part 2:
 
 https://github.com/duneroadrunner/scpptool/assets/10386072/a80f55b5-19fd-4ba2-a121-d999eb5b8932
 
+[Quick intro video transcript](intro_video_transcript.md)
+
 
 ### Table of contents
 1. [Overview](#overview)
