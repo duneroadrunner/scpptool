@@ -145,7 +145,7 @@ So we've just addressed one of the remaining big lifetime issues in "modern" C++
 
 The first big restriction is that null values are not supported for raw pointers. If you need a null value, wrap the pointer in an optional. Or, if you prefer, you can use one of the provided (non-owning) smart pointers that safely support null values. In the general case, it's simply not practically possible to safely support null pointer values without inserting run-time dereference checks.
 
-But in many cases where null pointer values are not needed, safety can be achieved without additional run-time overhead. But some restrictions apply. scpptool's strategy is to require that any object targeted by a pointer (or reference) outlives the pointer itself, regardless of how long the object will actually remain the target of the pointer. Again we provide (non-owning) smart pointers that can target objects that don't outlive them, but any target of a raw pointer must outlive the pointer.
+But in many cases where null pointer values are not needed, safety can be achieved without additional run-time overhead. But some restrictions apply. scpptool's strategy is to require that any object targeted by a pointer (or reference) outlives the pointer itself, regardless of how long the object will actually remain the target of the pointer. Again, we provide (non-owning) smart pointers that can target objects that don't outlive them, but any target of a raw pointer must outlive the pointer.
 
 So if we take this code:
 
