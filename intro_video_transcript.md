@@ -54,7 +54,7 @@ It will then proceed to build the scpptool executable. The scpptool executable w
 Ok, now we're ready to use the scpptool to analyze our (unsafe) program.
 
 ```
-~/dev/clang_tooling/scpptool/src/myscpptool.sh example1.cpp --
+~/dev/clang_tooling/scpptool/src/scpptool example1.cpp --
 
 /home/user1/dev/clang_tooling/test/scpptool/example1/example1.cpp:9:5: error: 'std::vector' is not supported (in type 'std::vector<int>' used in this declaration). Consider using a corresponding substitute from the SaferCPlusPlus library instead. 
 
@@ -175,7 +175,7 @@ int main(int argc, char* argv[]) {
 and run the scpptool analyzer:
 
 ```
-~/dev/clang_tooling/scpptool/src/myscpptool.sh example1.cpp --
+~/dev/clang_tooling/scpptool/src/scpptool example1.cpp --
 
 /home/user1/dev/clang_tooling/test/scpptool/example1/example1.cpp:11:13: error: Unable to verify that this pointer assignment (of type 'int *') is safe and valid. (Possibly due to being unable to verify that the object(s) referenced by the new pointer live long enough.) 
 
@@ -211,7 +211,7 @@ int main() {
 and run the scpptool analyzer:
 
 ```
-~/dev/clang_tooling/scpptool/src/myscpptool.sh example1.cpp --
+~/dev/clang_tooling/scpptool/src/scpptool example1.cpp --
 
 /home/user1/dev/clang_tooling/test/scpptool/example1/example1.cpp:12:9: error: Unable to verify that this pointer assignment (of type 'int *') is safe and valid. (Possibly due to being unable to verify that the object(s) referenced by the new pointer live long enough.) 
 
@@ -269,7 +269,7 @@ Note that elements in a container, like an array, are all considered to have ess
 But notice that when we try to assign the value of `p2a` to `p1`, the scpptool analyzer complains even though `p2a` outlives `p1`:
 
 ```
-~/dev/clang_tooling/scpptool/src/myscpptool.sh example1.cpp -- -I ./msetl/
+~/dev/clang_tooling/scpptool/src/scpptool example1.cpp -- -I ./msetl/
 
 /home/user1/dev/clang_tooling/test/scpptool/example1/example1.cpp:21:3: error: Unable to verify that in the 'mse::rsv::TXSLTAPointer<int>::operator=' member function call expression, the argument corresponding to a parameter with lifetime label id '99' has a lifetime (including any sublifetimes) that meets the (minimum required) lifetime set when the object was initialized.
   ./msetl/mseslta.h:199:4: function declared here 
