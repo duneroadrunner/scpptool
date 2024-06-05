@@ -223,7 +223,7 @@ Often there is not enough information to determine the lower bound precisely. In
 
 So in the above example, in the context of the function implementation (i.e. inside the function), since we don't have access to the parameters' initialization values (i.e. the passed arguments), their lower bound lifetimes are not precisely determined. We know that, by rule, the lower bounds are at least the lifespan of the function call. And that in this case, the lower bound of the `42` lifespan is determined, from the declaration, to be at least that of the `99` lifespan (as specified in the `encompasses()` constraint annotation).
 
-On the other hand, in the context of invoking/calling the funtion (i.e. outside the function), the lower bound lifetimes of the function arguments often will be known precisely. Known precisely or not, those lower bound lifetimes will have to verifiably conform to the specified (`encompasses()`) constraint.
+On the other hand, in the context of invoking/calling the function (i.e. outside the function), the lower bound lifetimes of the function arguments often will be known precisely. Known precisely or not, those lower bound lifetimes will have to verifiably conform to the specified (`encompasses()`) constraint.
 
 So we've seen lifetime labels associated with (raw) references and (raw) pointers when used as function parameters. But lifetime labels can be associated with other types of reference objects, and not just when used as function parameters.
 
