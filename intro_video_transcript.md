@@ -281,7 +281,7 @@ But notice that when we try to assign the value of `p2a` to `p1`, the scpptool a
 2 verification failures. 
 ```
 
-That's because even though `p2a` outlives `p1`, the restriction of `p2a` is more strict than that of `p1`. That is, the target object `p2a` was initialized with does not outlive the target object `p1` was initialized with.
+That's because even though `p2a` outlives `p1`, the restriction of `p2a` is not as strict as that of `p1`. That is, the target object `p2a` was initialized with does not outlive the target object `p1` was initialized with.
 
 But this means that the reverse assignment is allowed.
 
