@@ -1,5 +1,5 @@
 
-Jan 2024
+Jun 2024
 
 ### Overview
 
@@ -9,7 +9,7 @@ This safety necessarily comes at some (modest) expense of either flexibility or 
 
 Unfortunately even these minimized changes are not insignificant. For example, the tool considers the standard library containers "unsafe" (and will complain when they are used), and instead provides largely compatible replacement implementations. The other big restriction probably being that null values are not supported for raw pointers.
 
-A notable difference between this tool and some others in development and in other languages is that the safe subset it enforces is (like traditional C++) not "flow sensitive". That is, whether an operation is allowed (by the tool/compiler) or not depends only on the declaration of the elements involved, not any other preceding operations or code. This is(/was) a common property of "statically typed" languages, that [arguably](#flow-insensitive-analysis) contributes to "scalability".
+A notable difference between this tool and some others in development and in other languages is that the safe subset it enforces is (like traditional C++) not "flow (or path) sensitive". That is, whether an operation is allowed (by the tool/compiler) or not depends only on the declaration of the elements involved, not any other preceding operations or code. This is(/was) a common property of "statically typed" languages, that [arguably](#flow-insensitive-analysis) contributes to "scalability".
 
 Some samples of conforming safe code can be found in the examples for the [provided library elements](#lifetime-annotated-elements-in-the-safercplusplus-library).
 
@@ -588,7 +588,7 @@ usage example: ([link to interactive version](https://godbolt.org/z/5Kx9q1dEW))
 
 "Dynamic containers", such as vectors, are containers whose (content's) size/structure/location can be changed during a program's execution. scpptool does not "support" direct raw references or pointers to elements of dynamic containers. So, for example, unlike their standard library counterparts, the element access operators and methods of `rsv::xslta_vector<>` do not return raw references. They instead return a "proxy reference" object that can (safely) act like a reference in some situations. But the preferred method of accessing elements of a dynamic container is via the dynamic container's "borrowing fixed" counterpart. These "borrowing fixed" counterparts, while they exist, (exclusively) borrow (access to) the contents of the specified dynamic container and ensure that the content's size/structure/location is not changed. scpptool does support raw references and pointers to elements of "borrowing fixed" containers. (Just as with "regular non-borrowing" "fixed" containers.)
 
-Some other static safety enforcers/analyzers try to automatically and implicitly put vectors (and other dynamic containers) into a "fixed (size/structure) mode" without requiring the programmer to instantiate a "borrowing fixed" object. But such tools rely on "flow sensitive" analysis, which [arguably](#flow-insensitive-analysis) has undesirable scalability implications.
+Some other static safety enforcers/analyzers try to automatically and implicitly put vectors (and other dynamic containers) into a "fixed (size/structure) mode" without requiring the programmer to instantiate a "borrowing fixed" object. But such tools rely on "flow (or path) sensitive" analysis, which [arguably](#flow-insensitive-analysis) has undesirable scalability implications.
 
 usage example: ([link to interactive version](https://godbolt.org/z/K9YenzE8h))
 
@@ -1080,7 +1080,7 @@ This tool also has some ability to convert C source files to the memory safe sub
 
 ### "Flow (in)sensitive" analysis
 
-Some of the other C++ lifetime analyzers in development employ "flow sensitive" analysis. That is, they determine whether or not an operation is safe based, in part, on the operations that precede it in the program execution. So for example in this piece of code:
+Some of the other C++ lifetime analyzers in development employ "flow (or path) sensitive" analysis. That is, they determine whether or not an operation is safe based, in part, on the operations that precede it in the program execution. So for example in this piece of code:
 
 ```cpp
 int foo1(int* num_ptr) {
@@ -1121,7 +1121,7 @@ While a static analyzer can get arbitrarily good at recognizing safe code, there
 
 The advantage of maximizing the set of code accepted as safe is that it reduces the modifications of pre-existing/legacy code needed to bring it into safety conformance. The disadvantage is that it may take programmers (and code modification/generation tools) more time and effort to become familiar with the boundaries between code that will and won't be accepted as safe. To some extent, the scalability and debugability arguments in favor of static typing over dynamic typing apply here.
 
-Currently, scpptool does not use "flow sensitive" criteria to determine whether or not code will be accepted as safe. As a result, the set of accepted code may be smaller / more restricted than those of "flow sensitive" analyzers. But perhaps also easier to understand. Pre-existing/legacy code is, to some degree, addressed via [autotranslation](https://github.com/duneroadrunner/scpptool#autotranslation).
+Currently, scpptool does not use "flow (or path) sensitive" criteria to determine whether or not code will be accepted as safe. As a result, the set of accepted code may be smaller / more restricted than those of "flow (or path) sensitive" analyzers. But perhaps also easier to understand. Pre-existing/legacy code is, to some degree, addressed via [autotranslation](https://github.com/duneroadrunner/scpptool#autotranslation).
 
 With respect to the example given above, scpptool simply doesn't condone null (raw) pointer values at all. If null values are desired, the pointer would have to be wrapped in an "optional" container, or a smart pointer that (safely) supports null values would have to be used instead.
 
