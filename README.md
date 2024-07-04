@@ -96,9 +96,9 @@ The presence of `MSE_SUPPRESS_CHECK_IN_XSCOPE` (a macro provided in the `msepoin
 ```cpp
 {
     struct A1 {
-        int* const m_ptr1 = nullptr; // scpptool will complain (because raw pointers are not allowed to be null)
-        MSE_SUPPRESS_CHECK_IN_XSCOPE int* const m_ptr2 = nullptr; // compile error
-        MSE_SUPPRESS_CHECK_IN_DECLSCOPE int* const m_ptr3 = nullptr; // this will work
+        int* m_ptr1 = nullptr; // scpptool will complain (because raw pointers are not allowed to be null)
+        MSE_SUPPRESS_CHECK_IN_XSCOPE int* m_ptr2 = nullptr; // compile error
+        MSE_SUPPRESS_CHECK_IN_DECLSCOPE int* m_ptr3 = nullptr; // this will work
     };
 }
 ```
