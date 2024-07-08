@@ -130,6 +130,8 @@ Operations that could resize (or relocate) the contents of a "safe" dynamic cont
 
 [*provisional*]
 
+This next topic is kind of a longer one about "lifetime annotations". It is an important topic to understand if you ever intend to store raw pointers or references, or use them as function return values. (You can theoretically avoid those situations, and this topic, by using the provided non-owning run-time-checked smart pointers rather than raw pointers/references in those situations.) This topic introduces some new syntax, but don't get hung up on the details. Most of the time you won't be using the new syntax directly. Most of the time it will be [implied by default](#lifetime-elision) or you'll be using provided [library elements](#lifetime-annotated-elements-in-the-safercplusplus-library) that already incorporate the appropriate lifetime annotations. But still, it's recommended to at least give this topic a "once over" to get an idea of how things work and the principles underlying the associated imposed/enforced restrictions.
+
 By default, this tool enforces that targets of scope (raw) pointers outlive the pointer itself. But sometimes it can be useful to enforce even more stringent restrictions on the lifespan of the target objects. Consider the following example:
 
 ```cpp
