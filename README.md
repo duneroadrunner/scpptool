@@ -106,7 +106,7 @@ The presence of `MSE_SUPPRESS_CHECK_IN_XSCOPE` (a macro provided in the `msepoin
 
 ### About the Enforced Subset
 
-The main differences between "traditional C++" and the safe subset that this tool enforces are probably the restrictions on raw pointers/references and the method for accessing elements in dynamic containers (such as vectors).
+The main differences between "traditional C++" and the safe subset that this tool enforces are probably the restrictions on raw pointers/references and the method for accessing elements in dynamic containers (such as vectors). (Just to be clear, scpptool also undertakes the other basic enforcement tasks required for memory safety, like ensuring that objects are initialized, casts are safe, parts of the object aren't accessed before they are initialized during construction, etc.)
 
 #### Restrictions on the use of native pointers and references
 
