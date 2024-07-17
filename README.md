@@ -164,7 +164,7 @@ MSE_ATTR_FUNC_STR("mse::lifetime_notes{ labels(42, 99); encompasses(42, 99) }")
 }
 ```
 
-First note that the `42` and `99` are just an arbitrarily chosen labels used to distinguish between the lifetimes of the two parameters. So lets go through the "annotations" we added:
+First note that the `42` and `99` are just arbitrarily chosen labels used to distinguish between the lifetimes of the two parameters. So lets go through the "annotations" we added:
 
 After the first parameter we added `MSE_ATTR_PARAM_STR("mse::lifetime_label(42)")`. ` MSE_ATTR_PARAM_STR()` is just a (preprocessor) macro function defined in the SaferCPlusPlus library that lets us add these annotations in such a way that the tool can read them, without affecting compilation of the code. The `"mse::lifetime_label(42)"` just associates a label (of our choosing) to the lifespan of the object bound to the (raw) reference first parameter. So we've assigned the labels `42` and `99` to the lifespans of objects bound to the two (raw) reference parameters.
 
