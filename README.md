@@ -376,6 +376,7 @@ Base classes are, in terms of lifetime annotations, conceptually treated just li
         CLARefObj11(int* i_ptr MSE_ATTR_PARAM_STR("mse::lifetime_label(42)")) : CLARefObj1(i_ptr) {}
     } MSE_ATTR_STR("mse::lifetime_label(42)") MSE_ATTR_STR("mse::lifetime_label_for_base_class(42)");
 ```
+Note though that (at the time of writing) lifetimes are only properly transmitted to the immediate base class. So, for example, an inherited member function of a base class of a base class (i.e. two levels of inheritance) that uses lifetime annotations would need to be overridden (by a member function that reexpresses the lifetime annotations).
 
 ##### Accessing sublifetimes
 
