@@ -17,11 +17,11 @@ Note that due to its dependency on the clang+llvm libraries this tool only suppo
 
 Note that this tool is still in development and not well tested.
 
-Quick intro video (text-to-speech narration) (transcript with code samples [here](intro_video_transcript.md)) part 1:
+Quick intro video (with text-to-speech narration) (transcript with code samples [here](intro_video_transcript.md)) part 1:
 
 https://github.com/duneroadrunner/scpptool/assets/10386072/864df66f-70fb-4e4f-a11f-ff9fee1feb7b
 
-Quick intro video (text-to-speech narration) part 2:
+Quick intro video (with text-to-speech narration) part 2:
 
 https://github.com/duneroadrunner/scpptool/assets/10386072/a80f55b5-19fd-4ba2-a121-d999eb5b8932
 
