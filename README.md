@@ -1,5 +1,5 @@
 
-Jun 2024
+Aug 2024
 
 ### Overview
 
@@ -56,7 +56,19 @@ https://github.com/duneroadrunner/scpptool/assets/10386072/a80f55b5-19fd-4ba2-a1
 
 Ubuntu Linux is currently the only tested platform. (But there's no intrinsic reason it shouldn't work on any platform for which clang+llvm is available.)
 
-First, [download](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract the repository (or clone it). Then just run the `build_myscpptool.sh` script. 
+First, the llvm+clang library used by scpptool requires some additional libraries that can be installed as follows:
+```
+sudo apt-get update
+sudo apt-get install zlib1g-dev
+sudo apt-get install libtinfo-dev
+sudo apt-get install libxml2-dev
+```
+scpptool also uses the `yaml-cpp` library which can be installed as follows:
+```
+sudo apt-get install libyaml-cpp-dev
+```
+
+Next, [download](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract the repository (or clone it). Then just run the `build_myscpptool.sh` script. 
 
 If you're not running an Ubuntu x86_64 system, then it will instruct you to download the clang+llvm pre-built binaries for your system and indicate the directory where they were extracted to. (On some systems, clang+llvm may require you to install other prerequisites. Those should be indicated by link errors. At which point you can just install the requirements and rerun the build script.)
 
@@ -64,7 +76,7 @@ The build script does not require root privileges.
 
 (For those developing on Windows, the easiest route may be to build the tool in a WSL Ubuntu distro, and then invoke the tool from windows using the `wsl -e` command.)
 
-(Note that the scpptool executable uses a clang include directory located in the relative path '../lib/clang/15.0.6' created by the build script. So copying or moving the scpptool executable would also require copying or moving that include directory so that the relative path remains the same.)
+(Note that the scpptool executable uses a clang include directory located in the relative path '../lib/clang/18' created by the build script. So copying or moving the scpptool executable would also require copying or moving that include directory so that the relative path remains the same.)
 
 ### How to Use:
 
