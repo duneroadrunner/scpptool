@@ -26,19 +26,20 @@ ASM_LIST:=$(patsubst %.cpp, %.dis, $(wildcard *.cpp))
 
 LLVM_CONF?=llvm-config
 LLVM_CXX_FLAGS=$(shell $(LLVM_CONF) --cxxflags)
-LLVM_CXX_FLAGS+=-I$(shell $(LLVM_CONF) --src-root)/tools/clang/include\
- -I$(shell $(LLVM_CONF) --obj-root)/tools/clang/include\
+LLVM_CXX_FLAGS+=\
+# -I$(shell $(LLVM_CONF) --src-root)/tools/clang/include\
+# -I$(shell $(LLVM_CONF) --obj-root)/tools/clang/include\
  -std=c++17
 # -stdlib=libstdc++ -std=c++17 -frtti -fexceptions
 ifeq ($(CXX), clang++)
 LLVM_CXX_FLAGS+=-stdlib=libstdc++
 endif
-LLVM_LD_FLAGS=-Wl,--start-group -lclangAST -lclangAnalysis -lclangBasic\
+LLVM_LD_FLAGS=-Wl,--start-group -lclangAPINotes -lclangAST -lclangAnalysis -lclangBasic\
  -lclangDriver -lclangEdit -lclangFrontend -lclangFrontendTool\
  -lclangLex -lclangParse -lclangSema -lclangASTMatchers\
  -lclangRewrite -lclangRewriteFrontend -lclangStaticAnalyzerFrontend\
  -lclangStaticAnalyzerCheckers -lclangStaticAnalyzerCore\
- -lclangSerialization -lclangToolingCore -lclangTooling -lstdc++\
+ -lclangSerialization -lclangToolingCore -lclangTooling -lclangToolingSyntax -lstdc++\
  -lLLVMRuntimeDyld -lm -Wl,--end-group -lclangSupport
 LLVM_LD_FLAGS+=$(shell $(LLVM_CONF) --ldflags --libs --system-libs)
 

@@ -24,11 +24,11 @@ g++ $CXXFLAGS -fexceptions -std=c++17 -I./yaml-cpp/include -O0 -g3 -Wall -c -fme
 
 g++ $CXXFLAGS -fexceptions -std=c++17 -O0 -g3 -Wall -c -fmessage-length=0  -fvisibility-inlines-hidden -Wno-unused -Wno-attributes -Wno-deprecated-declarations -fPIC -MMD -MP -MF"utils1.d" -MT"utils1.o" -o "utils1.o" "utils1.cpp"
 
-g++ scpptool.o utils1.o  $LDFLAGS1 -Wl,--start-group -lclangAST -lclangAnalysis -lclangBasic\
+g++ scpptool.o utils1.o  $LDFLAGS1 -Wl,--start-group -lclangAPINotes -lclangAST -lclangAnalysis -lclangBasic\
  -lclangDriver -lclangEdit -lclangFrontend -lclangFrontendTool\
  -lclangLex -lclangParse -lclangSema -lclangASTMatchers\
  -lclangRewrite -lclangRewriteFrontend -lclangStaticAnalyzerFrontend\
  -lclangStaticAnalyzerCheckers -lclangStaticAnalyzerCore\
- -lclangSerialization -lclangToolingCore -lclangTooling -lstdc++\
+ -lclangSerialization -lclangToolingCore -lclangTooling -lclangToolingSyntax -lstdc++\
  -lLLVMRuntimeDyld -lm -Wl,--end-group $LDFLAGS2  -lclangSupport -lyaml-cpp  -o scpptool 
 
