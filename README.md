@@ -1141,4 +1141,7 @@ Currently, scpptool does not use "flow (or path) sensitive" criteria to determin
 With respect to the example given above, scpptool simply doesn't condone null (raw) pointer values at all. If null values are desired, the pointer would have to be wrapped in an "optional" container, or a smart pointer that (safely) supports null values would have to be used instead.
 
 ### Questions and comments
-If you have questions or comments you can create a post in the [discussion section](https://github.com/duneroadrunner/scpptool/discussions).
+If you have questions or comments you can create a post in the [discussion section](https://github.com/duneroadrunner/scpptool/discussions). 
+
+*New:* Just created a discord server: https://discord.gg/CVQcYweH
+
