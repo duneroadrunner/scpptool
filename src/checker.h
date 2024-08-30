@@ -7090,7 +7090,7 @@ namespace checker {
 			lifetime_owners.push_back(rhs_lifetime_owner_if_available(CXXMCE->getImplicitObjectArgument(), Ctx, tu_state_ref, MR_ptr, Rewrite_ptr));
 			retval = lower_bound_lifetime_owner(lifetime_owners, Ctx, tu_state_ref);
 		} else if (CE) {
-			IF_DEBUG(auto function_qname = CE->getDirectCallee()->getQualifiedNameAsString();)
+			IF_DEBUG(auto function_qname = CE->getDirectCallee() ? CE->getDirectCallee()->getQualifiedNameAsString() : std::string("");)
 
 			/* So the idea here is that since a returned scope pointer/reference object cannot target a
 			local variable inside the (free) function (including parameter local variables), then it must
@@ -8106,11 +8106,14 @@ namespace checker {
 				retval = UO->getSubExpr();
 			}
 		} else if (CE) {
-			auto function_qname = CE->getDirectCallee()->getQualifiedNameAsString();
+			const auto DirectCallee = CE->getDirectCallee();
+			if (DirectCallee) {
+				auto function_qname = DirectCallee->getQualifiedNameAsString();
 
-			static const std::string std_addressof_str = "std::addressof";
-			if ((std_addressof_str == function_qname) && (1 == CE->getNumArgs())) {
-				retval = CE->getArg(0);
+				static const std::string std_addressof_str = "std::addressof";
+				if ((std_addressof_str == function_qname) && (1 == CE->getNumArgs())) {
+					retval = CE->getArg(0);
+				}
 			}
 		}
 
