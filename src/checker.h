@@ -1436,7 +1436,7 @@ namespace checker {
 		}
 
 		const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
-		if (CXXRD) {
+		if (CXXRD && CXXRD->hasDefinition()) {
 			for (auto& CXXBS : CXXRD->bases()) {
 				const auto base_qtype = CXXBS.getType();
 				IF_DEBUG(const auto base_qtype_str = base_qtype.getAsString();)
