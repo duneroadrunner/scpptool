@@ -1638,12 +1638,14 @@ inline bool is_async_shareable(const clang::Type& type) {
 						return false;
 					}
 				}
-				for (const auto& base_specifier : CXXRD->bases()) {
-					const auto base_specifier_qtype = base_specifier.getType();
-					IF_DEBUG(auto base_specifier_qtype_str = base_specifier_qtype.getAsString();)
+				if (CXXRD->hasDefinition()) {
+					for (const auto& base_specifier : CXXRD->bases()) {
+						const auto base_specifier_qtype = base_specifier.getType();
+						IF_DEBUG(auto base_specifier_qtype_str = base_specifier_qtype.getAsString();)
 
-					if (!is_async_shareable(base_specifier.getType())) {
-						return false;
+						if (!is_async_shareable(base_specifier.getType())) {
+							return false;
+						}
 					}
 				}
 				return true;
