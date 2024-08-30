@@ -987,9 +987,11 @@ inline bool statement_makes_reference_to_decl(const clang::ValueDecl& VLD_cref, 
 		}
 	}
 	for (const auto& child : ST->children()) {
-		const auto res1 = statement_makes_reference_to_decl(VLD_cref, *child);
-		if (res1) {
-			return true;
+		if (child) {
+			const auto res1 = statement_makes_reference_to_decl(VLD_cref, *child);
+			if (res1) {
+				return true;
+			}
 		}
 	}
 
