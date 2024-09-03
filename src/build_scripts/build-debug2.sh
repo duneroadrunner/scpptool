@@ -6,7 +6,8 @@ then
     then
         LLVM_CONF=/usr/bin/llvm-config
     else
-        echo "The LLVM_CONF environment variable needs to be set to the llvm-config pathname."
+        echo "The LLVM_CONF environment variable needs to be set to the llvm-config pathname. "
+        echo "If you're using the clang+llvm pre-built binaries, then LLVM_CONF should be set to {the clang+llvm pre-built binaries directory}/bin/llvm-config. "
         exit
     fi
 else
