@@ -322,7 +322,7 @@ namespace checker {
 		//param_ordinal_t() : m_zb_index(1) {}
 		param_ordinal_t(const param_ordinal_t&) = default;
 		param_ordinal_t(size_t ordinal) : m_zb_index(int(ordinal) - 1) {}
-		param_ordinal_t(ns_member_operator_tag, size_t ordinal) : m_belongs_to_ns_member_operator(true), m_zb_index(int(ordinal) - 1) {}
+		param_ordinal_t(ns_member_operator_tag, size_t ordinal) : m_zb_index(int(ordinal) - 1), m_belongs_to_ns_member_operator(true) {}
 		operator size_t() const {
 			return (m_zb_index + 1);
 		};
@@ -3664,7 +3664,7 @@ namespace checker {
 													if ((std::string::npos != rangle_bracket_index) && (comma_index + 1 < rangle_bracket_index)) {
 														std::string param_ordinal_str = qtype_str.substr(langle_bracket_index + 1, int(comma_index) - int(langle_bracket_index) - 1);
 														auto param_ordinal = size_t(atoi(param_ordinal_str.c_str()));
-														if (int(func_decl.getNumParams()) < param_ordinal) {
+														if (int(func_decl.getNumParams()) < int(param_ordinal)) {
 															if (MR_ptr) {
 																std::string error_desc = std::string("The specified parameter ordinal ('") + std::to_string(param_ordinal)
 																	+ "') is greater than the number of parameters (" + std::to_string(func_decl.getNumParams()) + ").";
@@ -5447,7 +5447,7 @@ namespace checker {
 		auto diff1 = int(sli2.m_sublifetimes_vlptr->m_primary_lifetime_infos.size()) - int(sli1.m_sublifetimes_vlptr->m_primary_lifetime_infos.size());
 		auto& smaller_sli_ref = (0 <= diff1) ? sli1 : sli2;
 		auto diff2 = abs(diff1);
-		for (size_t i = 0; i < diff2; i += 1) {
+		for (size_t i = 0; int(i) < diff2; i += 1) {
 			auto shallow_sli = smaller_sli_ref;
 			shallow_sli.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
 			smaller_sli_ref.m_sublifetimes_vlptr->m_primary_lifetime_infos.push_back(shallow_sli);
@@ -8975,7 +8975,7 @@ namespace checker {
 		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
 			, const CXXMemberCallExpr* CXXMCE = nullptr, const CXXOperatorCallExpr* CXXOCE = nullptr) {
 
-			if (false && (CXXMCE != nullptr) || (CXXOCE != nullptr))
+			if (false && ((CXXMCE != nullptr) || (CXXOCE != nullptr)))
 			{
 				/* This case is now handled in function_call_handler2(). */
 
@@ -9353,7 +9353,7 @@ namespace checker {
 			param_ordinals.push_back(param_ordinal);
 		}
 		const auto num_params = function_decl->getNumParams();
-		for (int i = 0; i < num_params; i += 1) {
+		for (int i = 0; i < int(num_params); i += 1) {
 			auto param_ordinal = is_ns_member_operator ? param_ordinal_t(param_ordinal_t::ns_member_operator_tag{}, 1 + i)
 				: param_ordinal_t(1 + i);
 			param_ordinals.push_back(param_ordinal);
@@ -9721,7 +9721,7 @@ namespace checker {
 										) {
 
 										size_t lv_index = 0;
-										for (const auto abstract_lifetime1 : alts.m_primary_lifetimes) {
+										for (const auto& abstract_lifetime1 : alts.m_primary_lifetimes) {
 											if (lifetime_values_ref.size() <= lv_index) {
 												/* todo: report error? */
 												break;
@@ -10943,7 +10943,7 @@ namespace checker {
 				}
 				if (maybe_expr_lifetime_value.has_value()) {
 					CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
-					if (false && (CScopeLifetimeInfo1::ECategory::ContainedDynamic == expr_slti.m_category) || (CScopeLifetimeInfo1::ECategory::None == expr_slti.m_category)) {
+					if (false && ((CScopeLifetimeInfo1::ECategory::ContainedDynamic == expr_slti.m_category) || (CScopeLifetimeInfo1::ECategory::None == expr_slti.m_category))) {
 						/* This case is handled by the MCSSSAddressOf::run() handler. */
 						if (MR_ptr) {
 							std::string of_type_str;
