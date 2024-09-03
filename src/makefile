@@ -134,7 +134,8 @@ A:$(TARGET).a
 TAGS:tags
 
 tags:$(SRCS)
-	$(shell $(CXX) -c $(shell $(LLVM_CONF) --cxxflags) -I$(shell $(LLVM_CONF) --src-root)/tools/clang/include -I$(shell $(LLVM_CONF) --obj-root)/tools/clang/include -I $(CTAGS_I_PATH) -M $(SRCS)|\
+#	$(shell $(CXX) -c $(shell $(LLVM_CONF) --cxxflags) -I$(shell $(LLVM_CONF) --src-root)/tools/clang/include -I$(shell $(LLVM_CONF) --obj-root)/tools/clang/include -I $(CTAGS_I_PATH) -M $(SRCS)|\
+	$(shell $(CXX) -c $(shell $(LLVM_CONF) --cxxflags) -I $(CTAGS_I_PATH) -M $(SRCS)|\
 		sed -e 's/[\\ ]/\n/g'|sed -e '/^$$/d' -e '/\.o:[ \t]*$$/d'|\
 		ctags -L - --c++-kinds=+p --fields=+iaS --extra=+q)
 
