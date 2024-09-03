@@ -132,8 +132,8 @@ namespace checker {
 				ebaiex.m_source_location_str = s_source_location_str(SM, SL);
 
 				bool far_enough_apart = true;
-				if (((ebaiex.m_file_id == last_file_id) && (3/*arbitrary*/ > abs(ebaiex.m_line_num - last_line_num)) && (75/*arbitrary*/ > abs(ebaiex.m_column_num - last_column_num)))
-					|| ((ebaiex.m_file_id == previous_last_file_id) && (3/*arbitrary*/ > abs(ebaiex.m_line_num - previous_last_line_num)) && (75/*arbitrary*/ > abs(ebaiex.m_column_num - previous_last_column_num)))
+				if (((ebaiex.m_file_id == last_file_id) && (3/*arbitrary*/ > abs(int(ebaiex.m_line_num) - int(last_line_num))) && (75/*arbitrary*/ > abs(int(ebaiex.m_column_num) - int(last_column_num))))
+					|| ((ebaiex.m_file_id == previous_last_file_id) && (3/*arbitrary*/ > abs(int(ebaiex.m_line_num) - int(previous_last_line_num))) && (75/*arbitrary*/ > abs(int(ebaiex.m_column_num) - int(previous_last_column_num))))
 					) {
 					far_enough_apart = false;
 				}
@@ -279,7 +279,7 @@ namespace checker {
 	struct CEncompasses : public CPairwiseLifetimeConstraint {
 		typedef CPairwiseLifetimeConstraint base_class;
 		CEncompasses(const CAbstractLifetime& first, const CAbstractLifetime& second) : base_class{ first, second } {}
-		virtual std::string species_str() const { return "encompasses"; }
+		virtual std::string species_str() const override { return "encompasses"; }
 		virtual EYesNoDontKnow second_can_be_assigned_to_first(const std::optional<CAbstractLifetime> maybe_first = {}, const std::optional<CAbstractLifetime> maybe_second = {}) const override {
 			EYesNoDontKnow retval = EYesNoDontKnow::DontKnow;
 			auto first = maybe_first.value_or(m_first);
@@ -295,7 +295,7 @@ namespace checker {
 	struct CFirstCanBeAssignedToSecond : public CPairwiseLifetimeConstraint {
 		typedef CPairwiseLifetimeConstraint base_class;
 		CFirstCanBeAssignedToSecond(const CAbstractLifetime& first, const CAbstractLifetime& second) : base_class{ first, second } {}
-		virtual std::string species_str() const { return "first_can_be_assigned_to_second"; }
+		virtual std::string species_str() const override { return "first_can_be_assigned_to_second"; }
 		virtual EYesNoDontKnow second_can_be_assigned_to_first(const std::optional<CAbstractLifetime> maybe_first = {}, const std::optional<CAbstractLifetime> maybe_second = {}) const override {
 			EYesNoDontKnow retval = EYesNoDontKnow::DontKnow;
 			auto first = maybe_first.value_or(m_first);
@@ -9781,7 +9781,6 @@ namespace checker {
 											} else {
 												/* The annotated lifetime of the parameter is not an annotated lifetime of the object type, if any. */
 
-												corresponding_initialized_maybe_scope_lifetime/* = abstract_lifetime1*/;
 												auto found_it = initialized_maybe_lifetime_value_map_ref.find(abstract_lifetime1);
 												if (initialized_maybe_lifetime_value_map_ref.end() != found_it) {
 													corresponding_initialized_maybe_scope_lifetime = found_it->second;
