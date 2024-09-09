@@ -1142,6 +1142,3 @@ With respect to the example given above, scpptool simply doesn't condone null (r
 
 ### Questions and comments
 If you have questions or comments you can create a post in the [discussion section](https://github.com/duneroadrunner/scpptool/discussions). 
-
-*New:* Just created a discord server: https://discord.gg/CVQcYweH
-
