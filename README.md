@@ -605,7 +605,7 @@ usage example: ([link to interactive version](https://godbolt.org/z/5Kx9q1dEW))
 
 Some other static safety enforcers/analyzers try to automatically and implicitly put vectors (and other dynamic containers) into a "fixed (size/structure) mode" without requiring the programmer to instantiate a "borrowing fixed" object. But such tools rely on "flow (or path) sensitive" analysis, which [arguably](#flow-insensitive-analysis) has undesirable scalability implications.
 
-usage example: ([link to interactive version](https://godbolt.org/z/K9YenzE8h))
+usage example: ([link to interactive version](https://godbolt.org/z/ThxP8WeTP))
 
 ```cpp
     #include "mseslta.h"
