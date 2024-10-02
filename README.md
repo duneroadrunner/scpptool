@@ -881,7 +881,7 @@ See also [`TXSLTACSSSXSTERandomAccessSection`](#txsltacsssxsterandomaccessiterat
 
 `rsv::TXSLTACSSSXSTERandomAccessSection<>` might be considered, in essence, the primary safe counterpart of `std::span<>`. In fact, this element would be expected to be used commonly enough that at some point you might feel compelled to define a shorter alias for it, for example like so:
 ```cpp
-template <typename _TElement> using my_lta_span = mse::rsv::TXSLTACSSSXSTERandomAccessSection<_TElement>;
+template <typename TElement> using my_span = mse::rsv::TXSLTACSSSXSTERandomAccessSection<TElement>;
 ```
 (The library itself does not (yet) provide such a standard short alias.)
 
