@@ -144,6 +144,8 @@ Operations that could resize (or relocate) the contents of a "safe" dynamic cont
 
 This next topic is kind of a longer one about "lifetime annotations". It is an important topic to understand if you ever intend to store raw pointers or references, or use them as function return values. (You can theoretically avoid those situations, and this topic, by using the provided non-owning run-time-checked smart pointers rather than raw pointers/references in those situations.) This topic introduces some new syntax, but don't get hung up on the details. Most of the time you won't be using the new syntax directly. Most of the time it will be [implied by default](#lifetime-elision) or you'll be using provided [library elements](#lifetime-annotated-elements-in-the-safercplusplus-library) that already incorporate the appropriate lifetime annotations. But still, it's recommended to at least give this topic a "once over" to get an idea of how things work and the principles underlying the associated imposed/enforced restrictions.
 
+While in most cases the lifeftime annotations will be implicit, the lifetime annotations presented in this section may strike some as quite verbose. Possibly unacceptably so. But note that these annotations are just preprocessor macros and that it's straightforward to define more concise macro aliases for them. So even though all our examples use the "official" verbose syntax, it's expected that shorter macro aliases will be more commonly used.
+
 By default, this tool enforces that targets of scope (raw) pointers outlive the pointer itself. But sometimes it can be useful to enforce even more stringent restrictions on the lifespan of the target objects. Consider the following example:
 
 ```cpp
@@ -213,6 +215,26 @@ int main(int argc, char* argv[]) {
     }
 }
 ```
+
+As noted earlier, the syntax of these lifetime annotations may seem to some to be overly verbose for common usage. But it's straightforward to define and use shorter macro aliases instead. So for instance, the example function could be re-expressed like so:
+
+```cpp
+#define LT(...) MSE_ATTR_STR("mse::lifetime_labels("#__VA_ARGS__")")
+#define ENCOMPASSES(x, y) MSE_ATTR_STR("mse::lifetime_encompasses("#x", "#y")")
+
+...
+
+typedef int* int_p_t;
+
+void foo1(int_p_t& i1_p_ref LT(42), int_p_t& i2_p_ref LT(99))
+    LT(42, 99) ENCOMPASSES(42, 99)
+{
+    int_p_t i3_p = i1_p_ref; // clearly safe
+    i2_p_ref = i1_p_ref; // the lifetime annotations tell us that this is safe
+}
+```
+
+The library itself does not yet provide standardized short aliases. At the moment you'd need to define (or obtain) your own set of aliases.
 
 Ok, so we've demonstrated associating labels to the lifetimes of objects bound to raw references. But actually, raw references are kind of a special case "quasi-object" in the sense that the reference itself can never be the target of another reference or pointer, and can never be reassigned to reference a different object. (Raw) pointers, on the other hand, provide the functionality of raw references, but additionally can be reassigned to reference (aka "point to") different objects, and can themselves be targeted by references or other pointers. So if we use pointers in place of (raw) references in our first example:
 
