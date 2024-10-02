@@ -219,15 +219,15 @@ int main(int argc, char* argv[]) {
 As noted earlier, the syntax of these lifetime annotations may seem to some to be overly verbose for common usage. But it's straightforward to define and use shorter macro aliases instead. So for instance, the example function could be re-expressed like so:
 
 ```cpp
-#define LT(...) MSE_ATTR_STR("mse::lifetime_labels("#__VA_ARGS__")")
-#define ENCOMPASSES(x, y) MSE_ATTR_STR("mse::lifetime_encompasses("#x", "#y")")
+#define LT1(...) MSE_ATTR_STR("mse::lifetime_labels("#__VA_ARGS__")")
+#define ENCOMPASSES1(x, y) MSE_ATTR_STR("mse::lifetime_encompasses("#x", "#y")")
 
 ...
 
 typedef int* int_p_t;
 
-void foo1(int_p_t& i1_p_ref LT(42), int_p_t& i2_p_ref LT(99))
-    LT(42, 99) ENCOMPASSES(42, 99)
+void foo1(int_p_t& i1_p_ref LT1(42), int_p_t& i2_p_ref LT1(99))
+    LT1(42, 99) ENCOMPASSES1(42, 99)
 {
     int_p_t i3_p = i1_p_ref; // clearly safe
     i2_p_ref = i1_p_ref; // the lifetime annotations tell us that this is safe
@@ -879,7 +879,11 @@ See also [`TXSLTACSSSXSTERandomAccessSection`](#txsltacsssxsterandomaccessiterat
 
 `rsv::TXSLTACSSSXSTERandomAccessIterator<>` and `rsv::TXSLTACSSSXSTERandomAccessSection<>` are "type-erased" template classes that can be used to enable functions to take as arguments iterators or sections of various container types (like arrays or (fixed size) vectors) without making the functions into template functions. But in this case there are limitations on what types can be converted. In exchange for these limitations, these types require less overhead. The "CSSSXSTE" part of the typenames stands for "Contiguous Sequence, Static Structure, XSLTA, Type-Erased". So the first restriction is that the target container must be recognized as a "contiguous sequence" (basically an array or vector). It also must be recognized as having a "static structure". This essentially means that the container cannot be resized. (At least not while the `rsv::TXSLTACSSSXSTERandomAccessIterator<>` or `rsv::TXSLTACSSSXSTERandomAccessSection<>` exists.) And these iterators and sections are ["lifetime annotated"](#annotating-lifetime-constraints).
 
-`rsv::TXSLTACSSSXSTERandomAccessSection<>` might be considered, in essence, the primary safe counterpart of `std::span<>`.
+`rsv::TXSLTACSSSXSTERandomAccessSection<>` might be considered, in essence, the primary safe counterpart of `std::span<>`. In fact, this element would be expected to be used commonly enough that at some point you might feel compelled to define a shorter alias for it, for example like so:
+```cpp
+template <typename _TElement> using my_lta_span = mse::rsv::TXSLTACSSSXSTERandomAccessSection<_TElement>;
+```
+(The library itself does not (yet) provide such a standard short alias.)
 
 usage example: ([link to interactive version](https://godbolt.org/z/h5x78nbE1))
 
