@@ -132,8 +132,6 @@ When the value of one pointer is assigned to another, some static analyzers will
 
 If [lifetime annotations](#annotating-lifetime-constraints) are applied to the pointer, then it can be assumed that the target object (also) outlives the pointer's intialization value target object. Often [`rsv::TXSLTAPointer<>`](#txsltapointer) will be used in place of raw pointers. It acts just like a raw pointer with lifetime annotations.
 
-(Note that a current glaring shortcoming of the tool is that while expressions of the form `(*pointer).member` should be checked properly, equivalent expressions of the form `pointer->member` may not be. This will hopefully be remedied before long.) 
-
 #### Referencing elements in a dynamic container
 
 This tool does not support directly taking (raw) references to elements in a dynamic (resizable) container (such as a vector). The preferred way of obtaining a (raw) reference to an element in a dynamic container is via a corresponding ["borrowing fixed (size)"](#xslta_vector-xslta_fixed_vector-xslta_borrowing_fixed_vector) (proxy) container that, while it exists, ensures that no elements are removed or relocated.
