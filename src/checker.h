@@ -9319,7 +9319,7 @@ namespace checker {
 		if (CXXMCE) {
 			const auto CXXDD = dyn_cast<const clang::CXXDestructorDecl>(function_decl);
 			if (CXXDD) {
-				if (MR_ptr) {
+				if (MR_ptr && (!errors_suppressed_flag)) {
 					const std::string error_desc =  std::string("Explicitly calling destructors (such as '") + qfunction_name
 						+ "') is not supported.";
 					state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
@@ -9328,7 +9328,7 @@ namespace checker {
 		} else if (false) {
 			static const std::string tilda_str = "~";
 			if (string_begins_with(function_name, tilda_str)) {
-				if (MR_ptr) {
+				if (MR_ptr && (!errors_suppressed_flag)) {
 					const std::string error_desc =  std::string("'") + qfunction_name
 						+ "' looks like a destructor. Explicitly calling destructors is not supported.";
 					state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
@@ -9391,7 +9391,7 @@ namespace checker {
 					auto shallow_lifetime_value = lifetime_value;
 					shallow_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
 					if (!first_is_known_to_be_contained_in_scope_of_second_shallow(lifetime_of_the_function_call, shallow_lifetime_value, Ctx, state1)) {
-						if (MR_ptr) {
+						if (MR_ptr && (!errors_suppressed_flag)) {
 							std::string arg_str;
 							if (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal) {
 								arg_str += std::string(" 'this' pointer");
@@ -9953,8 +9953,41 @@ namespace checker {
 						}
 					}
 					if (IOA_E) {
+						auto adjusted_IOA_E_qtype = IOA_E->getType();
+						IF_DEBUG(const std::string IOA_E_qtype_str = adjusted_IOA_E_qtype.getAsString();)
+						if (adjusted_IOA_E_qtype->isPointerType()) {
+							const auto parent_E = IgnoreParenNoopCasts(IOA_E, Ctx);
+							if (parent_E) {
+								auto parent_E_qtype = parent_E->getType();
+								IF_DEBUG(const std::string parent_E_qtype_str = parent_E_qtype.getAsString();)
+
+								auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(parent_E);
+								if (CXXOCE) {
+									static const std::string operator_arrow_str = "operator->";
+									auto operator_fdecl = CXXOCE->getDirectCallee();
+									std::string operator_name;
+									if (operator_fdecl) {
+										operator_name = operator_fdecl->getNameAsString();
+									} else {
+										int q = 3;
+									}
+
+									if (((operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs())) {
+										auto arg_EX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), Ctx);
+										if (arg_EX) {
+											const auto arg_EX_qtype = arg_EX->getType();
+											IF_DEBUG(const auto arg_EX_qtype_str = arg_EX_qtype.getAsString();)
+											//MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(arg_EX_qtype, retval);
+
+											adjusted_IOA_E_qtype = arg_EX_qtype;
+										}
+									}
+								}
+							}
+						}
+						IF_DEBUG(const std::string adjusted_IOA_E_qtype_str = adjusted_IOA_E_qtype.getAsString();)
 						if (!is_known_to_be_const_declared_variable(IOA_E)) {
-							could_be_a_dynamic_container_accessor |= is_recognized_unprotected_dynamic_container(IOA_E->getType());
+							could_be_a_dynamic_container_accessor |= is_recognized_unprotected_dynamic_container(adjusted_IOA_E_qtype);
 						}
 					}
 				}
@@ -10132,6 +10165,25 @@ namespace checker {
 							auto adj_expr_scope_lifetime_info = sublifetimes_ref.at(0);
 							expr_scope_lifetime_info = adj_expr_scope_lifetime_info;
 							if (could_be_a_dynamic_container_accessor && (std::string("operator&") != function_decl->getNameAsString())) {
+								expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::ContainedDynamic;
+							}
+						} else {
+							if (0 != sublifetimes_ref.size()) {
+								/* unexpected */
+								int q = 3;
+							} else {
+								/* The lifetime of the target object is not availiable. */
+							}
+						}
+					}
+					if (function_decl->getReturnType()->isPointerType() && ("operator->" == function_decl->getNameAsString())) {
+						auto& sublifetimes_ref = expr_scope_lifetime_info.m_sublifetimes_vlptr->m_primary_lifetime_infos;
+						if (1 == sublifetimes_ref.size()) {
+							if (could_be_a_dynamic_container_accessor && (std::string("operator&") != function_decl->getNameAsString())) {
+								sublifetimes_ref.at(0).m_category = CScopeLifetimeInfo1::ECategory::ContainedDynamic;
+								/* Even if the 'nominal' primary lifetime would otherwise be in a different category, 
+								its 'valid' lifetime cannot exceed that of any of the associated sublifetimes, even 
+								that means that the primary lifetime category has to be downgraded. */
 								expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::ContainedDynamic;
 							}
 						} else {
@@ -11023,6 +11075,40 @@ namespace checker {
 				}
 			}
 			retval = CExpressionLifetimeValues{ expr_scope_lifetime_info, bool(MR_ptr) };
+		}
+		if (E_qtype->isPointerType()) {
+			auto CXXOCE = dyn_cast<const clang::CXXOperatorCallExpr>(E_ip);
+			if (CXXOCE) {
+				static const std::string operator_arrow_str = "operator->";
+				auto operator_fdecl = CXXOCE->getDirectCallee();
+				std::string operator_name;
+				if (operator_fdecl) {
+					operator_name = operator_fdecl->getNameAsString();
+				} else {
+					int q = 3;
+				}
+
+				if (((operator_arrow_str == operator_name)) && (1 == CXXOCE->getNumArgs())) {
+					auto arg_EX = IgnoreParenImpNoopCasts(CXXOCE->getArg(0), Ctx);
+					if (arg_EX) {
+						const auto arg_EX_qtype = arg_EX->getType();
+						IF_DEBUG(const auto arg_EX_qtype_str = arg_EX_qtype.getAsString();)
+						//MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(arg_EX_qtype, retval);
+
+						bool could_be_a_dynamic_container_accessor = is_recognized_unprotected_dynamic_container(arg_EX_qtype);
+						if (could_be_a_dynamic_container_accessor) {
+							auto expr_scope_lifetime_info = CScopeLifetimeInfo1{};
+							expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::ContainedDynamic;
+							expr_scope_lifetime_info.m_maybe_containing_scope = get_containing_scope(E, Ctx);
+							expr_scope_lifetime_info.m_maybe_source_range = E->getSourceRange();
+							expr_scope_lifetime_info.m_maybe_corresponding_cpp_element = E;
+							slti_set_default_lower_bound_lifetimes_where_needed(expr_scope_lifetime_info, E_qtype, state1);
+
+							retval = CExpressionLifetimeValues{ expr_scope_lifetime_info, bool(MR_ptr) };
+						}
+					}
+				}
+			}
 		}
 
 		if (retval.has_value()) {
