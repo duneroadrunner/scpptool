@@ -1424,6 +1424,9 @@ public:
 		IF_DEBUG(auto dtn_set_size = (*this).m_dyn_type_nodes.size());
 		NodeT const * NodeConstPtr = NodePtr;
 		auto maybe_dyn_typed_node = std::optional(SCPP_IMPL_DYNTYPEDNODE::create(*NodeConstPtr));
+		if (!maybe_dyn_typed_node.has_value()) {
+			int q = 5;
+		}
 		while (maybe_dyn_typed_node.has_value()) {
 			const auto& dyn_typed_node_cref = maybe_dyn_typed_node.value();
 			if (false) {
@@ -1437,8 +1440,9 @@ public:
 
 			const clang::Stmt* node_ST = dyn_typed_node_cref.template get<clang::Stmt>();
 			const clang::Decl* node_D = dyn_typed_node_cref.template get<clang::Decl>();
-			if (node_ST || node_D) {
-				auto node_rawSR = node_ST ? node_ST->getSourceRange() : node_D->getSourceRange();
+			const clang::CXXCtorInitializer* node_CXXCI = dyn_typed_node_cref.template get<clang::CXXCtorInitializer>();
+			if (node_ST || node_D || node_CXXCI) {
+				auto node_rawSR = node_ST ? node_ST->getSourceRange() : (node_D ? node_D->getSourceRange() : node_CXXCI->getSourceRange());
 				auto ISR = instantiation_source_range(node_rawSR, Rewrite);
 
 				/* The "contains(const clang::SourceRange&) method checks whether the given range is
@@ -1451,6 +1455,8 @@ public:
 				if ((*this).contains(ISR)) {
 					return true;
 				}
+			} else {
+				int q = 5;
 			}
 
 			const auto& parents = context.getParents(dyn_typed_node_cref);

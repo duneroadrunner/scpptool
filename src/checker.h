@@ -2392,10 +2392,10 @@ namespace checker {
 
 		IF_DEBUG(auto type_name_str = type_decl.getNameAsString();)
 #ifndef NDEBUG
-		if (std::string::npos != type_name_str.find("TXSLTACSSSStrongRAIterator")) {
+		if (std::string::npos != type_name_str.find("TXScopeSpecializedFirstAndLast")) {
 			int q = 5;
 		}
-		if (std::string::npos != cn_qtype_str.find("TXSLTACSSSStrongRAIterator")) {
+		if (std::string::npos != cn_qtype_str.find("TXScopeSpecializedFirstAndLast")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -3023,7 +3023,7 @@ namespace checker {
 		IF_DEBUG(const auto debug_func_name = func_decl.getNameAsString();)
 		IF_DEBUG(const auto debug_func_qname = func_decl.getQualifiedNameAsString();)
 #ifndef NDEBUG
-		if (std::string::npos != debug_func_qname.find("operator TXSLTAPointer")) {
+		if (std::string::npos != debug_func_qname.find("operator!=")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -3933,6 +3933,24 @@ namespace checker {
 			}
 		}
 
+		struct CB {
+			void build_implied_ancestor_descendant_constraints(CAbstractLifetime const& abstract_lifetime, std::vector<CAbstractLifetime> const & ancestor_lifetimes) {
+				for (auto const& ancestor_lifetime : ancestor_lifetimes) {
+					if (!(ancestor_lifetime == abstract_lifetime)) {
+						m_lifetime_constraint_shptrs.push_back(std::make_shared<CEncompasses>(
+							CEncompasses{ abstract_lifetime, ancestor_lifetime }));
+					}
+				}
+				auto new_ancestor_lifetimes = ancestor_lifetimes;
+				new_ancestor_lifetimes.push_back(abstract_lifetime);
+				for (auto const& sub_abstract_lifetime : abstract_lifetime.m_sublifetimes_vlptr->m_primary_lifetimes) {
+					build_implied_ancestor_descendant_constraints(sub_abstract_lifetime, new_ancestor_lifetimes);
+				}
+			}
+
+			std::vector<std::shared_ptr<CPairwiseLifetimeConstraint> > m_lifetime_constraint_shptrs;
+		};
+
 		for (const auto& lifetime_constraint_shptr : flta.m_lifetime_constraint_shptrs) {
 			bool already_noted = false;
 			auto range = state1.m_lhs_to_lifetime_constraint_shptr_mmap.equal_range(lifetime_constraint_shptr->m_first);
@@ -4277,9 +4295,62 @@ namespace checker {
 				if (CXXMD && (!(CXXMD->isStatic())) && (!CXXCD)) {
 					auto this_qtype = CXXMD->getThisType();
 					IF_DEBUG(const std::string this_qtype_str = this_qtype.getAsString();)
+					param_ordinal = IMPLICIT_THIS_PARAM_ORDINAL;
 
 					if (!no_elided_flag) {
-						add_elided_lifetime_annotation_to_param_if_necessary(IMPLICIT_THIS_PARAM_ORDINAL, this_qtype, "implicit_this_parameter");
+						CAbstractLifetimeSet palts1;
+						auto found_it = param_lifetime_map.find(IMPLICIT_THIS_PARAM_ORDINAL);
+						if (param_lifetime_map.end() != found_it) {
+							palts1 = found_it->second;
+						}
+						if (1 <= palts1.m_primary_lifetimes.size()) {
+							if (1 < palts1.m_primary_lifetimes.size()) {
+								int q = 3;
+								assert(false);
+							};
+						} else {
+							palts1.m_primary_lifetimes.push_back(CAbstractLifetime{ "_elided implicit_this_parameter lifetime_"
+										, &func_decl, true/*is_elided*/ });
+						}
+
+						CAbstractLifetimeSet const* taltas1_ptr = nullptr;
+						auto maybe_pointee_qtype = pointee_type_if_any(this_qtype);
+						if (maybe_pointee_qtype.has_value()) {
+							auto& pointee_qtype = maybe_pointee_qtype.value();
+							auto maybe_pointee_tlta_ptr = type_lifetime_annotations_if_available(pointee_qtype, state1, MR_ptr, Rewrite_ptr);
+							if (maybe_pointee_tlta_ptr.has_value()) {
+								auto& pointee_tlta_ptr = maybe_pointee_tlta_ptr.value();
+								taltas1_ptr = &(pointee_tlta_ptr->m_lifetime_set);
+							}
+						} else {
+							/* unexpected */
+							int q = 3;
+						}
+						if (taltas1_ptr) {
+							auto const & talts1 = *taltas1_ptr;
+							/* The implicit `this` parameter's type seems to have (implict or explicit) annotated lifetimes. */
+
+							struct CB {
+								static void add_elided_lifetime_annotation_where_necessary(CAbstractLifetimeSet& palts1, CAbstractLifetimeSet const & talts1) {
+									for (auto i2 = palts1.m_primary_lifetimes.size(); talts1.m_primary_lifetimes.size() > i2; i2 += 1) {
+										palts1.m_primary_lifetimes.push_back(talts1.m_primary_lifetimes.at(i2));
+									}
+									for (auto i2 = size_t(0); talts1.m_primary_lifetimes.size() > i2; i2 += 1) {
+										add_elided_lifetime_annotation_where_necessary(*(palts1.m_primary_lifetimes.at(i2).m_sublifetimes_vlptr), *(talts1.m_primary_lifetimes.at(i2).m_sublifetimes_vlptr));
+									}
+								}
+							};
+
+							CB::add_elided_lifetime_annotation_where_necessary(*(palts1.m_primary_lifetimes.at(0).m_sublifetimes_vlptr), talts1);
+
+							if (!(palts1.is_empty())) {
+								param_lifetime_map.insert_or_assign(IMPLICIT_THIS_PARAM_ORDINAL, palts1);
+							}
+						} else {
+							int q = 5;
+						}
+
+						//add_elided_lifetime_annotation_to_param_if_necessary(IMPLICIT_THIS_PARAM_ORDINAL, this_qtype, "implicit_this_parameter");
 					}
 				}
 
@@ -4605,8 +4676,9 @@ namespace checker {
 				}
 #endif /*!NDEBUG*/
 
-				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(RD, Rewrite, *(MR.Context));
-				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(RDISR);
+				bool errors_suppressed_by_location_flag = errors_suppressed_by_location(MR, SR.getBegin());
+				auto suppress_check_flag = errors_suppressed_by_location_flag;
+				suppress_check_flag |= state1.m_suppress_check_region_set.contains(RD, Rewrite, *(MR.Context));
 				if (suppress_check_flag) {
 					return;
 				}
@@ -4735,7 +4807,7 @@ namespace checker {
 											) {
 											if (!ICIEX) {
 												unverified_pointer_fields.push_back(FD);
-											} else if (is_nullptr_literal(ICIEX, *(MR.Context))) {
+											} else if (is_nullptr_literal(ICIEX, *(MR.Context)) && (!suppress_check_flag)) {
 												auto ICISR = nice_source_range(ICIEX->getSourceRange(), Rewrite);
 												if (!ICISR.isValid()) {
 													ICISR = SR;
@@ -4758,7 +4830,7 @@ namespace checker {
 														const auto FD2 = get_FieldDecl_from_MemberExpr_if_any(*ME);
 														if (FD2) {
 															bool res = first_is_contained_in_scope_of_second(FD, FD2, *(MR.Context));
-															if ((!res) || (FD == FD2)) {
+															if (((!res) || (FD == FD2)) && (!suppress_check_flag)) {
 																auto MESR = nice_source_range(ME->getSourceRange(), Rewrite);
 																if (!MESR.isValid()) {
 																	MESR = SR;
@@ -4770,7 +4842,7 @@ namespace checker {
 															}
 														} else {
 															const auto CXXMD = dyn_cast<const CXXMethodDecl>(ME->getMemberDecl());
-															if (CXXMD) {
+															if (CXXMD && (!suppress_check_flag)) {
 																/* error: Unable to verify that the member function used here can't access part of
 																the object that hasn't been constructed yet. */
 																const std::string error_desc = std::string("Calling non-static member functions ")
@@ -4785,7 +4857,7 @@ namespace checker {
 																int q = 5;
 															}
 														}
-													} else {
+													} else if (!suppress_check_flag) {
 														const std::string error_desc = std::string("Unable to verify that the 'this' pointer ")
 														+ "used here can't be used to access part of the object that hasn't been constructed yet.";
 														state1.register_error(*MR.SourceManager, SR, error_desc);
@@ -4795,7 +4867,7 @@ namespace checker {
 													&& (!state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(field_qtype))
 													&& (!state1.m_suppress_check_region_set.contains(instantiation_source_range(FD->getSourceRange(), Rewrite)))
 													) {
-													if (is_nullptr_literal(EX, *(MR.Context))) {
+													if (is_nullptr_literal(EX, *(MR.Context)) && (!suppress_check_flag)) {
 														auto CISR = nice_source_range(EX->getSourceRange(), Rewrite);
 														if (!CISR.isValid()) {
 															CISR = SR;
@@ -4811,7 +4883,7 @@ namespace checker {
 									}
 								}
 								if (1 <= unverified_pointer_fields.size()) {
-									if (CXXRD->ctors().end() == CXXRD->ctors().begin()) {
+									if ((CXXRD->ctors().end() == CXXRD->ctors().begin()) && (!suppress_check_flag)) {
 										/* There don't seem to be any constructors. */
 										auto field_SR = nice_source_range(unverified_pointer_fields.front()->getSourceRange(), Rewrite);
 										if (!field_SR.isValid()) {
@@ -4859,7 +4931,7 @@ namespace checker {
 												int q = 5;
 											}
 										}
-										if (1 <= l_unverified_pointer_fields.size()) {
+										if ((1 <= l_unverified_pointer_fields.size()) && (!suppress_check_flag)) {
 											auto constructor_SR = nice_source_range(constructor->getSourceRange(), Rewrite);
 											if (!constructor_SR.isValid()) {
 												constructor_SR = SR;
@@ -4965,7 +5037,7 @@ namespace checker {
 											+ "that does, must inherit from mse::rsv::ReferenceableByScopePointerTagBase.";
 									}
 								}
-								if ("" != error_desc) {
+								if (("" != error_desc) && (!suppress_check_flag)) {
 									auto FDISR = instantiation_source_range(FD->getSourceRange(), Rewrite);
 									state1.register_error(*MR.SourceManager, FDISR, error_desc);
 								}
@@ -5901,12 +5973,36 @@ namespace checker {
 		return retval;
 	}
 
+	inline bool second_is_a_sublifetime_of_first(CAbstractLifetime first, CAbstractLifetime second) {
+		bool retval = false;
+		if (second == first) {
+			return true;
+		}
+		for (auto sublifetime : first.m_sublifetimes_vlptr->m_primary_lifetimes) {
+			if (second_is_a_sublifetime_of_first(sublifetime, second)) {
+				return true;
+			}
+		}
+		return retval;
+	}
+
 	inline bool slti_second_can_be_assigned_to_first(const CScopeLifetimeInfo1& sli1, const CScopeLifetimeInfo1& sli2, clang::ASTContext& context, const CTUState& tu_state_cref) {
 		bool retval = true;
 
 		bool abstract_lifetimes_flag = ((CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli1.m_category)
 			&& (CScopeLifetimeInfo1::ECategory::AbstractLifetime == sli2.m_category));
 		if (abstract_lifetimes_flag) {
+			if (!(sli1.m_maybe_abstract_lifetime.has_value() && sli2.m_maybe_abstract_lifetime.has_value())) {
+				assert(false);
+				return false;
+			}
+			auto abstract1 = sli1.m_maybe_abstract_lifetime.value();
+			auto abstract2 = sli2.m_maybe_abstract_lifetime.value();
+
+			if (second_is_a_sublifetime_of_first(abstract1, abstract2)) {
+				return true;
+			}
+
 			retval &= first_is_known_to_be_contained_in_scope_of_second_shallow(sli1, sli2, context, tu_state_cref);
 			if (!retval) {
 				return retval;
@@ -6549,16 +6645,46 @@ namespace checker {
 		}
 		if (CXXTE) {
 			retval = CXXTE;
-			auto maybe_abstract_lifetime_set = tu_state_ref.corresponding_abstract_lifetime_if_any(CXXTE, Ctx);
-			if (maybe_abstract_lifetime_set) {
+			auto maybe_abstract_lifetime = tu_state_ref.corresponding_abstract_lifetime_if_any(CXXTE, Ctx);
+			if (maybe_abstract_lifetime) {
 				CScopeLifetimeInfo1 sli1;
-				sli1.m_maybe_abstract_lifetime = maybe_abstract_lifetime_set.value();
-				sli1.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
 				const auto CS = Tget_containing_element_of_type<clang::CompoundStmt>(CXXTE, Ctx);
 				if (CS) {
 					sli1.m_maybe_containing_scope = CS;
 				}
 				sli1.m_maybe_source_range = CXXTE->getSourceRange();
+
+				struct CB {
+					CB(CScopeLifetimeInfo1 new_template_sli) : m_new_template_sli(new_template_sli) {}
+
+					void set_sli_from_abstract_lifetime(CScopeLifetimeInfo1& sli_ref, CAbstractLifetime const& abstract_lifetime) {
+						sli_ref.m_maybe_abstract_lifetime = abstract_lifetime;
+						sli_ref.m_category = CScopeLifetimeInfo1::ECategory::AbstractLifetime;
+
+						for (auto const& sub_abstract_lifetime : abstract_lifetime.m_sublifetimes_vlptr->m_primary_lifetimes) {
+							auto new_sli = m_new_template_sli;
+							set_sli_from_abstract_lifetime(new_sli, sub_abstract_lifetime);
+							sli_ref.m_sublifetimes_vlptr->m_primary_lifetime_infos.push_back(new_sli);
+						}
+					}
+
+					CScopeLifetimeInfo1 m_new_template_sli;
+				};
+				auto b = CB(sli1);
+
+				b.set_sli_from_abstract_lifetime(sli1, maybe_abstract_lifetime.value());
+				if (EX2_qtype->isPointerType()) {
+					auto as_sublifetime_of_tempexpr = [](const CScopeLifetimeInfo1& slti) {
+						CScopeLifetimeInfo1 indirect_lifetime_value;
+						indirect_lifetime_value.m_category = CScopeLifetimeInfo1::ECategory::TemporaryExpression;
+						indirect_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos.push_back(slti);
+						return indirect_lifetime_value;
+					};
+					sli1 = as_sublifetime_of_tempexpr(sli1);
+				} else {
+					int q = 5;
+				}
+
 				retval = CStaticLifetimeOwnerInfo1{ sli1 };
 			}
 		} else if (SL) {
@@ -8813,7 +8939,9 @@ namespace checker {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(VD, Rewrite, *(MR.Context));
+				bool errors_suppressed_by_location_flag = errors_suppressed_by_location(MR, SR.getBegin());
+				auto suppress_check_flag = errors_suppressed_by_location_flag;
+				suppress_check_flag |= m_state1.m_suppress_check_region_set.contains(VD, Rewrite, *(MR.Context));
 				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(VDISR);
 				if (suppress_check_flag) {
 					return;
@@ -8839,7 +8967,7 @@ namespace checker {
 					if (EX) {
 						bool null_initialization = is_nullptr_literal(EX, *(MR.Context));
 
-						if (null_initialization) {
+						if (null_initialization && (!suppress_check_flag)) {
 							const std::string error_desc = std::string("Null initialization of ")
 								+ "native pointers (such as those of type " + get_as_quoted_string_for_errmsg(qtype)
 								+ ") is not supported.";
@@ -8848,7 +8976,7 @@ namespace checker {
 					} else {
 						auto *PVD = dyn_cast<const ParmVarDecl>(VD);
 						if (!PVD) {
-							if (!VD->isExternallyDeclarable()) {
+							if ((!VD->isExternallyDeclarable()) && (!suppress_check_flag)) {
 								const std::string error_desc = std::string("Uninitialized ")
 									+ "native pointer variables are not supported.";
 								(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
@@ -9667,6 +9795,7 @@ namespace checker {
 						if ((!(maybe_param_qtype.has_value())) || (!arg1_EX)) {
 						} else {
 							auto param_qtype = maybe_param_qtype.value();
+							IF_DEBUG(const std::string param_qtype_str = param_qtype.getAsString();)
 
 							auto lambda1 = [&](bool for_lhs_of_assignment = false) -> CMaybeExpressionLifetimeValuesWithHints {
 								CScopeLifetimeInfo1 sloi1;
@@ -11893,8 +12022,9 @@ namespace checker {
 				}
 #endif /*!NDEBUG*/
 
-				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CXXCI, Rewrite, *(MR.Context));
-				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CXXCIISR);
+				bool errors_suppressed_by_location_flag = errors_suppressed_by_location(MR, SR.getBegin());
+				auto suppress_check_flag = errors_suppressed_by_location_flag;
+				suppress_check_flag |= m_state1.m_suppress_check_region_set.contains(CXXCI, Rewrite, *(MR.Context));
 				if (suppress_check_flag) {
 					return;
 				}
@@ -11952,7 +12082,7 @@ namespace checker {
 									res = first_is_contained_in_scope_of_second((maybe_FD.value()), FD2, *(MR.Context));
 									res &= ((maybe_FD.value()) != FD2);
 								}
-								if (!res) {
+								if ((!res) && (!suppress_check_flag)) {
 									auto MESR = nice_source_range(ME->getSourceRange(), Rewrite);
 									if (!MESR.isValid()) {
 										MESR = SR;
@@ -11964,7 +12094,7 @@ namespace checker {
 								}
 							} else {
 								const auto CXXMD = dyn_cast<const CXXMethodDecl>(ME->getMemberDecl());
-								if (CXXMD) {
+								if (CXXMD && (!suppress_check_flag)) {
 									/* error: Unable to verify that the member function used here can't access part of
 									the object that hasn't been constructed yet. */
 									const std::string error_desc = std::string("Calling non-static member functions ")
@@ -11979,7 +12109,7 @@ namespace checker {
 									int q = 5;
 								}
 							}
-						} else {
+						} else if (!suppress_check_flag) {
 							const std::string error_desc = std::string("Unable to verify that the 'this' pointer ")
 							+ "used here can't be used to access part of the object that hasn't been constructed yet.";
 							(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
@@ -11989,7 +12119,7 @@ namespace checker {
 						&& (!(*this).m_state1.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type((maybe_FD.value())->getType()))
 						&& (!m_state1.m_suppress_check_region_set.contains(instantiation_source_range((maybe_FD.value())->getSourceRange(), Rewrite)))
 						) {
-						if (is_nullptr_literal(init_E, *(MR.Context))) {
+						if (is_nullptr_literal(init_E, *(MR.Context)) && (!suppress_check_flag)) {
 							auto CISR = nice_source_range(init_E->getSourceRange(), Rewrite);
 							if (!CISR.isValid()) {
 								CISR = SR;
@@ -12048,7 +12178,7 @@ namespace checker {
 
 								bool satisfies_checks = slti_second_can_be_assigned_to_first(lhs_lifetime_value, rhs_lifetime_value, *(MR.Context), m_state1);
 
-								if (!satisfies_checks) {
+								if ((!satisfies_checks) && (!suppress_check_flag)) {
 									std::string error_desc = std::string("Unable to verify that this pointer assignment (of type ")
 										+ get_as_quoted_string_for_errmsg((maybe_FD.value())->getType()) + ") is safe and valid.";
 									std::string hints;
@@ -12072,7 +12202,7 @@ namespace checker {
 					auto FD_qtype = (maybe_FD.value())->getType();
 					IF_DEBUG(auto FD_qtype_str = FD_qtype.getAsString();)
 					MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(FD_qtype);
-					if (FD_qtype->isPointerType()) {
+					if (FD_qtype->isPointerType() && (!suppress_check_flag)) {
 						{
 							const std::string error_desc = std::string("Default initialization of ")
 								+ "native pointer field '" + (maybe_FD.value())->getNameAsString()
@@ -12116,8 +12246,9 @@ namespace checker {
 				}
 #endif /*!NDEBUG*/
 
-				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(LHSEX, Rewrite, *(MR.Context));
-				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+				bool errors_suppressed_by_location_flag = errors_suppressed_by_location(MR, SR.getBegin());
+				auto suppress_check_flag = errors_suppressed_by_location_flag;
+				suppress_check_flag |= state1.m_suppress_check_region_set.contains(LHSEX, Rewrite, *(MR.Context));
 				if (suppress_check_flag) {
 					return;
 				}

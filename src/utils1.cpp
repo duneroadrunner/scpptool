@@ -215,6 +215,7 @@ CFilteringResult evaluate_filtering_by_filename(const std::string &filename) {
 			retval.m_do_not_process = true;
 		} else {
 			//retval.m_do_not_process = true;
+			retval.m_suppress_errors = false;
 			int q = 5;
 		}
 	} else if (built_in_str == filename) {
