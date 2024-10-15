@@ -1075,21 +1075,92 @@ namespace checker {
 		}
 		return tl_known_fixed_nonowning_container_names;
 	}
+	inline std::vector<std::string> known_unprotected_dynamic_owning_pointer_names() {
+		thread_local std::vector<std::string> tl_known_unprotected_dynamic_owning_pointer_names;
+		if (0 == tl_known_unprotected_dynamic_owning_pointer_names.size()) {
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back("std::unique_ptr");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back("std::shared_ptr");
+
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TRefCountingPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TRefCountingNotNullPointer");
+			//tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TRefCountingFixedPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TRefCountingConstPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TRefCountingNotNullConstPointer");
+			//tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TRefCountingFixedConstPointer");
+
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TAnyPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TAnyNotNullPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TAnyFixedPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TAnyConstPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TAnyNotNullConstPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TAnyFixedConstPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TXScopeAnyPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TXScopeAnyNotNullPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TXScopeAnyFixedPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TXScopeAnyConstPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TXScopeAnyNotNullConstPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TXScopeAnyFixedConstPointer");
+
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TPolyPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TPolyNotNullPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TPolyFixedPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TPolyConstPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TPolyNotNullConstPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TPolyFixedConstPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TXScopePolyPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TXScopePolyNotNullPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TXScopePolyFixedPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TXScopePolyConstPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TXScopePolyNotNullConstPointer");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::TXScopePolyFixedConstPointer");
+
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadWritePointerBase");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadWriteConstPointerBase");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadOnlyPointerBase");
+			tl_known_unprotected_dynamic_owning_pointer_names.push_back(mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadOnlyConstPointerBase");
+		}
+		return tl_known_unprotected_dynamic_owning_pointer_names;
+	}
+
+	inline std::vector<std::string> known_benign_move_unprotected_dynamic_owning_container_names() {
+		thread_local std::vector<std::string> tl_known_benign_move_unprotected_dynamic_owning_container_names;
+		if (0 == tl_known_benign_move_unprotected_dynamic_owning_container_names.size()) {
+			tl_known_benign_move_unprotected_dynamic_owning_container_names = known_unprotected_dynamic_owning_pointer_names();
+
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back("std::vector");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back("std::basic_string");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back("std::string");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back("std::list");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back("std::map");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back("std::set");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back("std::multimap");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back("std::multiset");
+
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::us::impl::gnii_vector");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::nii_vector");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::stnii_vector");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::mtnii_vector");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::mstd::vector");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::impl::ns_gnii_vector::Tgnii_vector_ss_iterator_type");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::impl::ns_gnii_vector::Tgnii_vector_ss_const_iterator_type");
+
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::us::impl::gnii_basic_string");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::nii_basic_string");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::stnii_basic_string");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::mtnii_basic_string");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::mstd::basic_string");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::impl::ns_gnii_basic_string::Tgnii_basic_string_ss_iterator_type");
+			tl_known_benign_move_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::impl::ns_gnii_basic_string::Tgnii_basic_string_ss_const_iterator_type");
+		}
+		return tl_known_benign_move_unprotected_dynamic_owning_container_names;
+	}
 
 	inline std::vector<std::string> known_unprotected_dynamic_owning_container_names() {
 		thread_local std::vector<std::string> tl_known_unprotected_dynamic_owning_container_names;
 		if (0 == tl_known_unprotected_dynamic_owning_container_names.size()) {
-			tl_known_unprotected_dynamic_owning_container_names.push_back("std::unique_ptr");
-			tl_known_unprotected_dynamic_owning_container_names.push_back("std::shared_ptr");
+			tl_known_unprotected_dynamic_owning_container_names = known_benign_move_unprotected_dynamic_owning_container_names();
+
 			tl_known_unprotected_dynamic_owning_container_names.push_back("std::optional");
-			tl_known_unprotected_dynamic_owning_container_names.push_back("std::vector");
-			tl_known_unprotected_dynamic_owning_container_names.push_back("std::basic_string");
-			tl_known_unprotected_dynamic_owning_container_names.push_back("std::string");
-			tl_known_unprotected_dynamic_owning_container_names.push_back("std::list");
-			tl_known_unprotected_dynamic_owning_container_names.push_back("std::map");
-			tl_known_unprotected_dynamic_owning_container_names.push_back("std::set");
-			tl_known_unprotected_dynamic_owning_container_names.push_back("std::multimap");
-			tl_known_unprotected_dynamic_owning_container_names.push_back("std::multiset");
 			tl_known_unprotected_dynamic_owning_container_names.push_back("std::unordered_map");
 			tl_known_unprotected_dynamic_owning_container_names.push_back("std::unordered_set");
 			tl_known_unprotected_dynamic_owning_container_names.push_back("std::unordered_multimap");
@@ -1104,79 +1175,24 @@ namespace checker {
 			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::mt_optional");
 			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TOptionalElementFixedPointer");
 			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TOptionalElementFixedConstPointer");
-
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::us::impl::gnii_vector");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::nii_vector");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::stnii_vector");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::mtnii_vector");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::mstd::vector");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::impl::ns_gnii_vector::Tgnii_vector_ss_iterator_type");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::impl::ns_gnii_vector::Tgnii_vector_ss_const_iterator_type");
-
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::us::impl::gnii_basic_string");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::nii_basic_string");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::stnii_basic_string");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::mtnii_basic_string");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::mstd::basic_string");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::impl::ns_gnii_basic_string::Tgnii_basic_string_ss_iterator_type");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::impl::ns_gnii_basic_string::Tgnii_basic_string_ss_const_iterator_type");
-
-			//mse::mstd::vector<int>::iterator
-
-			//mse::us::impl::gnii_vector
-			//mse::impl::ns_gnii_vector::Tgnii_vector_xscope_cslsstrong_iterator_type
-			//mse::impl::ns_gnii_vector::Tgnii_vector_ss_iterator_type
-			//mse::us::impl::ns_ra_iter::TRAIteratorBase<mse::TNDRegisteredNotNullPointer<mse::us::impl::gnii_vector<int>>>::reference
-
-			//mse::TOptionalElementFixedPointer
-			//mse::us::impl::ns_optional::optional_base2
-
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TRefCountingPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TRefCountingNotNullPointer");
-			//tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TRefCountingFixedPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TRefCountingConstPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TRefCountingNotNullConstPointer");
-			//tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TRefCountingFixedConstPointer");
-
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TAnyPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TAnyNotNullPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TAnyFixedPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TAnyConstPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TAnyNotNullConstPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TAnyFixedConstPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TXScopeAnyPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TXScopeAnyNotNullPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TXScopeAnyFixedPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TXScopeAnyConstPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TXScopeAnyNotNullConstPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TXScopeAnyFixedConstPointer");
-
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TPolyPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TPolyNotNullPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TPolyFixedPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TPolyConstPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TPolyNotNullConstPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TPolyFixedConstPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TXScopePolyPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TXScopePolyNotNullPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TXScopePolyFixedPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TXScopePolyConstPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TXScopePolyNotNullConstPointer");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::TXScopePolyFixedConstPointer");
-
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadWritePointerBase");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadWriteConstPointerBase");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadOnlyPointerBase");
-			tl_known_unprotected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadOnlyConstPointerBase");
 		}
 		return tl_known_unprotected_dynamic_owning_container_names;
+	}
+
+	inline std::vector<std::string> known_benign_move_protected_dynamic_owning_container_names() {
+		thread_local std::vector<std::string> tl_known_benign_move_protected_dynamic_owning_container_names;
+		if (0 == tl_known_benign_move_protected_dynamic_owning_container_names.size()) {
+			tl_known_benign_move_protected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::rsv::xslta_vector");
+		}
+		return tl_known_benign_move_protected_dynamic_owning_container_names;
 	}
 
 	inline std::vector<std::string> known_protected_dynamic_owning_container_names() {
 		thread_local std::vector<std::string> tl_known_protected_dynamic_owning_container_names;
 		if (0 == tl_known_protected_dynamic_owning_container_names.size()) {
+			tl_known_protected_dynamic_owning_container_names = known_benign_move_protected_dynamic_owning_container_names();
+
 			tl_known_protected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::rsv::xslta_optional");
-			tl_known_protected_dynamic_owning_container_names.push_back(mse_namespace_str() + "::rsv::xslta_vector");
 		}
 		return tl_known_protected_dynamic_owning_container_names;
 	}
@@ -1326,6 +1342,34 @@ namespace checker {
 				auto tmp_container_names = known_fixed_owning_container_names();
 				known_containers_state.tl_known_container_names.insert(known_containers_state.tl_known_container_names.end(), tmp_container_names.begin(), tmp_container_names.end());
 			}
+
+			set_up_known_containers_state(known_containers_state);
+		}
+
+		return is_container_recognized_from_given_set(qtype, known_containers_state);
+	}
+
+	inline bool is_recognized_benign_move_dynamic_owning_container(clang::QualType const& qtype) {
+		thread_local known_containers_state_t known_containers_state;
+
+		if (0 == known_containers_state.known_container_name_svs.size()) {
+			known_containers_state.tl_known_container_names = known_benign_move_unprotected_dynamic_owning_container_names();
+			{
+				auto tmp_container_names = known_benign_move_protected_dynamic_owning_container_names();
+				known_containers_state.tl_known_container_names.insert(known_containers_state.tl_known_container_names.end(), tmp_container_names.begin(), tmp_container_names.end());
+			}
+
+			set_up_known_containers_state(known_containers_state);
+		}
+
+		return is_container_recognized_from_given_set(qtype, known_containers_state);
+	}
+
+	inline bool is_recognized_dynamic_owning_pointer(clang::QualType const& qtype) {
+		thread_local known_containers_state_t known_containers_state;
+
+		if (0 == known_containers_state.known_container_name_svs.size()) {
+			known_containers_state.tl_known_container_names = known_unprotected_dynamic_owning_pointer_names();
 
 			set_up_known_containers_state(known_containers_state);
 		}
@@ -9272,6 +9316,21 @@ namespace checker {
 			user-defined code. */
 
 			struct CB {
+				static auto& standard_functions_that_may_invoke_a_user_defined_code() {
+					/* Some standard functions explicitly take a user-provided predicate. But also, 
+					some functions (many from `<algorithm>`) could invoke a user-defined comparison
+					operator, or iterator increment operator, etc. */
+					static const auto l_sc_standard_functions_that_may_invoke_a_user_defined_code = std::vector<std::string>{
+						"sort"
+						, "for_each"
+						, "find"
+						, "begin"
+						, "end"
+						, "cbegin"
+						, "cend"
+					};
+					return l_sc_standard_functions_that_may_invoke_a_user_defined_code;
+				}
 				static auto& non_invoking_standard_member_functions() {
 					static const auto l_sc_non_invoking_standard_member_functions = std::vector<std::string>{
 						"operator*"
@@ -9289,6 +9348,13 @@ namespace checker {
 						, "get"
 						, "min"
 						, "max"
+						, "addressof"
+						, "operator=="
+						, "operator!="
+						, "operator<"
+						, "operator>"
+						, "operator<="
+						, "operator>="
 					};
 					return l_sc_non_invoking_standard_free_functions;
 				}
@@ -9297,14 +9363,70 @@ namespace checker {
 					bool retval = false;
 					if (qtype.isTrivialType(Ctx)) {
 						return true;
+					} else if (is_recognized_nonowning_container(qtype)) {
+						return true;
 					} else {
 						auto b2 = is_recognized_owning_container(qtype);
-						b2 |= is_recognized_nonowning_container(qtype);
 						if (b2) {
 							auto template_args = shallow_template_arg_types_if_any(qtype);
 							if (1 <= template_args.size()) {
 								auto first_targ_qtype = template_args.front();
 								retval = is_known_to_be_well_behaved(first_targ_qtype, Ctx);
+							} else {
+								int q = 3;
+							}
+						}
+					}
+					return retval;
+				}
+				static bool is_known_to_have_benign_move(clang::QualType qtype, const ASTContext &Ctx) {
+					IF_DEBUG(const std::string qtype_str = qtype.getAsString();)
+					bool retval = false;
+					/* Unfortunately there is no `isTriviallyMovableType()` that is only concerned with
+					move constructors. And "trivially copyable" does not only require that the copy 
+					constructor be trivial, but also the move constructor and the copy and move 
+					assignment operators, and the destructor. Apparently. */
+					if (qtype.isTriviallyCopyableType(Ctx)) {
+						return true;
+					} else if (is_recognized_benign_move_dynamic_owning_container(qtype)) {
+						return true;
+					} else if (is_recognized_nonowning_container(qtype)) {
+						return true;
+					} else {
+						auto b2 = is_recognized_owning_container(qtype);
+						if (b2) {
+							auto template_args = shallow_template_arg_types_if_any(qtype);
+							if (1 <= template_args.size()) {
+								auto first_targ_qtype = template_args.front();
+								/*  */
+								retval = is_known_to_have_benign_move(first_targ_qtype, Ctx);
+							} else {
+								int q = 3;
+							}
+						}
+					}
+					return retval;
+				}
+				static bool is_known_to_have_benign_copy(clang::QualType qtype, const ASTContext &Ctx) {
+					IF_DEBUG(const std::string qtype_str = qtype.getAsString();)
+					bool retval = false;
+					/* In C++, "trivially copyable" does not only require that the copy 
+					constructor be trivial, but also the move constructor and the copy and move 
+					assignment operators, and the destructor. Apparently. */
+					if (qtype.isTriviallyCopyableType(Ctx)) {
+						return true;
+					} else if (is_recognized_dynamic_owning_pointer(qtype)) {
+						return true;
+					} else if (is_recognized_nonowning_container(qtype)) {
+						return true;
+					} else {
+						auto b2 = is_recognized_owning_container(qtype);
+						if (b2) {
+							auto template_args = shallow_template_arg_types_if_any(qtype);
+							if (1 <= template_args.size()) {
+								auto first_targ_qtype = template_args.front();
+								/*  */
+								retval = is_known_to_have_benign_copy(first_targ_qtype, Ctx);
 							} else {
 								int q = 3;
 							}
@@ -9329,15 +9451,65 @@ namespace checker {
 				}
 				return false;
 			};
+
 			if (matches_one_of(function_name, CB::non_invoking_standard_member_functions())
 				|| matches_one_of(function_name, CB::non_invoking_standard_free_functions())) {
 				return true;
+			}
+
+			if (matches_one_of(function_name, CB::standard_functions_that_may_invoke_a_user_defined_code())) {
+				/* todo: maybe be more selective at some point */
+				return false;
 			}
 
 			/* Probably the most common invocation of user-defined code by the standard 
 			libraries are (copy and move) constructors. So we check all the function 
 			parameter types, and see if we can verify that all their constructors and
 			destructors are known to be well-behaved (or trivial). */
+
+			if ((CXXCD && CXXCD->isMoveConstructor()) || (CXXMD && CXXMD->isMoveAssignmentOperator())){
+				/* Here we check to see if all the parameter types are known to have benign move
+				constructors and move assignment operators. If so, this move operation should be safe. */
+				retval = true;
+				for (auto const PVD : function_decl->parameters()) {
+					if (PVD) {
+						auto PVD_qtype = PVD->getType();
+						IF_DEBUG(const std::string PVD_qtype_str = PVD_qtype.getAsString();)
+						if (!CB::is_known_to_have_benign_move(remove_reference_qtype(PVD_qtype), Ctx)) {
+							retval = false;
+							break;
+						}
+					}
+				}
+				if (retval) {
+					return retval;
+				}
+			}
+
+			if ((CXXCD && CXXCD->isCopyConstructor()) || (CXXMD && CXXMD->isCopyAssignmentOperator())){
+				/* Here we check to see if all the parameter types are known to have benign copy
+				constructors and copy assignment operators. If so, this copy operation should be safe. */
+				retval = true;
+				for (auto const PVD : function_decl->parameters()) {
+					if (PVD) {
+						auto PVD_qtype = PVD->getType();
+						IF_DEBUG(const std::string PVD_qtype_str = PVD_qtype.getAsString();)
+						if (!CB::is_known_to_have_benign_copy(remove_reference_qtype(PVD_qtype), Ctx)) {
+							retval = false;
+							break;
+						}
+					}
+				}
+				if (retval) {
+					return retval;
+				}
+			}
+
+			/* In the move and copy operations above we know that that the only user provided 
+			code that might be invoked are the move/copy constructors or assignment operators.
+			In other functions in the standard libraries, it might be the case that a default 
+			constructor could be invoked? So we'll just make sure those are trivial or 
+			well-behaved as well. */
 			retval = true;
 			for (auto const PVD : function_decl->parameters()) {
 				if (PVD) {
@@ -9346,41 +9518,36 @@ namespace checker {
 					auto b1 = CB::is_known_to_be_well_behaved(remove_reference_qtype(PVD_qtype), Ctx);
 					if (!b1) {
 						retval = false;
-						return retval;
+						break;
 					}
 				} else {
 					int q = 3;
 				}
 			}
+			if (retval) {
+				std::optional<clang::QualType> maybe_implicit_object_param_qtype;
+				if (CXXMD) {
+					/* The function seems to be a member function so it would have an implict `this`
+					parameter. We'll check that too. */
+					auto CXXRD = CXXMD->getParent();
+					if (CXXRD) {
+						auto TypePtr = CXXRD->getTypeForDecl();
+						if (TypePtr) {
+							maybe_implicit_object_param_qtype = clang::QualType(TypePtr, 0/*I'm just assuming zero specifies no qualifiers*/);
 
-			std::optional<clang::QualType> maybe_implicit_object_param_qtype;
-			if (CXXMD) {
-				/* The function seems to be a member function so it would have an implict `this`
-				parameter. We'll check that too. */
-				auto CXXRD = CXXMD->getParent();
-				if (CXXRD) {
-					auto TypePtr = CXXRD->getTypeForDecl();
-					if (TypePtr) {
-						maybe_implicit_object_param_qtype = clang::QualType(TypePtr, 0/*I'm just assuming zero specifies no qualifiers*/);
-
-						auto PVD_qtype = clang::QualType(TypePtr, 0/*I'm just assuming zero specifies no qualifiers*/);
-						IF_DEBUG(const std::string PVD_qtype_str = PVD_qtype.getAsString();)
-						auto b1 = CB::is_known_to_be_well_behaved(remove_reference_qtype(PVD_qtype), Ctx);
-						if (!b1) {
-							retval = false;
-							return retval;
+							auto PVD_qtype = clang::QualType(TypePtr, 0/*I'm just assuming zero specifies no qualifiers*/);
+							IF_DEBUG(const std::string PVD_qtype_str = PVD_qtype.getAsString();)
+							auto b1 = CB::is_known_to_be_well_behaved(remove_reference_qtype(PVD_qtype), Ctx);
+							if (!b1) {
+								retval = false;
+								return retval;
+							}
 						}
+					} else {
+						int q = 3;
 					}
-				} else {
-					int q = 3;
 				}
 			}
-			IF_DEBUG(const std::string adjusted_IOP_qtype_str = maybe_implicit_object_param_qtype.has_value() ? maybe_implicit_object_param_qtype.value().getAsString() : "n/a";)
-			if (maybe_implicit_object_param_qtype.has_value()) {
-				//maybe_effective_implicit_object_qtype = maybe_implicit_object_param_qtype;
-			}
-
-			return retval;
 		}
 
 		return retval;
