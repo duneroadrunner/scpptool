@@ -1217,35 +1217,34 @@ namespace checker {
 		return tl_known_dynamic_nonowning_container_names;
 	}
 
-	inline bool is_recognized_unprotected_dynamic_container(clang::QualType const& qtype) {
+	struct known_containers_state_t {
+		std::vector<std::string> tl_known_container_names;
+		std::unordered_set<std::string_view> known_container_name_svs;
+		std::unordered_set<std::string_view> known_container_truncated_name_svs;
+		size_t length_of_shortest_container_name = 0;
+	};
+
+	inline void set_up_known_containers_state(known_containers_state_t& known_containers_state_ref) {
+		if (known_containers_state_ref.tl_known_container_names.size() > 0) {
+			known_containers_state_ref.length_of_shortest_container_name = known_containers_state_ref.tl_known_container_names.front().length();
+		}
+
+		for (auto& name : known_containers_state_ref.tl_known_container_names) {
+			known_containers_state_ref.known_container_name_svs.insert(name);
+			if (name.length() < known_containers_state_ref.length_of_shortest_container_name) {
+				known_containers_state_ref.length_of_shortest_container_name = name.length();
+			}
+		}
+		for (auto name_sv : known_containers_state_ref.known_container_name_svs) {
+			known_containers_state_ref.known_container_truncated_name_svs.insert(name_sv.substr(0, known_containers_state_ref.length_of_shortest_container_name));
+		}
+	}
+
+	inline bool is_container_recognized_from_given_set(clang::QualType const& qtype, known_containers_state_t const & known_containers_state) {
 		bool retval = false;
 		auto const peeled_qtype = remove_mse_transparent_wrappers(qtype);
 		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
 		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(peeled_qtype, retval);
-
-		thread_local std::vector<std::string> tl_known_dynamic_container_names;
-		thread_local std::unordered_set<std::string_view> known_dynamic_container_name_svs;
-		thread_local std::unordered_set<std::string_view> known_dynamic_container_truncated_name_svs;
-		thread_local size_t length_of_shortest_container_name = 0;
-		if (0 == known_dynamic_container_name_svs.size()) {
-			tl_known_dynamic_container_names = known_unprotected_dynamic_owning_container_names();
-			auto tmp_known_dynamic_nonowning_container_names = known_dynamic_nonowning_container_names();
-			tl_known_dynamic_container_names.insert(tl_known_dynamic_container_names.end(), tmp_known_dynamic_nonowning_container_names.begin(), tmp_known_dynamic_nonowning_container_names.end());
-
-			if (tl_known_dynamic_container_names.size() > 0) {
-				length_of_shortest_container_name = tl_known_dynamic_container_names.front().length();
-			}
-
-			for (auto& name : tl_known_dynamic_container_names) {
-				known_dynamic_container_name_svs.insert(name);
-				if (name.length() < length_of_shortest_container_name) {
-					length_of_shortest_container_name = name.length();
-				}
-			}
-			for (auto name_sv : known_dynamic_container_name_svs) {
-				known_dynamic_container_truncated_name_svs.insert(name_sv.substr(0, length_of_shortest_container_name));
-			}
-		}
 
 		const auto CXXRD = peeled_qtype.getTypePtr()->getAsCXXRecordDecl();
 		if (CXXRD) {
@@ -1255,153 +1254,83 @@ namespace checker {
 			if (string_begins_with(qname_sv, mse_namespace_str()) || (string_begins_with(qname_sv, "std"))
 				|| (string_begins_with(qname_sv, "__gnu_cxx"))) {
 
-				auto truncated_qname_sv = qname_sv.substr(0, length_of_shortest_container_name);
-				auto found_it = known_dynamic_container_truncated_name_svs.find(truncated_qname_sv);
-				if (known_dynamic_container_truncated_name_svs.end() != found_it) {
-					for (auto const & name : tl_known_dynamic_container_names) {
+				auto truncated_qname_sv = qname_sv.substr(0, known_containers_state.length_of_shortest_container_name);
+				auto found_it = known_containers_state.known_container_truncated_name_svs.find(truncated_qname_sv);
+				if (known_containers_state.known_container_truncated_name_svs.end() != found_it) {
+					for (auto const & name : known_containers_state.tl_known_container_names) {
 						if (string_begins_with(qname_sv, name)) {
 							return true;
 						}
-					}
-				}
-				if (string_begins_with(qname_sv, "::us::impl::ns_ra_iter::TRAIteratorBase") || string_begins_with(qname_sv, "::us::impl::ns_ra_iter::TRAConstIteratorBase")) {
-					auto maybe_qtype2 = get_first_template_parameter_if_any(peeled_qtype);
-					if (maybe_qtype2.has_value()) {
-						auto maybe_qtype3 = get_first_template_parameter_if_any(remove_mse_transparent_wrappers(maybe_qtype2.value()));
-						if (maybe_qtype3.has_value()) {
-							retval |= is_recognized_unprotected_dynamic_container(remove_mse_transparent_wrappers(maybe_qtype3.value()));
-						} else {
-							return true;
-						}
-					} else {
-						return true;
 					}
 				}
 			}
 		}
 
 		return retval;
+	}
+
+	inline bool is_recognized_nonowning_container(clang::QualType const& qtype) {
+		thread_local known_containers_state_t known_containers_state;
+
+		if (0 == known_containers_state.known_container_name_svs.size()) {
+			known_containers_state.tl_known_container_names = known_dynamic_nonowning_container_names();
+			{
+				auto tmp_container_names = known_fixed_nonowning_container_names();
+				known_containers_state.tl_known_container_names.insert(known_containers_state.tl_known_container_names.end(), tmp_container_names.begin(), tmp_container_names.end());
+			}
+
+			set_up_known_containers_state(known_containers_state);
+		}
+
+		return is_container_recognized_from_given_set(qtype, known_containers_state);
+	}
+
+	inline bool is_recognized_unprotected_dynamic_container(clang::QualType const& qtype) {
+		thread_local known_containers_state_t known_containers_state;
+
+		if (0 == known_containers_state.known_container_name_svs.size()) {
+			known_containers_state.tl_known_container_names = known_unprotected_dynamic_owning_container_names();
+			{
+				auto tmp_container_names = known_dynamic_nonowning_container_names();
+				known_containers_state.tl_known_container_names.insert(known_containers_state.tl_known_container_names.end(), tmp_container_names.begin(), tmp_container_names.end());
+			}
+
+			set_up_known_containers_state(known_containers_state);
+		}
+
+		return is_container_recognized_from_given_set(qtype, known_containers_state);
 	}
 
 	inline bool is_recognized_protected_dynamic_owning_container(clang::QualType const& qtype) {
-		bool retval = false;
-		auto const peeled_qtype = remove_mse_transparent_wrappers(qtype);
-		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
-		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(peeled_qtype, retval);
+		thread_local known_containers_state_t known_containers_state;
 
-		thread_local std::vector<std::string> tl_known_dynamic_owning_container_names;
-		thread_local std::unordered_set<std::string_view> known_dynamic_owning_container_name_svs;
-		thread_local std::unordered_set<std::string_view> known_dynamic_owning_container_truncated_name_svs;
-		thread_local size_t length_of_shortest_container_name = 0;
-		if (0 == known_dynamic_owning_container_name_svs.size()) {
-			tl_known_dynamic_owning_container_names = known_protected_dynamic_owning_container_names();
+		if (0 == known_containers_state.known_container_name_svs.size()) {
+			known_containers_state.tl_known_container_names = known_protected_dynamic_owning_container_names();
 
-			if (tl_known_dynamic_owning_container_names.size() > 0) {
-				length_of_shortest_container_name = tl_known_dynamic_owning_container_names.front().length();
-			}
-
-			for (auto& name : tl_known_dynamic_owning_container_names) {
-				known_dynamic_owning_container_name_svs.insert(name);
-				if (name.length() < length_of_shortest_container_name) {
-					length_of_shortest_container_name = name.length();
-				}
-			}
-			for (auto name_sv : known_dynamic_owning_container_name_svs) {
-				known_dynamic_owning_container_truncated_name_svs.insert(name_sv.substr(0, length_of_shortest_container_name));
-			}
+			set_up_known_containers_state(known_containers_state);
 		}
 
-		const auto CXXRD = peeled_qtype.getTypePtr()->getAsCXXRecordDecl();
-		if (CXXRD) {
-			auto qname = CXXRD->getQualifiedNameAsString();
-			std::string_view qname_sv{ qname };
-
-			if (string_begins_with(qname_sv, mse_namespace_str()) || (string_begins_with(qname_sv, "std"))
-				|| (string_begins_with(qname_sv, "__gnu_cxx"))) {
-
-				auto truncated_qname_sv = qname_sv.substr(0, length_of_shortest_container_name);
-				auto found_it = known_dynamic_owning_container_truncated_name_svs.find(truncated_qname_sv);
-				if (known_dynamic_owning_container_truncated_name_svs.end() != found_it) {
-					for (auto const & name : tl_known_dynamic_owning_container_names) {
-						if (string_begins_with(qname_sv, name)) {
-							return true;
-						}
-					}
-				}
-				if (string_begins_with(qname_sv, "::us::impl::ns_ra_iter::TRAIteratorBase") || string_begins_with(qname_sv, "::us::impl::ns_ra_iter::TRAConstIteratorBase")) {
-					auto maybe_qtype2 = get_first_template_parameter_if_any(peeled_qtype);
-					if (maybe_qtype2.has_value()) {
-						auto maybe_qtype3 = get_first_template_parameter_if_any(remove_mse_transparent_wrappers(maybe_qtype2.value()));
-						if (maybe_qtype3.has_value()) {
-							retval |= is_recognized_protected_dynamic_owning_container(remove_mse_transparent_wrappers(maybe_qtype3.value()));
-						} else {
-							return true;
-						}
-					} else {
-						return true;
-					}
-				}
-			}
-		}
-
-		return retval;
+		return is_container_recognized_from_given_set(qtype, known_containers_state);
 	}
 
 	inline bool is_recognized_owning_container(clang::QualType const& qtype) {
-		bool retval = false;
-		auto const peeled_qtype = remove_mse_transparent_wrappers(qtype);
-		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
-		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(peeled_qtype, retval);
+		thread_local known_containers_state_t known_containers_state;
 
-		thread_local std::vector<std::string> tl_known_container_names;
-		thread_local std::unordered_set<std::string_view> known_container_name_svs;
-		thread_local std::unordered_set<std::string_view> known_container_truncated_name_svs;
-		thread_local size_t length_of_shortest_container_name = 0;
-		if (0 == known_container_name_svs.size()) {
-			tl_known_container_names = known_unprotected_dynamic_owning_container_names();
-
-			auto tmp_known_protected_owning_container_names = known_protected_dynamic_owning_container_names();
-			tl_known_container_names.insert(tl_known_container_names.end(), tmp_known_protected_owning_container_names.begin(), tmp_known_protected_owning_container_names.end());
-
-			auto tmp_known_fixed_owning_container_names = known_fixed_owning_container_names();
-			tl_known_container_names.insert(tl_known_container_names.end(), tmp_known_fixed_owning_container_names.begin(), tmp_known_fixed_owning_container_names.end());
-
-			if (tl_known_container_names.size() > 0) {
-				length_of_shortest_container_name = tl_known_container_names.front().length();
+		if (0 == known_containers_state.known_container_name_svs.size()) {
+			known_containers_state.tl_known_container_names = known_unprotected_dynamic_owning_container_names();
+			{
+				auto tmp_container_names = known_protected_dynamic_owning_container_names();
+				known_containers_state.tl_known_container_names.insert(known_containers_state.tl_known_container_names.end(), tmp_container_names.begin(), tmp_container_names.end());
+			}
+			{
+				auto tmp_container_names = known_fixed_owning_container_names();
+				known_containers_state.tl_known_container_names.insert(known_containers_state.tl_known_container_names.end(), tmp_container_names.begin(), tmp_container_names.end());
 			}
 
-			for (auto& name : tl_known_container_names) {
-				known_container_name_svs.insert(name);
-				if (name.length() < length_of_shortest_container_name) {
-					length_of_shortest_container_name = name.length();
-				}
-			}
-			for (auto name_sv : known_container_name_svs) {
-				known_container_truncated_name_svs.insert(name_sv.substr(0, length_of_shortest_container_name));
-			}
+			set_up_known_containers_state(known_containers_state);
 		}
 
-		const auto CXXRD = peeled_qtype.getTypePtr()->getAsCXXRecordDecl();
-		if (CXXRD) {
-			auto qname = CXXRD->getQualifiedNameAsString();
-			std::string_view qname_sv{ qname };
-
-			if (string_begins_with(qname_sv, mse_namespace_str()) || (string_begins_with(qname_sv, "std"))
-				|| (string_begins_with(qname_sv, "__gnu_cxx"))) {
-
-				auto truncated_qname_sv = qname_sv.substr(0, length_of_shortest_container_name);
-				auto found_it = known_container_truncated_name_svs.find(truncated_qname_sv);
-				if (known_container_truncated_name_svs.end() != found_it) {
-					for (auto const & name : tl_known_container_names) {
-						if (string_begins_with(qname_sv, name)) {
-							return true;
-						}
-					}
-				}
-			}
-		}
-
-		return retval;
+		return is_container_recognized_from_given_set(qtype, known_containers_state);
 	}
 
 	inline void apply_to_all_owned_types(clang::QualType qtype, const std::function<void(clang::QualType qtype, std::optional<clang::Decl const *>, std::optional<clang::CXXBaseSpecifier const *>)>& fn1
@@ -9292,6 +9221,169 @@ namespace checker {
 		return retval;
 	}
 
+	bool has_trivial_move_constructor(const clang::QualType& qtype) {
+		bool retval = false;
+
+		auto CXXRD = qtype->getAsCXXRecordDecl();
+		if (CXXRD) {
+			/*** left off here ***/
+		} else {
+			retval = true;
+		}
+		return retval;
+	}
+
+	template<typename TCallOrConstuctorExpr>
+	inline bool is_known_to_never_deallocate_its_arguments(CTUState& state1, const clang::FunctionDecl* function_decl
+		, const TCallOrConstuctorExpr* CE, ASTContext& Ctx, MatchFinder::MatchResult const * MR_ptr/* = nullptr*/, Rewriter* Rewrite_ptr/* = nullptr*/) {
+
+		/* We're just using rough heuristics for the moment. This needs to be done 
+		properly at some point. */
+
+		bool retval = false;
+
+		if (CE == nullptr) {
+			return retval;
+		}
+		if (!function_decl) {
+			return retval;
+		}
+
+		const std::string function_name = function_decl->getNameAsString();
+		const std::string qfunction_name = function_decl->getQualifiedNameAsString();
+
+		auto CXXMCE = dyn_cast<clang::CXXMemberCallExpr>(CE);
+		auto CXXCE = dyn_cast<clang::CXXConstructExpr>(CE);
+
+		auto CXXOCE = dyn_cast<clang::CXXOperatorCallExpr>(CE);
+		auto CXXMD = dyn_cast<const clang::CXXMethodDecl>(function_decl);
+		auto CXXCD = dyn_cast<const clang::CXXConstructorDecl>(function_decl);
+		if (CXXCE) {
+			int q = 5;
+		}
+
+		bool std_flag = string_begins_with(qfunction_name, "std::");
+		bool mse_flag = std_flag ? false : string_begins_with(qfunction_name, "mse::");
+		if (std_flag || mse_flag) {
+			/* So in general we wouldn't know whether a user-defined function might deallocate
+			an object targeted by one of its (implicit or explicit) reference parameters 
+			(before the end of the function call). But we can probably assume that standard 
+			library code doesn't generally do that, unless it invokes (mischievous) 
+			user-defined code. */
+
+			struct CB {
+				static auto& non_invoking_standard_member_functions() {
+					static const auto l_sc_non_invoking_standard_member_functions = std::vector<std::string>{
+						"operator*"
+						, "operator->"
+						, "operator[]"
+						, "value"
+						, "at"
+						, "front"
+					};
+					return l_sc_non_invoking_standard_member_functions;
+				}
+				static auto& non_invoking_standard_free_functions() {
+					static const auto l_sc_non_invoking_standard_free_functions = std::vector<std::string>{
+						"move"
+						, "get"
+					};
+					return l_sc_non_invoking_standard_free_functions;
+				}
+				static bool is_known_to_be_well_behaved(clang::QualType qtype, const ASTContext &Ctx) {
+					IF_DEBUG(const std::string qtype_str = qtype.getAsString();)
+					bool retval = false;
+					if (qtype.isTrivialType(Ctx)) {
+						return true;
+					} else {
+						auto b2 = is_recognized_owning_container(qtype);
+						b2 |= is_recognized_nonowning_container(qtype);
+						if (b2) {
+							auto template_args = shallow_template_arg_types_if_any(qtype);
+							if (1 <= template_args.size()) {
+								auto first_targ_qtype = template_args.front();
+								retval = is_known_to_be_well_behaved(first_targ_qtype, Ctx);
+							} else {
+								int q = 3;
+							}
+						}
+					}
+					return retval;
+				}
+			};
+
+			auto remove_reference_qtype = [](clang::QualType const& qtype) {
+				MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, qtype);
+				if (qtype->isReferenceType()) {
+					return qtype->getPointeeType();
+				}
+				return qtype;
+			};
+			auto matches_one_of = [](std::string_view sv1, std::vector<std::string> const& haystack) {
+				for (auto const & straw : haystack) {
+					if (sv1 == straw) {
+						return true;
+					}
+				}
+				return false;
+			};
+			if (matches_one_of(function_name, CB::non_invoking_standard_member_functions())
+				|| matches_one_of(function_name, CB::non_invoking_standard_free_functions())) {
+				return true;
+			}
+
+			/* Probably the most common invocation of user-defined code by the standard 
+			libraries are (copy and move) constructors. So we check all the function 
+			parameter types, and see if we can verify that all their constructors and
+			destructors are known to be well-behaved (or trivial). */
+			retval = true;
+			for (auto const PVD : function_decl->parameters()) {
+				if (PVD) {
+					auto PVD_qtype = PVD->getType();
+					IF_DEBUG(const std::string PVD_qtype_str = PVD_qtype.getAsString();)
+					auto b1 = CB::is_known_to_be_well_behaved(remove_reference_qtype(PVD_qtype), Ctx);
+					if (!b1) {
+						retval = false;
+						return retval;
+					}
+				} else {
+					int q = 3;
+				}
+			}
+
+			std::optional<clang::QualType> maybe_implicit_object_param_qtype;
+			if (CXXMD) {
+				/* The function seems to be a member function so it would have an implict `this`
+				parameter. We'll check that too. */
+				auto CXXRD = CXXMD->getParent();
+				if (CXXRD) {
+					auto TypePtr = CXXRD->getTypeForDecl();
+					if (TypePtr) {
+						maybe_implicit_object_param_qtype = clang::QualType(TypePtr, 0/*I'm just assuming zero specifies no qualifiers*/);
+
+						auto PVD_qtype = clang::QualType(TypePtr, 0/*I'm just assuming zero specifies no qualifiers*/);
+						IF_DEBUG(const std::string PVD_qtype_str = PVD_qtype.getAsString();)
+						auto b1 = CB::is_known_to_be_well_behaved(remove_reference_qtype(PVD_qtype), Ctx);
+						if (!b1) {
+							retval = false;
+							return retval;
+						}
+					}
+				} else {
+					int q = 3;
+				}
+			}
+			IF_DEBUG(const std::string adjusted_IOP_qtype_str = maybe_implicit_object_param_qtype.has_value() ? maybe_implicit_object_param_qtype.value().getAsString() : "n/a";)
+			if (maybe_implicit_object_param_qtype.has_value()) {
+				//maybe_effective_implicit_object_qtype = maybe_implicit_object_param_qtype;
+			}
+
+			return retval;
+		}
+
+		return retval;
+	}
+
 	template<typename TCallOrConstuctorExpr>
 	inline std::string function_call_handler2(CTUState& state1, const clang::FunctionDecl* function_decl
 		, const TCallOrConstuctorExpr* CE, ASTContext& Ctx, MatchFinder::MatchResult const * MR_ptr/* = nullptr*/, Rewriter* Rewrite_ptr/* = nullptr*/) {
@@ -9502,6 +9594,7 @@ namespace checker {
 			auto maybe_expr_lifetime_value = evaluate_expression_rhs_lower_bound_lifetimes(state1, arg_EX, Ctx, MR_ptr, Rewrite_ptr);
 			MSE_RETURN_VALUE_IF_FAILURE_DUE_TO_DEPENDENT_TYPE(maybe_expr_lifetime_value, {});
 			if (maybe_expr_lifetime_value.has_value()) {
+
 				auto& expr_lifetime_value_ref = maybe_expr_lifetime_value.value();
 
 				CScopeLifetimeInfo1Set lifetime_values;
@@ -9519,48 +9612,50 @@ namespace checker {
 					auto shallow_lifetime_value = lifetime_value;
 					shallow_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
 					if (!first_is_known_to_be_contained_in_scope_of_second_shallow(lifetime_of_the_function_call, shallow_lifetime_value, Ctx, state1)) {
-						if (MR_ptr && (!errors_suppressed_flag)) {
-							std::string arg_str;
-							if (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal) {
-								arg_str += std::string(" 'this' pointer");
-								//arg_str += std::string(" 'implicit object argument' referenced by the 'this' pointer");
-							} else {
-								arg_str += std::string(" argument passed to the parameter");
-								auto maybe_param_name = name_from_param_ordinal_if_available(CE, param_ordinal);
-								if (maybe_param_name.has_value()) {
-									const auto& param_name = maybe_param_name.value();
-									arg_str += std::string(" '") + param_name + "'";
-								}
-							}
-							std::string function_species_str = (CXXOCE) ? "operator" :
-								((CXXMCE) ? "member function" : (CXXCE ? "constructor" : "function"));
-							if (CXXCE) {
-								auto CXXCD = CXXCE->getConstructor();
-								if (CXXCD) {
-									std::string new_function_species_str;
-									if (!(CXXCD->isExplicit())) {
-										new_function_species_str += "(implicit) ";
+						if (!is_known_to_never_deallocate_its_arguments(state1, function_decl, CE, Ctx, MR_ptr, Rewrite_ptr)) {
+							if (MR_ptr && (!errors_suppressed_flag)) {
+								std::string arg_str;
+								if (IMPLICIT_THIS_PARAM_ORDINAL == param_ordinal) {
+									arg_str += std::string(" 'this' pointer");
+									//arg_str += std::string(" 'implicit object argument' referenced by the 'this' pointer");
+								} else {
+									arg_str += std::string(" argument passed to the parameter");
+									auto maybe_param_name = name_from_param_ordinal_if_available(CE, param_ordinal);
+									if (maybe_param_name.has_value()) {
+										const auto& param_name = maybe_param_name.value();
+										arg_str += std::string(" '") + param_name + "'";
 									}
-									if (!(CXXCD->isCopyConstructor())) {
-										new_function_species_str += "copy ";
-									} else if (!(CXXCD->isMoveConstructor())) {
-										new_function_species_str += "move ";
-									}
-									new_function_species_str += "constructor";
-									function_species_str = new_function_species_str;
 								}
+								std::string function_species_str = (CXXOCE) ? "operator" :
+									((CXXMCE) ? "member function" : (CXXCE ? "constructor" : "function"));
+								if (CXXCE) {
+									auto CXXCD = CXXCE->getConstructor();
+									if (CXXCD) {
+										std::string new_function_species_str;
+										if (!(CXXCD->isExplicit())) {
+											new_function_species_str += "(implicit) ";
+										}
+										if (!(CXXCD->isCopyConstructor())) {
+											new_function_species_str += "copy ";
+										} else if (!(CXXCD->isMoveConstructor())) {
+											new_function_species_str += "move ";
+										}
+										new_function_species_str += "constructor";
+										function_species_str = new_function_species_str;
+									}
+								}
+
+								auto arg_SR = arg_EX->getSourceRange();
+
+								const std::string error_desc = std::string("Unable to verify that the")
+									+ arg_str + " (of type " + get_as_quoted_string_for_errmsg(param_qtype) + ") outlives the "
+									+ function_species_str + " call '" + function_decl->getQualifiedNameAsString()
+									+ "'. (This is often addressed by obtaining a scope pointer/reference to the intended argument."
+									+ " If the argument is a reference to an element in a dynamic container, you might instead access"
+									+ " the element via a corresponding non-dynamic/'fixed' interface object which borrows (exclusive"
+									+ " access to) the container's contents.)";
+								state1.register_error(*(MR_ptr->SourceManager), arg_SR, error_desc);
 							}
-
-							auto arg_SR = arg_EX->getSourceRange();
-
-							const std::string error_desc = std::string("Unable to verify that the")
-								+ arg_str + " (of type " + get_as_quoted_string_for_errmsg(param_qtype) + ") outlives the "
-								+ function_species_str + " call '" + function_decl->getQualifiedNameAsString()
-								+ "'. (This is often addressed by obtaining a scope pointer/reference to the intended argument."
-								+ " If the argument is a reference to an element in a dynamic container, you might instead access"
-								+ " the element via a corresponding non-dynamic/'fixed' interface object which borrows (exclusive"
-								+ " access to) the container's contents.)";
-							state1.register_error(*(MR_ptr->SourceManager), arg_SR, error_desc);
 						}
 					}
 				}
