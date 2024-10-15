@@ -9287,6 +9287,8 @@ namespace checker {
 					static const auto l_sc_non_invoking_standard_free_functions = std::vector<std::string>{
 						"move"
 						, "get"
+						, "min"
+						, "max"
 					};
 					return l_sc_non_invoking_standard_free_functions;
 				}
