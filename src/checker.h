@@ -1083,10 +1083,10 @@ namespace checker {
 
 			tl_names.push_back(mse_namespace_str() + "::TRefCountingPointer");
 			tl_names.push_back(mse_namespace_str() + "::TRefCountingNotNullPointer");
-			//tl_names.push_back(mse_namespace_str() + "::TRefCountingFixedPointer");
+			tl_names.push_back(mse_namespace_str() + "::TRefCountingFixedPointer");
 			tl_names.push_back(mse_namespace_str() + "::TRefCountingConstPointer");
 			tl_names.push_back(mse_namespace_str() + "::TRefCountingNotNullConstPointer");
-			//tl_names.push_back(mse_namespace_str() + "::TRefCountingFixedConstPointer");
+			tl_names.push_back(mse_namespace_str() + "::TRefCountingFixedConstPointer");
 
 			tl_names.push_back(mse_namespace_str() + "::TAnyPointer");
 			tl_names.push_back(mse_namespace_str() + "::TAnyNotNullPointer");
@@ -9352,7 +9352,7 @@ namespace checker {
 		return retval;
 	}
 	template<class _Fn, class... Args>
-	static bool check_all_implict_and_explicit_parameter_qtypes(const clang::FunctionDecl* function_decl, _Fn _Func, const Args&... args) {
+	static bool check_all_implicit_and_explicit_parameter_qtypes(const clang::FunctionDecl* function_decl, _Fn _Func, const Args&... args) {
 		bool retval = check_implicit_parameter_qtype(function_decl, _Func, args...);
 		if (retval) {
 			retval = check_all_explicit_parameter_qtypes(function_decl, _Func, args...);
@@ -9524,7 +9524,7 @@ namespace checker {
 			}
 
 			if (("operator<<" == function_name) || ("operator>>" == function_name)) {
-				/* Potentially standard streaming operators. Should be safe, right? */
+				/* Potentially standard streaming operator. Should be safe, right? */
 				auto is_recognized_string_container_or_char_star_or_char = [](clang::QualType const& qtype) {
 					auto const qtype_str = qtype.getAsString();
 					if (("const char *" == qtype_str) || ("char *" == qtype_str) 
@@ -9547,17 +9547,8 @@ namespace checker {
 			if ((CXXCD && CXXCD->isMoveConstructor()) || (CXXMD && CXXMD->isMoveAssignmentOperator())){
 				/* Here we check to see if all the parameter types are known to have benign move
 				constructors and move assignment operators. If so, this move operation should be safe. */
-				retval = true;
-				for (auto const PVD : function_decl->parameters()) {
-					if (PVD) {
-						auto PVD_qtype = PVD->getType();
-						IF_DEBUG(const std::string PVD_qtype_str = PVD_qtype.getAsString();)
-						if (!CB::is_known_to_have_benign_move(remove_reference_qtype(PVD_qtype), Ctx)) {
-							retval = false;
-							break;
-						}
-					}
-				}
+
+				retval = check_all_explicit_parameter_qtypes(function_decl, CB::is_known_to_have_benign_move, Ctx);
 				if (retval) {
 					return retval;
 				}
@@ -9566,17 +9557,8 @@ namespace checker {
 			if ((CXXCD && CXXCD->isCopyConstructor()) || (CXXMD && CXXMD->isCopyAssignmentOperator())){
 				/* Here we check to see if all the parameter types are known to have benign copy
 				constructors and copy assignment operators. If so, this copy operation should be safe. */
-				retval = true;
-				for (auto const PVD : function_decl->parameters()) {
-					if (PVD) {
-						auto PVD_qtype = PVD->getType();
-						IF_DEBUG(const std::string PVD_qtype_str = PVD_qtype.getAsString();)
-						if (!CB::is_known_to_have_benign_copy(remove_reference_qtype(PVD_qtype), Ctx)) {
-							retval = false;
-							break;
-						}
-					}
-				}
+
+				retval = check_all_explicit_parameter_qtypes(function_decl, CB::is_known_to_have_benign_copy, Ctx);
 				if (retval) {
 					return retval;
 				}
@@ -9587,44 +9569,8 @@ namespace checker {
 			In other functions in the standard libraries, it might be the case that a default 
 			constructor could be invoked? So we'll just make sure those are trivial or 
 			well-behaved as well. */
-			retval = true;
-			for (auto const PVD : function_decl->parameters()) {
-				if (PVD) {
-					auto PVD_qtype = PVD->getType();
-					IF_DEBUG(const std::string PVD_qtype_str = PVD_qtype.getAsString();)
-					auto b1 = CB::is_known_to_be_well_behaved(remove_reference_qtype(PVD_qtype), Ctx);
-					if (!b1) {
-						retval = false;
-						break;
-					}
-				} else {
-					int q = 3;
-				}
-			}
-			if (retval) {
-				std::optional<clang::QualType> maybe_implicit_object_param_qtype;
-				if (CXXMD) {
-					/* The function seems to be a member function so it would have an implict `this`
-					parameter. We'll check that too. */
-					auto CXXRD = CXXMD->getParent();
-					if (CXXRD) {
-						auto TypePtr = CXXRD->getTypeForDecl();
-						if (TypePtr) {
-							maybe_implicit_object_param_qtype = clang::QualType(TypePtr, 0/*I'm just assuming zero specifies no qualifiers*/);
 
-							auto PVD_qtype = clang::QualType(TypePtr, 0/*I'm just assuming zero specifies no qualifiers*/);
-							IF_DEBUG(const std::string PVD_qtype_str = PVD_qtype.getAsString();)
-							auto b1 = CB::is_known_to_be_well_behaved(remove_reference_qtype(PVD_qtype), Ctx);
-							if (!b1) {
-								retval = false;
-								return retval;
-							}
-						}
-					} else {
-						int q = 3;
-					}
-				}
-			}
+			retval = check_all_implicit_and_explicit_parameter_qtypes(function_decl, CB::is_known_to_be_well_behaved, Ctx);
 		}
 
 		return retval;
@@ -9881,9 +9827,9 @@ namespace checker {
 										if (!(CXXCD->isExplicit())) {
 											new_function_species_str += "(implicit) ";
 										}
-										if (!(CXXCD->isCopyConstructor())) {
+										if ((CXXCD->isCopyConstructor())) {
 											new_function_species_str += "copy ";
-										} else if (!(CXXCD->isMoveConstructor())) {
+										} else if ((CXXCD->isMoveConstructor())) {
 											new_function_species_str += "move ";
 										}
 										new_function_species_str += "constructor";
