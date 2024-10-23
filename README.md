@@ -1,5 +1,5 @@
 
-Aug 2024
+Oct 2024
 
 ### Overview
 
@@ -1156,15 +1156,28 @@ But if we replace "condition 1" in the example with "condition 2", this will ens
 
 "condition 3" is a slightly more complicated/obfuscated version of "condition 2", but the lifetime profile checker [is able](https://godbolt.org/z/76PGz6EdK) to recognize it as such.
 
-However, "condition 4" is just an indirect version of "condition 2", but the lifetime profile checker (at the time of writing) [does not](https://godbolt.org/z/M9hzY4n4f) acknowledge this, and will again complain about the dereference of a possible null value.
+However, "condition 4" is just an indirect version of "condition 2", but the lifetime profile checker (at the time of writing) [does not](https://godbolt.org/z/M9hzY4n4f) recognize this, and will again complain about the dereference of a possible null value.
 
-While a static analyzer can get arbitrarily good at recognizing safe code, there will, in theory, always be some safe code that it won't be able to verify as such in a timely manner. (Because "halting problem", right?) So the question is whether or not a static analyzer should attempt to identify as much safe code as it can, or whether it should instead only accept a well-defined, "easy" to understand subset of safe code.
+It's a simplified example, but we're witnessing an instance of a more general phenomenon where we can't make a minor change to the code that clearly, to us, has no ill effect on the correctness of the code, without breaking the compile (or static verification). "Brittle" is the word that comes to mind to describe this kind of situation where things are fine as long as you don't try to make any changes, no matter how seemingly minor or benign.
 
-The advantage of maximizing the set of code accepted as safe is that it reduces the modifications of pre-existing/legacy code needed to bring it into safety conformance. The disadvantage is that it may take programmers (and code modification/generation tools) more time and effort to become familiar with the boundaries between code that will and won't be accepted as safe. To some extent, the scalability and debugability arguments in favor of static typing over dynamic typing apply here.
+And making the static analyzer smarter doesn't solve the general "brittleness" problem. No matter how smart the analyzer becomes, there will, in theory, always be some safe code that it won't be able to verify as such in a timely manner. (Because "halting problem", right?) So any code that is "close to" the boundary of what the analyzer can verify as safe will be in this sort of "brittle" situation.
 
-Currently, scpptool does not use "flow (or path) sensitive" criteria to determine whether or not code will be accepted as safe. As a result, the set of accepted code may be smaller / more restricted than those of "flow (or path) sensitive" analyzers. But perhaps also easier to understand. Pre-existing/legacy code is, to some degree, addressed via [autotranslation](https://github.com/duneroadrunner/scpptool#autotranslation).
+Since scpptool doesn't use "flow (or path) sensitive" analysis, it doesn't suffer this kind of brittleness phenomenon. That is, no expression will fail to compile or pass static verification as a result of the modification of any code other than the expression itself or the declaration of elements participating in the expression. 
 
-With respect to the example given above, scpptool simply doesn't condone null (raw) pointer values at all. If null values are desired, the pointer would have to be wrapped in an "optional" container, or a smart pointer that (safely) supports null values would have to be used instead.
+With respect to the above example, scpptool prevents raw pointers from having null values so there would be no need to raise those errors about "dereferencing a possibly null pointer". Note that the error/warning that the lifetime profile checker raises recommends using `gsl::not_null<>` to basically achieve the same thing.
+
+If for some reason a null state was needed for the pointer, you could change the function to accept an `optional` of a pointer (or `gsl::not_null<>` pointer). Another alternative could be to use a non-owning smart pointer from the SaferCPlusPlus library that safely supports null values. Since both of these solutions include integrated checks for null state before dereferencing, they still don't suffer the "brittleness" phenomenon.
+
+So if this "brittleness" is a downside, an advantage of using "flow (or path) sensitive" analysis to maximize the set of code accepted as safe is that it reduces the modifications of pre-existing/legacy code needed to bring it into safety conformance. 
+
+But this benefit is in a sense similarly "brittle" or unreliable. That is, some legacy code won't require modification, while some essentially equivalent versions of that same code will require modification to appease the ("flow (or path) sensitive") analyzer.
+
+While even more code will require modification to satisfy the (non-"flow (or path) sensitive") scpptool analyzer, that modification can generally be automated.  And scpptool has a [feature](https://github.com/duneroadrunner/scpptool#autotranslation) to do a lot of that automated code modification for you. Note that this auto-converted code may incur a few more run-time checks than the original code, but of course you end up with code that doesn't suffer the brittleness phenomenon.
+
+In fact "flow (or path) sensitive" analyzers like the lifetime profile checker can avoid some run-time checks that a non-"flow (or path) sensitive" analyzer like scpptool can't. This is the case, for example, when it comes to ensuring that contents of dynamic containers aren't moved or deallocated when there are outstanding references to that content. But we find that in practice these run-time checks tend not to occur inside (performance sensitive) inner loops.
+
+So we've made an argument for non-"flow (or path) sensitive" analysis being the better trade-off, but still, it is a trade-off, and so ultimately a judgement call based on which properties one values more.
+
 
 ### Questions and comments
 If you have questions or comments you can create a post in the [discussion section](https://github.com/duneroadrunner/scpptool/discussions). 
