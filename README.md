@@ -3,7 +3,7 @@ Oct 2024
 
 ### Overview
 
-scpptool is a command line tool to help enforce a memory and data race safe subset of C++. It's designed to work with the [SaferCPlusPlus](https://github.com/duneroadrunner/SaferCPlusPlus) library. It analyzes the specified C++ file(s) and reports places in the code that it cannot verify to be safe. By design, the tool and the library should be able to fully ensure "lifetime", bounds and data race safety. 
+scpptool is a command line tool to help enforce a memory and data race safe subset of C++. It's designed to work with the [SaferCPlusPlus](https://github.com/duneroadrunner/SaferCPlusPlus) library. It analyzes the specified C++ file(s) and reports places in the code that it cannot verify to be safe. By design, the tool and the library should be able to fully ensure "lifetime", bounds and [data race](https://github.com/duneroadrunner/SaferCPlusPlus#multithreading) safety. 
 
 This safety necessarily comes at some (modest) expense of either flexibility or performance. Elements with a choice of tradeoffs are provided in the SaferCPlusPlus library. The goal is not to introduce new coding paradigms, but instead to impose only the minimum restrictions and departures from traditional C++ necessary to achieve practical performant memory safety.
 
