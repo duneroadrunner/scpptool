@@ -13140,6 +13140,50 @@ namespace checker {
 											}
 										}
 
+
+										if (2 <= function_decl->getNumParams()) {
+											auto first_PVD = function_decl->getParamDecl(0);
+											auto second_PVD = function_decl->getParamDecl(1);
+											auto qtype1 = first_PVD->getType();
+											MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype1);
+											IF_DEBUG(auto qtype_str = qtype1.getAsString();)
+											auto qtype2 = second_PVD->getType();
+											MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype2);
+											IF_DEBUG(auto qtype2_str = qtype2.getAsString();)
+											auto qtype = remove_reference(qtype1);
+											if ((qtype1 == qtype2) && (qtype->isPointerType())) {
+												/* The first two parameters are pointers of the same type. We want to disallow 
+												passing pointer iterators to algorithms.  */
+												static const std::string std_qsort_str = "std::qsort";
+												static const std::string std_sort_str = "std::sort";
+												DECLARE_CACHED_CONST_STRING(mse_sort_str, mse_namespace_str() + "::sort");
+												static const std::string std_for_each_str = "std::for_each";
+												DECLARE_CACHED_CONST_STRING(mse_for_each_str, mse_namespace_str() + "::for_each");
+												DECLARE_CACHED_CONST_STRING(mse_for_each_ptr_str, mse_namespace_str() + "::for_each_ptr");
+												std::string pointer_iterator_unsupported_function_str;
+												/* prefixes */
+												static const std::string std_find_str = "std::find";
+												DECLARE_CACHED_CONST_STRING(mse_find_str, mse_namespace_str() + "::find");
+												if ((std_qsort_str == qualified_function_name)
+													|| (std_sort_str == qualified_function_name)
+													|| (mse_sort_str == qualified_function_name)
+													|| (std_for_each_str == qualified_function_name)
+													|| (mse_for_each_str == qualified_function_name)
+													|| (mse_for_each_ptr_str == qualified_function_name)
+													|| (string_begins_with(qualified_function_name, std_find_str))
+													|| (string_begins_with(qualified_function_name, mse_find_str))
+													) {
+
+													pointer_iterator_unsupported_function_str = qualified_function_name;
+												}
+												if ("" != pointer_iterator_unsupported_function_str) {
+													const std::string error_desc = std::string("Passing raw pointer (iterators) (of type ") 
+														+ get_as_quoted_string_for_errmsg(qtype) + ") to the '" + pointer_iterator_unsupported_function_str
+														+ "' function is not supported.";
+													(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
+												}
+											}
+										}
 									}
 								}
 							}
@@ -13161,7 +13205,7 @@ namespace checker {
 									+ arg_EX->getType().getAsString() + "')";
 							}
 						} else if (CXXSVIE) {
-							IF_DEBUG(CXXSVIE->getType().getAsString();)
+							IF_DEBUG(auto CXXSVIE_qtype_str = CXXSVIE->getType().getAsString();)
 							unsupported_expression_str = "Default construction of scalar types (such as " + get_as_quoted_string_for_errmsg(CXXSVIE->getType()) + ")";
 						}
 						if ("" != unsupported_expression_str) {
