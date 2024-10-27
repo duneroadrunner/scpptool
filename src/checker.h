@@ -12202,7 +12202,7 @@ namespace checker {
 							const auto& unsupported_element_info = *uei_ptr;
 							if (MR_ptr && (!errors_suppressed_flag)) {
 								std::string error_desc = quoted_element_name_for_errmsg + std::string(" is not ")
-									+ "supported (in this declaration of type " + get_as_quoted_string_for_errmsg(qtype) + "). ";
+									+ "supported (in type " + get_as_quoted_string_for_errmsg(qtype) + " used in this declaration). ";
 								if ("" != unsupported_element_info.m_recommended_alternative) {
 									error_desc += "Consider using " + unsupported_element_info.m_recommended_alternative + " instead.";
 								}
@@ -12211,42 +12211,8 @@ namespace checker {
 						}
 					}
 				};
-				//check_for_and_handle_unsupported_element(qtype, state1);
-				//apply_to_template_arg_types_if_any(qtype, check_for_and_handle_unsupported_element, state1);
-
-				auto check_for_and_handle_unsupported_element2 = [MR_ptr, errors_suppressed_flag](const clang::TypeLoc& typeLoc, clang::SourceRange l_SR, CTUState& state1) {
-					auto qtype = typeLoc.getType();
-					std::string element_name;
-					std::string quoted_element_name_for_errmsg;
-					const auto* l_CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
-					if (l_CXXRD) {
-						element_name = l_CXXRD->getQualifiedNameAsString();
-						quoted_element_name_for_errmsg = "'" + element_name + "'";
-					} else {
-						element_name = qtype.getAsString();
-						quoted_element_name_for_errmsg = get_as_quoted_string_for_errmsg(qtype);
-					}
-
-					{
-						auto uei_ptr = unsupported_element_info_ptr(element_name);
-						if (uei_ptr) {
-							const auto& unsupported_element_info = *uei_ptr;
-							if (MR_ptr && (!errors_suppressed_flag)) {
-								std::string error_desc = quoted_element_name_for_errmsg + std::string(" is not ")
-									+ "supported (in type " + get_as_quoted_string_for_errmsg(qtype) + " used in this declaration). ";
-								if ("" != unsupported_element_info.m_recommended_alternative) {
-									error_desc += "Consider using " + unsupported_element_info.m_recommended_alternative + " instead.";
-								}
-								state1.register_error(*(MR_ptr->SourceManager), typeLoc.getSourceRange(), error_desc);
-							}
-						}
-					}
-				};
-				auto tsi_ptr = DD->getTypeSourceInfo();
-				if (tsi_ptr) {
-					check_for_and_handle_unsupported_element2(tsi_ptr->getTypeLoc(), SR, state1);
-					apply_to_template_arg_types_if_any(tsi_ptr->getTypeLoc(), check_for_and_handle_unsupported_element2, state1);
-				}
+				check_for_and_handle_unsupported_element(qtype, state1);
+				apply_to_template_arg_types_if_any(qtype, check_for_and_handle_unsupported_element, state1);
 			}
 		} else {
 			std::string unsupported_type_str;
