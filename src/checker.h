@@ -9577,6 +9577,15 @@ namespace checker {
 	}
 
 	template<typename TCallOrConstuctorExpr>
+	inline bool is_known_to_never_deallocate_its_return_value(CTUState& state1, const clang::FunctionDecl* function_decl
+		, const TCallOrConstuctorExpr* CE, ASTContext& Ctx, MatchFinder::MatchResult const * MR_ptr/* = nullptr*/, Rewriter* Rewrite_ptr/* = nullptr*/) {
+
+		/* For now we'll use the set of functions that are known_to_never_deallocate_its_arguments
+		to approximation for the the set of functions that are known_to_never_deallocate_its_return_value. */
+		return is_known_to_never_deallocate_its_arguments(state1, function_decl, CE, Ctx, MR_ptr, Rewrite_ptr);
+	}
+
+	template<typename TCallOrConstuctorExpr>
 	inline std::string function_call_handler2(CTUState& state1, const clang::FunctionDecl* function_decl
 		, const TCallOrConstuctorExpr* CE, ASTContext& Ctx, MatchFinder::MatchResult const * MR_ptr/* = nullptr*/, Rewriter* Rewrite_ptr/* = nullptr*/) {
 
@@ -10491,15 +10500,17 @@ namespace checker {
 						}
 
 						auto check_that_lifetime_is_abstract_or_outlives_hard_lower_bound_shallow
-							= [&hard_lower_bound_shallow_lifetime, &qfunction_name, &errors_suppressed_flag, &SR, &state1, &Ctx, &MR_ptr, &Rewrite_ptr](const CScopeLifetimeInfo1& slti) {
+							= [&](const CScopeLifetimeInfo1& slti) {
 							if (CScopeLifetimeInfo1::ECategory::AbstractLifetime != slti.m_category) {
 								auto shallow_slti = slti;
 								shallow_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.clear();
 								if (!first_is_known_to_be_contained_in_scope_of_second_shallow(hard_lower_bound_shallow_lifetime, shallow_slti, Ctx, state1)) {
-									if (MR_ptr && (!errors_suppressed_flag)) {
-										std::string error_desc = std::string("At least one of the return value's direct or indirect (referenced object)")
-											+ " lifetimes cannot be verified to (sufficiently) outlive the ('" + qfunction_name + "') call expression.";
-										state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
+									if (!is_known_to_never_deallocate_its_return_value(state1, function_decl, CE, Ctx, MR_ptr, Rewrite_ptr)) {
+										if (MR_ptr && (!errors_suppressed_flag)) {
+											std::string error_desc = std::string("At least one of the return value's direct or indirect (referenced object)")
+												+ " lifetimes cannot be verified to (sufficiently) outlive the ('" + qfunction_name + "') call expression.";
+											state1.register_error(*(MR_ptr->SourceManager), SR, error_desc);
+										}
 									}
 								}
 							}
