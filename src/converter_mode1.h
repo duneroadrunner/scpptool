@@ -5157,7 +5157,7 @@ namespace convm1 {
 			auto tsi_ptr = DD->getTypeSourceInfo();
 			if (tsi_ptr) {
 				check_for_and_handle_unsupported_element2(tsi_ptr->getTypeLoc(), SR, state1);
-				apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), check_for_and_handle_unsupported_element2, state1);
+				apply_to_template_arg_types_if_any(tsi_ptr->getTypeLoc(), check_for_and_handle_unsupported_element2, state1);
 			}
 
 			/* There may be multiple declarations in the same declaration statement. Replacing
@@ -12336,13 +12336,13 @@ namespace convm1 {
 								}
 							}
 						}
-						if (is_xscope_type(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
+						if (checker::is_xscope_type(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
 							has_xscope_tag_base = true;
 						}
-						if (contains_non_owning_scope_reference(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
+						if (checker::contains_non_owning_scope_reference(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
 							has_ContainsNonOwningScopeReference_tag_base = true;
 						}
-						if (referenceable_by_scope_pointer(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
+						if (checker::referenceable_by_scope_pointer(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
 							has_ReferenceableByScopePointer_tag_base = true;
 						}
 					}
@@ -12386,7 +12386,7 @@ namespace convm1 {
 							}
 						}
 
-						if ((!has_xscope_tag_base) && is_xscope_type(field_qtype, (*this).m_state1)) {
+						if ((!has_xscope_tag_base) && checker::is_xscope_type(field_qtype, (*this).m_state1)) {
 							if (is_lambda) {
 								error_desc = std::string("Lambdas that capture variables of xscope type (such as '")
 									+ field_qtype_str + "') must be scope lambdas (usually created via an "
@@ -12397,7 +12397,7 @@ namespace convm1 {
 							}
 						}
 						if ((!has_ContainsNonOwningScopeReference_tag_base)
-							&& contains_non_owning_scope_reference(field_qtype, (*this).m_state1)) {
+							&& checker::contains_non_owning_scope_reference(field_qtype, (*this).m_state1)) {
 							if (is_lambda) {
 								error_desc = std::string("Lambdas that capture items (such as those of type '")
 									+ field_qtype_str + "') that are, or contain, non-owning scope references must be "
@@ -12411,7 +12411,7 @@ namespace convm1 {
 							}
 						}
 						if ((!has_ReferenceableByScopePointer_tag_base)
-							&& referenceable_by_scope_pointer(field_qtype, (*this).m_state1)) {
+							&& checker::referenceable_by_scope_pointer(field_qtype, (*this).m_state1)) {
 							if (is_lambda) {
 								/* The assumption is that we don't have to worry about scope pointers targeting
 								lambda capture variables(/fields) from outside the lambda, because they're not 
@@ -13023,19 +13023,25 @@ namespace convm1 {
 		}
 
 		void InclusionDirective(
-		SourceLocation hash_loc,
-		const Token &include_token,
-		StringRef file_name,
-		bool is_angled,
-		CharSourceRange filename_range,
-		const FileEntry *file,
-		StringRef search_path,
-		StringRef relative_path,
-		const clang::Module *imported
-	#if MU_LLVM_MAJOR <= 6
-	#elif MU_LLVM_MAJOR >= 8
-		, SrcMgr::CharacteristicKind file_type
-	#endif /*MU_LLVM_MAJOR*/
+			SourceLocation hash_loc,
+			const Token &include_token,
+			StringRef file_name,
+			bool is_angled,
+			CharSourceRange filename_range,
+		#if MU_LLVM_MAJOR < 15
+			const FileEntry *file,
+		#elif MU_LLVM_MAJOR < 16
+			Optional<FileEntryRef> File,
+		#else /*MU_LLVM_MAJOR*/
+			OptionalFileEntryRef File,
+		#endif /*MU_LLVM_MAJOR*/
+			StringRef search_path,
+			StringRef relative_path,
+			const clang::Module *imported
+		#if MU_LLVM_MAJOR <= 6
+		#elif MU_LLVM_MAJOR >= 8
+			, SrcMgr::CharacteristicKind file_type
+		#endif /*MU_LLVM_MAJOR*/
 		) override {
 
 		if (current_fii_shptr()) {

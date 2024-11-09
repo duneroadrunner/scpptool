@@ -26,7 +26,7 @@
 
 #include "checker.h"
 
-#define EXCLUDE_CONVERTER_MODE1
+//define EXCLUDE_CONVERTER_MODE1
 #ifndef EXCLUDE_CONVERTER_MODE1
 #include "converter_mode1.h"
 #endif //!EXCLUDE_CONVERTER_MODE1
