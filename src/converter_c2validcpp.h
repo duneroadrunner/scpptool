@@ -5156,7 +5156,7 @@ namespace convc2validcpp {
 			auto tsi_ptr = DD->getTypeSourceInfo();
 			if (tsi_ptr) {
 				check_for_and_handle_unsupported_element2(tsi_ptr->getTypeLoc(), SR, state1);
-				apply_to_component_types_if_any(tsi_ptr->getTypeLoc(), check_for_and_handle_unsupported_element2, state1);
+				apply_to_template_arg_types_if_any(tsi_ptr->getTypeLoc(), check_for_and_handle_unsupported_element2, state1);
 			}
 
 			/* There may be multiple declarations in the same declaration statement. Replacing
@@ -12159,14 +12159,14 @@ namespace convc2validcpp {
 
 						        auto code_session = Parse::CCodeSession(macro_decl_text);
 				                auto ptok1_range = Parse::find_potential_noncomment_token_v1(macro_decl_text, 0);
-								if (macro_decl_text.length() <= ptok1_range.second) {
+								if (macro_decl_text.length() <= ptok1_range.end) {
 									/* Didn't find a non-comment token. Presumably because the macro declaration text is not
 									available. */
 									return;
 								}
-								auto char_after_ptok1 = macro_decl_text.at(ptok1_range.second);
+								auto char_after_ptok1 = macro_decl_text.at(ptok1_range.end);
 								if ('(' == char_after_ptok1) {
-									auto rparen1_index = Parse::find_matching_right_parenthesis(macro_decl_text, ptok1_range.second + 1);
+									auto rparen1_index = Parse::find_matching_right_parenthesis(macro_decl_text, ptok1_range.end + 1);
 									if (macro_decl_text.length() <= rparen1_index) {
 										/* error: lparen without matching rparen */
 										int q = 3;
@@ -12174,10 +12174,10 @@ namespace convc2validcpp {
 									}
 
 					                auto ptok2_range = Parse::find_potential_noncomment_token_v1(macro_decl_text, rparen1_index + 1);
-									auto macro_def_text_sv = Parse::substring_view(macro_decl_text, Parse::range_t{ ptok2_range.first, macro_decl_text.length() });
+									auto macro_def_text_sv = Parse::substring_view(macro_decl_text, Parse::range_t{ ptok2_range.begin, macro_decl_text.length() });
 									macro_def_text = std::string{ macro_def_text_sv };
 
-									auto macro_params_sv = Parse::substring_view(macro_decl_text, Parse::range_t{ ptok1_range.second + 1, rparen1_index });
+									auto macro_params_sv = Parse::substring_view(macro_decl_text, Parse::range_t{ ptok1_range.end + 1, rparen1_index });
 									auto macro_params = parse_args(macro_params_sv, ',');
 									if (macro_params.size() != macro_args.size()) {
 										/* error: The number of macro arguments does not match the number of macro parameters. */
@@ -12191,15 +12191,15 @@ namespace convc2validcpp {
 										auto& macro_param = macro_params.at(i);
 										auto& macro_arg = macro_args.at(i);
 										auto macro_param_span1 = Parse::find_uncommented_token(macro_param, macro_def_text, 0);
-										while (macro_def_text.length() > macro_param_span1.first) {
-											macro_def_text.replace(macro_param_span1.first, macro_param.length(), macro_arg);
+										while (macro_def_text.length() > macro_param_span1.begin) {
+											macro_def_text.replace(macro_param_span1.begin, macro_param.length(), macro_arg);
 
-											macro_param_span1 = Parse::find_uncommented_token(macro_param, macro_def_text, macro_param_span1.first + macro_param.length());
+											macro_param_span1 = Parse::find_uncommented_token(macro_param, macro_def_text, macro_param_span1.begin + macro_param.length());
 										}
 									}
 								} else {
-					                auto ptok2_range = Parse::find_potential_noncomment_token_v1(macro_decl_text, ptok1_range.second);
-									auto macro_def_text_sv = Parse::substring_view(macro_decl_text, Parse::range_t{ ptok2_range.first, macro_decl_text.length() });
+					                auto ptok2_range = Parse::find_potential_noncomment_token_v1(macro_decl_text, ptok1_range.end);
+									auto macro_def_text_sv = Parse::substring_view(macro_decl_text, Parse::range_t{ ptok2_range.begin, macro_decl_text.length() });
 									macro_def_text = std::string{ macro_def_text_sv };
 								}
 
@@ -12582,13 +12582,13 @@ namespace convc2validcpp {
 								}
 							}
 						}
-						if (is_xscope_type(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
+						if (checker::is_xscope_type(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
 							has_xscope_tag_base = true;
 						}
-						if (contains_non_owning_scope_reference(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
+						if (checker::contains_non_owning_scope_reference(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
 							has_ContainsNonOwningScopeReference_tag_base = true;
 						}
-						if (referenceable_by_scope_pointer(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
+						if (checker::referenceable_by_scope_pointer(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
 							has_ReferenceableByScopePointer_tag_base = true;
 						}
 					}
@@ -12632,7 +12632,7 @@ namespace convc2validcpp {
 							}
 						}
 
-						if ((!has_xscope_tag_base) && is_xscope_type(field_qtype, (*this).m_state1)) {
+						if ((!has_xscope_tag_base) && checker::is_xscope_type(field_qtype, (*this).m_state1)) {
 							if (is_lambda) {
 								error_desc = std::string("Lambdas that capture variables of xscope type (such as '")
 									+ field_qtype_str + "') must be scope lambdas (usually created via an "
@@ -12643,7 +12643,7 @@ namespace convc2validcpp {
 							}
 						}
 						if ((!has_ContainsNonOwningScopeReference_tag_base)
-							&& contains_non_owning_scope_reference(field_qtype, (*this).m_state1)) {
+							&& checker::contains_non_owning_scope_reference(field_qtype, (*this).m_state1)) {
 							if (is_lambda) {
 								error_desc = std::string("Lambdas that capture items (such as those of type '")
 									+ field_qtype_str + "') that are, or contain, non-owning scope references must be "
@@ -12657,7 +12657,7 @@ namespace convc2validcpp {
 							}
 						}
 						if ((!has_ReferenceableByScopePointer_tag_base)
-							&& referenceable_by_scope_pointer(field_qtype, (*this).m_state1)) {
+							&& checker::referenceable_by_scope_pointer(field_qtype, (*this).m_state1)) {
 							if (is_lambda) {
 								/* The assumption is that we don't have to worry about scope pointers targeting
 								lambda capture variables(/fields) from outside the lambda, because they're not 
@@ -13275,19 +13275,25 @@ namespace convc2validcpp {
 		}
 
 		void InclusionDirective(
-		SourceLocation hash_loc,
-		const Token &include_token,
-		StringRef file_name,
-		bool is_angled,
-		CharSourceRange filename_range,
-		const FileEntry *file,
-		StringRef search_path,
-		StringRef relative_path,
-		const clang::Module *imported
-	#if MU_LLVM_MAJOR <= 6
-	#elif MU_LLVM_MAJOR >= 8
-		, SrcMgr::CharacteristicKind file_type
-	#endif /*MU_LLVM_MAJOR*/
+			SourceLocation hash_loc,
+			const Token &include_token,
+			StringRef file_name,
+			bool is_angled,
+			CharSourceRange filename_range,
+		#if MU_LLVM_MAJOR < 15
+			const FileEntry *file,
+		#elif MU_LLVM_MAJOR < 16
+			Optional<FileEntryRef> File,
+		#else /*MU_LLVM_MAJOR*/
+			OptionalFileEntryRef File,
+		#endif /*MU_LLVM_MAJOR*/
+			StringRef search_path,
+			StringRef relative_path,
+			const clang::Module *imported
+		#if MU_LLVM_MAJOR <= 6
+		#elif MU_LLVM_MAJOR >= 8
+			, SrcMgr::CharacteristicKind file_type
+		#endif /*MU_LLVM_MAJOR*/
 		) override {
 
 		if (current_fii_shptr()) {
