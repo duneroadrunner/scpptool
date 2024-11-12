@@ -15,7 +15,7 @@ Some samples of conforming safe code can be found in the examples for the [provi
 
 Note that due to its dependency on the clang+llvm libraries this tool only supports code that's compatible with the clang compiler.
 
-Note that this tool is still in development and not well tested.
+Note that this tool is still in development and not well tested. (While we presume that it would be unlikely that any bugs or incomplete features would result in your code being less safe than it otherwise would have been, it would not be appropriate to rely on this project being bug free or fully complete in its ability to prevent invalid memory accesses at this time.)
 
 Quick intro video (with text-to-speech narration) (transcript with code samples [here](intro_video_transcript.md)) part 1:  
 (Note that a chunk of the video starting at 4:00 and ending at 6:30 is dedicated to demonstrating the installation of the tool. And another chunk starting at 8:15 and ending at 10:00 demonstrates setting up the associated library. You can skip those parts if they are not of immediate interest.)
