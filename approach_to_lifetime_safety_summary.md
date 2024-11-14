@@ -1,6 +1,6 @@
 Nov 2024
 
-###Rough Summary of the Approach to Lifetime Safety For Those With Some Familiarity With Rust
+### Rough Summary of the Approach to Lifetime Safety For Those With Some Familiarity With Rust
 
 Mutable aliasing can be a code correctness issue, but in most situations it's not a memory safety issue. For example, if one has two non-`const` pointers to an `int` variable, or even an element of a (fixed-sized) array of `int`s, there's no memory safety issue due to the aliasing. But, for example, if I have a non-`const` pointer to an `std::vector<>` and another pointer to one of its elements, that can be a lifetime safety issue if the vector contents are cleared or relocated due to an operation instigated via the non-`const` pointer to the vector.
 
