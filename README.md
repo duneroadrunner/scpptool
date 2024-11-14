@@ -26,6 +26,7 @@ Quick intro video (with text-to-speech narration) part 2:
 
 https://github.com/duneroadrunner/scpptool/assets/10386072/a80f55b5-19fd-4ba2-a121-d999eb5b8932
 
+By some request, a ["Rough Summary of the Approach to Lifetime Safety For Those With Some Familiarity With Rust"](approach_to_lifetime_safety_summary.md))
 
 ### Table of contents
 1. [Overview](#overview)
