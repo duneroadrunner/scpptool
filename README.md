@@ -537,7 +537,7 @@ Instead of its constructor taking a native pointer pointing to an already alloca
 
 `rsv::xslta_array<>` is a [lifetime annotated](#annotating-lifetime-constraints) array.
 
-usage example: ([link to interactive version](https://godbolt.org/z/5Kx9q1dEW))
+usage example: ([link to interactive version](https://godbolt.org/z/ffe3vExTM))
 
 ```cpp
     #include "mseslta.h"
@@ -629,7 +629,7 @@ usage example: ([link to interactive version](https://godbolt.org/z/5Kx9q1dEW))
 
 Some other static safety enforcers/analyzers try to automatically and implicitly put vectors (and other dynamic containers) into a "fixed (size/structure) mode" without requiring the programmer to instantiate a "borrowing fixed" object. But such tools rely on "flow (or path) sensitive" analysis, which [arguably](#flow-insensitive-analysis) has undesirable scalability implications.
 
-usage example: ([link to interactive version](https://godbolt.org/z/ThxP8WeTP))
+usage example: ([link to interactive version](https://godbolt.org/z/bMjsvPEae))
 
 ```cpp
     #include "mseslta.h"
@@ -737,7 +737,7 @@ Note that the [`rsv::xslta_borrowing_fixed_vector<>`](#xslta_vector-xslta_fixed_
 
 `rsv::xslta_accessing_fixed_vector<>`, like `rsv::xslta_borrowing_fixed_vector<>`, ensures, while it exists, that the vector contents are not deallocated/relocated/resized. But unlike `rsv::xslta_borrowing_fixed_vector<>`, `rsv::xslta_accessing_fixed_vector<>`'s access to the vector contents is not exclusive. So, for example, multiple `rsv::xslta_accessing_fixed_vector<>`s corresponding to the same vector can exist and be used at the same time. This lack of exclusivity results in `rsv::xslta_accessing_fixed_vector<>` being branded as ineligible to be passed to or shared with asynchronous threads.
 
-usage example: ([link to interactive version](https://godbolt.org/z/djGqW94bG))
+usage example: ([link to interactive version](https://godbolt.org/z/hzMc4rcha))
 
 ```cpp
     #include "mseslta.h"
@@ -776,7 +776,7 @@ A "random access section" is basically a convenient interface to access a (conti
 
 Note that for convenience, random access sections can be constructed from just a pointer or reference to a supported container object. Also note that these `TXSLTARandomAccessSection<>`s are not the library elements that most directly correspond to `std::span<>`s, as they are "tied" to the iterator type of their template argument. [`TXSLTACSSSXSTERandomAccessSection<>`](#txsltacsssxsterandomaccessiterator-and-txsltacsssxsterandomaccesssection)s more closely correspond to `std::span<>`s.
 
-usage example: ([link to interactive version](https://godbolt.org/z/Tj7hajxz6))
+usage example: ([link to interactive version](https://godbolt.org/z/f788s7q8v))
 
 ```cpp
     #include "mseslta.h"
@@ -887,7 +887,7 @@ template <typename TElement> using my_span = mse::rsv::TXSLTACSSSXSTERandomAcces
 ```
 (The library itself does not (yet) provide such a standard short alias.)
 
-usage example: ([link to interactive version](https://godbolt.org/z/h5x78nbE1))
+usage example: ([link to interactive version](https://godbolt.org/z/q9f3d6Ysz))
 
 ```cpp
     #include "mseslta.h"
@@ -1002,7 +1002,7 @@ usage example: ([link to interactive version](https://godbolt.org/z/h5x78nbE1))
 
 Conceptually, you can think of an optional as kind of like a [`vector<>`](#xslta_vector-xslta_fixed_vector-xslta_borrowing_fixed_vector) with at most one element.
 
-usage example: ([link to interactive version](https://godbolt.org/z/jcvEb463r))
+usage example: ([link to interactive version](https://godbolt.org/z/5Pof4qdjq))
 
 ```cpp
     #include "mseslta.h"
@@ -1079,7 +1079,7 @@ usage example: ([link to interactive version](https://godbolt.org/z/jcvEb463r))
 
 `rsv::xslta_accessing_fixed_optional<>` is the [`rsv::xslta_accessing_fixed_vector<>`](#xslta_accessing_fixed_vector) counterpart for `optional`s.
 
-usage example: ([link to interactive version](https://godbolt.org/z/G4jhKdY4E))
+usage example: ([link to interactive version](https://godbolt.org/z/Po3rdaW36))
 
 ```cpp
     #include "mseslta.h"
@@ -1090,7 +1090,7 @@ usage example: ([link to interactive version](https://godbolt.org/z/G4jhKdY4E))
         int i2 = 5;
         int i3 = 7;
 
-        auto opt2 = mse::rsv::xslta_optional<mse::rsv::TXSLTAPointer<int> >{ &i2 };
+        auto opt2 = mse::rsv::xslta_optional<mse::rsv::TXSLTAPointer<int> >{ mse::rsv::TXSLTAPointer<int>{ &i2 } };
 
         {
             auto const& opt2_cref = opt2;
