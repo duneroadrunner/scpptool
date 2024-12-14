@@ -902,7 +902,7 @@ See also [`TXSLTACSSSXSTERandomAccessSection`](#txsltacsssxsterandomaccessiterat
 template <typename TElement>
 using xl_span = mse::rsv::TXSLTACSSSXSTERandomAccessSection<TElement>;
 template <typename TElement>
-using xl_const_span = mse::rsv::TXSLTACSSSXSTERandomAccessSection<TElement>;
+using xl_const_span = mse::rsv::TXSLTACSSSXSTERandomAccessConstSection<TElement>;
 ```
 
 usage example: ([link to interactive version](https://godbolt.org/z/q9f3d6Ysz))
