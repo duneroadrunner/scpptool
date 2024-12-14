@@ -1,5 +1,5 @@
 
-Oct 2024
+Dec 2024
 
 ### Overview
 
@@ -146,7 +146,7 @@ Operations that could resize (or relocate) the contents of a "safe" dynamic cont
 
 This next topic is kind of a longer one about "lifetime annotations". It is an important topic to understand if you ever intend to store raw pointers or references, or use them as function return values. (You can theoretically avoid those situations, and this topic, by using the provided non-owning run-time-checked smart pointers rather than raw pointers/references in those situations.) This topic introduces some new syntax, but don't get hung up on the details. Most of the time you won't be using the new syntax directly. Most of the time it will be [implied by default](#lifetime-elision) or you'll be using provided [library elements](#lifetime-annotated-elements-in-the-safercplusplus-library) that already incorporate the appropriate lifetime annotations. But still, it's recommended to at least give this topic a "once over" to get an idea of how things work and the principles underlying the associated imposed/enforced restrictions.
 
-While in most cases the lifeftime annotations will be implicit, the lifetime annotations presented in this section may strike some as quite verbose. Possibly unacceptably so. But note that these annotations are just preprocessor macros and that it's straightforward to define more concise macro aliases for them. So even though all our examples use the "official" verbose syntax, it's expected that shorter macro aliases will be more commonly used.
+While in most cases the lifetime annotations will be implicit, the lifetime annotations presented in this section may strike some as quite verbose. (Provisional) shorter macro aliases are  [provided](https://github.com/duneroadrunner/SaferCPlusPlus/blob/2f23cbb406497d42faa289cecbd76565dd3ea73b/include/mseslta.h#L101-L110). So even though all our examples use the "official" verbose syntax, it's expected that shorter macro aliases will ultimately be more commonly used.
 
 By default, this tool enforces that targets of scope (raw) pointers outlive the pointer itself. But sometimes it can be useful to enforce even more stringent restrictions on the lifespan of the target objects. Consider the following example:
 
@@ -218,25 +218,18 @@ int main(int argc, char* argv[]) {
 }
 ```
 
-As noted earlier, the syntax of these lifetime annotations may seem to some to be overly verbose for common usage. But it's straightforward to define and use shorter macro aliases instead. So for instance, the example function could be re-expressed like so:
+As noted earlier, the syntax of these lifetime annotations may seem to some to be overly verbose for common usage. But the [shorter macro aliases](https://github.com/duneroadrunner/SaferCPlusPlus/blob/2f23cbb406497d42faa289cecbd76565dd3ea73b/include/mseslta.h#L101-L110) can be used instead. So for instance, the example function could be re-expressed like so:
 
 ```cpp
-#define LT1(...) MSE_ATTR_STR("mse::lifetime_labels("#__VA_ARGS__")")
-#define ENCOMPASSES1(x, y) MSE_ATTR_STR("mse::lifetime_encompasses("#x", "#y")")
-
-...
-
 typedef int* int_p_t;
 
-void foo1(int_p_t& i1_p_ref LT1(42), int_p_t& i2_p_ref LT1(99))
-    LT1(42, 99) ENCOMPASSES1(42, 99)
+void foo1(int_p_t& i1_p_ref LTP(42), int_p_t& i2_p_ref LTP(99))
+    LT(42, 99) LT_ENCOMPASSES(42, 99)
 {
     int_p_t i3_p = i1_p_ref; // clearly safe
     i2_p_ref = i1_p_ref; // the lifetime annotations tell us that this is safe
 }
 ```
-
-The library itself does not yet provide standardized short aliases. At the moment you'd need to define (or obtain) your own set of aliases.
 
 Ok, so we've demonstrated associating labels to the lifetimes of objects bound to raw references. But actually, raw references are kind of a special case "quasi-object" in the sense that the reference itself can never be the target of another reference or pointer, and can never be reassigned to reference a different object. (Raw) pointers, on the other hand, provide the functionality of raw references, but additionally can be reassigned to reference (aka "point to") different objects, and can themselves be targeted by references or other pointers. So if we use pointers in place of (raw) references in our first example:
 
@@ -629,6 +622,21 @@ usage example: ([link to interactive version](https://godbolt.org/z/ffe3vExTM))
 
 Some other static safety enforcers/analyzers try to automatically and implicitly put vectors (and other dynamic containers) into a "fixed (size/structure) mode" without requiring the programmer to instantiate a "borrowing fixed" object. But such tools rely on "flow (or path) sensitive" analysis, which [arguably](#flow-insensitive-analysis) has undesirable scalability implications.
 
+Also note that (though we don't use them in the example) some (provisional) shorter aliases are defined:
+```cpp
+template<class _TLender, class _Ty /*= default*/, class _A /*= default*/>
+using xl_bf_vector =  xslta_borrowing_fixed_vector<_TLender, _Ty, _A>;
+
+template<class _TLender, class _Ty /*= default*/, class _A /*= default*/>
+auto make_xl_bf_vector(const mse::rsv::TXSLTAPointer<_TLender> src_xs_ptr) {
+	return make_xslta_borrowing_fixed_vector<_TLender, _Ty, _A>(src_xs_ptr);
+}
+template<class _TLender, class _Ty /*= default*/, class _A /*= default*/>
+auto make_xl_bf_vector(_TLender* src_xs_ptr) {
+	return make_xslta_borrowing_fixed_vector<_TLender, _Ty, _A>(src_xs_ptr);
+}
+```
+
 usage example: ([link to interactive version](https://godbolt.org/z/bMjsvPEae))
 
 ```cpp
@@ -881,11 +889,13 @@ See also [`TXSLTACSSSXSTERandomAccessSection`](#txsltacsssxsterandomaccessiterat
 
 `rsv::TXSLTACSSSXSTERandomAccessIterator<>` and `rsv::TXSLTACSSSXSTERandomAccessSection<>` are "type-erased" template classes that can be used to enable functions to take as arguments iterators or sections of various container types (like arrays or (fixed size) vectors) without making the functions into template functions. But in this case there are limitations on what types can be converted. In exchange for these limitations, these types require less overhead. The "CSSSXSTE" part of the typenames stands for "Contiguous Sequence, Static Structure, XSLTA, Type-Erased". So the first restriction is that the target container must be recognized as a "contiguous sequence" (basically an array or vector). It also must be recognized as having a "static structure". This essentially means that the container cannot be resized. (At least not while the `rsv::TXSLTACSSSXSTERandomAccessIterator<>` or `rsv::TXSLTACSSSXSTERandomAccessSection<>` exists.) And these iterators and sections are ["lifetime annotated"](#annotating-lifetime-constraints).
 
-`rsv::TXSLTACSSSXSTERandomAccessSection<>` might be considered, in essence, the primary safe counterpart of `std::span<>`. In fact, this element would be expected to be used commonly enough that at some point you might feel compelled to define a shorter alias for it, for example like so:
+`rsv::TXSLTACSSSXSTERandomAccessSection<>` might be considered, in essence, the primary safe counterpart of `std::span<>`. As such, (though we don't use them in the example) a couple of (provisional) shorter aliases are defined:
 ```cpp
-template <typename TElement> using my_span = mse::rsv::TXSLTACSSSXSTERandomAccessSection<TElement>;
+template <typename TElement>
+using xl_span = mse::rsv::TXSLTACSSSXSTERandomAccessSection<TElement>;
+template <typename TElement>
+using xl_const_span = mse::rsv::TXSLTACSSSXSTERandomAccessSection<TElement>;
 ```
-(The library itself does not (yet) provide such a standard short alias.)
 
 usage example: ([link to interactive version](https://godbolt.org/z/q9f3d6Ysz))
 
@@ -1001,6 +1011,21 @@ usage example: ([link to interactive version](https://godbolt.org/z/q9f3d6Ysz))
 `rsv::xslta_borrowing_fixed_optional<>` is a lifetime annotated optional whose empty/non-empty status is fixed and (exclusively) "borrows" the contents of the specified `rsv::xslta_optional<>`. 
 
 Conceptually, you can think of an optional as kind of like a [`vector<>`](#xslta_vector-xslta_fixed_vector-xslta_borrowing_fixed_vector) with at most one element.
+
+Also note that (though we don't use them in the example) some (provisional) shorter aliases are defined:
+```cpp
+template <class _TLender, class T /*= default*/>
+using xl_bf_optional = xslta_borrowing_fixed_optional<_TLender, T>;
+
+template<class _TLender, class _Ty /*= default*/>
+auto make_xl_bf_optional(const mse::rsv::TXSLTAPointer<_TLender> src_xs_ptr) {
+	return make_xslta_borrowing_fixed_optional<_TLender, _Ty>(src_xs_ptr);
+}
+template<class _TLender, class _Ty /*= default*/>
+auto make_xl_bf_optional(_TLender* src_xs_ptr) {
+	return make_xslta_borrowing_fixed_optional<_TLender, _Ty>(src_xs_ptr);
+}
+```
 
 usage example: ([link to interactive version](https://godbolt.org/z/5Pof4qdjq))
 
