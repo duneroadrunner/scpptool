@@ -900,9 +900,9 @@ See also [`TXSLTACSSSXSTERandomAccessSection`](#txsltacsssxsterandomaccessiterat
 `rsv::TXSLTACSSSXSTERandomAccessSection<>` might be considered, in essence, the primary safe counterpart of `std::span<>`. As such, (though we don't use them in the example) a couple of (provisional) shorter aliases are defined:
 ```cpp
 template <typename TElement>
-using xl_span = mse::rsv::TXSLTACSSSXSTERandomAccessSection<TElement>;
+using xl_span = TXSLTACSSSXSTERandomAccessSection<TElement>;
 template <typename TElement>
-using xl_const_span = mse::rsv::TXSLTACSSSXSTERandomAccessConstSection<TElement>;
+using xl_const_span = TXSLTACSSSXSTERandomAccessConstSection<TElement>;
 ```
 
 usage example: ([link to interactive version](https://godbolt.org/z/q9f3d6Ysz))
