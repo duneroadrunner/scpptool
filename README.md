@@ -495,13 +495,9 @@ Since lifetime annotations require the scpptool for enforcement, lifetime annota
 
 `rsv::TXSLTAPointer<>` is just a (zero-overhead) class that acts like a [lifetime annotated](#annotating-lifetime-constraints) pointer. Like raw pointers, `rsv::TXSLTAPointer<>` is considered a [scope](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#scope-pointers) object and is subject to the restrictions of scope objects.
 
-Also note that (though we don't use them in the example) a couple of (provisional) shorter aliases are defined:
-```cpp
-template<typename T>
-using xl_ptr = TXSLTAPointer<T>;
-template<typename T>
-using xl_const_ptr = TXSLTAConstPointer<T>;
-```
+Also note that (though we don't use them in the example) a couple of (provisional) shorter aliases are defined:  
+`xl_ptr<>` is an alias for `TXSLTAPointer<>`  
+`xl_const_ptr<>` is an alias for `TXSLTAConstPointer<>`
 
 usage example: ([link to interactive version](https://godbolt.org/z/7d4MrG413))
 
@@ -630,20 +626,9 @@ usage example: ([link to interactive version](https://godbolt.org/z/ffe3vExTM))
 
 Some other static safety enforcers/analyzers try to automatically and implicitly put vectors (and other dynamic containers) into a "fixed (size/structure) mode" without requiring the programmer to instantiate a "borrowing fixed" object. But such tools rely on "flow (or path) sensitive" analysis, which [arguably](#flow-insensitive-analysis) has undesirable scalability implications.
 
-Also note that (though we don't use them in the example) some (provisional) shorter aliases are defined:
-```cpp
-template<class _TLender, class _Ty /*= default*/, class _A /*= default*/>
-using xl_bf_vector =  xslta_borrowing_fixed_vector<_TLender, _Ty, _A>;
-
-template<class _TLender, class _Ty /*= default*/, class _A /*= default*/>
-auto make_xl_bf_vector(const mse::rsv::TXSLTAPointer<_TLender> src_xs_ptr) {
-	return make_xslta_borrowing_fixed_vector<_TLender, _Ty, _A>(src_xs_ptr);
-}
-template<class _TLender, class _Ty /*= default*/, class _A /*= default*/>
-auto make_xl_bf_vector(_TLender* src_xs_ptr) {
-	return make_xslta_borrowing_fixed_vector<_TLender, _Ty, _A>(src_xs_ptr);
-}
-```
+Also note that (though we don't use them in the example) some (provisional) shorter aliases are defined:  
+`xl_bf_vector<>` is an alias for `xslta_borrowing_fixed_vector<>`  
+`make_xl_bf_vector()` is an alias for `make_xslta_borrowing_fixed_vector()`
 
 usage example: ([link to interactive version](https://godbolt.org/z/bMjsvPEae))
 
@@ -897,13 +882,9 @@ See also [`TXSLTACSSSXSTERandomAccessSection`](#txsltacsssxsterandomaccessiterat
 
 `rsv::TXSLTACSSSXSTERandomAccessIterator<>` and `rsv::TXSLTACSSSXSTERandomAccessSection<>` are "type-erased" template classes that can be used to enable functions to take as arguments iterators or sections of various container types (like arrays or (fixed size) vectors) without making the functions into template functions. But in this case there are limitations on what types can be converted. In exchange for these limitations, these types require less overhead. The "CSSSXSTE" part of the typenames stands for "Contiguous Sequence, Static Structure, XSLTA, Type-Erased". So the first restriction is that the target container must be recognized as a "contiguous sequence" (basically an array or vector). It also must be recognized as having a "static structure". This essentially means that the container cannot be resized. (At least not while the `rsv::TXSLTACSSSXSTERandomAccessIterator<>` or `rsv::TXSLTACSSSXSTERandomAccessSection<>` exists.) And these iterators and sections are ["lifetime annotated"](#annotating-lifetime-constraints).
 
-`rsv::TXSLTACSSSXSTERandomAccessSection<>` might be considered, in essence, the primary safe counterpart of `std::span<>`. As such, (though we don't use them in the example) a couple of (provisional) shorter aliases are defined:
-```cpp
-template <typename TElement>
-using xl_span = TXSLTACSSSXSTERandomAccessSection<TElement>;
-template <typename TElement>
-using xl_const_span = TXSLTACSSSXSTERandomAccessConstSection<TElement>;
-```
+`rsv::TXSLTACSSSXSTERandomAccessSection<>` might be considered, in essence, the primary safe counterpart of `std::span<>`. As such, (though we don't use them in the example) a couple of (provisional) shorter aliases are defined:  
+`xl_span<>` is an alias for `TXSLTACSSSXSTERandomAccessSection<>`  
+`xl_const_span<>` is an alias for `TXSLTACSSSXSTERandomAccessConstSection<>`
 
 usage example: ([link to interactive version](https://godbolt.org/z/q9f3d6Ysz))
 
@@ -1020,20 +1001,9 @@ usage example: ([link to interactive version](https://godbolt.org/z/q9f3d6Ysz))
 
 Conceptually, you can think of an optional as kind of like a [`vector<>`](#xslta_vector-xslta_fixed_vector-xslta_borrowing_fixed_vector) with at most one element.
 
-Also note that (though we don't use them in the example) some (provisional) shorter aliases are defined:
-```cpp
-template <class _TLender, class T /*= default*/>
-using xl_bf_optional = xslta_borrowing_fixed_optional<_TLender, T>;
-
-template<class _TLender, class _Ty /*= default*/>
-auto make_xl_bf_optional(const mse::rsv::TXSLTAPointer<_TLender> src_xs_ptr) {
-	return make_xslta_borrowing_fixed_optional<_TLender, _Ty>(src_xs_ptr);
-}
-template<class _TLender, class _Ty /*= default*/>
-auto make_xl_bf_optional(_TLender* src_xs_ptr) {
-	return make_xslta_borrowing_fixed_optional<_TLender, _Ty>(src_xs_ptr);
-}
-```
+Also note that (though we don't use them in the example) some (provisional) shorter aliases are defined:  
+`xl_bf_optional<>` is an alias for `xslta_borrowing_fixed_optional<>`  
+`make_xl_bf_optional()` is an alias for `make_xslta_borrowing_fixed_optional()`
 
 usage example: ([link to interactive version](https://godbolt.org/z/5Pof4qdjq))
 
