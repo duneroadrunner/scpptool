@@ -499,7 +499,7 @@ Also note that (though we don't use them in the example) a couple of (provisiona
 `xl_ptr<>` is an alias for `TXSLTAPointer<>`  
 `xl_const_ptr<>` is an alias for `TXSLTAConstPointer<>`
 
-usage example: ([link to interactive version](https://godbolt.org/z/7d4MrG413))
+usage example: ([link to interactive version](https://godbolt.org/z/qe14E7o9P))
 
 ```cpp
     #include "mseslta.h"
@@ -630,7 +630,7 @@ Also note that (though we don't use them in the example) some (provisional) shor
 `xl_bf_vector<>` is an alias for `xslta_borrowing_fixed_vector<>`  
 `make_xl_bf_vector()` is an alias for `make_xslta_borrowing_fixed_vector()`
 
-usage example: ([link to interactive version](https://godbolt.org/z/bMjsvPEae))
+usage example: ([link to interactive version](https://godbolt.org/z/bbqx3GGG8))
 
 ```cpp
     #include "mseslta.h"
@@ -886,7 +886,7 @@ See also [`TXSLTACSSSXSTERandomAccessSection`](#txsltacsssxsterandomaccessiterat
 `xl_span<>` is an alias for `TXSLTACSSSXSTERandomAccessSection<>`  
 `xl_const_span<>` is an alias for `TXSLTACSSSXSTERandomAccessConstSection<>`
 
-usage example: ([link to interactive version](https://godbolt.org/z/q9f3d6Ysz))
+usage example: ([link to interactive version](https://godbolt.org/z/K5PbP6s9x))
 
 ```cpp
     #include "mseslta.h"
@@ -1005,7 +1005,7 @@ Also note that (though we don't use them in the example) some (provisional) shor
 `xl_bf_optional<>` is an alias for `xslta_borrowing_fixed_optional<>`  
 `make_xl_bf_optional()` is an alias for `make_xslta_borrowing_fixed_optional()`
 
-usage example: ([link to interactive version](https://godbolt.org/z/5Pof4qdjq))
+usage example: ([link to interactive version](https://godbolt.org/z/9nev7WqdT))
 
 ```cpp
     #include "mseslta.h"
