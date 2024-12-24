@@ -2617,7 +2617,7 @@ namespace convc2validcpp {
 					++nesting_level;
 				}
 				DEBUG_SOURCE_TEXT_STR(debug_macro_source_text, returnSR, Rewrite);
-				return returnSR;
+				return SPSR;
 			}
 		}
 		return returnSR;
