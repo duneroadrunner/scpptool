@@ -65,6 +65,21 @@ namespace convm1 {
     using namespace clang::driver;
     using namespace clang::tooling;
 
+	static std::string s_target_debug_location_init_val() {
+		std::string retval = "test1_1proj.cpp:539:";
+		static const std::string src_pathname = "target_debug_location.txt";
+		std::ifstream src;
+		src.open(src_pathname, std::ios::binary);
+		if (((src.rdstate() & std::ifstream::failbit ) != 0)) {
+		} else {
+			src >> retval;
+			src.close();
+		}
+		return retval;
+	}
+
+	static const std::string g_target_debug_source_location_str1 = s_target_debug_location_init_val();
+
     bool CheckSystemHeader = false;
     bool MainFileOnly = false;
     bool ConvertToSCPP = true;
@@ -1455,14 +1470,14 @@ namespace convm1 {
 
 	class CNullableAnyRandomAccessIterCastExprTextModifier : public CWrapExprTextModifier {
 	public:
-		CNullableAnyRandomAccessIterCastExprTextModifier(const clang::QualType& qtype, EXScopeEligibility xscope_eligibility = EXScopeEligibility::Yes) :
+		CNullableAnyRandomAccessIterCastExprTextModifier(const clang::QualType& qtype, EXScopeEligibility xscope_eligibility/* = EXScopeEligibility::Yes*/) :
 			CWrapExprTextModifier(prefix_str(qtype, xscope_eligibility), ")"), m_qtype(qtype), m_xscope_eligibility(xscope_eligibility) {}
 		virtual ~CNullableAnyRandomAccessIterCastExprTextModifier() {}
 		virtual std::string species_str() const {
 			return "nullable any random access iter cast";
 		}
 
-		std::string prefix_str(const clang::QualType& qtype, EXScopeEligibility xscope_eligibility = EXScopeEligibility::Yes) {
+		std::string prefix_str(const clang::QualType& qtype, EXScopeEligibility xscope_eligibility/* = EXScopeEligibility::Yes*/) {
 			std::string retval;
 			if ("Dual" == ConvertMode) {
 				retval = "MSE_LH_CAST(";
@@ -2222,7 +2237,7 @@ namespace convm1 {
 			DEBUG_SOURCE_TEXT_STR(debug_source_text1, OSR, Rewrite);
 
 #ifndef NDEBUG
-			if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/
@@ -2233,7 +2248,7 @@ namespace convm1 {
 						DEBUG_SOURCE_TEXT_STR(debug_source_text1, OSR, Rewrite);
 
 #ifndef NDEBUG
-						if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+						if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 							int q = 5;
 						}
 #endif /*!NDEBUG*/
@@ -2262,7 +2277,7 @@ namespace convm1 {
 						DEBUG_SOURCE_TEXT_STR(debug_source_text2, debug_SR2, Rewrite);
 
 #ifndef NDEBUG
-						if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+						if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 							int q = 5;
 						}
 #endif /*!NDEBUG*/
@@ -2289,7 +2304,7 @@ namespace convm1 {
 						DEBUG_SOURCE_TEXT_STR(debug_source_text2, debug_SR2, Rewrite);
 
 #ifndef NDEBUG
-						if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+						if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 							int q = 5;
 						}
 #endif /*!NDEBUG*/
@@ -2805,7 +2820,7 @@ namespace convm1 {
 
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, parens_SR, Rewrite);
 
-					if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+					if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 						int q = 5;
 					}
 				}
@@ -2856,7 +2871,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 				int q = 5;
 			}
 		}
@@ -2999,8 +3014,11 @@ namespace convm1 {
 							prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
 							suffix_str = "> ";
 						} else {
-							//if (is_a_function_parameter && ScopeTypeFunctionParameters && is_outermost_indirection)
-							if (indirection_state_ref.xscope_eligibility())
+							bool l_is_xscope_ineligible_by_criteria1 = false;
+							if (is_a_function_parameter && (!ScopeTypeFunctionParameters) && is_outermost_indirection) {
+								l_is_xscope_ineligible_by_criteria1 = true;
+							}
+							if (indirection_state_ref.xscope_eligibility() && (!l_is_xscope_ineligible_by_criteria1))
 							{
 								if ("Dual" == ConvertMode) {
 									prefix_str = "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(";
@@ -3129,7 +3147,11 @@ namespace convm1 {
 								suffix_str = "> ";
 							} else {
 								//if (ScopeTypeFunctionParameters && is_outermost_indirection)
-								if (indirection_state_ref.xscope_eligibility())
+								bool l_is_xscope_ineligible_by_criteria1 = false;
+								if (is_a_function_parameter && (!ScopeTypeFunctionParameters) && is_outermost_indirection) {
+									l_is_xscope_ineligible_by_criteria1 = true;
+								}
+								if (indirection_state_ref.xscope_eligibility() && (!l_is_xscope_ineligible_by_criteria1))
 								{
 									if ("Dual" == ConvertMode) {
 										prefix_str = "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(";
@@ -3411,7 +3433,7 @@ namespace convm1 {
 
 						//DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+						if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 							int q = 5;
 						}
 					}
@@ -3790,7 +3812,11 @@ namespace convm1 {
 														suffix_str = "> ";
 													} else {
 														//if (ScopeTypeFunctionParameters && is_outermost_indirection)
-														if (indirection_state_ref.xscope_eligibility())
+														bool l_is_xscope_ineligible_by_criteria1 = false;
+														if (is_a_function_parameter && (!ScopeTypeFunctionParameters) && is_outermost_indirection) {
+															l_is_xscope_ineligible_by_criteria1 = true;
+														}
+														if (indirection_state_ref.xscope_eligibility() && (!l_is_xscope_ineligible_by_criteria1))
 														{
 															if ("Dual" == ConvertMode) {
 																prefix_str = "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(";
@@ -4948,7 +4974,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+		if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -4989,7 +5015,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(l_debug_source_text, return_type_source_range, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != l_debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != l_debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5262,7 +5288,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+		if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5326,7 +5352,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+		if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5455,7 +5481,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+		if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5856,7 +5882,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+		if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5888,7 +5914,7 @@ namespace convm1 {
 			if (lhs_is_ineligible_for_xscope_status) {
 				if (!rhs_is_ineligible_for_xscope_status) {
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+					if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -6025,7 +6051,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+		if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -6053,7 +6079,7 @@ namespace convm1 {
 
 			if (lhs_is_ineligible_for_xscope_status != rhs_is_ineligible_for_xscope_status) {
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -6838,7 +6864,7 @@ namespace convm1 {
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-			if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/
@@ -6940,7 +6966,7 @@ namespace convm1 {
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-			if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/
@@ -7229,7 +7255,7 @@ namespace convm1 {
 							}
 						}
 						if (ConvertToSCPP && (!already_wrapped_flag)) {
-							auto shptr1 = std::make_shared<CNullableAnyRandomAccessIterCastExprTextModifier>(LHS->getType()->getPointeeType());
+							auto shptr1 = std::make_shared<CNullableAnyRandomAccessIterCastExprTextModifier>(LHS->getType()->getPointeeType(), ScopeTypeFunctionParameters ? EXScopeEligibility::Yes : EXScopeEligibility::No);
 							(*lhscs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 							(*lhscs_shptr_ref).update_current_text();
 						}
@@ -7250,7 +7276,7 @@ namespace convm1 {
 							}
 						}
 						if (ConvertToSCPP && (!already_wrapped_flag)) {
-							auto shptr1 = std::make_shared<CNullableAnyRandomAccessIterCastExprTextModifier>(RHS->getType()->getPointeeType());
+							auto shptr1 = std::make_shared<CNullableAnyRandomAccessIterCastExprTextModifier>(RHS->getType()->getPointeeType(), ScopeTypeFunctionParameters ? EXScopeEligibility::Yes : EXScopeEligibility::No);
 							(*rhscs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 							(*rhscs_shptr_ref).update_current_text();
 						}
@@ -7481,6 +7507,69 @@ namespace convm1 {
 		}
 		return retval;
 	}
+	CAllocFunctionInfo analyze_malloc_resemblance(const clang::FunctionDecl& function_decl_ref, Rewriter &Rewrite) {
+		CAllocFunctionInfo retval;
+
+		auto function_decl = &function_decl_ref;
+		auto num_params = function_decl->getNumParams();
+		if (function_decl && (1 <= num_params)) {
+			std::string return_type_str = definition_qtype(function_decl->getReturnType()).getAsString();
+			bool return_type_is_void_star = ("void *" == return_type_str);
+
+			std::string function_name = function_decl->getNameAsString();
+			static const std::string alloc_str = "alloc";
+			static const std::string realloc_str = "realloc";
+			auto lc_function_name = tolowerstr(function_name);
+
+			bool ends_with_alloc = ((lc_function_name.size() >= alloc_str.size())
+					&& (0 == lc_function_name.compare(lc_function_name.size() - alloc_str.size(), alloc_str.size(), alloc_str)));
+			bool ends_with_realloc = (ends_with_alloc && (lc_function_name.size() >= realloc_str.size())
+					&& (0 == lc_function_name.compare(lc_function_name.size() - realloc_str.size(), realloc_str.size(), realloc_str)));
+
+			bool contains_alloc = (std::string::npos != lc_function_name.find(alloc_str));
+			bool contains_realloc = (std::string::npos != lc_function_name.find(realloc_str));
+
+			bool not_yet_ruled_out1 = (contains_alloc && (1 <= num_params)) || (contains_realloc && (2 <= num_params));
+			not_yet_ruled_out1 = (not_yet_ruled_out1 && return_type_is_void_star);
+			if (not_yet_ruled_out1) {
+				std::string realloc_pointer_param_source_text;
+				clang::ValueDecl const * realloc_pointer_param_DD = nullptr;
+				std::string num_bytes_param_source_text;
+				for (auto param : function_decl->parameters()) {
+					auto param_qtype = param->getType();
+					IF_DEBUG(std::string param_qtype_str = param_qtype.getAsString();)
+					auto param_source_range = cm1_nice_source_range(param->getSourceRange(), Rewrite);
+					if (!param_source_range.isValid()) {
+						assert(false); continue;
+					}
+					std::string l_param_source_text = Rewrite.getRewrittenText(param_source_range);
+					clang::ValueDecl const * DD = nullptr;
+					if (contains_realloc && param->getType()->isPointerType()) {
+						realloc_pointer_param_source_text = l_param_source_text;
+					} else if (param_qtype->isIntegerType()) {
+						num_bytes_param_source_text = l_param_source_text;
+						//auto num_bytes_param_source_text_sans_ws = with_whitespace_removed(num_bytes_param_source_text);
+						break;
+					}
+				}
+
+				if (!num_bytes_param_source_text.empty()) {
+					{
+						if (true) {
+							retval.m_seems_to_be_some_kind_of_malloc_or_realloc = true;
+							retval.m_num_bytes_arg_source_text = num_bytes_param_source_text;
+							if (contains_realloc && (2 <= num_params)) {
+								retval.m_seems_to_be_some_kind_of_realloc = true;
+								retval.m_realloc_pointer_arg_source_text = realloc_pointer_param_source_text;
+								retval.m_realloc_pointer_arg_DD = realloc_pointer_param_DD;
+							}
+						}
+					}
+				}
+			}
+		}
+		return retval;
+	}
 
 	class MCSSSVarDecl2 : public MatchFinder::MatchCallback
 	{
@@ -7507,7 +7596,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7764,7 +7853,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7879,7 +7968,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7938,7 +8027,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8003,7 +8092,7 @@ namespace convm1 {
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 #ifndef NDEBUG
-					if (std::string::npos != decl_debug_source_location_str.find("pngtest.c:99999:")) {
+					if (std::string::npos != decl_debug_source_location_str.find(g_target_debug_source_location_str1)) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -8122,7 +8211,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8344,7 +8433,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8490,7 +8579,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8734,7 +8823,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8946,7 +9035,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -9209,6 +9298,12 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
 				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(DD, Rewrite, *(MR.Context));
 				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
 				if (suppress_check_flag) {
@@ -9271,10 +9366,25 @@ namespace convm1 {
 					if (res2.ddecl_cptr && res2.declaration_expr_cptr) {
 						std::string variable_name = res2.ddecl_cptr->getNameAsString();
 						auto QT = res2.ddecl_cptr->getType();
+						IF_DEBUG(std::string QT_str = QT.getAsString();)
 						auto LHS_QT = LHS->getType();
+						IF_DEBUG(std::string LHS_QT_str = LHS_QT.getAsString();)
+						bool are_essentially_the_same_types = (QT == LHS_QT);
+						if (!are_essentially_the_same_types) {
+							if (QT->isArrayType() && LHS_QT->isPointerType()) {
+								auto AT = dyn_cast<const clang::ArrayType>(QT);
+								if (AT) {
+									IF_DEBUG(std::string AT_element_str = AT->getElementType().getAsString();)
+									IF_DEBUG(std::string LHS_QT_pointee_str = LHS_QT->getPointeeType().getAsString();)
+									if (AT->getElementType() == LHS_QT->getPointeeType()) {
+										are_essentially_the_same_types = true;
+									}
+								}
+							}
+						}
 						/* Currently we only support the case where the value expressions are direct
 						* references to declared variables. */
-						if ((QT == LHS_QT)/* && (1 == res2.indirection_level)*/) {
+						if (are_essentially_the_same_types/* && (1 == res2.indirection_level)*/) {
 							lhs_qualifies = true;
 							if (ConvertToSCPP && (nullptr != res2.ddecl_conversion_state_ptr)) {
 								{
@@ -9314,10 +9424,25 @@ namespace convm1 {
 					if (res2.ddecl_cptr && res2.declaration_expr_cptr) {
 						std::string variable_name = res2.ddecl_cptr->getNameAsString();
 						auto QT = res2.ddecl_cptr->getType();
+						IF_DEBUG(std::string QT_str = QT.getAsString();)
 						auto RHS_QT = RHS->getType();
+						IF_DEBUG(std::string RHS_QT_str = RHS_QT.getAsString();)
+						bool are_essentially_the_same_types = (QT == RHS_QT);
+						if (!are_essentially_the_same_types) {
+							if (QT->isArrayType() && RHS_QT->isPointerType()) {
+								auto AT = dyn_cast<const clang::ArrayType>(QT);
+								if (AT) {
+									IF_DEBUG(std::string AT_element_str = AT->getElementType().getAsString();)
+									IF_DEBUG(std::string RHS_QT_pointee_str = RHS_QT->getPointeeType().getAsString();)
+									if (AT->getElementType() == RHS_QT->getPointeeType()) {
+										are_essentially_the_same_types = true;
+									}
+								}
+							}
+						}
 						/* Currently we only support the case where the value expressions are direct
 						* references to declared variables. */
-						if (QT == RHS_QT) {
+						if (are_essentially_the_same_types) {
 							rhs_qualifies = true;
 							if (ConvertToSCPP && (nullptr != res2.ddecl_conversion_state_ptr)) {
 								{
@@ -9686,7 +9811,7 @@ namespace convm1 {
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-			if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/
@@ -9696,7 +9821,7 @@ namespace convm1 {
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10125,7 +10250,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10170,7 +10295,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10520,7 +10645,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10656,7 +10781,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10899,7 +11024,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10920,16 +11045,11 @@ namespace convm1 {
 					bool ends_with_free = ((lc_function_name.size() >= free_str.size())
 							&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
 
-					static const std::string alloc_str = "alloc";
-					static const std::string realloc_str = "realloc";
-					bool ends_with_alloc = ((lc_function_name.size() >= alloc_str.size())
-							&& (0 == lc_function_name.compare(lc_function_name.size() - alloc_str.size(), alloc_str.size(), alloc_str)));
-					bool ends_with_realloc = (ends_with_alloc && (lc_function_name.size() >= realloc_str.size())
-							&& (0 == lc_function_name.compare(lc_function_name.size() - realloc_str.size(), realloc_str.size(), realloc_str)));
+					auto alloc_info = analyze_malloc_resemblance(*function_decl1, Rewrite);
 
 					bool begins_with__builtin_ = string_begins_with(function_name, "__builtin_");
 
-					if (ends_with_free || ends_with_alloc || ends_with_realloc || begins_with__builtin_) {
+					if (ends_with_free || alloc_info.m_seems_to_be_some_kind_of_malloc_or_realloc || begins_with__builtin_) {
 						return void();
 					}
 
@@ -10990,7 +11110,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -11037,7 +11157,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -11374,7 +11494,7 @@ namespace convm1 {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -11435,7 +11555,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -11912,7 +12032,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -11965,7 +12085,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 				if (std::string::npos != debug_source_text.find("png_malloc")) {
@@ -12131,7 +12251,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -12177,7 +12297,7 @@ namespace convm1 {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -13331,7 +13451,7 @@ namespace convm1 {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find("pngtest.c:99999:")) {
+					if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
