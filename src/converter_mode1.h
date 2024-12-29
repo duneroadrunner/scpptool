@@ -4178,17 +4178,29 @@ namespace convm1 {
 		std::string retval;
 		std::string comment1_str = (ESuppressComment::Yes == suppress_comment) ? "" : "/*auto-generated init val*/";
 
-		const std::string qtype_str = qtype.getAsString();
+		std::string qtype_str = qtype.getAsString();
 		if (qtype.getTypePtr()->isScalarType()) {
 			std::string initializer_info_str;
 			if (qtype.getTypePtr()->isEnumeralType()) {
-				if ("Dual" == ConvertMode) {
-					initializer_info_str += "MSE_LH_CAST(";
-					initializer_info_str += qtype_str;
-					initializer_info_str += ", 0)" + comment1_str;
+				if (std::string::npos != qtype_str.find(" (unnamed ")) {
+					/* It appears to be an unnamed type, so replacing the declaration with one that tries
+					to explicitly specify the type probably isn't going to work. One strategy might be to 
+					give the type a name, but for now I think we're just gonna bail. */
+					//initializer_info_str += "0" + comment1_str;
+					initializer_info_str = "";
 				} else {
-					initializer_info_str += qtype_str;
-					initializer_info_str += "(0)" + comment1_str;
+					static const auto enum_space_str = std::string("enum ");
+					if (string_begins_with(qtype_str, enum_space_str)) {
+						qtype_str = qtype_str.substr(enum_space_str.length());
+					}
+					if ("Dual" == ConvertMode) {
+						initializer_info_str += "MSE_LH_CAST(";
+						initializer_info_str += qtype_str;
+						initializer_info_str += ", 0)" + comment1_str;
+					} else {
+						initializer_info_str += qtype_str;
+						initializer_info_str += "(0)" + comment1_str;
+					}
 				}
 			} else if (qtype.getTypePtr()->isPointerType()) {
 				if ("Dual" == ConvertMode) {
@@ -4226,6 +4238,7 @@ namespace convm1 {
 		auto& ddcs_ref = (*ddcs_map_iter).second;
 
 		auto qtype = DD->getType();
+		auto qtype_str = adjusted_qtype_str(DD->getType().getAsString());
 
 		const clang::FunctionDecl* FND = nullptr;
 		bool type_is_function_type = false;
@@ -4472,18 +4485,7 @@ namespace convm1 {
 											auto l_DD = FD;
 
 											std::string initializer_info_str;
-											if (qtype.getTypePtr()->isEnumeralType()) {
-												initializer_info_str += qtype.getAsString();
-												initializer_info_str += "(0)/*auto-generated init val*/";
-											} else if (qtype.getTypePtr()->isPointerType()) {
-												if ("Dual" == ConvertMode) {
-													initializer_info_str += "MSE_LH_NULL_POINTER/*auto-generated init val*/";
-												} else {
-													initializer_info_str += "nullptr/*auto-generated init val*/";
-												}
-											} else {
-												initializer_info_str += "0/*auto-generated init val*/";
-											}
+											initializer_info_str += default_init_value_str(qtype);
 											ddcs_ref.m_current_initialization_expr_str = initializer_info_str;
 
 											if (!(ddcs_ref.m_has_been_replaced_as_a_whole)) {
@@ -4520,8 +4522,6 @@ namespace convm1 {
 
 		retval.m_action_species = res4.m_action_species;
 
-
-		auto qtype_str = adjusted_qtype_str(DD->getType().getAsString());
 
 		bool no_indirection = (1 > ddcs_ref.m_indirection_state_stack.size());
 		/* If the direct type is a function type, then generally we want just the function return type
@@ -4750,10 +4750,28 @@ namespace convm1 {
 						}
 					}
 				} else {
-					replacement_code += prefix_str + direct_qtype_str + suffix_str;
-					replacement_code += " ";
-					replacement_code += variable_name;
-					replacement_code += post_name_suffix_str;
+					if (std::string::npos != direct_qtype_str.find(" (unnamed ")) {
+						/* It appears to be an unnamed type, so replacing the declaration with one that tries
+						to explicitly specify the type probably isn't going to work. One strategy might be to 
+						give the type a name, but for now I think we're just gonna bail. */
+						replacement_code = FND ? ddcs_ref.m_function_return_type_original_source_text_str
+							: ddcs_ref.m_original_source_text_str;
+					} else {
+						bool is_enum_decl = false;
+						if ((std::string::npos != ddcs_ref.m_original_source_text_str.find("{"))
+							&& (std::string::npos != direct_qtype_str.find("enum"))) {
+							/* The variable or field declaration might also be defining an enum type. 
+							(todo: check for this properly)
+							Our generated replacement wouoldn't (yet) preserve such an enam definition, so
+							at least for now we'll just stick with the original. */
+							replacement_code = ddcs_ref.m_original_source_text_str;
+						} else {
+							replacement_code += prefix_str + direct_qtype_str + suffix_str;
+							replacement_code += " ";
+							replacement_code += variable_name;
+							replacement_code += post_name_suffix_str;
+						}
+					}
 				}
 
 				replacement_code += initializer_append_str;
