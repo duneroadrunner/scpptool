@@ -1251,7 +1251,7 @@ namespace convm1 {
 			assert((CDDeclIndirection::no_indirection != indirection_level) && (m_indirection_state_stack.size() > indirection_level));
 			if (m_indirection_state_stack.size() > indirection_level) {
 				const auto& current_state = m_indirection_state_stack.at(indirection_level).current_species();
-				if (("inferred array" == current_state) || ("dynamic array" == current_state) || ("native array" == current_state)) {
+				if (("inferred array" == current_state) || ("dynamic array" == current_state) || ("native array" == current_state) || ("variously native and dynamic array" == current_state)) {
 					retval = true;
 				}
 			}
@@ -2987,7 +2987,7 @@ namespace convm1 {
 					//suffix_str = indirection_state_ref.current_params_string() + suffix_str;
 				}
 
-				if (("inferred array" == indirection_state_ref.current_species())
+				if (("inferred array" == indirection_state_ref.current_species()) || ("variously native and dynamic array" == indirection_state_ref.current_species())
 					|| (is_char_star && (("native pointer" == indirection_state_ref.current_species())
 						|| ("malloc target" == indirection_state_ref.current_species())))) {
 					if (false && is_char_star) {
@@ -5730,6 +5730,21 @@ namespace convm1 {
 				if (("malloc target" == stmt_indirection_stack[i]) ||
 						("set to null" == stmt_indirection_stack[i])) {
 					retval.has_just_been_determined_to_be_an_array_flag = true;
+				} else if ("native array" == stmt_indirection_stack[i]) {
+					/* So presumably a pointer that was determined to (at some point) point to a dynamic 
+					(malloc()ed) array, has (just) been observed to have been (re)targeted at a native
+					array. */
+					ddcs_ref.set_indirection_current(i, "variously native and dynamic array");
+					retval.update_declaration_flag = true;
+					retval.has_just_been_determined_to_be_an_array_flag = true;
+				}
+			} else if ("native array" == ddcs_ref.m_indirection_state_stack.at(i).current_species()) {
+				if ("malloc target" == stmt_indirection_stack[i]) {
+					/* So presumably a pointer that was determined to (at some point) point to a native 
+					array, has (just) been observed to have been (re)targeted at malloc()ed memory. */
+					ddcs_ref.set_indirection_current(i, "variously native and dynamic array");
+					retval.update_declaration_flag = true;
+					retval.has_just_been_determined_to_be_an_array_flag = true;
 				}
 			}
 		}
@@ -5947,6 +5962,9 @@ namespace convm1 {
 					src_ddcs_ref.set_indirection_current(src_indirection_level, "dynamic array");
 					src_update_declaration_flag |= true;
 					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, src_indirection);
+				} else if ("native array" == src_species) {
+					src_ddcs_ref.set_indirection_current(src_indirection_level, "variously native and dynamic array");
+					src_update_declaration_flag |= true;
 				}
 			}
 
@@ -5962,6 +5980,15 @@ namespace convm1 {
 					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, src_indirection);
 				} else {
 					int q = 3;
+				}
+			} else if ("variously native and dynamic array" == trgt_species) {
+				if ("variously native and dynamic array" != src_species) {
+					bool had_been_determined_to_be_an_array = src_ddcs_ref.has_been_determined_to_be_an_array(src_indirection_level);
+					src_ddcs_ref.set_indirection_current(src_indirection_level, "variously native and dynamic array");
+					src_update_declaration_flag |= true;
+					if (!had_been_determined_to_be_an_array) {
+						state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, src_indirection);
+					}
 				}
 			}
 		} else {
@@ -6018,6 +6045,15 @@ namespace convm1 {
 					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, src_indirection);
 				} else {
 					int q = 3;
+				}
+			} else if ("variously native and dynamic array" == src_species) {
+				if ("variously native and dynamic array" != trgt_species) {
+					bool had_been_determined_to_be_an_array = trgt_ddcs_ref.has_been_determined_to_be_an_array(trgt_indirection_level);
+					trgt_ddcs_ref.set_indirection_current(trgt_indirection_level, "variously native and dynamic array");
+					trgt_update_declaration_flag |= true;
+					if (!had_been_determined_to_be_an_array) {
+						state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, trgt_indirection);
+					}
 				}
 			}
 		} else {
@@ -6128,7 +6164,7 @@ namespace convm1 {
 				} else if ("malloc target" == rhs_current_cref) {
 					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, rhs_current_cref);
 					lhs_update_declaration_flag |= true;
-				} else if ("inferred array" == rhs_current_cref) {
+				} else if (("inferred array" == rhs_current_cref) || ("variously native and dynamic array" == rhs_current_cref)) {
 					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, rhs_current_cref);
 					lhs_update_declaration_flag |= true;
 					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_indirection);
@@ -6162,8 +6198,16 @@ namespace convm1 {
 					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_indirection);
 					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_indirection);
 				} else if ("native array" == rhs_current_cref) {
-					// could be a problem
-					int q = 7;
+					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, "variously native and dynamic array");
+					lhs_update_declaration_flag |= true;
+					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_indirection);
+
+					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, "variously native and dynamic array");
+					rhs_update_declaration_flag |= true;
+				} else if ("variously native and dynamic array" == rhs_current_cref) {
+					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, "variously native and dynamic array");
+					lhs_update_declaration_flag |= true;
+					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_indirection);
 				}
 			} else if ("inferred array" == lhs_current_cref) {
 				if ("native pointer" == rhs_current_cref) {
@@ -6184,7 +6228,7 @@ namespace convm1 {
 					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, rhs_current_cref);
 					lhs_update_declaration_flag |= true;
 					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_indirection);
-				} else if ("native array" == rhs_current_cref) {
+				} else if (("native array" == rhs_current_cref) || ("variously native and dynamic array" == rhs_current_cref)) {
 					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, rhs_current_cref);
 					lhs_update_declaration_flag |= true;
 				}
@@ -6205,8 +6249,14 @@ namespace convm1 {
 					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
 				} else if ("dynamic array" == rhs_current_cref) {
 				} else if ("native array" == rhs_current_cref) {
-					// could be a problem
-					int q = 7;
+					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, "variously native and dynamic array");
+					lhs_update_declaration_flag |= true;
+
+					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, "variously native and dynamic array");
+					rhs_update_declaration_flag |= true;
+				} else if ("variously native and dynamic array" == rhs_current_cref) {
+					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, "variously native and dynamic array");
+					lhs_update_declaration_flag |= true;
 				}
 			} else if ("native array" == lhs_current_cref) {
 				if ("native pointer" == rhs_current_cref) {
@@ -6214,15 +6264,37 @@ namespace convm1 {
 					rhs_update_declaration_flag |= true;
 					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
 				} else if ("malloc target" == rhs_current_cref) {
-					// could be a problem
-					int q = 7;
+					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, "variously native and dynamic array");
+					lhs_update_declaration_flag |= true;
+
+					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, "variously native and dynamic array");
+					rhs_update_declaration_flag |= true;
+					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
 				} else if ("inferred array" == rhs_current_cref) {
 					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, lhs_current_cref);
 					rhs_update_declaration_flag |= true;
 				} else if ("dynamic array" == rhs_current_cref) {
-					// could be a problem
-					int q = 7;
+					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, "variously native and dynamic array");
+					lhs_update_declaration_flag |= true;
+
+					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, "variously native and dynamic array");
+					rhs_update_declaration_flag |= true;
 				} else if ("native array" == rhs_current_cref) {
+				} else if ("variously native and dynamic array" == rhs_current_cref) {
+					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, "variously native and dynamic array");
+					lhs_update_declaration_flag |= true;
+				}
+			} else if ("variously native and dynamic array" == lhs_current_cref) {
+				if (("native pointer" == rhs_current_cref) || ("malloc target" == rhs_current_cref)) {
+					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, lhs_current_cref);
+					rhs_update_declaration_flag |= true;
+					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
+				} else if (("inferred array" == rhs_current_cref) || ("dynamic array" == rhs_current_cref) 
+					|| ("native array" == rhs_current_cref)) {
+
+					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, "variously native and dynamic array");
+					rhs_update_declaration_flag |= true;
+				} else if ("variously native and dynamic array" == rhs_current_cref) {
 				}
 			}
 
@@ -6270,6 +6342,9 @@ namespace convm1 {
 						ddcs_ref.set_indirection_current((*this).ddecl_indirection_cref().m_indirection_level, "dynamic array");
 						update_declaration_flag |= true;
 						state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, (*this).ddecl_indirection_cref());
+					} else if ("native array" == ddcs_ref.indirection_current((*this).ddecl_indirection_cref().m_indirection_level)) {
+						ddcs_ref.set_indirection_current((*this).ddecl_indirection_cref().m_indirection_level, "variously native and dynamic array");
+						update_declaration_flag |= true;
 					} else {
 						int q = 5;
 					}
@@ -6439,149 +6514,6 @@ namespace convm1 {
 		Rewriter &Rewrite = m_Rewrite;
 
 		CSameTypeReplacementAction(Rewrite, m_ddecl_indirection, m_ddecl_indirection2).do_replacement(state1);
-
-#if 0
-		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(m_ddecl_indirection2.m_ddecl_cptr));
-		auto lhs_ddcs_map_iter = lhs_res1.first;
-		auto& lhs_ddcs_ref = (*lhs_ddcs_map_iter).second;
-		bool lhs_update_declaration_flag = lhs_res1.second;
-
-		auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(m_ddecl_indirection.m_ddecl_cptr));
-		auto rhs_ddcs_map_iter = rhs_res1.first;
-		auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
-		bool rhs_update_declaration_flag = rhs_res1.second;
-
-		if ((lhs_ddcs_ref.m_indirection_state_stack.size() >= m_ddecl_indirection2.m_indirection_level) &&
-				(rhs_ddcs_ref.m_indirection_state_stack.size() >= m_ddecl_indirection.m_indirection_level)){
-			auto lhs_indirection_level = m_ddecl_indirection2.m_indirection_level;
-			auto rhs_indirection_level = m_ddecl_indirection.m_indirection_level;
-			auto& lhs_current_cref = lhs_ddcs_ref.indirection_current(lhs_indirection_level);
-			auto& rhs_current_cref = rhs_ddcs_ref.indirection_current(rhs_indirection_level);
-
-			auto& lhs_indirection_state_ref = lhs_ddcs_ref.m_indirection_state_stack.at(lhs_indirection_level);
-			auto& rhs_indirection_state_ref = rhs_ddcs_ref.m_indirection_state_stack.at(rhs_indirection_level);
-
-			if ("native pointer" == lhs_current_cref) {
-				if ("native pointer" == rhs_current_cref) {
-				} else if ("malloc target" == rhs_current_cref) {
-					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, rhs_current_cref);
-					lhs_update_declaration_flag |= true;
-				} else if ("inferred array" == rhs_current_cref) {
-					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, rhs_current_cref);
-					lhs_update_declaration_flag |= true;
-					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
-				} else if ("dynamic array" == rhs_current_cref) {
-					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, rhs_current_cref);
-					lhs_update_declaration_flag |= true;
-					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
-					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
-				} else if ("native array" == rhs_current_cref) {
-					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, rhs_current_cref);
-					lhs_update_declaration_flag |= true;
-					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
-				}
-			} else if ("malloc target" == lhs_current_cref) {
-				if ("native pointer" == rhs_current_cref) {
-					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, lhs_current_cref);
-					rhs_update_declaration_flag |= true;
-				} else if ("malloc target" == rhs_current_cref) {
-				} else if ("inferred array" == rhs_current_cref) {
-					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, "dynamic array");
-					lhs_update_declaration_flag |= true;
-					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
-					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
-
-					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, "dynamic array");
-					rhs_update_declaration_flag |= true;
-					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection);
-				} else if ("dynamic array" == rhs_current_cref) {
-					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, rhs_current_cref);
-					lhs_update_declaration_flag |= true;
-					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
-					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
-				} else if ("native array" == rhs_current_cref) {
-					// could be a problem
-					int q = 7;
-				}
-			} else if ("inferred array" == lhs_current_cref) {
-				if ("native pointer" == rhs_current_cref) {
-					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, lhs_current_cref);
-					rhs_update_declaration_flag |= true;
-					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection);
-				} else if ("malloc target" == rhs_current_cref) {
-					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, "dynamic array");
-					lhs_update_declaration_flag |= true;
-					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
-
-					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, "dynamic array");
-					rhs_update_declaration_flag |= true;
-					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection);
-					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection);
-				} else if ("inferred array" == rhs_current_cref) {
-				} else if ("dynamic array" == rhs_current_cref) {
-					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, rhs_current_cref);
-					lhs_update_declaration_flag |= true;
-					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection2);
-				} else if ("native array" == rhs_current_cref) {
-					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, rhs_current_cref);
-					lhs_update_declaration_flag |= true;
-				}
-			} else if ("dynamic array" == lhs_current_cref) {
-				if ("native pointer" == rhs_current_cref) {
-					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, lhs_current_cref);
-					rhs_update_declaration_flag |= true;
-					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection);
-					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection);
-				} else if ("malloc target" == rhs_current_cref) {
-					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, lhs_current_cref);
-					rhs_update_declaration_flag |= true;
-					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection);
-					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection);
-				} else if ("inferred array" == rhs_current_cref) {
-					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, lhs_current_cref);
-					rhs_update_declaration_flag |= true;
-					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection);
-				} else if ("dynamic array" == rhs_current_cref) {
-				} else if ("native array" == rhs_current_cref) {
-					// could be a problem
-					int q = 7;
-				}
-			} else if ("native array" == lhs_current_cref) {
-				if ("native pointer" == rhs_current_cref) {
-					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, lhs_current_cref);
-					rhs_update_declaration_flag |= true;
-					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, m_ddecl_indirection);
-				} else if ("malloc target" == rhs_current_cref) {
-					// could be a problem
-					int q = 7;
-				} else if ("inferred array" == rhs_current_cref) {
-					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, lhs_current_cref);
-					rhs_update_declaration_flag |= true;
-				} else if ("dynamic array" == rhs_current_cref) {
-					// could be a problem
-					int q = 7;
-				} else if ("native array" == rhs_current_cref) {
-				}
-			}
-
-			if ("" == lhs_indirection_state_ref.m_function_type_state.m_params_current_str) {
-				if ("" != rhs_indirection_state_ref.m_function_type_state.m_params_current_str) {
-					lhs_indirection_state_ref.m_function_type_state.m_params_current_str = rhs_indirection_state_ref.m_function_type_state.m_params_current_str;
-				}
-			} else if ("" == rhs_indirection_state_ref.m_function_type_state.m_params_current_str) {
-				rhs_indirection_state_ref.m_function_type_state.m_params_current_str = lhs_indirection_state_ref.m_function_type_state.m_params_current_str;
-			}
-		} else {
-			int q = 7;
-		}
-
-		if (lhs_update_declaration_flag) {
-			update_declaration(*(m_ddecl_indirection2.m_ddecl_cptr), Rewrite, state1);
-		}
-		if (rhs_update_declaration_flag) {
-			update_declaration(*(m_ddecl_indirection.m_ddecl_cptr), Rewrite, state1);
-		}
-#endif /*0*/
 	}
 
 	void CAddressofArraySubscriptExprReplacementAction::do_replacement(CTUState& state1) const {
@@ -7145,160 +7077,180 @@ namespace convm1 {
 		}
 		const DeclaratorDecl* lhs_DD = m_lhs_DD;
 		const DeclaratorDecl* rhs_DD = m_rhs_DD;
-		if ((COND != nullptr) && (LHS != nullptr) && (RHS != nullptr) && (lhs_DD != nullptr) && (rhs_DD != nullptr)) {
-			bool lhs_is_array = false;
-			bool lhs_is_dynamic_array = false;
-			bool lhs_is_native_array = false;
-			bool lhs_update_flag = false;
-
+		if ((COND != nullptr) && (LHS != nullptr) && (RHS != nullptr)) {
 			auto COSR = write_once_source_range(cm1_adj_nice_source_range(CO->getSourceRange(), state1, (*this).m_Rewrite));
 			auto cond_SR = write_once_source_range(cm1_adj_nice_source_range(COND->getSourceRange(), state1, (*this).m_Rewrite));
 			auto lhs_SR = write_once_source_range(cm1_adj_nice_source_range(LHS->getSourceRange(), state1, (*this).m_Rewrite));
 			auto rhs_SR = write_once_source_range(cm1_adj_nice_source_range(RHS->getSourceRange(), state1, (*this).m_Rewrite));
 			if ((COSR.isValid()) && (cond_SR.isValid()) && (lhs_SR.isValid()) && (rhs_SR.isValid())) {
-				auto res1 = state1.m_ddecl_conversion_state_map.insert(*lhs_DD);
-				auto ddcs_map_iter = res1.first;
-				auto& ddcs_ref = (*ddcs_map_iter).second;
-				/* At the moment we only support the case where the value option expressions are
-				* just declared variables. */
-				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-					auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(0);
-					if (true == indirection_state_ref.xscope_eligibility()) {
-						/* If a declaration for this conditional operator option is available, then
-						we'll mark that declaration as ineligible for "xscope status". The idea
-						being that conditional operator options are likely the (obfuscated) source of an
-						assignment operation (including being passed as a function argument). */
-						indirection_state_ref.set_xscope_eligibility(false);
-						state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*lhs_DD, 0));
-						lhs_update_flag |= true;
-					}
-					if ("dynamic array" == indirection_state_ref.current_species()) {
-						lhs_is_dynamic_array = true;
-						lhs_is_array = true;
-					} else if ("native array" == indirection_state_ref.current_species()) {
-						lhs_is_native_array = true;
-						lhs_is_array = true;
-					} else if ("inferred array" == indirection_state_ref.current_species()) {
-						lhs_is_array = true;
-					}
-				} else {
-					int q = 3;
-				}
-			}
-
-			bool rhs_is_array = false;
-			bool rhs_is_dynamic_array = false;
-			bool rhs_is_native_array = false;
-			bool rhs_update_flag = false;
-			{
-				auto res1 = state1.m_ddecl_conversion_state_map.insert(*rhs_DD);
-				auto ddcs_map_iter = res1.first;
-				auto& ddcs_ref = (*ddcs_map_iter).second;
-				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-					auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(0);
-					if (true == indirection_state_ref.xscope_eligibility()) {
-						/* If a declaration for this conditional operator option is available, then
-						we'll mark that declaration as ineligible for "xscope status". The idea
-						being that conditional operator options are likely the (obfuscated) source of an
-						assignment operation (including being passed as a function argument). */
-						indirection_state_ref.set_xscope_eligibility(false);
-						state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*rhs_DD, 0));
-						rhs_update_flag |= true;
-					}
-					if ("dynamic array" == indirection_state_ref.current_species()) {
-						rhs_is_dynamic_array = true;
-						rhs_is_array = true;
-					} else if ("native array" == indirection_state_ref.current_species()) {
-						rhs_is_native_array = true;
-						rhs_is_array = true;
-					} else if ("inferred array" == indirection_state_ref.current_species()) {
-						rhs_is_array = true;
-					}
-				} else {
-					int q = 3;
-				}
-			}
-			if (lhs_update_flag) {
-				update_declaration(*lhs_DD, (*this).m_Rewrite, state1);
-			}
-			if (rhs_update_flag) {
-				update_declaration(*rhs_DD, (*this).m_Rewrite, state1);
-			}
-			if (lhs_is_array && rhs_is_array) {
-				bool lhs_needs_to_be_wrapped = false;
-				if ((lhs_is_dynamic_array && (!rhs_is_dynamic_array)) || (lhs_is_native_array && (!rhs_is_native_array))) {
-					lhs_needs_to_be_wrapped = true;
-				}
-				bool rhs_needs_to_be_wrapped = false;
-				if ((rhs_is_dynamic_array && (!lhs_is_dynamic_array)) || (rhs_is_native_array && (!lhs_is_native_array))) {
-					rhs_needs_to_be_wrapped = true;
-				}
-				auto cocs_iter = state1.m_expr_conversion_state_map.end();
-				if (lhs_needs_to_be_wrapped || rhs_needs_to_be_wrapped) {
-					cocs_iter = state1.m_expr_conversion_state_map.find(CO);
-					if (state1.m_expr_conversion_state_map.end() == cocs_iter) {
-						auto shptr1 = make_expr_conversion_state_shared_ptr<CConditionalOperatorExprConversionState>(*CO, m_Rewrite);
-						cocs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
-					}
-				}
-
-				if (lhs_needs_to_be_wrapped) {
-					assert(state1.m_expr_conversion_state_map.end() != cocs_iter);
-					auto lhscs_iter = state1.m_expr_conversion_state_map.find(LHS);
-					if (state1.m_expr_conversion_state_map.end() != lhscs_iter) {
-						auto& lhscs_shptr_ref = (*lhscs_iter).second;
-						bool already_wrapped_flag = false;
-						if (1 <= (*lhscs_shptr_ref).m_expr_text_modifier_stack.size()) {
-							auto& last_modifier_ref = (*(*lhscs_shptr_ref).m_expr_text_modifier_stack.back());
-							if ("nullable any random access iter cast" == last_modifier_ref.species_str()) {
-								already_wrapped_flag = true;
-							}
-						}
-						if (ConvertToSCPP && (!already_wrapped_flag)) {
-							auto shptr1 = std::make_shared<CNullableAnyRandomAccessIterCastExprTextModifier>(LHS->getType()->getPointeeType(), ScopeTypeFunctionParameters ? EXScopeEligibility::Yes : EXScopeEligibility::No);
-							(*lhscs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
-							(*lhscs_shptr_ref).update_current_text();
-						}
-					} else {
-						int q = 7;
-					}
-				}
-				if (rhs_needs_to_be_wrapped) {
-					assert(state1.m_expr_conversion_state_map.end() != cocs_iter);
-					auto rhscs_iter = state1.m_expr_conversion_state_map.find(RHS);
-					if (state1.m_expr_conversion_state_map.end() != rhscs_iter) {
-						auto& rhscs_shptr_ref = (*rhscs_iter).second;
-						bool already_wrapped_flag = false;
-						if (1 <= (*rhscs_shptr_ref).m_expr_text_modifier_stack.size()) {
-							auto& last_modifier_ref = (*(*rhscs_shptr_ref).m_expr_text_modifier_stack.back());
-							if ("nullable any random access iter cast" == last_modifier_ref.species_str()) {
-								already_wrapped_flag = true;
-							}
-						}
-						if (ConvertToSCPP && (!already_wrapped_flag)) {
-							auto shptr1 = std::make_shared<CNullableAnyRandomAccessIterCastExprTextModifier>(RHS->getType()->getPointeeType(), ScopeTypeFunctionParameters ? EXScopeEligibility::Yes : EXScopeEligibility::No);
-							(*rhscs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
-							(*rhscs_shptr_ref).update_current_text();
-						}
-					} else {
-						int q = 7;
-					}
-				}
-
-				if (m_var_DD && (true)) {
-					assert(state1.m_expr_conversion_state_map.end() != cocs_iter);
-					auto& cocs_shptr_ref = (*(*cocs_iter).second);
-					cocs_shptr_ref.update_current_text();
-
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*m_var_DD);
+				bool lhs_is_known_to_be_an_array = false;
+				bool lhs_is_dynamic_array = false;
+				bool lhs_is_native_array = false;
+				bool lhs_is_variously_native_and_dynamic_array = false;
+				bool lhs_update_flag = false;
+				if (lhs_DD != nullptr) {
+					auto res1 = state1.m_ddecl_conversion_state_map.insert(*lhs_DD);
 					auto ddcs_map_iter = res1.first;
 					auto& ddcs_ref = (*ddcs_map_iter).second;
-
-					ddcs_ref.m_current_initialization_expr_str = cocs_shptr_ref.m_current_text_str;
-
-					update_declaration(*m_var_DD, m_Rewrite, state1);
+					/* At the moment we only support the case where the value option expressions are
+					* just declared variables. */
+					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+						auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(0);
+						if (true == indirection_state_ref.xscope_eligibility()) {
+							/* If a declaration for this conditional operator option is available, then
+							we'll mark that declaration as ineligible for "xscope status". The idea
+							being that conditional operator options are likely the (obfuscated) source of an
+							assignment operation (including being passed as a function argument). */
+							indirection_state_ref.set_xscope_eligibility(false);
+							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*lhs_DD, 0));
+							lhs_update_flag |= true;
+						}
+						if ("dynamic array" == indirection_state_ref.current_species()) {
+							lhs_is_dynamic_array = true;
+							lhs_is_known_to_be_an_array = true;
+						} else if ("native array" == indirection_state_ref.current_species()) {
+							lhs_is_native_array = true;
+							lhs_is_known_to_be_an_array = true;
+						} else if ("variously native and dynamic array" == indirection_state_ref.current_species()) {
+							lhs_is_variously_native_and_dynamic_array = true;
+							lhs_is_known_to_be_an_array = true;
+						} else if ("inferred array" == indirection_state_ref.current_species()) {
+							lhs_is_known_to_be_an_array = true;
+						}
+					} else {
+						int q = 3;
+					}
+					if (lhs_update_flag) {
+						update_declaration(*lhs_DD, (*this).m_Rewrite, state1);
+					}
 				}
 
+				bool rhs_is_known_to_be_an_array = false;
+				bool rhs_is_dynamic_array = false;
+				bool rhs_is_native_array = false;
+				bool rhs_is_variously_native_and_dynamic_array = false;
+				bool rhs_update_flag = false;
+				if (rhs_DD != nullptr) {
+					auto res1 = state1.m_ddecl_conversion_state_map.insert(*rhs_DD);
+					auto ddcs_map_iter = res1.first;
+					auto& ddcs_ref = (*ddcs_map_iter).second;
+					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+						auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(0);
+						if (true == indirection_state_ref.xscope_eligibility()) {
+							/* If a declaration for this conditional operator option is available, then
+							we'll mark that declaration as ineligible for "xscope status". The idea
+							being that conditional operator options are likely the (obfuscated) source of an
+							assignment operation (including being passed as a function argument). */
+							indirection_state_ref.set_xscope_eligibility(false);
+							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*rhs_DD, 0));
+							rhs_update_flag |= true;
+						}
+						if ("dynamic array" == indirection_state_ref.current_species()) {
+							rhs_is_dynamic_array = true;
+							rhs_is_known_to_be_an_array = true;
+						} else if ("native array" == indirection_state_ref.current_species()) {
+							rhs_is_native_array = true;
+							rhs_is_known_to_be_an_array = true;
+						} else if ("variously native and dynamic array" == indirection_state_ref.current_species()) {
+							rhs_is_variously_native_and_dynamic_array = true;
+							rhs_is_known_to_be_an_array = true;
+						} else if ("inferred array" == indirection_state_ref.current_species()) {
+							rhs_is_known_to_be_an_array = true;
+						}
+					} else {
+						int q = 3;
+					}
+					if (rhs_update_flag) {
+						update_declaration(*rhs_DD, (*this).m_Rewrite, state1);
+					}
+				}
+				if (lhs_is_known_to_be_an_array || rhs_is_known_to_be_an_array) {
+					bool lhs_needs_to_be_wrapped = false;
+					if ((lhs_is_dynamic_array && (!rhs_is_dynamic_array)) || (lhs_is_native_array && (!rhs_is_native_array))
+						|| ((!lhs_is_known_to_be_an_array) && rhs_is_known_to_be_an_array)) {
+						lhs_needs_to_be_wrapped = true;
+					}
+					bool rhs_needs_to_be_wrapped = false;
+					if ((rhs_is_dynamic_array && (!lhs_is_dynamic_array)) || (rhs_is_native_array && (!lhs_is_native_array))
+						|| ((!rhs_is_known_to_be_an_array) && lhs_is_known_to_be_an_array)) {
+						rhs_needs_to_be_wrapped = true;
+					}
+					auto cocs_iter = state1.m_expr_conversion_state_map.end();
+					if (lhs_needs_to_be_wrapped || rhs_needs_to_be_wrapped) {
+						cocs_iter = state1.m_expr_conversion_state_map.find(CO);
+						if (state1.m_expr_conversion_state_map.end() == cocs_iter) {
+							auto shptr1 = make_expr_conversion_state_shared_ptr<CConditionalOperatorExprConversionState>(*CO, m_Rewrite);
+							cocs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+						}
+					}
+
+					if (lhs_needs_to_be_wrapped) {
+						assert(state1.m_expr_conversion_state_map.end() != cocs_iter);
+						auto lhscs_iter = state1.m_expr_conversion_state_map.find(LHS);
+						if (state1.m_expr_conversion_state_map.end() != lhscs_iter) {
+							auto& lhscs_shptr_ref = (*lhscs_iter).second;
+							bool already_wrapped_flag = false;
+							if (1 <= (*lhscs_shptr_ref).m_expr_text_modifier_stack.size()) {
+								auto& last_modifier_ref = (*(*lhscs_shptr_ref).m_expr_text_modifier_stack.back());
+								if ("nullable any random access iter cast" == last_modifier_ref.species_str()) {
+									already_wrapped_flag = true;
+								}
+							}
+							if (ConvertToSCPP && (!already_wrapped_flag)) {
+								auto shptr1 = std::make_shared<CNullableAnyRandomAccessIterCastExprTextModifier>(LHS->getType()->getPointeeType(), ScopeTypeFunctionParameters ? EXScopeEligibility::Yes : EXScopeEligibility::No);
+								(*lhscs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
+								(*lhscs_shptr_ref).update_current_text();
+							}
+						} else {
+							int q = 7;
+						}
+					}
+					if (rhs_needs_to_be_wrapped) {
+						assert(state1.m_expr_conversion_state_map.end() != cocs_iter);
+						auto rhscs_iter = state1.m_expr_conversion_state_map.find(RHS);
+						if (state1.m_expr_conversion_state_map.end() != rhscs_iter) {
+							auto& rhscs_shptr_ref = (*rhscs_iter).second;
+							bool already_wrapped_flag = false;
+							if (1 <= (*rhscs_shptr_ref).m_expr_text_modifier_stack.size()) {
+								auto& last_modifier_ref = (*(*rhscs_shptr_ref).m_expr_text_modifier_stack.back());
+								if ("nullable any random access iter cast" == last_modifier_ref.species_str()) {
+									already_wrapped_flag = true;
+								}
+							}
+							if (ConvertToSCPP && (!already_wrapped_flag)) {
+								auto shptr1 = std::make_shared<CNullableAnyRandomAccessIterCastExprTextModifier>(RHS->getType()->getPointeeType(), ScopeTypeFunctionParameters ? EXScopeEligibility::Yes : EXScopeEligibility::No);
+								(*rhscs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
+								(*rhscs_shptr_ref).update_current_text();
+							}
+						} else {
+							int q = 7;
+						}
+					}
+
+					if (m_var_DD && (true)) {
+						assert(state1.m_expr_conversion_state_map.end() != cocs_iter);
+						auto& cocs_shptr_ref = (*(*cocs_iter).second);
+						cocs_shptr_ref.update_current_text();
+
+						auto res1 = state1.m_ddecl_conversion_state_map.insert(*m_var_DD);
+						auto ddcs_map_iter = res1.first;
+						auto& ddcs_ref = (*ddcs_map_iter).second;
+
+						ddcs_ref.m_current_initialization_expr_str = cocs_shptr_ref.m_current_text_str;
+
+						update_declaration(*m_var_DD, m_Rewrite, state1);
+						if (lhs_needs_to_be_wrapped || rhs_needs_to_be_wrapped) {
+							if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+								ddcs_ref.set_indirection_current(0, "variously native and dynamic array");
+
+								update_declaration(*m_var_DD, m_Rewrite, state1);
+							} else {
+								/* unexpected? */
+								int q = 3;
+							}
+						}
+					}
+				}
 			}
 		}
 	}
@@ -7390,7 +7342,7 @@ namespace convm1 {
 		std::string m_realloc_pointer_arg_source_text;
 		clang::ValueDecl const * m_realloc_pointer_arg_DD = nullptr;
 	};
-	CAllocFunctionInfo analyze_malloc_resemblance(const clang::CallExpr& call_expr, Rewriter &Rewrite) {
+	CAllocFunctionInfo analyze_malloc_resemblance(const clang::CallExpr& call_expr, CTUState& state1, Rewriter &Rewrite) {
 		CAllocFunctionInfo retval;
 
 		auto CE = &call_expr;
@@ -7423,9 +7375,13 @@ namespace convm1 {
 				for (auto arg : CE->arguments()) {
 					auto arg_qtype = arg->getType();
 					IF_DEBUG(std::string arg_qtype_str = arg_qtype.getAsString();)
-					auto arg_source_range = cm1_nice_source_range(arg->getSourceRange(), Rewrite);
+					auto arg_source_range = cm1_adjusted_source_range(arg->getSourceRange(), state1, Rewrite);
 					if (!arg_source_range.isValid()) {
-						assert(false); continue;
+						/*assert(false); */continue;
+					}
+					if (arg->getSourceRange().getBegin().isMacroID()) {
+						int q = 5;
+						//continue;
 					}
 					std::string l_arg_source_text = Rewrite.getRewrittenText(arg_source_range);
 					clang::ValueDecl const * DD = nullptr;
@@ -7507,7 +7463,7 @@ namespace convm1 {
 		}
 		return retval;
 	}
-	CAllocFunctionInfo analyze_malloc_resemblance(const clang::FunctionDecl& function_decl_ref, Rewriter &Rewrite) {
+	CAllocFunctionInfo analyze_malloc_resemblance(const clang::FunctionDecl& function_decl_ref, CTUState& state1, Rewriter &Rewrite) {
 		CAllocFunctionInfo retval;
 
 		auto function_decl = &function_decl_ref;
@@ -7538,9 +7494,14 @@ namespace convm1 {
 				for (auto param : function_decl->parameters()) {
 					auto param_qtype = param->getType();
 					IF_DEBUG(std::string param_qtype_str = param_qtype.getAsString();)
-					auto param_source_range = cm1_nice_source_range(param->getSourceRange(), Rewrite);
+					auto raw_param_source_range = param->getSourceRange();
+					auto param_source_range = cm1_adjusted_source_range(param->getSourceRange(), state1, Rewrite);
 					if (!param_source_range.isValid()) {
-						assert(false); continue;
+						/*assert(false); */continue;
+					}
+					if (param->getSourceRange().getBegin().isMacroID()) {
+						int q = 5;
+						//continue;
 					}
 					std::string l_param_source_text = Rewrite.getRewrittenText(param_source_range);
 					clang::ValueDecl const * DD = nullptr;
@@ -7665,7 +7626,7 @@ namespace convm1 {
 								auto casted_expr_ptr = CCE->IgnoreCasts();
 								if (llvm::isa<const clang::CallExpr>(casted_expr_ptr->IgnoreParenCasts())) {
 									auto CE = llvm::cast<const clang::CallExpr>(casted_expr_ptr->IgnoreParenCasts());
-									auto alloc_function_info1 = analyze_malloc_resemblance(*CE, Rewrite);
+									auto alloc_function_info1 = analyze_malloc_resemblance(*CE, m_state1, Rewrite);
 									if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
 										/* This seems to be some kind of malloc/realloc function. These case should not be
 										* handled here. They are handled elsewhere. */
@@ -7730,7 +7691,7 @@ namespace convm1 {
 
 						if (llvm::isa<const clang::CallExpr>(RHS->IgnoreParenCasts())) {
 							auto CE = llvm::cast<const clang::CallExpr>(RHS->IgnoreParenCasts());
-							auto alloc_function_info1 = analyze_malloc_resemblance(*CE, Rewrite);
+							auto alloc_function_info1 = analyze_malloc_resemblance(*CE, m_state1, Rewrite);
 							if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
 								/* This seems to be some kind of malloc/realloc function. These case should not be
 								* handled here. They are handled elsewhere. */
@@ -8193,15 +8154,25 @@ namespace convm1 {
 			Rewrite(Rewrite), m_state1(state1) {}
 
 		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
-			, const BinaryOperator* BO, const CallExpr* CE, const DeclRefExpr* DRE = nullptr, const MemberExpr* ME = nullptr) {
-			const Expr* LHS = nullptr;
-			if (BO != nullptr) {
+			, const Expr* LHS, const CallExpr* CE, const BinaryOperator* BO = nullptr, const DeclRefExpr* DRE = nullptr, const MemberExpr* ME = nullptr) {
+			const bool is_binary_assignment_operation = ((BO != nullptr) && (BO->isAssignmentOp()));
+			/* If BO is provided, then we expect that it will correspond to an assignment 
+			operator. In which case we'd expect LHS to be null as the "left hand side" 
+			expression can be obtained from BO. */
+			if (is_binary_assignment_operation) {
+				if (LHS) {
+					/* unexpected? */
+					int q = 3;
+				}
 				LHS = BO->getLHS();
+			} else if (BO) {
+				/* unexpected? */
+				int q = 3;
 			}
 
-			if ((BO != nullptr) && (LHS != nullptr) && (CE != nullptr)/* && (DRE != nullptr)*/)
+			if ((LHS != nullptr) && (CE != nullptr)/* && (DRE != nullptr)*/)
 			{
-				auto SR = cm1_adj_nice_source_range(BO->getSourceRange(), state1, Rewrite);
+				auto SR = cm1_adj_nice_source_range(is_binary_assignment_operation ? BO->getSourceRange() : CE->getSourceRange(), state1, Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
@@ -8216,98 +8187,101 @@ namespace convm1 {
 				}
 #endif /*!NDEBUG*/
 
-				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(BO, Rewrite, *(MR.Context));
+				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
 				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
 				if (suppress_check_flag) {
 					return;
 				}
 
-				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, Rewrite);
+				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
 				if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
 					/* The argument is in the form "something * sizeof(something_else)" or
 					* "sizeof(something) * something_else". So we're just going to assume that
 					* this is an instance of an array being allocated. */
 					std::string num_elements_text/* = before_str + after_str*/;
 					std::string element_type_str;
-					clang::SourceRange decl_source_range;
-					std::string variable_name;
-					std::string bo_replacement_code;
 					auto lhs_QT = LHS->getType();
 
-					auto res2 = infer_array_type_info_from_stmt(*LHS, "malloc target", state1);
+					const clang::Type* lhs_TP = lhs_QT.getTypePtr();
+					auto lhs_type_str = lhs_QT.getAsString();
 
-					const clang::DeclaratorDecl* DD = res2.ddecl_cptr;
-
-					if (nullptr != DD) {
-						auto decl_source_range = cm1_adj_nice_source_range(DD->getSourceRange(), state1, Rewrite);
-						if (!decl_source_range.isValid()) {
-							return;
+					std::string lhs_element_type_str;
+					std::string adjusted_num_bytes_str = alloc_function_info1.m_num_bytes_arg_source_text;
+					if (llvm::isa<const clang::ArrayType>(lhs_TP)) {
+						auto ATP = llvm::cast<const clang::ArrayType>(lhs_TP);
+						assert(nullptr != ATP);
+						auto element_type = ATP->getElementType();
+						auto type_str = generate_qtype_replacement_code(element_type, Rewrite);
+						if (true || (("char" != type_str) && ("const char" != type_str))) {
+							lhs_element_type_str = type_str;
 						}
-						DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, Rewrite);
-						DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
-
-						auto QT = DD->getType();
-						variable_name = DD->getNameAsString();
-
-						auto qualified_name = DD->getQualifiedNameAsString();
-						static const std::string mse_namespace_str1 = "mse::";
-						static const std::string mse_namespace_str2 = "::mse::";
-						if ((0 == qualified_name.compare(0, mse_namespace_str1.size(), mse_namespace_str1))
-								|| (0 == qualified_name.compare(0, mse_namespace_str2.size(), mse_namespace_str2))) {
-							return;
+						adjusted_num_bytes_str = "(" + alloc_function_info1.m_num_bytes_arg_source_text + ")";
+						if ((element_type.getAsString() != lhs_element_type_str) && ("void" != lhs_element_type_str)) {
+							adjusted_num_bytes_str += " / sizeof(" + element_type.getAsString() + ") * sizeof(" + lhs_element_type_str + ")";
 						}
+					} else if (lhs_TP->isPointerType()) {
+						auto target_type = lhs_TP->getPointeeType();
+						auto type_str = generate_qtype_replacement_code(target_type, Rewrite);
+						if (true || (("char" != type_str) && ("const char" != type_str))) {
+							lhs_element_type_str = type_str;
+						}
+						adjusted_num_bytes_str = "(" + alloc_function_info1.m_num_bytes_arg_source_text + ")";
+						if ((target_type.getAsString() != lhs_element_type_str) && ("void" != lhs_element_type_str)) {
+							adjusted_num_bytes_str += " / sizeof(" + target_type.getAsString() + ") * sizeof(" + lhs_element_type_str + ")";
+						}
+					}
+					if ("" != lhs_element_type_str) {
+						auto lhs_source_range = cm1_adj_nice_source_range(LHS->getSourceRange(), state1, Rewrite);
+						auto lhs_source_text = Rewrite.getRewrittenText(lhs_source_range);
 
-						auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
-						auto ddcs_map_iter = res1.first;
-						auto& ddcs_ref = (*ddcs_map_iter).second;
-						bool update_declaration_flag = res1.second;
+						auto res2 = infer_array_type_info_from_stmt(*LHS, "malloc target", state1);
 
-						for (auto& indirection_state_ref : ddcs_ref.m_indirection_state_stack) {
-							if (true == indirection_state_ref.xscope_eligibility()) {
-								indirection_state_ref.set_xscope_eligibility(false);
+						const clang::DeclaratorDecl* DD = res2.ddecl_cptr;
+
+						auto maybe_replacement_SR = std::optional<clang::SourceRange>{};
+						if (DD && is_binary_assignment_operation) {
+							/* In the case of a binary assignment operation, we will replace the text of whole 
+							operation, not just the malloc call. */
+							std::string variable_name;
+							std::string bo_replacement_code;
+
+							auto decl_SR = cm1_adj_nice_source_range(DD->getSourceRange(), state1, Rewrite);
+							if (!decl_SR.isValid()) {
+								return;
+							}
+							DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_SR, Rewrite);
+							DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_SR, Rewrite);
+
+							auto QT = DD->getType();
+							variable_name = DD->getNameAsString();
+
+							auto qualified_name = DD->getQualifiedNameAsString();
+							static const std::string mse_namespace_str1 = "mse::";
+							static const std::string mse_namespace_str2 = "::mse::";
+							if ((0 == qualified_name.compare(0, mse_namespace_str1.size(), mse_namespace_str1))
+									|| (0 == qualified_name.compare(0, mse_namespace_str2.size(), mse_namespace_str2))) {
+								return;
+							}
+
+							auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
+							auto ddcs_map_iter = res1.first;
+							auto& ddcs_ref = (*ddcs_map_iter).second;
+							bool update_declaration_flag = res1.second;
+
+							for (auto& indirection_state_ref : ddcs_ref.m_indirection_state_stack) {
+								if (true == indirection_state_ref.xscope_eligibility()) {
+									indirection_state_ref.set_xscope_eligibility(false);
+									update_declaration_flag |= true;
+								}
+							}
+							if (true == ddcs_ref.direct_type_state_ref().xscope_eligibility()) {
+								ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
 								update_declaration_flag |= true;
 							}
-						}
-						if (true == ddcs_ref.direct_type_state_ref().xscope_eligibility()) {
-							ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
-							update_declaration_flag |= true;
-						}
 
-						if (update_declaration_flag) {
-							update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), state1);
-						}
-
-						const clang::Type* lhs_TP = lhs_QT.getTypePtr();
-						auto lhs_type_str = lhs_QT.getAsString();
-
-						std::string lhs_element_type_str;
-						std::string adjusted_num_bytes_str = alloc_function_info1.m_num_bytes_arg_source_text;
-						if (llvm::isa<const clang::ArrayType>(lhs_TP)) {
-							auto ATP = llvm::cast<const clang::ArrayType>(lhs_TP);
-							assert(nullptr != ATP);
-							auto element_type = ATP->getElementType();
-							auto type_str = generate_qtype_replacement_code(element_type, Rewrite);
-							if (true || (("char" != type_str) && ("const char" != type_str))) {
-								lhs_element_type_str = type_str;
+							if (update_declaration_flag) {
+								update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), state1);
 							}
-							adjusted_num_bytes_str = "(" + alloc_function_info1.m_num_bytes_arg_source_text + ")";
-							if ((element_type.getAsString() != lhs_element_type_str) && ("void" != lhs_element_type_str)) {
-								adjusted_num_bytes_str += " / sizeof(" + element_type.getAsString() + ") * sizeof(" + lhs_element_type_str + ")";
-							}
-						} else if (lhs_TP->isPointerType()) {
-							auto target_type = lhs_TP->getPointeeType();
-							auto type_str = generate_qtype_replacement_code(target_type, Rewrite);
-							if (true || (("char" != type_str) && ("const char" != type_str))) {
-								lhs_element_type_str = type_str;
-							}
-							adjusted_num_bytes_str = "(" + alloc_function_info1.m_num_bytes_arg_source_text + ")";
-							if ((target_type.getAsString() != lhs_element_type_str) && ("void" != lhs_element_type_str)) {
-								adjusted_num_bytes_str += " / sizeof(" + target_type.getAsString() + ") * sizeof(" + lhs_element_type_str + ")";
-							}
-						}
-						if ("" != lhs_element_type_str) {
-							auto lhs_source_range = cm1_adj_nice_source_range(LHS->getSourceRange(), state1, Rewrite);
-							auto lhs_source_text = Rewrite.getRewrittenText(lhs_source_range);
 
 							if (alloc_function_info1.m_seems_to_be_some_kind_of_realloc) {
 								if ("Dual" == ConvertMode) {
@@ -8344,16 +8318,16 @@ namespace convm1 {
 								}
 							}
 
-							auto decl_source_location_str = decl_source_range.getBegin().printToString(*MR.SourceManager);
+							auto decl_source_location_str = decl_SR.getBegin().printToString(*MR.SourceManager);
 							std::string decl_source_text;
-							if (decl_source_range.isValid()) {
-								DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, decl_source_range, Rewrite);
-								DEBUG_SOURCE_TEXT_STR(debug_source_text, decl_source_range, Rewrite);
+							if (decl_SR.isValid()) {
+								DEBUG_SOURCE_LOCATION_STR(decl_source_location_str, decl_SR, Rewrite);
+								DEBUG_SOURCE_TEXT_STR(decl_source_text, decl_SR, Rewrite);
 							} else {
 								return;
 							}
 
-							if (ConvertToSCPP && decl_source_range.isValid() && (SR.isValid())
+							if (ConvertToSCPP && decl_SR.isValid() && (SR.isValid())
 									&& (nullptr != res2.ddecl_conversion_state_ptr)) {
 								auto cr_shptr = std::make_shared<CMallocArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), BO, bo_replacement_code);
 
@@ -8366,10 +8340,85 @@ namespace convm1 {
 							} else {
 								int q = 7;
 							}
+						} else {
+							std::string replacement_code_str;
+
+							auto CE_source_range = cm1_adj_nice_source_range(CE->getSourceRange(), state1, Rewrite);
+							if (!CE_source_range.isValid()) {
+								return;
+							}
+							DEBUG_SOURCE_LOCATION_STR(CE_debug_source_location_str, CE_source_range, Rewrite);
+							DEBUG_SOURCE_TEXT_STR(CE_debug_source_text, CE_source_range, Rewrite);
+							auto replacement_SR = CE_source_range;
+
+							if (alloc_function_info1.m_seems_to_be_some_kind_of_realloc) {
+								if ("Dual" == ConvertMode) {
+									replacement_code_str = lhs_source_text;
+									replacement_code_str += " = MSE_LH_REALLOC(";
+									replacement_code_str += lhs_element_type_str + ", ";
+									replacement_code_str += alloc_function_info1.m_realloc_pointer_arg_source_text + ", ";
+									replacement_code_str += adjusted_num_bytes_str + ")";
+								} else if ("FasterAndStricter" == ConvertMode) {
+									replacement_code_str = lhs_source_text;
+									replacement_code_str += " = mse::lh::reallocate(";
+									replacement_code_str += alloc_function_info1.m_realloc_pointer_arg_source_text + ", ";
+									replacement_code_str += adjusted_num_bytes_str + ")";
+								} else {
+									replacement_code_str = lhs_source_text;
+									replacement_code_str += " = mse::lh::reallocate(";
+									replacement_code_str += alloc_function_info1.m_realloc_pointer_arg_source_text + ", ";
+									replacement_code_str += adjusted_num_bytes_str + ")";
+								}
+								/* realloc()s should be addressed as part of the whole assignment statement, which
+								we're not in a position to do here. */
+								return;
+							} else {
+								if ("Dual" == ConvertMode) {
+									replacement_code_str = "MSE_LH_ALLOC_DYN_ARRAY1(";
+									replacement_code_str += lhs_element_type_str + ", ";
+									replacement_code_str += adjusted_num_bytes_str + ")";
+								} else if ("FasterAndStricter" == ConvertMode) {
+									replacement_code_str = "mse::lh::allocate_dyn_array1<";
+									replacement_code_str += lhs_element_type_str + ">()";
+									replacement_code_str += adjusted_num_bytes_str + ")";
+								} else {
+									replacement_code_str = "mse::lh::allocate_dyn_array1<";
+									replacement_code_str += lhs_element_type_str + ">()";
+									replacement_code_str += adjusted_num_bytes_str + ")";
+								}
+							}
+
+							auto CE_source_location_str = replacement_SR.getBegin().printToString(*MR.SourceManager);
+							std::string CE_source_text;
+							if (replacement_SR.isValid()) {
+								DEBUG_SOURCE_LOCATION_STR(CE_source_location_str, replacement_SR, Rewrite);
+								DEBUG_SOURCE_TEXT_STR(CE_source_text, replacement_SR, Rewrite);
+							} else {
+								return;
+							}
+
+							if (ConvertToSCPP && replacement_SR.isValid()) {
+
+								if (CE->getSourceRange().getBegin().isMacroID()) {
+									IF_DEBUG(std::string og_whole_expression_str = Rewrite.getRewrittenText(replacement_SR);)
+									CExprTextYieldingReplacementAction(Rewrite, MR, CE, replacement_code_str).do_replacement(state1);
+								} else {
+									state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, replacement_SR, replacement_code_str);
+								}
+							} else {
+								int q = 7;
+							}
 						}
 					}
 				}
+			} else {
+				int q = 5;
 			}
+		}
+		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+			, const BinaryOperator* BO, const CallExpr* CE, const DeclRefExpr* DRE = nullptr, const MemberExpr* ME = nullptr) {
+
+			s_handler1(MR, Rewrite, state1, nullptr/* LHS */, CE, BO, DRE, ME);
 		}
 
 		virtual void run(const MatchFinder::MatchResult &MR)
@@ -9329,24 +9378,16 @@ namespace convm1 {
 				}
 
 				std::string var_current_state_str;
+				bool var_has_been_determined_to_be_an_array = false;
 
 				auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*DD);
 				auto ddcs_map_iter = res1.first;
 				auto& ddcs_ref = (*ddcs_map_iter).second;
 				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-					var_current_state_str = ddcs_ref.m_indirection_state_stack.at(0).current_species();
+					var_current_state_str = ddcs_ref.indirection_current(0);
+					var_has_been_determined_to_be_an_array = ddcs_ref.has_been_determined_to_be_an_array(0);
 				} else {
 					int q = 7;
-				}
-
-				bool var_has_been_determined_to_be_an_array = false;
-				if (("inferred array" == var_current_state_str) ||
-						("dynamic array" == var_current_state_str) ||
-						("native array" == var_current_state_str)) {
-					if ("native array" == var_current_state_str) {
-						assert(false); /* right? */
-					}
-					var_has_been_determined_to_be_an_array = true;
 				}
 
 				auto lhs_res2 = infer_array_type_info_from_stmt(*LHS, "", (*this).m_state1);
@@ -9421,55 +9462,57 @@ namespace convm1 {
 
 				{
 					auto& res2 = rhs_res2;
-					if (res2.ddecl_cptr && res2.declaration_expr_cptr) {
-						std::string variable_name = res2.ddecl_cptr->getNameAsString();
-						auto QT = res2.ddecl_cptr->getType();
-						IF_DEBUG(std::string QT_str = QT.getAsString();)
-						auto RHS_QT = RHS->getType();
-						IF_DEBUG(std::string RHS_QT_str = RHS_QT.getAsString();)
-						bool are_essentially_the_same_types = (QT == RHS_QT);
-						if (!are_essentially_the_same_types) {
-							if (QT->isArrayType() && RHS_QT->isPointerType()) {
-								auto AT = dyn_cast<const clang::ArrayType>(QT);
-								if (AT) {
-									IF_DEBUG(std::string AT_element_str = AT->getElementType().getAsString();)
-									IF_DEBUG(std::string RHS_QT_pointee_str = RHS_QT->getPointeeType().getAsString();)
-									if (AT->getElementType() == RHS_QT->getPointeeType()) {
-										are_essentially_the_same_types = true;
-									}
-								}
-							}
-						}
-						/* Currently we only support the case where the value expressions are direct
-						* references to declared variables. */
-						if (are_essentially_the_same_types) {
-							rhs_qualifies = true;
-							if (ConvertToSCPP && (nullptr != res2.ddecl_conversion_state_ptr)) {
-								{
-									/* Here we're establishing and "enforcing" the constraint that the rhs value must
-									* be of an (array) type that can be assigned to the target variable. */
-									auto cr_shptr = std::make_shared<CAssignmentTargetConstrainsSourceArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0), CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level));
-
-									if (var_has_been_determined_to_be_an_array) {
-										(*cr_shptr).do_replacement(m_state1);
-									} else {
-										m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
-
-										if (ddcs_ref.has_been_determined_to_be_ineligible_for_xscope_status(0)) {
-											(*cr_shptr).do_replacement(m_state1);
-										} else {
-											m_state1.m_xscope_ineligibility_contingent_replacement_map.insert(cr_shptr);
+					if (res2.declaration_expr_cptr) {
+						if (res2.ddecl_cptr) {
+							std::string variable_name = res2.ddecl_cptr->getNameAsString();
+							auto QT = res2.ddecl_cptr->getType();
+							IF_DEBUG(std::string QT_str = QT.getAsString();)
+							auto RHS_QT = RHS->getType();
+							IF_DEBUG(std::string RHS_QT_str = RHS_QT.getAsString();)
+							bool are_essentially_the_same_types = (QT == RHS_QT);
+							if (!are_essentially_the_same_types) {
+								if (QT->isArrayType() && RHS_QT->isPointerType()) {
+									auto AT = dyn_cast<const clang::ArrayType>(QT);
+									if (AT) {
+										IF_DEBUG(std::string AT_element_str = AT->getElementType().getAsString();)
+										IF_DEBUG(std::string RHS_QT_pointee_str = RHS_QT->getPointeeType().getAsString();)
+										if (AT->getElementType() == RHS_QT->getPointeeType()) {
+											are_essentially_the_same_types = true;
 										}
 									}
 								}
-								{
-									/* Here we're establishing the constraint in the opposite direction as well. */
-									auto cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
+							}
+							/* Currently we only support the case where the value expressions are direct
+							* references to declared variables. */
+							if (are_essentially_the_same_types) {
+								rhs_qualifies = true;
+								if (ConvertToSCPP && (nullptr != res2.ddecl_conversion_state_ptr)) {
+									{
+										/* Here we're establishing and "enforcing" the constraint that the rhs value must
+										* be of an (array) type that can be assigned to the target variable. */
+										auto cr_shptr = std::make_shared<CAssignmentTargetConstrainsSourceArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0), CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level));
 
-									if ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(res2.indirection_level)) {
-										(*cr_shptr).do_replacement(m_state1);
-									} else {
-										m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+										if (var_has_been_determined_to_be_an_array) {
+											(*cr_shptr).do_replacement(m_state1);
+										} else {
+											m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+
+											if (ddcs_ref.has_been_determined_to_be_ineligible_for_xscope_status(0)) {
+												(*cr_shptr).do_replacement(m_state1);
+											} else {
+												m_state1.m_xscope_ineligibility_contingent_replacement_map.insert(cr_shptr);
+											}
+										}
+									}
+									{
+										/* Here we're establishing the constraint in the opposite direction as well. */
+										auto cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
+
+										if ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(res2.indirection_level)) {
+											(*cr_shptr).do_replacement(m_state1);
+										} else {
+											m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
+										}
 									}
 								}
 							}
@@ -9477,9 +9520,10 @@ namespace convm1 {
 					}
 				}
 
-				if (lhs_qualifies && rhs_qualifies) {
-					std::string lhs_current_state_str;
-					{
+				std::string lhs_current_state_str;
+				std::string rhs_current_state_str;
+				if (lhs_qualifies || rhs_qualifies) {
+					if (lhs_qualifies && (lhs_res2.ddecl_cptr)) {
 						auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*(lhs_res2.ddecl_cptr));
 						auto ddcs_map_iter = res1.first;
 						auto& ddcs_ref = (*ddcs_map_iter).second;
@@ -9489,8 +9533,7 @@ namespace convm1 {
 							int q = 7;
 						}
 					}
-					std::string rhs_current_state_str;
-					{
+					if (rhs_qualifies && (rhs_res2.ddecl_cptr)) {
 						auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*(rhs_res2.ddecl_cptr));
 						auto ddcs_map_iter = res1.first;
 						auto& ddcs_ref = (*ddcs_map_iter).second;
@@ -9500,42 +9543,50 @@ namespace convm1 {
 							int q = 7;
 						}
 					}
+				}
 
-					if (ConvertToSCPP) {
-						/* Here we're establishing and "enforcing" the constraint that the lhs and rhs
-						* values of the conditional operator must be the same type. */
-						{
-							auto cr_shptr = std::make_shared<CConditionalOperatorReconciliation2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*lhs_res2.ddecl_cptr, 0), CO, lhs_res2.ddecl_cptr, rhs_res2.ddecl_cptr, DD);
+				if (ConvertToSCPP) {
+					/* Here we're establishing and "enforcing" the constraint that the lhs and rhs
+					* values of the conditional operator must be the same type. */
+					if (lhs_res2.ddecl_cptr) {
+						auto cr_shptr = std::make_shared<CConditionalOperatorReconciliation2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*lhs_res2.ddecl_cptr, 0), CO, lhs_res2.ddecl_cptr, rhs_res2.ddecl_cptr, DD);
 
-							if ("dynamic array" == lhs_current_state_str) {
-								(*cr_shptr).do_replacement(m_state1);
-							} else if ("native array" == lhs_current_state_str) {
+						if ("dynamic array" == lhs_current_state_str) {
+							(*cr_shptr).do_replacement(m_state1);
+						} else if ("native array" == lhs_current_state_str) {
+							(*cr_shptr).do_replacement(m_state1);
+						} else if ("variously native and dynamic array" == lhs_current_state_str) {
+							(*cr_shptr).do_replacement(m_state1);
+						} else {
+							m_state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+							if ("inferred array" == lhs_current_state_str) {
 								(*cr_shptr).do_replacement(m_state1);
 							} else {
-								m_state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
-								if ("inferred array" == lhs_current_state_str) {
-									(*cr_shptr).do_replacement(m_state1);
-								} else {
-									m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
-								}
+								m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
 							}
 						}
-						{
-							auto cr_shptr = std::make_shared<CConditionalOperatorReconciliation2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*rhs_res2.ddecl_cptr, 0), CO, lhs_res2.ddecl_cptr, rhs_res2.ddecl_cptr, DD);
+					} else {
+						int q = 5;
+					}
+					if (rhs_res2.ddecl_cptr) {
+						auto cr_shptr = std::make_shared<CConditionalOperatorReconciliation2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*rhs_res2.ddecl_cptr, 0), CO, lhs_res2.ddecl_cptr, rhs_res2.ddecl_cptr, DD);
 
-							if ("dynamic array" == rhs_current_state_str) {
-								(*cr_shptr).do_replacement(m_state1);
-							} else if ("native array" == rhs_current_state_str) {
+						if ("dynamic array" == rhs_current_state_str) {
+							(*cr_shptr).do_replacement(m_state1);
+						} else if ("native array" == rhs_current_state_str) {
+							(*cr_shptr).do_replacement(m_state1);
+						} else if ("variously native and dynamic array" == lhs_current_state_str) {
+							(*cr_shptr).do_replacement(m_state1);
+						} else {
+							m_state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+							if ("inferred array" == rhs_current_state_str) {
 								(*cr_shptr).do_replacement(m_state1);
 							} else {
-								m_state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
-								if ("inferred array" == rhs_current_state_str) {
-									(*cr_shptr).do_replacement(m_state1);
-								} else {
-									m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
-								}
+								m_state1.m_array2_contingent_replacement_map.insert(cr_shptr);
 							}
 						}
+					} else {
+						int q = 5;
 					}
 				}
 			}
@@ -9942,7 +9993,7 @@ namespace convm1 {
 
 					auto precasted_CE = llvm::dyn_cast<const clang::CallExpr>(precasted_expr_ptr->IgnoreParenCasts());
 					if (precasted_CE) {
-						auto alloc_function_info1 = analyze_malloc_resemblance(*precasted_CE, Rewrite);
+						auto alloc_function_info1 = analyze_malloc_resemblance(*precasted_CE, state1, Rewrite);
 						if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
 							/* This case is handled elsewhere. */
 							finished_cast_handling_flag = true;
@@ -10015,7 +10066,7 @@ namespace convm1 {
 
 			if (llvm::isa<const clang::CallExpr>(RHS->IgnoreParenCasts())) {
 				auto CE = llvm::cast<const clang::CallExpr>(RHS->IgnoreParenCasts());
-				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, Rewrite);
+				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
 				if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
 					/* This seems to be some kind of malloc/realloc function. These case should not be
 					* handled here. They are handled elsewhere. */
@@ -10319,7 +10370,7 @@ namespace convm1 {
 					bool ends_with_free = ((lc_function_name.size() >= free_str.size())
 							&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
 
-					auto res1 = analyze_malloc_resemblance(*CE, Rewrite);
+					auto res1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
 					bool seems_to_be_some_kind_of_malloc_or_realloc = res1.m_seems_to_be_some_kind_of_malloc_or_realloc;
 
 					bool begins_with__builtin_ = string_begins_with(function_name, "__builtin_");
@@ -10792,7 +10843,7 @@ namespace convm1 {
 					return;
 				}
 
-				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, Rewrite);
+				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
 				if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
 					/* The argument is in the form "something * sizeof(something_else)" or
 					* "sizeof(something) * something_else". So we're just going to assume that
@@ -10837,8 +10888,13 @@ namespace convm1 {
 							state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*DD, 0));
 						} else if ("dynamic array" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
 							lhs_has_been_determined_to_be_an_array = true;
+						} else if ("native array" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
+							ddcs_ref.set_indirection_current(0, "variously native and dynamic array");
+							lhs_has_been_determined_to_be_an_array = true;
+						} else if ("variously native and dynamic array" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
+							lhs_has_been_determined_to_be_an_array = true;
 						} else {
-							assert("native array" != ddcs_ref.m_indirection_state_stack.at(0).current_species());
+							int q = 5;
 						}
 
 						const clang::Type* TP = QT.getTypePtr();
@@ -10982,7 +11038,7 @@ namespace convm1 {
 					return;
 				}
 
-				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, Rewrite);
+				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, m_state1, Rewrite);
 				if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
 					/* The argument is in the form "something * sizeof(something_else)" or
 					* "sizeof(something) * something_else". So we're just going to assume that
@@ -11045,7 +11101,7 @@ namespace convm1 {
 					bool ends_with_free = ((lc_function_name.size() >= free_str.size())
 							&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
 
-					auto alloc_info = analyze_malloc_resemblance(*function_decl1, Rewrite);
+					auto alloc_info = analyze_malloc_resemblance(*function_decl1, state1, Rewrite);
 
 					bool begins_with__builtin_ = string_begins_with(function_name, "__builtin_");
 
@@ -12112,7 +12168,7 @@ namespace convm1 {
 					assert(precasted_expr_ptr);
 					auto precasted_CE = llvm::dyn_cast<const clang::CallExpr>(IgnoreParenImpNoopCasts(precasted_expr_ptr, *(MR.Context)));
 					if (precasted_CE) {
-						auto alloc_function_info1 = analyze_malloc_resemblance(*precasted_CE, Rewrite);
+						auto alloc_function_info1 = analyze_malloc_resemblance(*precasted_CE, state1, Rewrite);
 						if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
 							/* This case is handled elsewhere. */
 							finished_cast_handling_flag = true;
