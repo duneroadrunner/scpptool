@@ -12573,9 +12573,15 @@ namespace checker {
 				for the (scope) lifetime of the (lhs) pointer being modified and a lower bound for the (scope)
 				lifetime of the new target object. */
 
-				assert(LHSEX && RHSEX);
-				IF_DEBUG(const auto LHSEX_qtype_str = LHSEX->getType().getAsString();)
-				const auto LHSEX_rw_type_ptr = remove_mse_transparent_wrappers(LHSEX->getType()).getTypePtr();
+				if (!(LHSEX && RHSEX)) {
+					assert(false);
+					return;
+				}
+				auto LHSEX_qtype = LHSEX->getType();
+				MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(LHSEX_qtype);
+
+				IF_DEBUG(const auto LHSEX_qtype_str = LHSEX_qtype.getAsString();)
+				const auto LHSEX_rw_type_ptr = remove_mse_transparent_wrappers(LHSEX_qtype).getTypePtr();
 				assert(LHSEX_rw_type_ptr);
 				if (!is_raw_pointer_or_equivalent(LHSEX_rw_type_ptr)) {
 					return;
@@ -12631,7 +12637,7 @@ namespace checker {
 				lhs_lifetime_value.m_maybe_containing_scope = get_containing_scope(LHSEX, *(MR.Context));
 				lhs_lifetime_value.m_maybe_source_range = LHSEX->getSourceRange();
 				lhs_lifetime_value.m_maybe_corresponding_cpp_element = LHSEX;
-				slti_set_default_lower_bound_lifetimes_where_needed(lhs_lifetime_value, LHSEX->getType());
+				slti_set_default_lower_bound_lifetimes_where_needed(lhs_lifetime_value, LHSEX_qtype);
 				bool lhs_lifetime_values_evaluated = false;
 
 				{
@@ -12642,7 +12648,7 @@ namespace checker {
 						return;
 					} else if (maybe_expr_lifetime_value.has_value()) {
 						CScopeLifetimeInfo1& expr_slti = maybe_expr_lifetime_value.value().m_scope_lifetime_info;
-						slti_set_default_lower_bound_lifetimes_where_needed(expr_slti, LHSEX->getType());
+						slti_set_default_lower_bound_lifetimes_where_needed(expr_slti, LHSEX_qtype);
 						if ((1 == expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.size())
 							&& (1 == lhs_lifetime_value.m_sublifetimes_vlptr->m_primary_lifetime_infos.size())) {
 							const auto& target_slti_cref = expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.front();
@@ -12669,7 +12675,7 @@ namespace checker {
 						auto& lhs_slo = maybe_lhs_slo.value();
 
 						lhs_lifetime_value = lhs_scope_lifetime_info_from_lifetime_owner(lhs_slo, *(MR.Context), state1);
-						slti_set_default_lower_bound_lifetimes_where_needed(lhs_lifetime_value, LHSEX->getType());
+						slti_set_default_lower_bound_lifetimes_where_needed(lhs_lifetime_value, LHSEX_qtype);
 						lhs_lifetime_values_evaluated = true;
 					} else {
 						lhs_hints = maybe_lhs_slo.hints_str();
@@ -12685,7 +12691,7 @@ namespace checker {
 
 				if (!satisfies_checks) {
 					std::string error_desc = std::string("Unable to verify that this pointer assignment (of type ")
-						+ get_as_quoted_string_for_errmsg(LHSEX->getType()) + ") is safe and valid.";
+						+ get_as_quoted_string_for_errmsg(LHSEX_qtype) + ") is safe and valid.";
 					std::string hints;
 					if ((!lhs_lifetime_values_evaluated) && (!lhs_hints.empty())) {
 						hints += " (" + lhs_hints + ")";
@@ -12866,10 +12872,15 @@ namespace checker {
 						return;
 					}
 				}
+				if (!(LHSEX && RHSEX)) {
+					assert(false);
+					return;
+				}
+				auto LHSEX_qtype = LHSEX->getType();
+				MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(LHSEX_qtype);
 
-				assert(LHSEX && RHSEX);
-				IF_DEBUG(const auto LHSEX_qtype_str = LHSEX->getType().getAsString();)
-				const auto LHSEX_rw_type_ptr = remove_mse_transparent_wrappers(LHSEX->getType()).getTypePtr();
+				IF_DEBUG(const auto LHSEX_qtype_str = LHSEX_qtype.getAsString();)
+				const auto LHSEX_rw_type_ptr = remove_mse_transparent_wrappers(LHSEX_qtype).getTypePtr();
 				assert(LHSEX_rw_type_ptr);
 				if (!LHSEX_rw_type_ptr->isPointerType()) {
 					const auto RD = LHSEX_rw_type_ptr->getAsRecordDecl();
@@ -12929,7 +12940,7 @@ namespace checker {
 
 				if (!satisfies_checks) {
 					std::string error_desc = std::string("Unable to verify that this assignment (of type ")
-						+ get_as_quoted_string_for_errmsg(LHSEX->getType()) + ") satisfies the (annotated) lifetime constraints of the type.";
+						+ get_as_quoted_string_for_errmsg(LHSEX_qtype) + ") satisfies the (annotated) lifetime constraints of the type.";
 					if (!lhs_lifetime_values_evaluated) {
 						error_desc += " (Unable to evaluate the lifetimes of the left hand side expression.)";
 					} else if (!rhs_lifetime_values_evaluated) {
@@ -13014,6 +13025,9 @@ namespace checker {
 				if (suppress_check_flag) {
 					return;
 				}
+
+				auto EX_qtype = EX->getType();
+				MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(EX_qtype);
 
 				/* For some reason some of our expression matchers seem to be unreliable.
 				So we (redundantly) implement (some of) them in this general expression matcher
