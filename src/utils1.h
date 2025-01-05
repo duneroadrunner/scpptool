@@ -2439,7 +2439,7 @@ struct Parse {
 
     /* Angle bracket nesting can be thrown off by the presence of "less than" or "greater than" operators. Use
     find_token_at_same_nesting_depth2() if you don't need angle bracket nesting. */
-		static auto find_token_at_same_nesting_depth1(std::string_view target_token_sv, std::string_view str, std::string::size_type start_index = 0, const std::vector<CEnclosureDelimiterPair>& enclosure_delimiters = s_enclosure_delimiters_including_angle_brackets()) {
+	static auto find_token_at_same_nesting_depth1(std::string_view target_token_sv, std::string_view str, std::string::size_type start_index = 0, const std::vector<CEnclosureDelimiterPair>& enclosure_delimiters = s_enclosure_delimiters_including_angle_brackets()) {
         auto next_tt_range = find_uncommented_token(target_token_sv, str, start_index);
         while (str.length() > next_tt_range.end) {
             auto debug_sv2 = str.substr(start_index, int(next_tt_range.end) - int(start_index));

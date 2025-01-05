@@ -309,6 +309,14 @@ namespace convm1 {
 			m_maybe_original_qtype = qtype;
 			set_current_qtype(qtype);
 		}
+		void set_original_type_source_text(std::string str) {
+#ifndef NDEBUG
+			if ("void" == str) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
+			m_original_type_source_text = std::move(str);
+		}
 		void set_current_non_function_qtype_str(const std::string& qtype_str) {
 			m_current_qtype_or_return_qtype_str = adjusted_qtype_str(qtype_str);
 			m_current_qtype_is_current = false;
@@ -339,6 +347,9 @@ namespace convm1 {
 				}
 			}
 			return retval;
+		}
+		std::string original_type_source_text() const {
+			return m_original_type_source_text;
 		}
 		std::string current_qtype_str() const {
 			if (m_current_qtype_is_current) {
@@ -442,7 +453,164 @@ namespace convm1 {
 		bool m_current_qtype_is_current = false;
 		std::optional<clang::QualType> m_maybe_current_qtype;
 		std::string m_current_qtype_or_return_qtype_str;
+		std::string m_original_type_source_text;
 	};
+
+	/* CTUState holds any "per translation unit" state information we might need to store. */
+	class CTUState;
+
+	static clang::SourceRange cm1_adjusted_source_range(const clang::SourceRange& sr, CTUState& state1, clang::Rewriter &Rewrite);
+
+	/* This function generally returns the "File" source range and, in cases where the range partially
+	covers a macro, extends the range to cover the entire macro (function) instantiation/call. */
+	static clang::SourceRange cm1_nice_source_range(const clang::SourceRange& sr, clang::Rewriter &Rewrite, CTUState* state1_ptr = nullptr) {
+		auto& SM = Rewrite.getSourceMgr();
+
+		SourceLocation nice_SL = sr.getBegin();
+		SourceLocation nice_SLE = sr.getEnd();
+		auto nice_SR = decltype(sr){ nice_SL, nice_SLE };
+
+		SourceLocation SL = sr.getBegin();
+		SourceLocation SLE = sr.getEnd();
+
+		auto FLSL = SM.getFileLoc(SL);
+		auto FLSLE = SM.getFileLoc(SLE);
+		bool FLSR_was_valid = clang::SourceRange({ FLSL, FLSLE }).isValid();
+		if (FLSLE < FLSL) {
+			FLSLE = FLSL;
+			FLSR_was_valid = false;
+		}
+		auto FLSR = clang::SourceRange({ FLSL, FLSLE });
+		if (FLSR_was_valid) {
+			nice_SL = FLSL;
+			nice_SLE = FLSLE;
+			nice_SR = { nice_SL, nice_SLE };
+		}
+
+		bool sr_is_valid = sr.isValid();
+		if (SLE < SL) {
+			//SLE = SL;
+			sr_is_valid = false;
+		}
+		auto same_file = (SM.getFileID(SL) == SM.getFileID(SLE));
+		auto b1 = SL.isMacroID();
+		auto b2 = SLE.isMacroID();
+
+		if (true && (b1 || b2) && (!filtered_out_by_location(SM, SL))) {
+			if (state1_ptr) {
+				auto& state1 = *state1_ptr;
+				const auto adj_sr = cm1_adjusted_source_range(sr, state1, Rewrite);
+				if (!(adj_sr == sr)) {
+					return adj_sr;
+				}
+			}
+
+			/* A macro (or some macros) seem to be involved with the given source range. We don't really
+			have a good understanding of macros wrt source ranges, but via trial and error we've ended up
+			with a method that seems to mostly work for the (limited range of) situations we've dealt
+			with. */
+
+			/* Essentially, if the source range corresponds to (part of) a macro expansion, then we'll
+			make it so that the returned range includes the entire macro instantiation/call in the
+			original source text, unless we suspect that the range corresponds to (part of) a single
+			macro function argument. */
+			auto SL_function_macro_start = SL;
+			bool SL_isMacroArgExpansion_flag = SM.isMacroArgExpansion(SL, &SL_function_macro_start);
+			auto SL_macro_CSR = SL_isMacroArgExpansion_flag
+				? SM.getExpansionRange(SL_function_macro_start) : SM.getExpansionRange(SL);
+
+			auto SL_immediate_macro_start = SL;
+			bool SL_isAtStartOfImmediateMacroExpansion_flag = SM.isAtStartOfImmediateMacroExpansion(SL, &SL_immediate_macro_start);
+			auto SL_immediate_macro_CSR = SM.getExpansionRange(SL_immediate_macro_start);
+
+			bool FLSLE_is_within_SL_immediate_macro = SM.isPointWithin(FLSLE, SL_immediate_macro_CSR.getBegin(), SL_immediate_macro_CSR.getEnd());
+
+			auto SLE_function_macro_start = SLE;
+			bool SLE_isMacroArgExpansion_flag = SM.isMacroArgExpansion(SLE, &SLE_function_macro_start);
+			auto SLE_macro_CSR = SLE_isMacroArgExpansion_flag
+				? SM.getExpansionRange(SLE_function_macro_start) : SM.getExpansionRange(SLE);
+
+			auto SLE_immediate_macro_start = SLE;
+			bool SLE_isAtStartOfImmediateMacroExpansion_flag = SM.isAtStartOfImmediateMacroExpansion(SLE, &SLE_immediate_macro_start);
+			auto SLE_immediate_macro_CSR = SM.getExpansionRange(SLE_immediate_macro_start);
+
+			bool FLSL_is_within_SLE_immediate_macro = SM.isPointWithin(FLSL, SLE_immediate_macro_CSR.getBegin(), SLE_immediate_macro_CSR.getEnd());
+
+			if (SL_isMacroArgExpansion_flag && SLE_isMacroArgExpansion_flag
+				&& (SL_immediate_macro_CSR.getBegin() == SLE_immediate_macro_CSR.getBegin()) && (SL_immediate_macro_CSR.getEnd() == SLE_immediate_macro_CSR.getEnd())
+				&& FLSLE_is_within_SL_immediate_macro && FLSL_is_within_SLE_immediate_macro
+				&& (!(SL_macro_CSR.getAsRange().getBegin() == FLSL))) {
+				if (FLSR_was_valid) {
+					/* Both the start and end location appear to refer argument(s) in a macro function.
+					Here we're going to (unjustifiably) assume that they refer to the same argument. In
+					which case we just return the "File" range corresponding to the given range. */
+					DEBUG_SOURCE_TEXT_STR(debug_FLSR_text, FLSR, Rewrite);
+					return FLSR;
+				} else {
+					int q = 3;
+				}
+			}
+			if (SL.isMacroID()) {
+				nice_SL = SL_macro_CSR.getAsRange().getBegin();
+			} else {
+				nice_SL = FLSL;
+			}
+			if (SLE.isMacroID()) {
+				nice_SLE = SLE_macro_CSR.getAsRange().getEnd();
+			} else {
+				nice_SLE = FLSLE;
+			}
+			if (SL.isMacroID() && (nice_SLE < SL_macro_CSR.getAsRange().getEnd())) {
+				/* The end of the range does not extend to the end of the macro (presumably because
+				it corresponds to the end of one of the macro function arguments). So we're going to
+				extend it to the end of the macro. */
+				if ((!FLSLE_is_within_SL_immediate_macro) || (nice_SLE < nice_SL)) {
+					int q = 3;
+				}
+				nice_SLE == SL_macro_CSR.getAsRange().getEnd();
+				int q =5;
+			}
+			nice_SR = { nice_SL, nice_SLE };
+			DEBUG_SOURCE_TEXT_STR(debug_nice_SR_text, nice_SR, Rewrite);
+
+			return nice_SR;
+		}
+
+		auto same_file6 = (SM.getFileID(FLSL) == SM.getFileID(FLSLE));
+		clang::SourceRange retSR = { FLSL, FLSLE };
+
+#ifndef NDEBUG
+		if ((!(FLSLE < FLSL)) && (retSR.isValid()) && same_file6) {
+			std::string text6 = Rewrite.getRewrittenText({FLSL, FLSLE});
+			int q = 5;
+		} else {
+			int q = 5;
+		}
+#endif /*!NDEBUG*/
+
+		return nice_SR;
+	}
+	/* This function generally returns the "File" source location and, in cases where the location is
+	somewhere in the middle of a macro, returns the start location of the macro (function) instantiation/call. */
+	static clang::SourceLocation cm1_nice_source_location(const clang::SourceLocation& sl, clang::Rewriter &Rewrite) {
+		return cm1_nice_source_range({ sl, sl }, Rewrite).getBegin();
+	}
+	/* This function generally returns the "File" source range and, in cases where the range is a (part
+	of a) macro, it returns either the macro instantiation range or (part of) the definition range,
+	depending on whether the macro seems to be just a single expression or not. */
+	static clang::SourceRange cm1_adj_nice_source_range(const clang::SourceRange& sr, CTUState& state1, clang::Rewriter &Rewrite) {
+		const auto adjusted_SR = cm1_adjusted_source_range(sr, state1, Rewrite);
+		if (!(adjusted_SR == sr)) {
+			return adjusted_SR;
+		}
+		const auto nice_SR = cm1_nice_source_range(sr, Rewrite);
+		return nice_SR;
+	}
+	/* This function generally returns the "File" source location and, in cases where the location is
+	somewhere in the middle of a macro, returns the start location of the macro (function) instantiation/call. */
+	static clang::SourceLocation cm1_adj_nice_source_location(const clang::SourceLocation& sl, CTUState& state1, clang::Rewriter &Rewrite) {
+		return cm1_adj_nice_source_range({ sl, sl }, state1, Rewrite).getBegin();
+	}
 
 	/* CIndirectionStateStack holds information about an instance of a type that is composed of
 	nested "indirect types" (like (native) pointers and/or arrays) and the ultimate direct type.
@@ -464,7 +632,7 @@ namespace convm1 {
 	* whether each level of indirection (if any) of the type is of the pointer or the array variety. Pointers
 	* can, of course, function as arrays, but context is required to identify those situations. Such identification
 	* is not done in this function. It is done elsewhere.  */
-	clang::QualType populateQTypeIndirectionStack(CIndirectionStateStack& stack, clang::QualType qtype, std::optional<clang::TypeLoc> maybe_typeLoc = {}, int depth = 0) {
+	clang::QualType populateQTypeIndirectionStack(CIndirectionStateStack& stack, clang::QualType qtype, std::optional<clang::TypeLoc> maybe_typeLoc = {}, Rewriter* Rewrite_ptr = nullptr, CTUState* state1_ptr = nullptr, int depth = 0) {
 		qtype = definition_qtype(qtype);
 		auto l_qtype = qtype;
 		auto l_maybe_typeLoc = maybe_typeLoc;
@@ -527,7 +695,7 @@ namespace convm1 {
 								new_maybe_typeLoc = ParenLoc.getInnerLoc();
 							}
 						}
-						return populateQTypeIndirectionStack(stack, PNQT->getInnerType(), new_maybe_typeLoc, depth+1);
+						return populateQTypeIndirectionStack(stack, PNQT->getInnerType(), new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
 					} else {
 						assert(false);
 					}
@@ -638,7 +806,7 @@ namespace convm1 {
 
 				stack.push_back(CIndirectionState(l_maybe_typeLoc, "native array", "native array", size_text));
 
-				return populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, depth+1);
+				return populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
 			} else {
 				assert(false);
 			}
@@ -697,7 +865,7 @@ namespace convm1 {
 
 			stack.push_back(CIndirectionState(l_maybe_typeLoc, "native pointer", "native pointer", is_function_type, param_qtypes, new_maybe_functionProtoTypeLoc));
 
-			return populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, depth+1);
+			return populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
 		} else if (l_qtype->isReferenceType()) {
 			auto type_class = l_qtype->getTypeClass();
 
@@ -736,11 +904,27 @@ namespace convm1 {
 
 			stack.push_back(CIndirectionState(l_maybe_typeLoc, "native reference", "native reference", is_function_type, param_qtypes, new_maybe_functionProtoTypeLoc));
 
-			return populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, depth+1);
+			return populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
 		}
 
 		if (maybe_typeLoc.has_value()) {
 			stack.m_direct_type_state.m_maybe_typeLoc = maybe_typeLoc;
+
+			if (Rewrite_ptr) {
+				auto typeLoc = maybe_typeLoc.value();
+				auto& Rewrite = *Rewrite_ptr;
+				const auto l_SR = state1_ptr
+					? cm1_adj_nice_source_range(typeLoc.getSourceRange(), *state1_ptr, Rewrite)
+					: cm1_nice_source_range(typeLoc.getSourceRange(), Rewrite);
+				if ((l_SR).isValid() && (((l_SR).getBegin() < (l_SR).getEnd()) || ((l_SR).getBegin() == (l_SR).getEnd()))) {
+					DEBUG_SOURCE_LOCATION_STR(l_debug_source_location_str, l_SR, Rewrite);
+					auto source_text2 = (Rewrite).getRewrittenText(l_SR);
+					stack.m_direct_type_state.set_original_type_source_text(source_text2);
+				}
+			} else {
+				int q = 5;
+			}
+
 		}
 		return qtype;
 	}
@@ -975,167 +1159,51 @@ namespace convm1 {
 		return;
 	}
 
-	/* CTUState holds any "per translation unit" state information we might need to store. */
-	class CTUState;
-
-	static clang::SourceRange cm1_adjusted_source_range(const clang::SourceRange& sr, CTUState& state1, clang::Rewriter &Rewrite);
-
-	/* This function generally returns the "File" source range and, in cases where the range partially
-	covers a macro, extends the range to cover the entire macro (function) instantiation/call. */
-	static clang::SourceRange cm1_nice_source_range(const clang::SourceRange& sr, clang::Rewriter &Rewrite, CTUState* state1_ptr = nullptr) {
-		auto& SM = Rewrite.getSourceMgr();
-
-		SourceLocation nice_SL = sr.getBegin();
-		SourceLocation nice_SLE = sr.getEnd();
-		auto nice_SR = decltype(sr){ nice_SL, nice_SLE };
-
-		SourceLocation SL = sr.getBegin();
-		SourceLocation SLE = sr.getEnd();
-
-		auto FLSL = SM.getFileLoc(SL);
-		auto FLSLE = SM.getFileLoc(SLE);
-		bool FLSR_was_valid = clang::SourceRange({ FLSL, FLSLE }).isValid();
-		if (FLSLE < FLSL) {
-			FLSLE = FLSL;
-			FLSR_was_valid = false;
-		}
-		auto FLSR = clang::SourceRange({ FLSL, FLSLE });
-		if (FLSR_was_valid) {
-			nice_SL = FLSL;
-			nice_SLE = FLSLE;
-			nice_SR = { nice_SL, nice_SLE };
-		}
-
-		bool sr_is_valid = sr.isValid();
-		if (SLE < SL) {
-			//SLE = SL;
-			sr_is_valid = false;
-		}
-		auto same_file = (SM.getFileID(SL) == SM.getFileID(SLE));
-		auto b1 = SL.isMacroID();
-		auto b2 = SLE.isMacroID();
-
-		if (true && (b1 || b2) && (!filtered_out_by_location(SM, SL))) {
-			if (state1_ptr) {
-				auto& state1 = *state1_ptr;
-				const auto adj_sr = cm1_adjusted_source_range(sr, state1, Rewrite);
-				if (!(adj_sr == sr)) {
-					return adj_sr;
-				}
-			}
-
-			/* A macro (or some macros) seem to be involved with the given source range. We don't really
-			have a good understanding of macros wrt source ranges, but via trial and error we've ended up
-			with a method that seems to mostly work for the (limited range of) situations we've dealt
-			with. */
-
-			/* Essentially, if the source range corresponds to (part of) a macro expansion, then we'll
-			make it so that the returned range includes the entire macro instantiation/call in the
-			original source text, unless we suspect that the range corresponds to (part of) a single
-			macro function argument. */
-			auto SL_function_macro_start = SL;
-			bool SL_isMacroArgExpansion_flag = SM.isMacroArgExpansion(SL, &SL_function_macro_start);
-			auto SL_macro_CSR = SL_isMacroArgExpansion_flag
-				? SM.getExpansionRange(SL_function_macro_start) : SM.getExpansionRange(SL);
-
-			auto SL_immediate_macro_start = SL;
-			bool SL_isAtStartOfImmediateMacroExpansion_flag = SM.isAtStartOfImmediateMacroExpansion(SL, &SL_immediate_macro_start);
-			auto SL_immediate_macro_CSR = SM.getExpansionRange(SL_immediate_macro_start);
-
-			bool FLSLE_is_within_SL_immediate_macro = SM.isPointWithin(FLSLE, SL_immediate_macro_CSR.getBegin(), SL_immediate_macro_CSR.getEnd());
-
-			auto SLE_function_macro_start = SLE;
-			bool SLE_isMacroArgExpansion_flag = SM.isMacroArgExpansion(SLE, &SLE_function_macro_start);
-			auto SLE_macro_CSR = SLE_isMacroArgExpansion_flag
-				? SM.getExpansionRange(SLE_function_macro_start) : SM.getExpansionRange(SLE);
-
-			auto SLE_immediate_macro_start = SLE;
-			bool SLE_isAtStartOfImmediateMacroExpansion_flag = SM.isAtStartOfImmediateMacroExpansion(SLE, &SLE_immediate_macro_start);
-			auto SLE_immediate_macro_CSR = SM.getExpansionRange(SLE_immediate_macro_start);
-
-			bool FLSL_is_within_SLE_immediate_macro = SM.isPointWithin(FLSL, SLE_immediate_macro_CSR.getBegin(), SLE_immediate_macro_CSR.getEnd());
-
-			if (SL_isMacroArgExpansion_flag && SLE_isMacroArgExpansion_flag
-				&& (SL_immediate_macro_CSR.getBegin() == SLE_immediate_macro_CSR.getBegin()) && (SL_immediate_macro_CSR.getEnd() == SLE_immediate_macro_CSR.getEnd())
-				&& FLSLE_is_within_SL_immediate_macro && FLSL_is_within_SLE_immediate_macro
-				&& (!(SL_macro_CSR.getAsRange().getBegin() == FLSL))) {
-				if (FLSR_was_valid) {
-					/* Both the start and end location appear to refer argument(s) in a macro function.
-					Here we're going to (unjustifiably) assume that they refer to the same argument. In
-					which case we just return the "File" range corresponding to the given range. */
-					DEBUG_SOURCE_TEXT_STR(debug_FLSR_text, FLSR, Rewrite);
-					return FLSR;
-				} else {
-					int q = 3;
-				}
-			}
-			if (SL.isMacroID()) {
-				nice_SL = SL_macro_CSR.getAsRange().getBegin();
-			} else {
-				nice_SL = FLSL;
-			}
-			if (SLE.isMacroID()) {
-				nice_SLE = SLE_macro_CSR.getAsRange().getEnd();
-			} else {
-				nice_SLE = FLSLE;
-			}
-			if (SL.isMacroID() && (nice_SLE < SL_macro_CSR.getAsRange().getEnd())) {
-				/* The end of the range does not extend to the end of the macro (presumably because
-				it corresponds to the end of one of the macro function arguments). So we're going to
-				extend it to the end of the macro. */
-				if ((!FLSLE_is_within_SL_immediate_macro) || (nice_SLE < nice_SL)) {
-					int q = 3;
-				}
-				nice_SLE == SL_macro_CSR.getAsRange().getEnd();
-				int q =5;
-			}
-			nice_SR = { nice_SL, nice_SLE };
-			DEBUG_SOURCE_TEXT_STR(debug_nice_SR_text, nice_SR, Rewrite);
-
-			return nice_SR;
-		}
-
-		auto same_file6 = (SM.getFileID(FLSL) == SM.getFileID(FLSLE));
-		clang::SourceRange retSR = { FLSL, FLSLE };
-
-#ifndef NDEBUG
-		if ((!(FLSLE < FLSL)) && (retSR.isValid()) && same_file6) {
-			std::string text6 = Rewrite.getRewrittenText({FLSL, FLSLE});
-			int q = 5;
-		} else {
-			int q = 5;
-		}
-#endif /*!NDEBUG*/
-
-		return nice_SR;
-	}
-	/* This function generally returns the "File" source location and, in cases where the location is
-	somewhere in the middle of a macro, returns the start location of the macro (function) instantiation/call. */
-	static clang::SourceLocation cm1_nice_source_location(const clang::SourceLocation& sl, clang::Rewriter &Rewrite) {
-		return cm1_nice_source_range({ sl, sl }, Rewrite).getBegin();
-	}
-	/* This function generally returns the "File" source range and, in cases where the range is a (part
-	of a) macro, it returns either the macro instantiation range or (part of) the definition range,
-	depending on whether the macro seems to be just a single expression or not. */
-	static clang::SourceRange cm1_adj_nice_source_range(const clang::SourceRange& sr, CTUState& state1, clang::Rewriter &Rewrite) {
-		const auto adjusted_SR = cm1_adjusted_source_range(sr, state1, Rewrite);
-		if (!(adjusted_SR == sr)) {
-			return adjusted_SR;
-		}
-		const auto nice_SR = cm1_nice_source_range(sr, Rewrite);
-		return nice_SR;
-	}
-	/* This function generally returns the "File" source location and, in cases where the location is
-	somewhere in the middle of a macro, returns the start location of the macro (function) instantiation/call. */
-	static clang::SourceLocation cm1_adj_nice_source_location(const clang::SourceLocation& sl, CTUState& state1, clang::Rewriter &Rewrite) {
-		return cm1_adj_nice_source_range({ sl, sl }, state1, Rewrite).getBegin();
-	}
-
 	enum class EXScopeEligibility { Yes, No };
+
+	static auto typeLoc_if_available(const clang::DeclaratorDecl& ddecl) {
+		QualType QT = ddecl.getType();
+		auto typeClass = QT->getTypeClass();
+		IF_DEBUG(std::string qtype_str = QT.getAsString();)
+		std::optional<clang::TypeLoc> maybe_typeLoc;
+		auto tsi = ddecl.getTypeSourceInfo();
+		if (tsi) {
+			IF_DEBUG(auto typeLocClass = tsi->getTypeLoc().getTypeLocClass();)
+			auto typeLocTypeClass = tsi->getTypeLoc().getType()->getTypeClass();
+			IF_DEBUG(std::string tl_qtype_str = tsi->getTypeLoc().getType().getAsString();)
+			bool inconsistent_types_flag = false;
+			while (tsi->getTypeLoc().getType() != QT) {
+				if (llvm::isa<const clang::ParenType>(QT)) {
+					auto PN = llvm::cast<const clang::ParenType>(QT);
+					assert(PN);
+					QT = PN->getInnerType();
+				} else {
+					break;
+				}
+			}
+			if (tsi->getTypeLoc().getType() != QT) {
+				if (tsi->getTypeLoc().getType().getAsString() != QT.getAsString()) {
+					if ((clang::Type::ConstantArray == typeLocTypeClass) && (clang::Type::Decayed == typeClass)) {
+						/* This is probably a case of an array function parameter decaying to a pointer. */
+						int q = 5;
+					} else {
+						inconsistent_types_flag = true;
+					}
+				} else {
+					/* ?? */
+					int q = 5;
+				}
+			}
+			if (!inconsistent_types_flag) {
+				maybe_typeLoc = tsi->getTypeLoc();
+			}
+		}
+		return maybe_typeLoc;
+	}
 
 	class CDDeclConversionState {
 	public:
-		CDDeclConversionState(const clang::DeclaratorDecl& ddecl) : m_ddecl_cptr(&ddecl) {
+		CDDeclConversionState(const clang::DeclaratorDecl& ddecl, Rewriter* Rewrite_ptr = nullptr, CTUState* state1_ptr = nullptr) : m_ddecl_cptr(&ddecl) {
 #ifndef NDEBUG
 			if ((*this).m_ddecl_cptr) {
 				std::string variable_name = m_ddecl_cptr->getNameAsString();
@@ -1148,46 +1216,13 @@ namespace convm1 {
 			}
 #endif /*!NDEBUG*/
 			QualType QT = ddecl.getType();
-			auto typeClass = QT->getTypeClass();
 			IF_DEBUG(std::string qtype_str = QT.getAsString();)
 			assert(ddecl.isFunctionOrFunctionTemplate() == QT->isFunctionType());
 			if (QT->isFunctionType()) {
 				m_is_a_function = true;
 			}
-			std::optional<clang::TypeLoc> maybe_typeLoc;
-			auto tsi = ddecl.getTypeSourceInfo();
-			if (tsi) {
-				IF_DEBUG(auto typeLocClass = tsi->getTypeLoc().getTypeLocClass();)
-				auto typeLocTypeClass = tsi->getTypeLoc().getType()->getTypeClass();
-				IF_DEBUG(std::string tl_qtype_str = tsi->getTypeLoc().getType().getAsString();)
-				bool inconsistent_types_flag = false;
-				while (tsi->getTypeLoc().getType() != QT) {
-					if (llvm::isa<const clang::ParenType>(QT)) {
-						auto PN = llvm::cast<const clang::ParenType>(QT);
-						assert(PN);
-						QT = PN->getInnerType();
-					} else {
-						break;
-					}
-				}
-				if (tsi->getTypeLoc().getType() != QT) {
-					if (tsi->getTypeLoc().getType().getAsString() != QT.getAsString()) {
-						if ((clang::Type::ConstantArray == typeLocTypeClass) && (clang::Type::Decayed == typeClass)) {
-							/* This is probably a case of an array function parameter decaying to a pointer. */
-							int q = 5;
-						} else {
-							inconsistent_types_flag = true;
-						}
-					} else {
-						/* ?? */
-						int q = 5;
-					}
-				}
-				if (!inconsistent_types_flag) {
-					maybe_typeLoc = tsi->getTypeLoc();
-				}
-			}
-			auto original_direct_qtype = populateQTypeIndirectionStack(m_indirection_state_stack, QT, maybe_typeLoc);
+			auto maybe_typeLoc = typeLoc_if_available(ddecl);
+			auto original_direct_qtype = populateQTypeIndirectionStack(m_indirection_state_stack, QT, maybe_typeLoc, Rewrite_ptr, state1_ptr);
 			set_original_direct_qtype(original_direct_qtype);
 			//std::reverse(m_indirection_state_stack.begin(), m_indirection_state_stack.end());
 			m_indirection_state_stack.m_maybe_DD = &ddecl;
@@ -1305,6 +1340,9 @@ namespace convm1 {
 		void set_original_direct_qtype(const clang::QualType& qtype) {
 			direct_type_state_ref().set_original_qtype(qtype);
 		}
+		void set_original_direct_type_source_text(std::string str) {
+			direct_type_state_ref().set_original_type_source_text(std::move(str));
+		}
 		void set_current_direct_qtype(const clang::QualType& qtype) {
 			direct_type_state_ref().set_current_qtype(qtype);
 		}
@@ -1378,9 +1416,9 @@ namespace convm1 {
 
 	class CDDeclConversionStateMap : public std::unordered_map<const clang::DeclaratorDecl*, CDDeclConversionState> {
 	public:
-		std::pair<iterator, bool> insert(const clang::DeclaratorDecl& ddecl) {
+		std::pair<iterator, bool> insert(const clang::DeclaratorDecl& ddecl, Rewriter* Rewrite_ptr = nullptr, CTUState* state1_ptr = nullptr) {
 			std::string variable_name = ddecl.getNameAsString();
-			value_type item(&ddecl, CDDeclConversionState(ddecl));
+			value_type item(&ddecl, CDDeclConversionState(ddecl, Rewrite_ptr, state1_ptr));
 			return std::unordered_map<const clang::DeclaratorDecl*, CDDeclConversionState>::insert(item);
 		}
 	};
@@ -2793,6 +2831,133 @@ namespace convm1 {
 		return retval;
 	}
 
+	std::optional<clang::NamedDecl const *> seems_to_contain_an_instantiation_of_a_template_parameter(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState* state1_ptr = nullptr) {
+		/* The current implementation is just kind of a placeholder hack where we're just 
+		looking at the (current) source text of the declaration and seeing if it contains
+		any instances of the name of any of the template parameters (if any). */
+		auto DD = &ddecl;
+
+		bool is_template_instantiation = false;
+		clang::TemplateParameterList const * TPL = nullptr;
+		auto FND = dyn_cast<const clang::FunctionDecl>(DD);
+		if (!FND) {
+			auto DC = DD->getParentFunctionOrMethod();
+			if (DC) {
+				FND = dyn_cast<const clang::FunctionDecl>(DC);
+			}
+		}
+		if (FND) {
+			IF_DEBUG(std::string fname = FND->getNameAsString();)
+			is_template_instantiation = FND->isTemplateInstantiation();
+			if (is_template_instantiation) {
+				auto FTD = FND->getPrimaryTemplate();
+				if (FTD) {
+					TPL = FTD->getTemplateParameters();
+				} else {
+					int q = 3;
+				}
+			}
+		}
+		/* todo: Check for class/struct templates. (Currently we only check for function 
+		templates.) */
+		if (TPL) {
+			auto SR = state1_ptr ? cm1_adj_nice_source_range(DD->getSourceRange(), *state1_ptr, Rewrite) : cm1_nice_source_range(DD->getSourceRange(), Rewrite);
+			std::string source_text1;
+			if ((SR).isValid() && (((SR).getBegin() < (SR).getEnd()) || ((SR).getBegin() == (SR).getEnd()))) {
+				source_text1 = (Rewrite).getRewrittenText(SR);
+			}
+			std::string source_text2;
+			auto maybe_typeLoc = typeLoc_if_available(ddecl);
+			if (maybe_typeLoc.has_value()) {
+				auto typeLoc = maybe_typeLoc.value();
+				const auto l_SR = state1_ptr
+					? cm1_adj_nice_source_range(typeLoc.getSourceRange(), *state1_ptr, Rewrite)
+					: cm1_nice_source_range(typeLoc.getSourceRange(), Rewrite);
+				if ((l_SR).isValid() && (((l_SR).getBegin() < (l_SR).getEnd()) || ((l_SR).getBegin() == (l_SR).getEnd()))) {
+					source_text2 = (Rewrite).getRewrittenText(l_SR);
+				}
+			}
+			auto contains_as_token_any_template_param = [](std::string_view source_text, clang::TemplateParameterList const * TPL) {
+				std::optional<clang::NamedDecl const *> maybe_contained_tparam;
+				if (!TPL) { return maybe_contained_tparam; }
+				auto contains_as_token = [](std::string_view source_text, std::string_view token_name) {
+					auto found_range = Parse::find_uncommented_token(token_name, source_text);
+					return bool(source_text.length() > found_range.begin);
+				};
+
+				for (auto& ND : (*TPL)) {
+					if (contains_as_token(source_text, ND->getNameAsString())) {
+						maybe_contained_tparam = ND;
+						break;
+					}
+				}
+				return maybe_contained_tparam;
+			};
+			return contains_as_token_any_template_param(source_text2, TPL);
+		}
+		return {};
+	}
+
+	std::optional<clang::NamedDecl const *> seems_to_be_an_instantiation_of_a_template_parameter(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState* state1_ptr = nullptr) {
+		/* The current implementation is just kind of a placeholder hack where we're just 
+		looking at the (current) source text of the declaration and seeing if it matches
+		any of the names of any of the template parameters (if any). */
+		auto DD = &ddecl;
+
+		bool is_template_instantiation = false;
+		clang::TemplateParameterList const * TPL = nullptr;
+		auto FND = dyn_cast<const clang::FunctionDecl>(DD);
+		if (!FND) {
+			auto DC = DD->getParentFunctionOrMethod();
+			if (DC) {
+				FND = dyn_cast<const clang::FunctionDecl>(DC);
+			}
+		}
+		if (FND) {
+			IF_DEBUG(std::string fname = FND->getNameAsString();)
+			is_template_instantiation = FND->isTemplateInstantiation();
+			if (is_template_instantiation) {
+				auto FTD = FND->getPrimaryTemplate();
+				if (FTD) {
+					TPL = FTD->getTemplateParameters();
+				} else {
+					int q = 3;
+				}
+			}
+		}
+		if (TPL) {
+			auto SR = state1_ptr ? cm1_adj_nice_source_range(DD->getSourceRange(), *state1_ptr, Rewrite) : cm1_nice_source_range(DD->getSourceRange(), Rewrite);
+			std::string source_text1;
+			if ((SR).isValid() && (((SR).getBegin() < (SR).getEnd()) || ((SR).getBegin() == (SR).getEnd()))) {
+				source_text1 = (Rewrite).getRewrittenText(SR);
+			}
+			std::string source_text2;
+			auto maybe_typeLoc = typeLoc_if_available(ddecl);
+			if (maybe_typeLoc.has_value()) {
+				auto typeLoc = maybe_typeLoc.value();
+				const auto l_SR = state1_ptr
+					? cm1_adj_nice_source_range(typeLoc.getSourceRange(), *state1_ptr, Rewrite)
+					: cm1_nice_source_range(typeLoc.getSourceRange(), Rewrite);
+				if ((l_SR).isValid() && (((l_SR).getBegin() < (l_SR).getEnd()) || ((l_SR).getBegin() == (l_SR).getEnd()))) {
+					source_text2 = (Rewrite).getRewrittenText(l_SR);
+				}
+			}
+			auto seems_to_be_a_template_param = [](std::string_view source_text, clang::TemplateParameterList const * TPL) {
+				std::optional<clang::NamedDecl const *> maybe_tparam;
+				if (!TPL) { return maybe_tparam; }
+				for (auto& ND : (*TPL)) {
+					if (source_text == ND->getNameAsString()) {
+						maybe_tparam = ND;
+						break;
+					}
+				}
+				return maybe_tparam;
+			};
+			return seems_to_be_a_template_param(source_text2, TPL);
+		}
+		return {};
+	}
+
 	class CTypeIndirectionPrefixAndSuffixItem {
 	public:
 		std::string m_prefix_str;
@@ -2804,6 +2969,7 @@ namespace convm1 {
 		bool m_just_a_native_array = false;
 		std::string m_native_array_size_text;
 		bool m_some_addressable_indirection = false;
+		bool m_seems_to_involve_a_template_param_originally = false;
 	};
 
 	class CDeclarationReplacementCodeItem {
@@ -2943,18 +3109,50 @@ namespace convm1 {
 		} else {
 			assert(false);
 		}
+		std::string direct_type_original_type_source_text = direct_type_state_ref.original_type_source_text();
+
 		bool is_dependent_type = false;
+		std::optional<clang::NamedDecl const *> maybe_contained_tparam;
+		std::optional<clang::NamedDecl const *> maybe_tparam;
 		if (indirection_state_stack.m_maybe_DD.has_value()) {
 			auto DD = indirection_state_stack.m_maybe_DD.value();
 			if (DD) {
+				maybe_contained_tparam = seems_to_contain_an_instantiation_of_a_template_parameter(*DD, Rewrite, state1_ptr);
+				maybe_tparam = seems_to_be_an_instantiation_of_a_template_parameter(*DD, Rewrite, state1_ptr);
+
+				if ("" == direct_type_original_qtype_str) {
+					auto maybe_typeLoc = typeLoc_if_available(*DD);
+					if (state1_ptr && maybe_typeLoc.has_value()) {
+						auto typeLoc = maybe_typeLoc.value();
+						const auto l_SR = state1_ptr
+							? cm1_adj_nice_source_range(typeLoc.getSourceRange(), *state1_ptr, Rewrite)
+							: cm1_nice_source_range(typeLoc.getSourceRange(), Rewrite);
+						if ((l_SR).isValid() && (((l_SR).getBegin() < (l_SR).getEnd()) || ((l_SR).getBegin() == (l_SR).getEnd()))) {
+							auto source_text2 = (Rewrite).getRewrittenText(l_SR);
+							direct_type_state_ref.set_original_type_source_text(source_text2);
+							direct_type_original_qtype_str = direct_type_state_ref.original_type_source_text();
+						}
+					} else {
+						int q = 5;
+					}
+				}
 				auto DD_qtype = DD->getType();
 				if ((!DD_qtype.isNull()) || (!DD_qtype->isUndeducedType())) {
 					if (DD_qtype->isInstantiationDependentType()) {
 						is_dependent_type = true;
+
+#ifndef NDEBUG
+						if (!(maybe_contained_tparam.has_value())) {
+							seems_to_contain_an_instantiation_of_a_template_parameter(*DD, Rewrite, state1_ptr);
+							int q = 5;
+						}
+#endif /*!NDEBUG*/
 					}
 				}
 			}
 		}
+		bool seems_to_involve_a_template_param_originally = (maybe_contained_tparam.has_value() || is_dependent_type);
+		retval.m_seems_to_involve_a_template_param_originally = seems_to_involve_a_template_param_originally;
 
 		auto additional_void_star_replacement_criteria = [&]() {
 			/* A (hacky) condition that `void_star_replacement` will only be used when `void*` 
@@ -2973,7 +3171,8 @@ namespace convm1 {
 					retval = true;
 				}
 			}
-			return true/*retval*/;
+			//return retval;
+			return true;
 		};
 
 		bool changed_from_original = false;
@@ -3125,7 +3324,7 @@ namespace convm1 {
 						/* We'll just leave it as a native pointer. */
 						suffix_str = "* ";
 						retval.m_action_species = "other_untranslatable_indirect_type";
-					} else if (is_void_star && (!is_dependent_type)) {
+					} else if (is_void_star && (!seems_to_involve_a_template_param_originally)) {
 						/* In the case of "void*" we're going to effectively "remove" one level of indirection
 						by making it a "transparent"/"pass-through"/"no-op" indirection, and replacing the
 						direct type (i.e. "void") with a type that replaces "void*" (i.e. the "void" and its
@@ -3282,7 +3481,7 @@ namespace convm1 {
 						/* We'll just leave it as a native pointer. */
 						suffix_str = "* ";
 						retval.m_action_species = "other_untranslatable_indirect_type";
-					} else if (is_void_star && (!is_dependent_type)) {
+					} else if (is_void_star && (!seems_to_involve_a_template_param_originally)) {
 						/* In the case of "void*" we're going to effectively "remove" one level of indirection
 						by making it a "transparent"/"pass-through"/"no-op" indirection, and replacing the
 						direct type (i.e. "void") with a type that replaces "void*" (i.e. the "void" and its
@@ -3399,7 +3598,7 @@ namespace convm1 {
 						/* We'll just leave it as a native pointer. */
 						suffix_str = "* ";
 						retval.m_action_species = "other_untranslatable_indirect_type";
-					} else if (is_void_star && (!is_dependent_type)) {
+					} else if (is_void_star && (!seems_to_involve_a_template_param_originally)) {
 						/* In the case of "void*" we're going to effectively "remove" one level of indirection
 						by making it a "transparent"/"pass-through"/"no-op" indirection, and replacing the
 						direct type (i.e. "void") with a type that replaces "void*" (i.e. the "void" and its
@@ -4298,6 +4497,7 @@ namespace convm1 {
 		if (!DD) {
 			return retval;
 		}
+		
 		auto decl_source_range = state1_ptr
 			? cm1_adj_nice_source_range(DD->getSourceRange(), *state1_ptr, Rewrite)
 			: cm1_nice_source_range(DD->getSourceRange(), Rewrite);
@@ -4305,7 +4505,7 @@ namespace convm1 {
 			return retval;
 		}
 
-		auto res1 = ddecl_conversion_state_map.insert(*DD);
+		auto res1 = ddecl_conversion_state_map.insert(*DD, &Rewrite, state1_ptr);
 		auto ddcs_map_iter = res1.first;
 		auto& ddcs_ref = (*ddcs_map_iter).second;
 
@@ -4606,6 +4806,20 @@ namespace convm1 {
 			? adjusted_qtype_str(ddcs_ref.non_const_current_direct_qtype_str())
 			: adjusted_qtype_str(ddcs_ref.non_const_current_direct_return_qtype_str());
 
+		if (res4.m_seems_to_involve_a_template_param_originally) {
+			/* The original type seems to involve a template parameter (and so the 
+			declaration is presumably in the body of a template). We don't want to
+			replace the original (presumably) dependent type with direct_qtype_str 
+			which may refer to a specific specialization of the originally expressed 
+			type. Instead we'll use the original expression of the type in the source 
+			text, if it's available. */
+			auto l_original_type_source_text = ddcs_ref.direct_type_state_ref().original_type_source_text();
+			if ("" != l_original_type_source_text) {
+				direct_qtype_str = l_original_type_source_text;
+				non_const_direct_qtype_str = l_original_type_source_text;
+			}
+		}
+
 		if (!(ddcs_ref.m_original_source_text_has_been_noted)) {
 			ddcs_ref.m_original_source_text_str = Rewrite.getRewrittenText(decl_source_range);
 			if (FND) {
@@ -4710,15 +4924,19 @@ namespace convm1 {
 						}
 					}
 
+					std::string addr_prefix;
+					std::string addr_suffix;
+
 					if ("Dual" == ConvertMode) {
-						direct_qtype_str = "MSE_LH_ADDRESSABLE_TYPE(" + non_const_direct_qtype_str + ")";
-						if (ddcs_ref.direct_type_state_ref().is_const()) {
-							direct_qtype_str = "const " + direct_qtype_str;
-						}
-						ddcs_ref.set_current_direct_non_function_qtype_str(direct_qtype_str);
+						addr_prefix = "MSE_LH_ADDRESSABLE_TYPE(";
+						addr_suffix = ")";
 					} else if ("FasterAndStricter" == ConvertMode) {
 					} else {
-						direct_qtype_str = "mse::TRegisteredObj<" + non_const_direct_qtype_str + " >";
+						addr_prefix = "mse::TRegisteredObj<";
+						addr_suffix = " >";
+					}
+					if (!("" == addr_prefix)) {
+						direct_qtype_str = addr_prefix + non_const_direct_qtype_str + addr_suffix;
 						if (ddcs_ref.direct_type_state_ref().is_const()) {
 							direct_qtype_str = "const " + direct_qtype_str;
 						}
@@ -4892,8 +5110,8 @@ namespace convm1 {
 			}
 
 			if (ConvertToSCPP && (ESuppressModifications::No == suppress_modifications) && state1_ptr) {
-				if (ddcs_ref.direct_qtype_has_been_changed()
-					/*|| ("" != ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state.m_params_current_str)*/) {
+				if ((ddcs_ref.direct_qtype_has_been_changed() /*|| ("" != ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state.m_params_current_str)*/)
+					&& (!(res4.m_seems_to_involve_a_template_param_originally))) {
 
 					bool no_indirection = (1 > ddcs_ref.m_indirection_state_stack.size());
 					/* If the direct type is a function type, then generally we want just the function return type
@@ -5128,7 +5346,7 @@ namespace convm1 {
 				auto res = generate_declaration_replacement_code(&ddecl, Rewrite, &state1, state1.m_ddecl_conversion_state_map, options_str);
 				changed_from_original |= res.m_changed_from_original;
 
-				auto res1 = state1.m_ddecl_conversion_state_map.insert(ddecl);
+				auto res1 = state1.m_ddecl_conversion_state_map.insert(ddecl, &Rewrite, &state1);
 				auto ddcs_map_iter = res1.first;
 				auto& ddcs_ref = (*ddcs_map_iter).second;
 				bool update_declaration_flag = res1.second;
@@ -5281,7 +5499,7 @@ namespace convm1 {
 			auto ddecls = IndividualDeclaratorDecls(DD, Rewrite);
 			if ((1 <= ddecls.size())/* && (ddecls.back() == DD)*/) {
 				for (const auto& ddecl_cref : ddecls) {
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*ddecl_cref);
+					auto res1 = state1.m_ddecl_conversion_state_map.insert(*ddecl_cref, &Rewrite, &state1);
 					auto ddcs_map_iter = res1.first;
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 					for (const auto& unsupported_element_encounterred : unsupported_elements_encounterred) {
@@ -5299,8 +5517,11 @@ namespace convm1 {
 						is_dependent_type = true;
 					}
 				}
-				if ((!is_dependent_type) && (true || (2 <= ddecls.size()) || UsesPointerTypedef(DD->getType()) || is_macro_instantiation(DD->getSourceRange(), Rewrite)
-				|| IsUnwieldyDecl(*DD) || named_record_type_defined_in_declaration || ContainsFunctionPointerOfConcernDecl(*DD))) {
+				auto maybe_contained_instantiated_tparam = seems_to_contain_an_instantiation_of_a_template_parameter(ddecl, Rewrite, &state1);
+				bool seems_to_involve_a_template_param_originally = (is_dependent_type || bool(maybe_contained_instantiated_tparam));
+				if ((!seems_to_involve_a_template_param_originally) && (true || (2 <= ddecls.size()) || UsesPointerTypedef(DD->getType()) || is_macro_instantiation(DD->getSourceRange(), Rewrite)
+					|| IsUnwieldyDecl(*DD) || named_record_type_defined_in_declaration || ContainsFunctionPointerOfConcernDecl(*DD))) {
+
 					if (named_record_type_defined_in_declaration) {
 						replacement_code += named_record_type_definition_text + "; ";
 					}
@@ -5335,7 +5556,7 @@ namespace convm1 {
 					IF_DEBUG(std::string last_decl_source_text = last_decl_source_range.isValid() ? Rewrite.getRewrittenText(last_decl_source_range) : std::string("[invalid]");)
 
 					{
-						auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
+						auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &state1);
 						auto ddcs_map_iter = res1.first;
 						auto& ddcs_ref = (*ddcs_map_iter).second;
 						/* In this case we're overwriting the whole declaration and including any
@@ -5394,12 +5615,12 @@ namespace convm1 {
 		CSameTypeReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)
 			, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)).do_replacement(state1);
 
-		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref2);
+		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref2, &Rewrite, &state1);
 		auto lhs_ddcs_map_iter = lhs_res1.first;
 		auto& lhs_ddcs_ref = (*lhs_ddcs_map_iter).second;
 		bool lhs_update_declaration_flag = lhs_res1.second;
 
-		auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref1);
+		auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref1, &Rewrite, &state1);
 		auto rhs_ddcs_map_iter = rhs_res1.first;
 		auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
 		bool rhs_update_declaration_flag = rhs_res1.second;
@@ -5665,7 +5886,7 @@ namespace convm1 {
 
 	void note_array_determination(Rewriter &Rewrite, CTUState& state1, const CDDeclIndirection& ddecl_indirection) {
 
-		auto res1 = state1.m_ddecl_conversion_state_map.insert(*(ddecl_indirection.m_ddecl_cptr));
+		auto res1 = state1.m_ddecl_conversion_state_map.insert(*(ddecl_indirection.m_ddecl_cptr), &Rewrite, &state1);
 		auto ddcs_map_iter = res1.first;
 		auto& ddcs_ref = (*ddcs_map_iter).second;
 		bool update_declaration_flag = res1.second;
@@ -6007,7 +6228,7 @@ namespace convm1 {
 		bool target_points_to_mallocked_obj = false;
 
 		auto& trgt_indirection = m_ddecl_indirection;
-		auto trgt_res1 = state1.m_ddecl_conversion_state_map.insert(*(trgt_indirection.m_ddecl_cptr));
+		auto trgt_res1 = state1.m_ddecl_conversion_state_map.insert(*(trgt_indirection.m_ddecl_cptr), &m_Rewrite, &state1);
 		auto trgt_ddcs_map_iter = trgt_res1.first;
 		auto& trgt_ddcs_ref = (*trgt_ddcs_map_iter).second;
 		auto trgt_indirection_level = trgt_indirection.m_indirection_level;
@@ -6034,7 +6255,7 @@ namespace convm1 {
 		}
 
 		auto& src_indirection = m_ddecl_indirection2;
-		auto src_res1 = state1.m_ddecl_conversion_state_map.insert(*(src_indirection.m_ddecl_cptr));
+		auto src_res1 = state1.m_ddecl_conversion_state_map.insert(*(src_indirection.m_ddecl_cptr), &m_Rewrite, &state1);
 		auto src_ddcs_map_iter = src_res1.first;
 		auto& src_ddcs_ref = (*src_ddcs_map_iter).second;
 		bool src_update_declaration_flag = src_res1.second;
@@ -6126,14 +6347,14 @@ namespace convm1 {
 		Rewriter &Rewrite = m_Rewrite;
 
 		auto& trgt_indirection = m_ddecl_indirection2;
-		auto trgt_res1 = state1.m_ddecl_conversion_state_map.insert(*(trgt_indirection.m_ddecl_cptr));
+		auto trgt_res1 = state1.m_ddecl_conversion_state_map.insert(*(trgt_indirection.m_ddecl_cptr), &m_Rewrite, &state1);
 		auto trgt_ddcs_map_iter = trgt_res1.first;
 		auto& trgt_ddcs_ref = (*trgt_ddcs_map_iter).second;
 		bool trgt_update_declaration_flag = trgt_res1.second;
 		auto trgt_indirection_level = trgt_indirection.m_indirection_level;
 
 		auto& src_indirection = m_ddecl_indirection;
-		auto src_res1 = state1.m_ddecl_conversion_state_map.insert(*(src_indirection.m_ddecl_cptr));
+		auto src_res1 = state1.m_ddecl_conversion_state_map.insert(*(src_indirection.m_ddecl_cptr), &m_Rewrite, &state1);
 		auto src_ddcs_map_iter = src_res1.first;
 		auto& src_ddcs_ref = (*src_ddcs_map_iter).second;
 		auto src_indirection_level = src_indirection.m_indirection_level;
@@ -6191,13 +6412,13 @@ namespace convm1 {
 		Rewriter &Rewrite = m_Rewrite;
 
 		auto& lhs_indirection = m_ddecl_indirection2;
-		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(lhs_indirection.m_ddecl_cptr));
+		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(lhs_indirection.m_ddecl_cptr), &m_Rewrite, &state1);
 		auto lhs_ddcs_map_iter = lhs_res1.first;
 		auto& lhs_ddcs_ref = (*lhs_ddcs_map_iter).second;
 		bool lhs_update_declaration_flag = lhs_res1.second;
 
 		auto& rhs_indirection = m_ddecl_indirection;
-		auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(rhs_indirection.m_ddecl_cptr));
+		auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(rhs_indirection.m_ddecl_cptr), &m_Rewrite, &state1);
 		auto rhs_ddcs_map_iter = rhs_res1.first;
 		auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
 		bool rhs_update_declaration_flag = rhs_res1.second;
@@ -6454,7 +6675,7 @@ namespace convm1 {
 			auto BOSR = write_once_source_range(cm1_adj_nice_source_range(BO->getSourceRange(), state1, Rewrite));
 
 			if ((*this).ddecl_indirection_cref().m_ddecl_cptr) {
-				auto res1 = state1.m_ddecl_conversion_state_map.insert(*((*this).ddecl_indirection_cref().m_ddecl_cptr));
+				auto res1 = state1.m_ddecl_conversion_state_map.insert(*((*this).ddecl_indirection_cref().m_ddecl_cptr), &m_Rewrite, &state1);
 				auto ddcs_map_iter = res1.first;
 				auto& ddcs_ref = (*ddcs_map_iter).second;
 				bool update_declaration_flag = res1.second;
@@ -6506,7 +6727,7 @@ namespace convm1 {
 		{
 			auto decl_source_range = cm1_adj_nice_source_range(DD->getSourceRange(), state1, Rewrite);
 
-			auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
+			auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &m_Rewrite, &state1);
 			auto ddcs_map_iter = res1.first;
 			auto& ddcs_ref = (*ddcs_map_iter).second;
 
@@ -6565,7 +6786,7 @@ namespace convm1 {
 	void CAssignmentTargetConstrainsSourceDynamicArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
 
-		auto res1 = state1.m_ddecl_conversion_state_map.insert(*(m_ddecl_indirection2.m_ddecl_cptr));
+		auto res1 = state1.m_ddecl_conversion_state_map.insert(*(m_ddecl_indirection2.m_ddecl_cptr), &m_Rewrite, &state1);
 		auto ddcs_map_iter = res1.first;
 		auto& ddcs_ref = (*ddcs_map_iter).second;
 		bool update_declaration_flag = res1.second;
@@ -6903,7 +7124,7 @@ namespace convm1 {
 
 		const clang::CallExpr* CE = m_CE;
 		if (CE) {
-			auto res1 = state1.m_ddecl_conversion_state_map.insert(*((*this).m_indirect_function_DD));
+			auto res1 = state1.m_ddecl_conversion_state_map.insert(*((*this).m_indirect_function_DD), &m_Rewrite, &state1);
 			auto ddcs_map_iter = res1.first;
 			auto& ddcs_ref = (*ddcs_map_iter).second;
 			//ddcs_ref.current_direct_qtype_ref();
@@ -7005,7 +7226,7 @@ namespace convm1 {
 		auto DD = (*this).m_ddecl_indirection2.m_ddecl_cptr;
 
 		if (DD) {
-			auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
+			auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &m_Rewrite, &state1);
 			auto ddcs_map_iter = res1.first;
 			auto& ddcs_ref = (*ddcs_map_iter).second;
 			//ddcs_ref.current_direct_qtype_ref();
@@ -7211,7 +7432,7 @@ namespace convm1 {
 				bool lhs_is_variously_native_and_dynamic_array = false;
 				bool lhs_update_flag = false;
 				if (lhs_DD != nullptr) {
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*lhs_DD);
+					auto res1 = state1.m_ddecl_conversion_state_map.insert(*lhs_DD, &m_Rewrite, &state1);
 					auto ddcs_map_iter = res1.first;
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 					/* At the moment we only support the case where the value option expressions are
@@ -7253,7 +7474,7 @@ namespace convm1 {
 				bool rhs_is_variously_native_and_dynamic_array = false;
 				bool rhs_update_flag = false;
 				if (rhs_DD != nullptr) {
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*rhs_DD);
+					auto res1 = state1.m_ddecl_conversion_state_map.insert(*rhs_DD, &m_Rewrite, &state1);
 					auto ddcs_map_iter = res1.first;
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
@@ -7354,7 +7575,7 @@ namespace convm1 {
 						auto& cocs_shptr_ref = (*(*cocs_iter).second);
 						cocs_shptr_ref.update_current_text();
 
-						auto res1 = state1.m_ddecl_conversion_state_map.insert(*m_var_DD);
+						auto res1 = state1.m_ddecl_conversion_state_map.insert(*m_var_DD, &m_Rewrite, &state1);
 						auto ddcs_map_iter = res1.first;
 						auto& ddcs_ref = (*ddcs_map_iter).second;
 
@@ -7700,7 +7921,7 @@ namespace convm1 {
 					int q = 5;
 					//return;
 				} else {
-					auto res1 = (*this).m_state1.m_ddecl_conversion_state_map.insert(*DD);
+					auto res1 = (*this).m_state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &m_state1);
 					auto ddcs_map_iter = res1.first;
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 					//bool update_declaration_flag = res1.second;
@@ -7982,7 +8203,7 @@ namespace convm1 {
 
 					auto res2 = infer_array_type_info_from_stmt(*E, "pointer arithmetic", state1, DD);
 
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
+					auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &state1);
 					auto ddcs_map_iter = res1.first;
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 					bool update_declaration_flag = res1.second;
@@ -8224,7 +8445,7 @@ namespace convm1 {
 						}
 					}
 
-					auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*DD);
+					auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &m_state1);
 					auto ddcs_map_iter = res1.first;
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 					bool update_declaration_flag = res1.second;
@@ -8385,7 +8606,7 @@ namespace convm1 {
 								return;
 							}
 
-							auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
+							auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &state1);
 							auto ddcs_map_iter = res1.first;
 							auto& ddcs_ref = (*ddcs_map_iter).second;
 							bool update_declaration_flag = res1.second;
@@ -8619,7 +8840,7 @@ namespace convm1 {
 				if (qtype.getTypePtr()->isPointerType()) {
 					Expr::NullPointerConstantKind kind = RHS->IgnoreParenCasts()->isNullPointerConstant(*(MR.Context), Expr::NullPointerConstantValueDependence());
 					if ((clang::Expr::NPCK_NotNull != kind) && (clang::Expr::NPCK_CXX11_nullptr != kind)) {
-						auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*DD);
+						auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &m_state1);
 						auto ddcs_map_iter = res1.first;
 						auto& ddcs_ref = (*ddcs_map_iter).second;
 
@@ -8657,7 +8878,7 @@ namespace convm1 {
 												return;
 											}
 
-											auto res1 = (*this).m_state1.m_ddecl_conversion_state_map.insert(*DD);
+											auto res1 = (*this).m_state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &m_state1);
 											auto ddcs_map_iter = res1.first;
 											auto& ddcs_ref = (*ddcs_map_iter).second;
 											bool update_declaration_flag = res1.second;
@@ -9502,7 +9723,7 @@ namespace convm1 {
 				std::string var_current_state_str;
 				bool var_has_been_determined_to_be_an_array = false;
 
-				auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*DD);
+				auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &m_state1);
 				auto ddcs_map_iter = res1.first;
 				auto& ddcs_ref = (*ddcs_map_iter).second;
 				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
@@ -9646,7 +9867,7 @@ namespace convm1 {
 				std::string rhs_current_state_str;
 				if (lhs_qualifies || rhs_qualifies) {
 					if (lhs_qualifies && (lhs_res2.ddecl_cptr)) {
-						auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*(lhs_res2.ddecl_cptr));
+						auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*(lhs_res2.ddecl_cptr), &Rewrite, &m_state1);
 						auto ddcs_map_iter = res1.first;
 						auto& ddcs_ref = (*ddcs_map_iter).second;
 						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
@@ -9656,7 +9877,7 @@ namespace convm1 {
 						}
 					}
 					if (rhs_qualifies && (rhs_res2.ddecl_cptr)) {
-						auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*(rhs_res2.ddecl_cptr));
+						auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*(rhs_res2.ddecl_cptr), &Rewrite, &m_state1);
 						auto ddcs_map_iter = res1.first;
 						auto& ddcs_ref = (*ddcs_map_iter).second;
 						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
@@ -10011,7 +10232,7 @@ namespace convm1 {
 			} else {
 				const DeclaratorDecl* lhs_DD = llvm::cast<const clang::DeclaratorDecl>(VLD);
 				if (lhs_DD) {
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*lhs_DD);
+					auto res1 = state1.m_ddecl_conversion_state_map.insert(*lhs_DD, &Rewrite, &state1);
 					auto ddcs_map_iter = res1.first;
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 					bool update_declaration_flag = res1.second;
@@ -10133,7 +10354,7 @@ namespace convm1 {
 				if (!finished_cast_handling_flag) {
 					if (cast_qtype->isPointerType() || (cast_qtype->isReferenceType())) {
 						if (DD && (DD->getType()->isPointerType() || (DD->getType()->isReferenceType()))) {
-							auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
+							auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &state1);
 							auto ddcs_map_iter = res1.first;
 							auto& ddcs_ref = (*ddcs_map_iter).second;
 							bool update_declaration_flag = res1.second;
@@ -10323,7 +10544,7 @@ namespace convm1 {
 								update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 
 								for (auto param_PVD : rhs_FND->parameters()) {
-									auto PVD_res1 = state1.m_ddecl_conversion_state_map.insert(*param_PVD);
+									auto PVD_res1 = state1.m_ddecl_conversion_state_map.insert(*param_PVD, &Rewrite, &state1);
 									auto PVD_ddcs_map_iter = PVD_res1.first;
 									auto& PVD_ddcs_ref = (*PVD_ddcs_map_iter).second;
 									for (size_t j = 0; j < PVD_ddcs_ref.m_indirection_state_stack.size(); j += 1) {
@@ -10347,7 +10568,7 @@ namespace convm1 {
 							update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 
 							for (auto param_PVD : rhs_FND->parameters()) {
-								auto PVD_res1 = state1.m_ddecl_conversion_state_map.insert(*param_PVD);
+								auto PVD_res1 = state1.m_ddecl_conversion_state_map.insert(*param_PVD, &Rewrite, &state1);
 								auto PVD_ddcs_map_iter = PVD_res1.first;
 								auto& PVD_ddcs_ref = (*PVD_ddcs_map_iter).second;
 								for (size_t j = 0; j < PVD_ddcs_ref.m_indirection_state_stack.size(); j += 1) {
@@ -10364,7 +10585,7 @@ namespace convm1 {
 					}
 				}
 				if (true || (CDDeclIndirection::no_indirection == lhs_res2.indirection_level)) {
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*(lhs_res2.ddecl_cptr));
+					auto res1 = state1.m_ddecl_conversion_state_map.insert(*(lhs_res2.ddecl_cptr), &Rewrite, &state1);
 					auto ddcs_map_iter = res1.first;
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 					bool update_declaration_flag = res1.second;
@@ -10372,7 +10593,7 @@ namespace convm1 {
 					auto adjusted_lhs_indirection_level = lhs_res2.indirection_level + lhs_indirection_level_adjustment;
 					auto rhs_indirection_level = rhs_res2.indirection_level;
 					if (adjusted_lhs_indirection_level == rhs_indirection_level) {
-						auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(rhs_res2.ddecl_cptr));
+						auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(rhs_res2.ddecl_cptr), &Rewrite, &state1);
 						auto rhs_ddcs_map_iter = rhs_res1.first;
 						auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
 						bool rhs_update_declaration_flag = rhs_res1.second;
@@ -10634,7 +10855,7 @@ namespace convm1 {
 											objects that are pointer targets (aka "addressable" ojects) to C++ objects with
 											non-trivial copy constructors, we need to cast them back to their original scalar
 											type before passing them to a *printf() function. */
-											auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
+											auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &state1);
 											auto ddcs_map_iter = res1.first;
 											auto& ddcs_ref = (*ddcs_map_iter).second;
 											bool update_declaration_flag = res1.second;
@@ -10895,7 +11116,7 @@ namespace convm1 {
 														does apply the constraint both ways. */
 														std::shared_ptr<CDDeclIndirectionReplacementAction> cr_shptr = std::make_shared<CSameTypeReplacementAction>(Rewrite, MR, *param_VD, *arg_VD2);
 
-														auto res1 = state1.m_ddecl_conversion_state_map.insert(*param_VD);
+														auto res1 = state1.m_ddecl_conversion_state_map.insert(*param_VD, &Rewrite, &state1);
 														auto ddcs_map_iter = res1.first;
 														auto& ddcs_ref = (*ddcs_map_iter).second;
 														bool update_declaration_flag = res1.second;
@@ -11003,7 +11224,7 @@ namespace convm1 {
 							return;
 						}
 
-						auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
+						auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &state1);
 						auto ddcs_map_iter = res1.first;
 						auto& ddcs_ref = (*ddcs_map_iter).second;
 						bool update_declaration_flag = res1.second;
@@ -11220,6 +11441,19 @@ namespace convm1 {
 				if (suppress_check_flag) {
 					return;
 				}
+
+#ifndef NDEBUG
+				auto FND2 = Tget_containing_element_of_type<clang::FunctionDecl>(RS, *(MR.Context));
+				if (FND2 != FND) {
+					auto fname = FND->getNameAsString();
+					if (FND2) {
+						auto fname2 = FND2->getNameAsString();
+						int q = 3;
+					} else {
+						int q = 3;
+					}
+				}
+#endif /*!NDEBUG*/
 
 				auto function_decl1 = FND;
 				auto num_params = FND->getNumParams();
@@ -11757,7 +11991,7 @@ namespace convm1 {
 					const auto qtype = DD->getType();
 					const std::string qtype_str = DD->getType().getAsString();
 
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
+					auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &state1);
 					auto ddcs_map_iter = res1.first;
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 					bool update_declaration_flag = res1.second;
@@ -12591,7 +12825,7 @@ namespace convm1 {
 									{
 										/*  */
 										auto l_DD = field;
-										auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*l_DD);
+										auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*l_DD, &Rewrite, &m_state1);
 										auto ddcs_map_iter = res1.first;
 										auto& ddcs_ref = (*ddcs_map_iter).second;
 
