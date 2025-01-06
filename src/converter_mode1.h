@@ -2530,6 +2530,11 @@ namespace convm1 {
 
 		/* This container holds information about definitions of preprocessor macros. */
 		CPPMacroDefinitions m_pp_macro_definitions;
+
+		/* This value seems to be required for certain AST traversing operations. We put
+		it here so that we don't have to pass it around separately, but we're not totally
+		sure that it will be valid for the entire lifetime of this state. */
+		clang::ASTContext* m_ast_context_ptr = nullptr;
 	};
 
 
@@ -2839,121 +2844,67 @@ namespace convm1 {
 
 		bool is_template_instantiation = false;
 		clang::TemplateParameterList const * TPL = nullptr;
-		auto FND = dyn_cast<const clang::FunctionDecl>(DD);
-		if (!FND) {
-			auto DC = DD->getParentFunctionOrMethod();
-			if (DC) {
-				FND = dyn_cast<const clang::FunctionDecl>(DC);
-			}
-		}
-		if (FND) {
-			IF_DEBUG(std::string fname = FND->getNameAsString();)
-			is_template_instantiation = FND->isTemplateInstantiation();
-			if (is_template_instantiation) {
-				auto FTD = FND->getPrimaryTemplate();
-				if (FTD) {
-					TPL = FTD->getTemplateParameters();
-				} else {
-					int q = 3;
+		const clang::Decl* template_D = nullptr;
+		/* first check if the DD itself is a function template. */
+		template_D = dyn_cast<const clang::FunctionTemplateDecl>(DD);
+		if (!template_D) {
+			if (state1_ptr && state1_ptr->m_ast_context_ptr) {
+				template_D = Tget_containing_template_decl_if_any(DD, *(state1_ptr->m_ast_context_ptr));
+			} else {
+				auto DC = DD->getParentFunctionOrMethod();
+				if (DC) {
+					auto FTD = dyn_cast<const clang::FunctionTemplateDecl>(DC);
+					if (FTD) {
+						template_D = FTD;
+					}
 				}
 			}
 		}
-		/* todo: Check for class/struct templates. (Currently we only check for function 
-		templates.) */
-		if (TPL) {
-			auto SR = state1_ptr ? cm1_adj_nice_source_range(DD->getSourceRange(), *state1_ptr, Rewrite) : cm1_nice_source_range(DD->getSourceRange(), Rewrite);
-			std::string source_text1;
-			if ((SR).isValid() && (((SR).getBegin() < (SR).getEnd()) || ((SR).getBegin() == (SR).getEnd()))) {
-				source_text1 = (Rewrite).getRewrittenText(SR);
+		if (template_D) {
+			auto FTD = dyn_cast<const clang::FunctionTemplateDecl>(template_D);
+			if (FTD) {
+				IF_DEBUG(std::string name = FTD->getNameAsString();)
+				TPL = FTD->getTemplateParameters();
+			} else {
+				auto CTD = dyn_cast<const clang::ClassTemplateDecl>(template_D);
+				IF_DEBUG(std::string name = CTD->getNameAsString();)
+				TPL = CTD->getTemplateParameters();
 			}
-			std::string source_text2;
-			auto maybe_typeLoc = typeLoc_if_available(ddecl);
-			if (maybe_typeLoc.has_value()) {
-				auto typeLoc = maybe_typeLoc.value();
-				const auto l_SR = state1_ptr
-					? cm1_adj_nice_source_range(typeLoc.getSourceRange(), *state1_ptr, Rewrite)
-					: cm1_nice_source_range(typeLoc.getSourceRange(), Rewrite);
-				if ((l_SR).isValid() && (((l_SR).getBegin() < (l_SR).getEnd()) || ((l_SR).getBegin() == (l_SR).getEnd()))) {
-					source_text2 = (Rewrite).getRewrittenText(l_SR);
+			if (TPL) {
+				auto SR = state1_ptr ? cm1_adj_nice_source_range(DD->getSourceRange(), *state1_ptr, Rewrite) : cm1_nice_source_range(DD->getSourceRange(), Rewrite);
+				std::string source_text1;
+				if ((SR).isValid() && (((SR).getBegin() < (SR).getEnd()) || ((SR).getBegin() == (SR).getEnd()))) {
+					source_text1 = (Rewrite).getRewrittenText(SR);
 				}
-			}
-			auto contains_as_token_any_template_param = [](std::string_view source_text, clang::TemplateParameterList const * TPL) {
-				std::optional<clang::NamedDecl const *> maybe_contained_tparam;
-				if (!TPL) { return maybe_contained_tparam; }
-				auto contains_as_token = [](std::string_view source_text, std::string_view token_name) {
-					auto found_range = Parse::find_uncommented_token(token_name, source_text);
-					return bool(source_text.length() > found_range.begin);
+				std::string source_text2;
+				auto maybe_typeLoc = typeLoc_if_available(ddecl);
+				if (maybe_typeLoc.has_value()) {
+					auto typeLoc = maybe_typeLoc.value();
+					const auto l_SR = state1_ptr
+						? cm1_adj_nice_source_range(typeLoc.getSourceRange(), *state1_ptr, Rewrite)
+						: cm1_nice_source_range(typeLoc.getSourceRange(), Rewrite);
+					if ((l_SR).isValid() && (((l_SR).getBegin() < (l_SR).getEnd()) || ((l_SR).getBegin() == (l_SR).getEnd()))) {
+						source_text2 = (Rewrite).getRewrittenText(l_SR);
+					}
+				}
+				auto contains_as_token_any_template_param = [](std::string_view source_text, clang::TemplateParameterList const * TPL) {
+					std::optional<clang::NamedDecl const *> maybe_contained_tparam;
+					if (!TPL) { return maybe_contained_tparam; }
+					auto contains_as_token = [](std::string_view source_text, std::string_view token_name) {
+						auto found_range = Parse::find_uncommented_token(token_name, source_text);
+						return bool(source_text.length() > found_range.begin);
+					};
+
+					for (auto& ND : (*TPL)) {
+						if (contains_as_token(source_text, ND->getNameAsString())) {
+							maybe_contained_tparam = ND;
+							break;
+						}
+					}
+					return maybe_contained_tparam;
 				};
-
-				for (auto& ND : (*TPL)) {
-					if (contains_as_token(source_text, ND->getNameAsString())) {
-						maybe_contained_tparam = ND;
-						break;
-					}
-				}
-				return maybe_contained_tparam;
-			};
-			return contains_as_token_any_template_param(source_text2, TPL);
-		}
-		return {};
-	}
-
-	std::optional<clang::NamedDecl const *> seems_to_be_an_instantiation_of_a_template_parameter(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState* state1_ptr = nullptr) {
-		/* The current implementation is just kind of a placeholder hack where we're just 
-		looking at the (current) source text of the declaration and seeing if it matches
-		any of the names of any of the template parameters (if any). */
-		auto DD = &ddecl;
-
-		bool is_template_instantiation = false;
-		clang::TemplateParameterList const * TPL = nullptr;
-		auto FND = dyn_cast<const clang::FunctionDecl>(DD);
-		if (!FND) {
-			auto DC = DD->getParentFunctionOrMethod();
-			if (DC) {
-				FND = dyn_cast<const clang::FunctionDecl>(DC);
+				return contains_as_token_any_template_param(source_text2, TPL);
 			}
-		}
-		if (FND) {
-			IF_DEBUG(std::string fname = FND->getNameAsString();)
-			is_template_instantiation = FND->isTemplateInstantiation();
-			if (is_template_instantiation) {
-				auto FTD = FND->getPrimaryTemplate();
-				if (FTD) {
-					TPL = FTD->getTemplateParameters();
-				} else {
-					int q = 3;
-				}
-			}
-		}
-		if (TPL) {
-			auto SR = state1_ptr ? cm1_adj_nice_source_range(DD->getSourceRange(), *state1_ptr, Rewrite) : cm1_nice_source_range(DD->getSourceRange(), Rewrite);
-			std::string source_text1;
-			if ((SR).isValid() && (((SR).getBegin() < (SR).getEnd()) || ((SR).getBegin() == (SR).getEnd()))) {
-				source_text1 = (Rewrite).getRewrittenText(SR);
-			}
-			std::string source_text2;
-			auto maybe_typeLoc = typeLoc_if_available(ddecl);
-			if (maybe_typeLoc.has_value()) {
-				auto typeLoc = maybe_typeLoc.value();
-				const auto l_SR = state1_ptr
-					? cm1_adj_nice_source_range(typeLoc.getSourceRange(), *state1_ptr, Rewrite)
-					: cm1_nice_source_range(typeLoc.getSourceRange(), Rewrite);
-				if ((l_SR).isValid() && (((l_SR).getBegin() < (l_SR).getEnd()) || ((l_SR).getBegin() == (l_SR).getEnd()))) {
-					source_text2 = (Rewrite).getRewrittenText(l_SR);
-				}
-			}
-			auto seems_to_be_a_template_param = [](std::string_view source_text, clang::TemplateParameterList const * TPL) {
-				std::optional<clang::NamedDecl const *> maybe_tparam;
-				if (!TPL) { return maybe_tparam; }
-				for (auto& ND : (*TPL)) {
-					if (source_text == ND->getNameAsString()) {
-						maybe_tparam = ND;
-						break;
-					}
-				}
-				return maybe_tparam;
-			};
-			return seems_to_be_a_template_param(source_text2, TPL);
 		}
 		return {};
 	}
@@ -3118,7 +3069,6 @@ namespace convm1 {
 			auto DD = indirection_state_stack.m_maybe_DD.value();
 			if (DD) {
 				maybe_contained_tparam = seems_to_contain_an_instantiation_of_a_template_parameter(*DD, Rewrite, state1_ptr);
-				maybe_tparam = seems_to_be_an_instantiation_of_a_template_parameter(*DD, Rewrite, state1_ptr);
 
 				if ("" == direct_type_original_qtype_str) {
 					auto maybe_typeLoc = typeLoc_if_available(*DD);
@@ -5330,17 +5280,8 @@ namespace convm1 {
 
 				if (SR.getBegin() < return_type_source_range.getBegin()) {
 					/* FunctionDecl::getReturnTypeSourceRange() seems to not include prefix qualifiers, like
-					* "const". So we check if there is a "const" prefix present. */
-
-					//std::string return_type_source_range_str = Rewrite.getRewrittenText(return_type_source_range);
-					//std::string SR_str = Rewrite.getRewrittenText(SR);
-					std::string test_str = Rewrite.getRewrittenText({ SR.getBegin(), return_type_source_range.getBegin().getLocWithOffset(-1) });
-
-					static const std::string const_str = "const";
-					if (string_begins_with(test_str, const_str)) {
-						/* Extend the return_type_source_range to include the "const" prefix. */
-						return_type_source_range.setBegin(SR.getBegin());
-					}
+					* "const". */
+					return_type_source_range = extended_to_include_west_const_if_any(Rewrite, return_type_source_range);
 				}
 
 				auto res = generate_declaration_replacement_code(&ddecl, Rewrite, &state1, state1.m_ddecl_conversion_state_map, options_str);
@@ -13211,6 +13152,10 @@ namespace convm1 {
 
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
+			if (m_state1.m_ast_context_ptr != MR.Context) {
+				m_state1.m_ast_context_ptr = MR.Context;
+			}
+			m_state1.m_ast_context_ptr = MR.Context;
 			if (!m_other_TUs_imported) {
 				if (CTUAnalysis) {
 					import_other_TUs(&s_multi_tu_state, CI, m_current_tu_num);

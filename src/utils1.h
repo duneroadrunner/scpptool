@@ -443,6 +443,30 @@ inline auto get_containing_scope(const NodeT* NodePtr, clang::ASTContext& contex
 	return Tget_containing_element_of_type<clang::CompoundStmt>(NodePtr, context);
 }
 
+template <typename NodeT>
+inline clang::Decl const* Tget_containing_template_decl_if_any(const NodeT* NodePtr, clang::ASTContext& context) {
+	clang::Decl const* retval = nullptr;
+	if (!NodePtr) {
+		return retval;
+	}
+	const auto& parents = context.getParents(*NodePtr);
+	if ( parents.empty() ) {
+		return retval;
+	}
+	IF_DEBUG(const auto num_parents = parents.size();)
+	clang::Decl const* ST = parents[0].template get<clang::FunctionTemplateDecl>();
+	if (!ST) {
+		ST = parents[0].template get<clang::ClassTemplateDecl>();
+	}
+	if (ST) {
+		retval = ST;
+		assert(retval);
+	} else {
+		return Tget_containing_template_decl_if_any(&(parents[0]), context);
+	}
+	return retval;
+}
+
 
 template<typename _Ty>
 class value_ptr1_t : public std::unique_ptr<_Ty> {
