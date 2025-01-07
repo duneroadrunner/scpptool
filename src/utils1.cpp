@@ -208,15 +208,15 @@ CFilteringResult evaluate_filtering_by_filename(const std::string &filename) {
 		retval.m_suppress_errors = true;
 
 		static const std::string msealgorithm_h_str = "msealgorithm.h";
-		if (!(0 == filename.compare(0, msealgorithm_h_str.size(), msealgorithm_h_str))) {
+		if (msealgorithm_h_str == filename) {
 			/* Evaluation of lifetimes inside the msealgorithm.h file is sometimes necessary because some of its
 			elements call and pass arguments to user supplied callable objects. So far this doesn't seem to be
 			the case for the other mse*.h files, but that could change in the future. */
-			retval.m_do_not_process = true;
-		} else {
 			//retval.m_do_not_process = true;
 			retval.m_suppress_errors = false;
 			int q = 5;
+		} else {
+			retval.m_do_not_process = true;
 		}
 	} else if (built_in_str == filename) {
 		retval.m_do_not_process = true;
@@ -238,19 +238,8 @@ CFilteringResultByLocation evaluate_filtering_by_location(const SourceManager &S
 	if (tl_maybe_cached_result.has_value() && (SL == tl_maybe_cached_result.value().m_SL)) {
 		return tl_maybe_cached_result.value();
 	}
-
-	if (!(SL.isValid())) {
-		retval.m_suppress_errors = true;
-	} else if (SM.isInSystemHeader(SL)) {
-		retval.m_do_not_process = true;
-		retval.m_suppress_errors = true;
-	/*
-	} else if (MainFileOnly && (!(SM.isInMainFile(SL)))) {
-		retval.m_do_not_process = true;
-	*/
-	} else {
-		bool filename_is_invalid = false;
-		auto full_path_name = std::string(SM.getBufferName(SL, &filename_is_invalid));
+	auto get_full_path_name = [&SM](clang::SourceLocation const& SL, bool* filename_is_invalid_ptr) {
+		auto full_path_name = std::string(SM.getBufferName(SL, filename_is_invalid_ptr));
 		if ("" == full_path_name) {
 			full_path_name = std::string(SL.printToString(SM));
 
@@ -269,23 +258,51 @@ CFilteringResultByLocation evaluate_filtering_by_location(const SourceManager &S
 				int q = 7;
 			}
 		}
-		const auto lib_clang_pos = full_path_name.find("/lib/clang/");
-		if (std::string::npos != lib_clang_pos) {
-			retval.m_do_not_process = true;
-			retval.m_suppress_errors = true;
-		} else {
-			std::string filename = full_path_name;
-			const auto last_slash_pos = full_path_name.find_last_of('/');
-			if (std::string::npos != last_slash_pos) {
-				if (last_slash_pos + 1 < full_path_name.size()) {
-					filename = full_path_name.substr(last_slash_pos+1);
-				} else {
-					filename = "";
-				}
+		return full_path_name;
+	};
+	auto get_filename = [](std::string const& full_path_name) {
+		std::string filename = full_path_name;
+		const auto last_slash_pos = full_path_name.find_last_of('/');
+		if (std::string::npos != last_slash_pos) {
+			if (last_slash_pos + 1 < full_path_name.size()) {
+				filename = full_path_name.substr(last_slash_pos+1);
+			} else {
+				filename = "";
 			}
-			auto res1 = evaluate_filtering_by_filename(filename);
-			retval.m_do_not_process = res1.m_do_not_process;
-			retval.m_suppress_errors = res1.m_suppress_errors;
+		}
+		return filename;
+	};
+
+	if (!(SL.isValid())) {
+		retval.m_suppress_errors = true;
+	} else {
+		bool filename_is_invalid = false;
+		auto full_path_name = get_full_path_name(SL, &filename_is_invalid);
+		if (SM.isInSystemHeader(SL)) {
+			static const std::string algorithm_str = "algorithm";
+			std::string filename/* = get_filename(full_path_name)*/;
+			if (false && (algorithm_str == filename)) {
+				retval.m_do_not_process = false;
+				retval.m_suppress_errors = false;
+			} else {
+				retval.m_do_not_process = true;
+				retval.m_suppress_errors = true;
+			}
+		/*
+		} else if (MainFileOnly && (!(SM.isInMainFile(SL)))) {
+			retval.m_do_not_process = true;
+		*/
+		} else {
+			const auto lib_clang_pos = full_path_name.find("/lib/clang/");
+			if (std::string::npos != lib_clang_pos) {
+				retval.m_do_not_process = true;
+				retval.m_suppress_errors = true;
+			} else {
+				std::string filename = get_filename(full_path_name);
+				auto res1 = evaluate_filtering_by_filename(filename);
+				retval.m_do_not_process = res1.m_do_not_process;
+				retval.m_suppress_errors = res1.m_suppress_errors;
+			}
 		}
 	}
 	tl_maybe_cached_result = retval;

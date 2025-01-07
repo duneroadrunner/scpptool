@@ -103,8 +103,8 @@
                 }
 
 #define MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, retval) \
-	if (qtype.isNull() || qtype->isUndeducedType()/* || ("auto" == qtype.getAsString()) || ("const auto" == qtype.getAsString()) \
-	 || (string_begins_with(qtype.getAsString(), "auto ")) || (string_begins_with(qtype.getAsString(), "const auto "))*/) { \
+	if (qtype.isNull() || qtype->isUndeducedType() || ("auto" == qtype.getAsString()) || ("const auto" == qtype.getAsString()) \
+	 || (string_begins_with(qtype.getAsString(), "auto ")) || (string_begins_with(qtype.getAsString(), "const auto "))) { \
 		/* Cannot properly evaluate (presumably) because this is a template definition. Proper \
 		evaluation should occur in any instantiation of the template. */ \
 		return retval; \
