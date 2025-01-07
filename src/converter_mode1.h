@@ -5451,16 +5451,7 @@ namespace convm1 {
 					}
 				}
 
-				bool is_dependent_type = false;
-				auto DD_qtype = DD->getType();
-				if ((!DD_qtype.isNull()) || (!DD_qtype->isUndeducedType())) {
-					if (DD_qtype->isInstantiationDependentType()) {
-						is_dependent_type = true;
-					}
-				}
-				auto maybe_contained_instantiated_tparam = seems_to_contain_an_instantiation_of_a_template_parameter(ddecl, Rewrite, &state1);
-				bool seems_to_involve_a_template_param_originally = (is_dependent_type || bool(maybe_contained_instantiated_tparam));
-				if ((!seems_to_involve_a_template_param_originally) && (true || (2 <= ddecls.size()) || UsesPointerTypedef(DD->getType()) || is_macro_instantiation(DD->getSourceRange(), Rewrite)
+				if ((true || (2 <= ddecls.size()) || UsesPointerTypedef(DD->getType()) || is_macro_instantiation(DD->getSourceRange(), Rewrite)
 					|| IsUnwieldyDecl(*DD) || named_record_type_defined_in_declaration || ContainsFunctionPointerOfConcernDecl(*DD))) {
 
 					if (named_record_type_defined_in_declaration) {
@@ -7248,6 +7239,7 @@ namespace convm1 {
 				std::string cast_preconversion_expression_extra_prefix;
 				std::string cast_preconversion_expression_extra_suffix;
 				bool preconversion_expression_is_void_star = false;
+				bool converted_expression_is_void_star = false;
 				if (CSCE->getType()->isPointerType() && CSCE->getSubExpr()->getType()->isPointerType()) {
 					const std::string og_converted_pointee_qtype_str = CSCE->getType()->getPointeeType().getAsString();
 					const std::string og_preconversion_pointee_qtype_str = CSCE->getSubExpr()->getType()->getPointeeType().getAsString();
@@ -7256,6 +7248,7 @@ namespace convm1 {
 					const bool og_preconversion_is_char_star = ("char" == og_preconversion_pointee_qtype_str) || ("const char" == og_preconversion_pointee_qtype_str);
 					const bool og_preconversion_is_unsigned_char_star = ("unsigned char" == og_preconversion_pointee_qtype_str) || ("const unsigned char" == og_preconversion_pointee_qtype_str);
 					preconversion_expression_is_void_star = ("void" == og_preconversion_pointee_qtype_str) || ("const void" == og_preconversion_pointee_qtype_str);
+					converted_expression_is_void_star = ("void" == og_converted_pointee_qtype_str) || ("const void" == og_converted_pointee_qtype_str);
 
 					/* Currently, we leave 'char*'s as raw pointers, so (C-style) casting between them
 					and pointers that have been converted to (safe) pointer/iterator objects might not
@@ -7293,7 +7286,7 @@ namespace convm1 {
 					}
 				}
 				if (whole_cast_expression_replacement_text.empty()) {
-					if (preconversion_expression_is_void_star) {
+					if (preconversion_expression_is_void_star || converted_expression_is_void_star) {
 						if ("Dual" == ConvertMode) {
 							whole_cast_expression_replacement_text = "MSE_LH_CAST("
 								+ replacement_qtype_str + ", ";
@@ -9928,6 +9921,22 @@ namespace convm1 {
 		return false;
 	}
 
+	inline bool contains_explicit_pointer_cast_subexpression(const clang::Expr& EX1_cref) {
+		auto expl_cast_exprs = Tget_contained_elements_of_type<clang::ExplicitCastExpr>(EX1_cref);
+		for (auto& ECE : expl_cast_exprs) {
+			assert(ECE);
+			if (&EX1_cref == ECE) {
+				int q = 5;
+			}
+			auto ece_QT = ECE->getType();
+			IF_DEBUG(std::string ece_QT_str = ece_QT.getAsString();)
+			if (ece_QT->isPointerType()) {
+				return true;
+			};
+		}
+		return false;
+	}
+
 	inline static void handle_c_style_cast_without_context(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
 		, const clang::CStyleCastExpr* CSCE) {
 
@@ -9994,7 +10003,9 @@ namespace convm1 {
 						set_xscope_elegibility_of_outermost_indirection_if_any(false, maybe_DD.value(), state1);
 					}
 
-					if (true || ("char" == non_const_csce_pointee_QT.getAsString())) {
+					auto b1 = contains_explicit_pointer_cast_subexpression(*precasted_expr_ptr);
+
+					if ((!b1) || ("char" == non_const_csce_pointee_QT.getAsString())) {
 						auto res = generate_c_style_cast_replacement_code(Rewrite, CSCE);
 						CExprTextYieldingReplacementAction(Rewrite, MR, CSCE, res.m_whole_cast_expression_replacement_text).do_replacement(state1);
 					} else {
@@ -10098,7 +10109,9 @@ namespace convm1 {
 						set_xscope_elegibility_of_outermost_indirection_if_any(false, maybe_DD.value(), state1);
 					}
 
-					if (true || CXXSCE->getSourceRange().getBegin().isMacroID()) {
+					auto b1 = contains_explicit_pointer_cast_subexpression(*precasted_expr_ptr);
+
+					if ((!b1) || CXXSCE->getSourceRange().getBegin().isMacroID()) {
 						IF_DEBUG(std::string og_whole_expression_str = Rewrite.getRewrittenText(CXXSCESR);)
 						std::string og_precasted_expr_str = Rewrite.getRewrittenText(precasted_expr_SR);
 						std::string new_whole_expression_str = std::string(CXXSCE->getCastName()) + "<" + generate_qtype_replacement_code(csce_QT, Rewrite) + ">("
