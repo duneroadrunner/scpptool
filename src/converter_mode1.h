@@ -12226,6 +12226,51 @@ namespace convm1 {
 							ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
 							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FND, CDDeclIndirection::no_indirection));
 						}
+						if (FND->hasAttrs()) {
+							auto vec = FND->getAttrs();
+							struct CAttrInfo {
+								CAttrInfo(std::string_view text, clang::Attr const * attr_ptr, bool is_a_lifetime_note = false)
+									: m_text(text), m_attr_ptr(attr_ptr), m_is_a_format_attribute(is_a_lifetime_note) {}
+								std::string m_text;
+								clang::Attr const * m_attr_ptr = nullptr;
+								bool m_is_a_format_attribute = false;
+							};
+							std::vector<CAttrInfo> attr_infos;
+							for (const auto& attr : vec) {
+								auto attr_SR = attr->getRange();
+								std::string raw_pretty_str;
+								llvm::raw_string_ostream pretty_stream(raw_pretty_str);
+								attr->printPretty(pretty_stream, clang::PrintingPolicy(clang::LangOptions()));
+								pretty_stream.flush();
+
+								std::string& pretty_str = raw_pretty_str;
+								auto first_format_range = Parse::find_token_sequence({ "format", "(" }, raw_pretty_str);
+								if (raw_pretty_str.length() <= first_format_range.begin) {
+									continue;
+								}
+								attr_infos.push_back( CAttrInfo{ pretty_str, attr, true/*m_is_a_format_attribute*/ } );
+							}
+							if (1 <= attr_infos.size()) {
+								auto& attr_info = attr_infos.front();
+								if (attr_info.m_attr_ptr) {
+									auto attr_SR = cm1_adj_nice_source_range(attr_info.m_attr_ptr->getRange(), state1, Rewrite);
+									std::string text1 = Rewrite.getRewrittenText(attr_SR);
+									auto FA = dyn_cast<const clang::FormatAttr>(attr_info.m_attr_ptr);
+									if (FA) {
+										/* The gnu "format" attribute applies to, and requires, `char *` strings. As 
+										we replace those, we also need to get rid of any gnu "format" attributes. */
+										auto fattr_SR = cm1_adj_nice_source_range(FA->getRange(), state1, Rewrite);
+										std::string text2 = Rewrite.getRewrittenText(fattr_SR);
+										/* Since it's not immediately obvious hoe to get the SourceRange of the 
+										entire attribute, we'll just replace the `format()` part with the mostly
+										innocuous `unused` attribute. */
+										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, fattr_SR, "unused");
+									} else {
+										int q = 3;
+									}
+								}
+							}
+						}
 					}
 
 					const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
