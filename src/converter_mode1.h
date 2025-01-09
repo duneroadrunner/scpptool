@@ -9409,7 +9409,7 @@ namespace convm1 {
 						auto callee_raw_SR = CE->getCallee()->getSourceRange();
 						if (callee_raw_SR.getBegin().isMacroID()) {
 							auto& SM = Rewrite.getSourceMgr();
-							auto callee_spelling_SR = clang::SourceRange{ SM.getSpellingLoc(callee_raw_SR.getBegin()), Rewrite.getSourceMgr().getSpellingLoc(callee_raw_SR.getEnd()) };
+							auto callee_spelling_SR = write_once_source_range(clang::SourceRange{ SM.getSpellingLoc(callee_raw_SR.getBegin()), Rewrite.getSourceMgr().getSpellingLoc(callee_raw_SR.getEnd()) });
 							std::string callee_spelling_text = Rewrite.getRewrittenText(callee_spelling_SR);
 							if ("memset" == callee_spelling_text) {
 								callee_SR = callee_spelling_SR;
