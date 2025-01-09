@@ -616,6 +616,9 @@ namespace convm1 {
 	nested "indirect types" (like (native) pointers and/or arrays) and the ultimate direct type.
 	So for example, the type 'int*[3]' would be an array (indirect type) of pointers (indirect
 	type) to ints (direct type).
+	The first element in the stack (with index 0) corresponds to the "outermost" indirection. So 
+	for an array of pointers, index 0 corresponds to the array and index 1 corresponds to the 
+	pointer.
 	Note that currently here we're only supporting indirect types whose dereference operator(s)
 	return exactly one type, which is probably sufficient for C code but not C++ code. For example,
 	tuples could also be considered indirect types with the corresponding 'std::get<>()' functions
@@ -804,7 +807,13 @@ namespace convm1 {
 					}
 				}
 
-				stack.push_back(CIndirectionState(l_maybe_typeLoc, "native array", "native array", size_text));
+				if ("" == size_text) {
+					/* A array type without a size argument is basically just a pointer, right? But we'll at least assume
+					that it is intended to point to (or into) some kind of an array. */
+					stack.push_back(CIndirectionState(l_maybe_typeLoc, "native pointer", "inferred array", size_text));
+				} else {
+					stack.push_back(CIndirectionState(l_maybe_typeLoc, "native array", "native array", size_text));
+				}
 
 				return populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
 			} else {
@@ -7859,9 +7868,9 @@ namespace convm1 {
 					auto ddcs_map_iter = res1.first;
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 					//bool update_declaration_flag = res1.second;
+					auto qtype = DD->getType();
 
 					if (AddressableVars) {
-						auto qtype = DD->getType();
 						IF_DEBUG(std::string qtype_str = DD->getType().getAsString();)
 						if (qtype->isEnumeralType() || qtype->isPointerType() || qtype->isArrayType()) {
 						} else {
@@ -7973,6 +7982,24 @@ namespace convm1 {
 								/* This seems to be some kind of malloc/realloc function. These case should not be
 								* handled here. They are handled elsewhere. */
 								return;
+							}
+						}
+
+						auto VD = dyn_cast<const clang::VarDecl>(DD);
+						if (VD && (qtype->isArrayType()) && (1 <= ddcs_ref.m_indirection_state_stack.size())) {
+							auto& outermost_indirection_state = ddcs_ref.m_indirection_state_stack.at(0);
+							if (VD->hasInit() && ("" == outermost_indirection_state.m_array_size_expr) && ("inferred array" == ddcs_ref.m_indirection_state_stack.at(0).current_species())) {
+								/* So this appears to be a native array declaration without an explicit array size argument, but with
+								an initialization expression from which the array size could presumably be inferred. */
+								/* So we're not going to attempt to infer the number of elements (which would be necessary in order to
+								convert it to an `mse::lh::TNativeArrayReplacement<>`). We'll just convert it as if it was a dynamic 
+								array allocated on the heap, which should result in conversion to an `mse::lh::TStrongVectorIterator<>`, 
+								which supports initialization by initializer list. */
+
+								ddcs_ref.set_indirection_current(0, "dynamic array");
+								//retval.update_declaration_flag = true;
+								m_state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(m_state1, CDDeclIndirection(*DD, 0));
+								update_declaration(*DD, Rewrite, m_state1);
 							}
 						}
 
@@ -12253,13 +12280,13 @@ namespace convm1 {
 							if (1 <= attr_infos.size()) {
 								auto& attr_info = attr_infos.front();
 								if (attr_info.m_attr_ptr) {
-									auto attr_SR = cm1_adj_nice_source_range(attr_info.m_attr_ptr->getRange(), state1, Rewrite);
+									auto attr_SR = write_once_source_range(cm1_adj_nice_source_range(attr_info.m_attr_ptr->getRange(), state1, Rewrite));
 									std::string text1 = Rewrite.getRewrittenText(attr_SR);
 									auto FA = dyn_cast<const clang::FormatAttr>(attr_info.m_attr_ptr);
 									if (FA) {
 										/* The gnu "format" attribute applies to, and requires, `char *` strings. As 
 										we replace those, we also need to get rid of any gnu "format" attributes. */
-										auto fattr_SR = cm1_adj_nice_source_range(FA->getRange(), state1, Rewrite);
+										auto fattr_SR = write_once_source_range(cm1_adj_nice_source_range(FA->getRange(), state1, Rewrite));
 										std::string text2 = Rewrite.getRewrittenText(fattr_SR);
 										/* Since it's not immediately obvious hoe to get the SourceRange of the 
 										entire attribute, we'll just replace the `format()` part with the mostly
