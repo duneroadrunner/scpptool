@@ -2654,6 +2654,12 @@ namespace convm1 {
 					int q = 5;
 				}
 
+				if (1 <= nested_macro_ranges.size()) {
+					returnSR = SPSR;
+				} else {
+					int q = 3;
+				}
+
 				int nesting_level = 0;
 
 				/* Here we're going to find (well, estimate/guess) the "outermost" macro that
@@ -2721,7 +2727,7 @@ namespace convm1 {
 					++nesting_level;
 				}
 				DEBUG_SOURCE_TEXT_STR(debug_macro_source_text, returnSR, Rewrite);
-				return SPSR;
+				return returnSR;
 			}
 		}
 		return returnSR;
@@ -6702,7 +6708,7 @@ namespace convm1 {
 
 		if ((CE != nullptr) && (DD != nullptr))
 		{
-			auto CESR = cm1_adj_nice_source_range(CE->getSourceRange(), state1, Rewrite);
+			auto CESR = write_once_source_range(cm1_adj_nice_source_range(CE->getSourceRange(), state1, Rewrite));
 			auto decl_source_range = cm1_adj_nice_source_range(DD->getSourceRange(), state1, Rewrite);
 			if (!decl_source_range.isValid()) {
 				return;
@@ -6755,7 +6761,7 @@ namespace convm1 {
 
 		if (CE != nullptr)
 		{
-			auto CESR = cm1_adj_nice_source_range(CE->getSourceRange(), state1, Rewrite);
+			auto CESR = write_once_source_range(cm1_adj_nice_source_range(CE->getSourceRange(), state1, Rewrite));
 
 			if (ConvertToSCPP && (CESR.isValid())) {
 				state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, CESR, m_ce_replacement_code);
@@ -6806,7 +6812,7 @@ namespace convm1 {
 		const clang::UnaryOperator* UO = m_addrofexpr_cptr;
 		const ArraySubscriptExpr* ASE = m_arraysubscriptexpr_cptr;
 		if (UO && ASE) {
-			auto UOSR = cm1_adj_nice_source_range(UO->getSourceRange(), state1, (*this).m_Rewrite);
+			auto UOSR = write_once_source_range(cm1_adj_nice_source_range(UO->getSourceRange(), state1, (*this).m_Rewrite));
 			auto ase_SR = cm1_adj_nice_source_range(ASE->getSourceRange(), state1, (*this).m_Rewrite);
 			if ((UOSR.isValid()) && (ase_SR.isValid())) {
 				auto uocs_iter = state1.m_expr_conversion_state_map.find(UO);
@@ -6854,7 +6860,7 @@ namespace convm1 {
 		const clang::UnaryOperator* UO = m_addrofexpr_cptr;
 		const clang::CXXOperatorCallExpr* ASE = m_arraysubscriptexpr_cptr;
 		if (UO && ASE) {
-			auto UOSR = cm1_adj_nice_source_range(UO->getSourceRange(), state1, (*this).m_Rewrite);
+			auto UOSR = write_once_source_range(cm1_adj_nice_source_range(UO->getSourceRange(), state1, (*this).m_Rewrite));
 			auto ase_SR = cm1_adj_nice_source_range(ASE->getSourceRange(), state1, (*this).m_Rewrite);
 			if ((UOSR.isValid()) && (ase_SR.isValid())) {
 				auto uocs_iter = state1.m_expr_conversion_state_map.find(UO);
@@ -6939,7 +6945,7 @@ namespace convm1 {
 		const clang::UnaryOperator* UO = m_addrofexpr_cptr;
 		const ArraySubscriptExpr* ASE = m_arraysubscriptexpr_cptr;
 		if (false && UO && ASE) {
-			auto UOSR = cm1_adj_nice_source_range(UO->getSourceRange(), state1, (*this).m_Rewrite);
+			auto UOSR = write_once_source_range(cm1_adj_nice_source_range(UO->getSourceRange(), state1, (*this).m_Rewrite));
 			auto ase_SR = cm1_adj_nice_source_range(ASE->getSourceRange(), state1, (*this).m_Rewrite);
 			if ((UOSR.isValid()) && (ase_SR.isValid())) {
 				auto uocs_iter = state1.m_expr_conversion_state_map.find(UO);
@@ -6987,7 +6993,7 @@ namespace convm1 {
 		const clang::UnaryOperator* UO = m_addrofexpr_cptr;
 		const clang::CXXOperatorCallExpr* ASE = m_arraysubscriptexpr_cptr;
 		if (UO && ASE) {
-			auto UOSR = cm1_adj_nice_source_range(UO->getSourceRange(), state1, (*this).m_Rewrite);
+			auto UOSR = write_once_source_range(cm1_adj_nice_source_range(UO->getSourceRange(), state1, (*this).m_Rewrite));
 			auto ase_SR = cm1_adj_nice_source_range(ASE->getSourceRange(), state1, (*this).m_Rewrite);
 			if ((UOSR.isValid()) && (ase_SR.isValid())) {
 				auto uocs_iter = state1.m_expr_conversion_state_map.find(UO);
@@ -7928,7 +7934,7 @@ namespace convm1 {
 									std::string rhs_ddecl_current_direct_qtype_str = (*rhs_res2.ddecl_conversion_state_ptr).current_direct_qtype_str();
 									auto casted_expr_SR = cm1_adj_nice_source_range(casted_expr_ptr->getSourceRange(), m_state1, Rewrite);
 									auto CCESR = cm1_adj_nice_source_range(CCE->getSourceRange(), m_state1, Rewrite);
-									auto cast_operation_SR = clang::SourceRange(CCE->getLParenLoc(), CCE->getRParenLoc());
+									auto cast_operation_SR = write_once_source_range(clang::SourceRange(CCE->getLParenLoc(), CCE->getRParenLoc()));
 
 									if (cast_operation_SR.isValid()
 											&& (("void" == rhs_ddecl_current_direct_qtype_str) || ("const void" == rhs_ddecl_current_direct_qtype_str))) {
@@ -8647,7 +8653,7 @@ namespace convm1 {
 						} else {
 							std::string replacement_code_str;
 
-							auto CE_source_range = cm1_adj_nice_source_range(CE->getSourceRange(), state1, Rewrite);
+							auto CE_source_range = write_once_source_range(cm1_adj_nice_source_range(CE->getSourceRange(), state1, Rewrite));
 							if (!CE_source_range.isValid()) {
 								return;
 							}
@@ -8979,7 +8985,7 @@ namespace convm1 {
 									auto callee_raw_SR = CE->getCallee()->getSourceRange();
 									if (callee_raw_SR.getBegin().isMacroID()) {
 										auto& SM = Rewrite.getSourceMgr();
-										auto callee_spelling_SR = clang::SourceRange{ SM.getSpellingLoc(callee_raw_SR.getBegin()), Rewrite.getSourceMgr().getSpellingLoc(callee_raw_SR.getEnd()) };
+										auto callee_spelling_SR = write_once_source_range(clang::SourceRange{ SM.getSpellingLoc(callee_raw_SR.getBegin()), Rewrite.getSourceMgr().getSpellingLoc(callee_raw_SR.getEnd()) });
 										std::string callee_spelling_text = Rewrite.getRewrittenText(callee_spelling_SR);
 										auto lc_function_name = tolowerstr(callee_spelling_text);
 										bool ends_with_free = ((lc_function_name.size() >= free_str.size())
@@ -9535,7 +9541,7 @@ namespace convm1 {
 						auto callee_raw_SR = CE->getCallee()->getSourceRange();
 						if (callee_raw_SR.getBegin().isMacroID()) {
 							auto& SM = Rewrite.getSourceMgr();
-							auto callee_spelling_SR = clang::SourceRange{ SM.getSpellingLoc(callee_raw_SR.getBegin()), Rewrite.getSourceMgr().getSpellingLoc(callee_raw_SR.getEnd()) };
+							auto callee_spelling_SR = write_once_source_range(clang::SourceRange{ SM.getSpellingLoc(callee_raw_SR.getBegin()), Rewrite.getSourceMgr().getSpellingLoc(callee_raw_SR.getEnd()) });
 							std::string callee_spelling_text = Rewrite.getRewrittenText(callee_spelling_SR);
 							if ("memcpy" == callee_spelling_text) {
 								callee_SR = callee_spelling_SR;
@@ -10697,6 +10703,7 @@ namespace convm1 {
 
 					auto function_decl1_SR = cm1_adj_nice_source_range(function_decl1->getSourceRange(), state1, Rewrite);
 					bool FD_is_non_modifiable = filtered_out_by_location(MR, function_decl1_SR.getBegin());
+					bool function_is_variadic = function_decl1->isVariadic();
 
 					static const std::string free_str = "free";
 					bool ends_with_free = ((lc_function_name.size() >= free_str.size())
@@ -10724,7 +10731,7 @@ namespace convm1 {
 					if (ends_with_free || seems_to_be_some_kind_of_malloc_or_realloc
 						|| is_memcpy || is_memcmp || is_memset || begins_with__builtin_) {
 						return;
-					} else if (FD_is_non_modifiable) {
+					} else if (FD_is_non_modifiable || function_is_variadic) {
 						const auto num_args = CE->getNumArgs();
 						const auto num_params = function_decl1->getNumParams();
 						size_t arg_index = 0;
@@ -10780,11 +10787,13 @@ namespace convm1 {
 							int q = 5;
 						}
 
-						if (FD_is_non_modifiable && string_ends_with(function_name, "printf")) {
-							/* Seems to be a *printf() function. The variadic parameters still need to be
-							processed. Basically, ensuring that any (safe) pointer arguments are (unsafely)
-							converted to raw pointers before being passed to the function. Presumably,
-							pointers passed to printf() would generally be "(const) char *"s. */
+						if (/*(FD_is_non_modifiable && string_ends_with(function_name, "printf")) || */
+							function_is_variadic) {
+
+							/* Apparently you can't pass non-trivial types to variadic functions (like printf())? The variadic 
+							parameters still need to be processed. Basically, ensuring that any (safe) pointer arguments are 
+							(unsafely) converted to raw pointers before being passed to the function. Presumably, pointers 
+							passed to printf() would generally be "(const) char *"s. */
 							for (; (num_args > arg_index); arg_index += 1) {
 								auto arg_EX = CE->getArg(arg_index);
 
@@ -12285,13 +12294,14 @@ namespace convm1 {
 									auto FA = dyn_cast<const clang::FormatAttr>(attr_info.m_attr_ptr);
 									if (FA) {
 										/* The gnu "format" attribute applies to, and requires, `char *` strings. As 
-										we replace those, we also need to get rid of any gnu "format" attributes. */
+										we replace those, we also need to get rid of ny gnu "format" attributes. */
 										auto fattr_SR = write_once_source_range(cm1_adj_nice_source_range(FA->getRange(), state1, Rewrite));
-										std::string text2 = Rewrite.getRewrittenText(fattr_SR);
-										/* Since it's not immediately obvious hoe to get the SourceRange of the 
-										entire attribute, we'll just replace the `format()` part with the mostly
-										innocuous `unused` attribute. */
-										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, fattr_SR, "unused");
+										std::string format_attr_text = Rewrite.getRewrittenText(fattr_SR);
+										std::string blank_text = format_attr_text;
+										for (auto& ch : blank_text) {
+											ch = ' ';
+										}
+										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, fattr_SR, blank_text);
 									} else {
 										int q = 3;
 									}
