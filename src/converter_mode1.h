@@ -2671,6 +2671,11 @@ namespace convm1 {
 						std::string macro_name;
 						if (adjusted_macro_SPSR.isValid() && ((adjusted_macro_SPSR.getBegin() < adjusted_macro_SPSR.getEnd()) || (adjusted_macro_SPSR.getBegin() == adjusted_macro_SPSR.getEnd()))) {
 							macro_name = Rewrite.getRewrittenText(adjusted_macro_SPSR);
+							auto l_paren_index = macro_name.find("(");
+							if (std::string::npos != l_paren_index) {
+								macro_name = macro_name.substr(0, l_paren_index);
+								rtrim(macro_name);
+							}
 						}
 
 						/* If the macro is a function macro, then adjusted_macro_SPSR would not
@@ -12282,26 +12287,28 @@ namespace convm1 {
 								std::string& pretty_str = raw_pretty_str;
 								auto first_format_range = Parse::find_token_sequence({ "format", "(" }, raw_pretty_str);
 								if (raw_pretty_str.length() <= first_format_range.begin) {
-									continue;
+									//continue;
 								}
 								attr_infos.push_back( CAttrInfo{ pretty_str, attr, true/*m_is_a_format_attribute*/ } );
 							}
-							if (1 <= attr_infos.size()) {
-								auto& attr_info = attr_infos.front();
+							for (const auto& attr_info : attr_infos) {
 								if (attr_info.m_attr_ptr) {
 									auto attr_SR = write_once_source_range(cm1_adj_nice_source_range(attr_info.m_attr_ptr->getRange(), state1, Rewrite));
 									std::string text1 = Rewrite.getRewrittenText(attr_SR);
 									auto FA = dyn_cast<const clang::FormatAttr>(attr_info.m_attr_ptr);
-									if (FA) {
-										/* The gnu "format" attribute applies to, and requires, `char *` strings. As 
-										we replace those, we also need to get rid of ny gnu "format" attributes. */
-										auto fattr_SR = write_once_source_range(cm1_adj_nice_source_range(FA->getRange(), state1, Rewrite));
-										std::string format_attr_text = Rewrite.getRewrittenText(fattr_SR);
-										std::string blank_text = format_attr_text;
+									auto RA = dyn_cast<const clang::RestrictAttr>(attr_info.m_attr_ptr);
+									auto AA = dyn_cast<const clang::AllocSizeAttr>(attr_info.m_attr_ptr);
+									auto RNNA = dyn_cast<const clang::ReturnsNonNullAttr>(attr_info.m_attr_ptr);
+									if (FA || RA || AA || RNNA) {
+										/* These (function) attributes apply to C elements that we replace. So we need to 
+										get rid of these attributes as well. */
+										//auto raw_fattr_SR = FA ? FA->getRange() : (RA ? RA->getRange() : AA->getRange());
+										std::string attr_text = Rewrite.getRewrittenText(attr_SR);
+										std::string blank_text = attr_text;
 										for (auto& ch : blank_text) {
 											ch = ' ';
 										}
-										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, fattr_SR, blank_text);
+										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, attr_SR, blank_text);
 									} else {
 										int q = 3;
 									}
