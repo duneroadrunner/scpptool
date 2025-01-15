@@ -186,6 +186,11 @@ bool errors_suppressed_by_location(const clang::SourceManager &SM, clang::Source
 bool errors_suppressed_by_location(clang::ASTContext const& Ctx, clang::SourceLocation SL);
 bool errors_suppressed_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceLocation SL);
 
+// trim from start (in place)
+void ltrim(std::string &s);
+// trim from end (in place)
+void rtrim(std::string &s);
+
 std::string with_whitespace_removed(const std::string_view str);
 
 std::string with_newlines_removed(const std::string_view str);

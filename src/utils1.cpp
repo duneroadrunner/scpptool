@@ -339,6 +339,18 @@ bool errors_suppressed_by_location(const ast_matchers::MatchFinder::MatchResult 
   return errors_suppressed_by_location(SM, SL);
 }
 
+// trim from start (in place)
+void ltrim(std::string &s) {
+    s.erase(s.begin(), std::find_if(s.begin(), s.end(),
+            std::not1(std::ptr_fun<int, int>(std::isspace))));
+}
+
+// trim from end (in place)
+void rtrim(std::string &s) {
+    s.erase(std::find_if(s.rbegin(), s.rend(),
+            std::not1(std::ptr_fun<int, int>(std::isspace))).base(), s.end());
+}
+
 std::string with_whitespace_removed(const std::string_view str) {
 	std::string retval;
 	retval = str;
