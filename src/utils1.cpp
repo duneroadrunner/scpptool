@@ -341,14 +341,16 @@ bool errors_suppressed_by_location(const ast_matchers::MatchFinder::MatchResult 
 
 // trim from start (in place)
 void ltrim(std::string &s) {
+	auto isnotspace = [](int ch) { return !std::isspace(ch); };
     s.erase(s.begin(), std::find_if(s.begin(), s.end(),
-            std::not1(std::ptr_fun<int, int>(std::isspace))));
+            isnotspace));
 }
 
 // trim from end (in place)
 void rtrim(std::string &s) {
+	auto isnotspace = [](int ch) { return !std::isspace(ch); };
     s.erase(std::find_if(s.rbegin(), s.rend(),
-            std::not1(std::ptr_fun<int, int>(std::isspace))).base(), s.end());
+            isnotspace).base(), s.end());
 }
 
 std::string with_whitespace_removed(const std::string_view str) {
