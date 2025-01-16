@@ -13457,8 +13457,51 @@ namespace checker {
 
 					process_type_lifetime_annotations(*TD, m_state1, &MR, &Rewrite);
 				} else {
+
+					auto LSD = dyn_cast<const clang::LinkageSpecDecl>(D);
 					auto NAD = dyn_cast<const NamespaceAliasDecl>(D);
-					if (NAD) {
+					if (LSD) {
+						auto lang = LSD->getLanguage();
+						if (clang::LinkageSpecLanguageIDs::C == lang) {
+							const std::string error_desc = std::string("'extern \"C\"' declarations require ")
+								+ "a 'check suppression' directive.";
+							(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
+
+							/* We add the extern "C" scope to the set of "checks suppressed" regions. Beside suppressing 
+							redundant error messages, this prevents the auto-conversion feature from (undesirably) converting 
+							the elements in the scope. */
+							auto l_ISR = instantiation_source_range(LSD->getSourceRange(), Rewrite);
+							DEBUG_SOURCE_LOCATION_STR(debug_source_location_str2, l_ISR, Rewrite);
+							DEBUG_SOURCE_TEXT_STR(debug_source_text2, l_ISR, Rewrite);
+							SourceLocation l_ISL = l_ISR.getBegin();
+							SourceLocation l_ISLE = l_ISR.getEnd();
+
+							if (filtered_out_by_location(MR, l_ISL)) {
+								return;
+							}
+
+							std::string l_source_text;
+							if (l_ISL.isValid() && l_ISLE.isValid()) {
+								l_source_text = Rewrite.getRewrittenText(SourceRange(l_ISL, l_ISLE));
+
+								if ("" != l_source_text) {
+									int q = 5;
+								}
+
+#ifndef NDEBUG
+								if (std::string::npos != debug_source_location_str2.find(g_target_debug_source_location_str1)) {
+									int q = 5;
+								}
+#endif /*!NDEBUG*/
+
+								m_state1.m_suppress_check_region_set.emplace(l_ISR);
+								m_state1.m_suppress_check_region_set.insert(LSD);
+							}
+						} else {
+							int q = 5;
+						}
+						int q = 5;
+					} else if (NAD) {
 						const auto ND = NAD->getNamespace();
 						if (ND) {
 							const auto source_namespace_str = ND->getQualifiedNameAsString();

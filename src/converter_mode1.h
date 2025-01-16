@@ -10174,6 +10174,17 @@ namespace convm1 {
 		}
 	}
 
+	bool is_non_modifiable(clang::Decl const& decl, const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::Rewriter &Rewrite, CTUState& state1) {
+		if (filtered_out_by_location(MR, decl.getSourceRange().getBegin())) {
+			return true;
+		}
+		auto suppress_check_flag = state1.m_suppress_check_region_set.contains(&decl, Rewrite, *(MR.Context));
+		if (suppress_check_flag) {
+			return true;
+		}
+		return false;
+	}
+
 	class MCSSSAssignment : public MatchFinder::MatchCallback
 	{
 	public:
@@ -10255,7 +10266,7 @@ namespace convm1 {
 
 			if (lhs_res2.ddecl_cptr) {
 				auto LHSDD_SR = cm1_adj_nice_source_range(lhs_res2.ddecl_cptr->getSourceRange(), state1, Rewrite);
-				bool LHS_decl_is_non_modifiable = filtered_out_by_location(MR, LHSDD_SR.getBegin());
+				bool LHS_decl_is_non_modifiable = is_non_modifiable(*(lhs_res2.ddecl_cptr), MR, Rewrite, state1);
 				if (LHS_decl_is_non_modifiable && LHS && RHS) {
 					auto LHS_qtype = LHS->getType();
 					auto RHS_qtype = RHS->getType();
@@ -10707,7 +10718,7 @@ namespace convm1 {
 					auto lc_function_name = tolowerstr(function_name);
 
 					auto function_decl1_SR = cm1_adj_nice_source_range(function_decl1->getSourceRange(), state1, Rewrite);
-					bool FD_is_non_modifiable = filtered_out_by_location(MR, function_decl1_SR.getBegin());
+					bool FD_is_non_modifiable = is_non_modifiable(*function_decl1, MR, Rewrite, state1);
 					bool function_is_variadic = function_decl1->isVariadic();
 
 					static const std::string free_str = "free";
@@ -12302,7 +12313,6 @@ namespace convm1 {
 									if (FA || RA || AA || RNNA) {
 										/* These (function) attributes apply to C elements that we replace. So we need to 
 										get rid of these attributes as well. */
-										//auto raw_fattr_SR = FA ? FA->getRange() : (RA ? RA->getRange() : AA->getRange());
 										std::string attr_text = Rewrite.getRewrittenText(attr_SR);
 										std::string blank_text = attr_text;
 										for (auto& ch : blank_text) {
@@ -12389,22 +12399,25 @@ namespace convm1 {
 							bool satisfies_checks = false;
 							auto VD = dyn_cast<const clang::VarDecl>(DD);
 							if (VD) {
-								auto FND = dyn_cast<const clang::FunctionDecl>(VD->getParentFunctionOrMethod());
-								if (FND) {
-									auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
-									if (PVD) {
-										satisfies_checks = true;
-									} else {
-										auto CE = dyn_cast<const clang::CallExpr>(IgnoreParenImpNoopCasts(VD->getInit(), *(MR.Context)));
-										if (CE) {
-											auto function_decl = CE->getDirectCallee();
-											auto num_args = CE->getNumArgs();
-											if (function_decl) {
-												std::string qualified_function_name = function_decl->getQualifiedNameAsString();
-												DECLARE_CACHED_CONST_STRING(as_an_fparam_str, mse_namespace_str() + "::rsv::as_an_fparam");
-												if ((as_an_fparam_str == qualified_function_name)) {
-													if (1 == num_args) {
-														satisfies_checks = true;
+								auto DC = VD->getParentFunctionOrMethod();
+								if (DC) {
+									auto FND = dyn_cast<const clang::FunctionDecl>(DC);
+									if (FND) {
+										auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
+										if (PVD) {
+											satisfies_checks = true;
+										} else {
+											auto CE = dyn_cast<const clang::CallExpr>(IgnoreParenImpNoopCasts(VD->getInit(), *(MR.Context)));
+											if (CE) {
+												auto function_decl = CE->getDirectCallee();
+												auto num_args = CE->getNumArgs();
+												if (function_decl) {
+													std::string qualified_function_name = function_decl->getQualifiedNameAsString();
+													DECLARE_CACHED_CONST_STRING(as_an_fparam_str, mse_namespace_str() + "::rsv::as_an_fparam");
+													if ((as_an_fparam_str == qualified_function_name)) {
+														if (1 == num_args) {
+															satisfies_checks = true;
+														}
 													}
 												}
 											}
