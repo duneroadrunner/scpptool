@@ -5264,7 +5264,15 @@ namespace convm1 {
 			return;
 		}
 
-		auto suppress_check_flag = false /*state1.m_suppress_check_region_set.contains(DD, *(MR.Context))*/;
+		auto suppress_check_flag = false;
+		if (state1.m_ast_context_ptr) {
+			/* Generally, we wouldn't expect to get here because any element in a "check suppressed" region 
+			should have been weeded out in the calling function. But we ran into a case where a non-template
+			overload of a template function was defined in a "check suppressed" region, while the associated 
+			template function was not. This check happened to be an expedient, if not ideal, way to deal 
+			with that particular situation. */
+			suppress_check_flag = state1.m_suppress_check_region_set.contains(DD, Rewrite, *(state1.m_ast_context_ptr));
+		}
 		//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
 		if (suppress_check_flag) {
 			return;
