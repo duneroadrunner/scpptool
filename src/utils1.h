@@ -410,17 +410,24 @@ inline auto NonParenNoopCastThisOrParent(const clang::Expr* ptr, clang::ASTConte
 }
 
 /* This function just returns the immediate parent node, ignoring "Implicit", "Paren(thesis)"
-or "NoopCast" expressions, if that parent is a clang::Stmt. Otherwise it returns nullptr. */
-inline auto NonParenNoopCastParentStmt(const clang::Expr* ptr, clang::ASTContext& Ctx) -> const clang::Stmt* {
-	clang::Stmt const* retval = nullptr;
+or "NoopCast" expressions, if that parent is the specified type. Otherwise it returns nullptr. */
+template <typename ContainingElementT>
+inline auto NonParenNoopCastParentOfType(const clang::Expr* ptr, clang::ASTContext& Ctx) {
+	ContainingElementT const* retval = nullptr;
 	if (!ptr) { return retval; }
 	auto parent_E = Tget_immediately_containing_element_of_type<clang::Expr>(ptr, Ctx);
-	while (parent_E && (IgnoreParenImpCasts(parent_E)->IgnoreParenNoopCasts(Ctx) != parent_E)) {
+	while (parent_E && (IgnoreParenImpNoopCasts(parent_E, Ctx) != parent_E)) {
 		ptr = parent_E;
 		parent_E = Tget_immediately_containing_element_of_type<clang::Expr>(parent_E, Ctx);
 	}
-	retval = Tget_immediately_containing_element_of_type<clang::Stmt>(ptr, Ctx);
+	retval = Tget_immediately_containing_element_of_type<ContainingElementT>(ptr, Ctx);
 	return retval;
+}
+
+/* This function just returns the immediate parent node, ignoring "Implicit", "Paren(thesis)"
+or "NoopCast" expressions, if that parent is a clang::Stmt. Otherwise it returns nullptr. */
+inline auto NonParenNoopCastParentStmt(const clang::Expr* ptr, clang::ASTContext& Ctx) -> const clang::Stmt* {
+	return NonParenNoopCastParentOfType<clang::Stmt>(ptr, Ctx);
 }
 
 template <typename ContainingElementT, typename NodeT>
