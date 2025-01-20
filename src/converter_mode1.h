@@ -11046,36 +11046,39 @@ namespace convm1 {
 							auto arg_EX_qtype = arg_EX->getType();
 							IF_DEBUG(std::string param_VD_qtype_str = param_VD_qtype.getAsString();)
 							IF_DEBUG(std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();)
-
 							assert(arg_EX->getType().getTypePtrOrNull());
-							auto arg_source_range = write_once_source_range(cm1_adj_nice_source_range(arg_EX->getSourceRange(), state1, Rewrite));
-							std::string arg_source_text;
-							if (arg_source_range.isValid()) {
-								IF_DEBUG(arg_source_text = Rewrite.getRewrittenText(arg_source_range);)
-							}
 
 							auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+							auto arg_EX_ii_qtype = arg_EX_ii->getType();
+							IF_DEBUG(std::string arg_EX_ii_qtype_str = arg_EX_ii_qtype.getAsString();)
+							assert(arg_EX_ii->getType().getTypePtrOrNull());
+
+							auto arg_EX_ii_SR = write_once_source_range(cm1_adj_nice_source_range(arg_EX_ii->getSourceRange(), state1, Rewrite));
+							std::string arg_EX_ii_source_text;
+							if (arg_EX_ii_SR.isValid()) {
+								IF_DEBUG(arg_EX_ii_source_text = Rewrite.getRewrittenText(arg_EX_ii_SR);)
+							}
 
 							auto DRE = given_or_descendant_DeclRefExpr(arg_EX_ii, *(MR.Context));
 
-							if ((nullptr != param_VD) && (nullptr != DRE) && arg_source_range.isValid()
+							if ((nullptr != param_VD) && (nullptr != DRE) && arg_EX_ii_SR.isValid()
 								&& param_VD->getType()->isPointerType() && (!param_VD->getType()->isFunctionPointerType())) {
 
-								assert(nullptr != arg_EX);
-								auto arg_iter = state1.m_expr_conversion_state_map.find(arg_EX);
-								if (state1.m_expr_conversion_state_map.end() == arg_iter) {
-									std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX, Rewrite, state1);
-									arg_iter = state1.m_expr_conversion_state_map.insert(shptr1);
+								assert(nullptr != arg_EX_ii);
+								auto arg_EX_ii_iter = state1.m_expr_conversion_state_map.find(arg_EX_ii);
+								if (state1.m_expr_conversion_state_map.end() == arg_EX_ii_iter) {
+									std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX_ii, Rewrite, state1);
+									arg_EX_ii_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 								}
-								auto& arg_shptr_ref = (*arg_iter).second;
+								auto& arg_EX_ii_shptr_ref = (*arg_EX_ii_iter).second;
 
 								if (ConvertToSCPP) {
 									std::shared_ptr<CExprTextModifier> shptr1;
-									auto arg_EX_qtype_str = arg_EX_qtype.getAsString();
-									if (("void *" != arg_EX_qtype_str) && ("const void *" != arg_EX_qtype_str)) {
+									auto arg_EX_ii_qtype_str = arg_EX_ii_qtype.getAsString();
+									if (("void *" != arg_EX_ii_qtype_str) && ("const void *" != arg_EX_ii_qtype_str)) {
 										shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
-										if (1 <= (*arg_shptr_ref).m_expr_text_modifier_stack.size()) {
-											if ("unsafe make raw pointer from" == (*arg_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+										if (1 <= (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.size()) {
+											if ("unsafe make raw pointer from" == (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
 												/* already applied */
 												shptr1 = nullptr;
 												//return;
@@ -11085,8 +11088,8 @@ namespace convm1 {
 										auto param_VD_qtype_str = param_VD_qtype.getAsString();
 										if (("void *" != param_VD_qtype_str) && ("const void *" != param_VD_qtype_str)) {
 											shptr1 = std::make_shared<CUnsafeCastExprTextModifier>(param_VD_qtype);
-											if (1 <= (*arg_shptr_ref).m_expr_text_modifier_stack.size()) {
-												if ("unsafe cast" == (*arg_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+											if (1 <= (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.size()) {
+												if ("unsafe cast" == (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
 													/* already applied */
 													shptr1 = nullptr;
 													//return;
@@ -11095,11 +11098,11 @@ namespace convm1 {
 										}
 									}
 									if (shptr1) {
-										(*arg_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
-										(*arg_shptr_ref).update_current_text();
+										(*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
+										(*arg_EX_ii_shptr_ref).update_current_text();
 
-										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, arg_source_range, (*arg_shptr_ref).m_current_text_str);
-										//(*this).Rewrite.ReplaceText(arg_source_range, (*arg_shptr_ref).m_current_text_str);
+										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, arg_EX_ii_SR, (*arg_EX_ii_shptr_ref).m_current_text_str);
+										//(*this).Rewrite.ReplaceText(arg_EX_ii_SR, (*arg_EX_ii_shptr_ref).m_current_text_str);
 										//return;
 									}
 								}
