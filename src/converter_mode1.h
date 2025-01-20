@@ -1434,8 +1434,8 @@ namespace convm1 {
 
 	class CRecordDeclConversionState {
 	public:
-		CRecordDeclConversionState(const clang::RecordDecl& recdecl, Rewriter &Rewrite) : m_recdecl_ptr(&recdecl) {
-			m_original_source_text_str = Rewrite.getRewrittenText(cm1_nice_source_range(source_range(), Rewrite));
+		CRecordDeclConversionState(const clang::RecordDecl& recdecl, Rewriter &Rewrite, CTUState& state1) : m_recdecl_ptr(&recdecl) {
+			m_original_source_text_str = Rewrite.getRewrittenText(cm1_adj_nice_source_range(source_range(), state1, Rewrite));
 			m_current_text_str = m_original_source_text_str;
 		}
 
@@ -1454,8 +1454,8 @@ namespace convm1 {
 
 	class CRecordDeclConversionStateMap : public std::unordered_map<const clang::RecordDecl*, CRecordDeclConversionState> {
 	public:
-		std::pair<iterator, bool> insert(const clang::RecordDecl& recdecl, Rewriter &Rewrite) {
-			value_type item(&recdecl, CRecordDeclConversionState(recdecl, Rewrite));
+		std::pair<iterator, bool> insert(const clang::RecordDecl& recdecl, Rewriter &Rewrite, CTUState& state1) {
+			value_type item(&recdecl, CRecordDeclConversionState(recdecl, Rewrite, state1));
 			return std::unordered_map<const clang::RecordDecl*, CRecordDeclConversionState>::insert(item);
 		}
 	};
@@ -1466,12 +1466,12 @@ namespace convm1 {
 			value_type item(SL, &(recdecl));
 			return std::map<clang::SourceLocation, const clang::RecordDecl*>::insert(item);
 		}
-		std::pair<iterator, bool> insert(const clang::RecordDecl& recdecl, Rewriter &Rewrite) {
-			auto SR = cm1_nice_source_range(recdecl.getSourceRange(), Rewrite);
+		std::pair<iterator, bool> insert(const clang::RecordDecl& recdecl, Rewriter &Rewrite, CTUState& state1) {
+			auto SR = cm1_adj_nice_source_range(recdecl.getSourceRange(), state1, Rewrite);
 			if (!(SR.isValid())) {
 				return std::pair<iterator, bool>((*this).end(), false);
 			}
-			auto SL = cm1_nice_source_range(recdecl.getSourceRange(), Rewrite).getBegin();
+			auto SL = cm1_adj_nice_source_range(recdecl.getSourceRange(), state1, Rewrite).getBegin();
 			return insert(SL, recdecl);
 		}
 	};
@@ -1596,8 +1596,8 @@ namespace convm1 {
 
 	class CExprConversionState {
 	public:
-		CExprConversionState(const clang::Expr& expr, Rewriter &Rewrite) : m_expr_cptr(&expr), Rewrite(Rewrite) {
-			m_original_source_text_str = Rewrite.getRewrittenText(cm1_nice_source_range(expr.getSourceRange(), Rewrite));
+		CExprConversionState(const clang::Expr& expr, Rewriter &Rewrite, CTUState& state1) : m_expr_cptr(&expr), Rewrite(Rewrite) {
+			m_original_source_text_str = Rewrite.getRewrittenText(cm1_adj_nice_source_range(expr.getSourceRange(), state1, Rewrite));
 			m_current_text_str = m_original_source_text_str;
 		}
 		virtual ~CExprConversionState() {}
@@ -1645,18 +1645,18 @@ namespace convm1 {
 
 	class CConditionalOperatorExprConversionState : public CExprConversionState {
 	public:
-		CConditionalOperatorExprConversionState(const clang::ConditionalOperator& co_cref, Rewriter &Rewrite) : CExprConversionState(co_cref, Rewrite) {
+		CConditionalOperatorExprConversionState(const clang::ConditionalOperator& co_cref, Rewriter &Rewrite, CTUState& state1) : CExprConversionState(co_cref, Rewrite, state1) {
 			auto cond_ptr = co_cref.getCond();
 			auto lhs_ptr = co_cref.getLHS();
 			auto rhs_ptr = co_cref.getRHS();
 			if (cond_ptr && lhs_ptr && rhs_ptr) {
-				m_cond_shptr = std::make_shared<CExprConversionState>(*cond_ptr, Rewrite);
+				m_cond_shptr = std::make_shared<CExprConversionState>(*cond_ptr, Rewrite, state1);
 				m_children_shptrs.push_back(m_cond_shptr);
 
-				m_lhs_shptr = std::make_shared<CExprConversionState>(*lhs_ptr, Rewrite);
+				m_lhs_shptr = std::make_shared<CExprConversionState>(*lhs_ptr, Rewrite, state1);
 				m_children_shptrs.push_back(m_lhs_shptr);
 
-				m_rhs_shptr = std::make_shared<CExprConversionState>(*rhs_ptr, Rewrite);
+				m_rhs_shptr = std::make_shared<CExprConversionState>(*rhs_ptr, Rewrite, state1);
 				m_children_shptrs.push_back(m_rhs_shptr);
 			} else {
 				assert(false);
@@ -1712,9 +1712,9 @@ namespace convm1 {
 
 	class CAddressofExprConversionState : public CExprConversionState {
 	public:
-		CAddressofExprConversionState(const clang::UnaryOperator& addrofexpr_cref, Rewriter &Rewrite, const clang::Expr& expr_cref) : CExprConversionState(addrofexpr_cref, Rewrite), m_expr_cptr(&expr_cref) {
+		CAddressofExprConversionState(const clang::UnaryOperator& addrofexpr_cref, Rewriter &Rewrite, CTUState& state1, const clang::Expr& expr_cref) : CExprConversionState(addrofexpr_cref, Rewrite, state1), m_expr_cptr(&expr_cref) {
 			assert(clang::UnaryOperatorKind::UO_AddrOf == addrofexpr_cref.getOpcode());
-			m_expr_shptr = std::make_shared<CExprConversionState>(*m_expr_cptr, Rewrite);
+			m_expr_shptr = std::make_shared<CExprConversionState>(*m_expr_cptr, Rewrite, state1);
 			m_children_shptrs.push_back(m_expr_shptr);
 		}
 		const clang::UnaryOperator& addrofexpr_cref() const {
@@ -2609,12 +2609,15 @@ namespace convm1 {
 		auto FLSLE = SM.getFileLoc(SLE);
 		auto b5 = FLSL.isMacroID();
 		auto b6 = FLSLE.isMacroID();
+		auto b6b = FLSL.isFileID();
 		auto FLSR = clang::SourceRange{ FLSL, FLSLE };
 
 		auto SPSL = SM.getSpellingLoc(SL);
 		auto SPSLE = SM.getSpellingLoc(SLE);
 		auto b7 = SPSL.isMacroID();
 		auto b8 = SPSLE.isMacroID();
+		auto b8b = SPSL.isFileID();
+		auto b8c = SPSLE.isFileID();
 		auto SPSR = clang::SourceRange{ SPSL, SPSLE };
 
 		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, sr, Rewrite);
@@ -2624,7 +2627,7 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_sp_source_text, SPSR.isValid() ? SPSR : sr, Rewrite);
 
 #ifndef NDEBUG
-			if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/
@@ -2634,11 +2637,23 @@ namespace convm1 {
 			auto& SM = Rewrite.getSourceMgr();
 
 			auto b10 = SM.isMacroArgExpansion(SL);
+			auto b10b = SM.isMacroArgExpansion(SLE);
 			auto b11 = SM.isMacroArgExpansion(FLSL);
 			auto b12 = SM.isMacroArgExpansion(SPSL);
 			auto b13 = SM.isMacroBodyExpansion(SL);
 			auto b14 = SM.isMacroBodyExpansion(FLSL);
 			auto b15 = SM.isMacroBodyExpansion(SPSL);
+			if (b10) {
+				if (!b10b) {
+					/* It seems that beginning of the source range is a macro function argument, but the end isn't. 
+					(Presumably the end is at another part of the macro body.) Rewrite.getRewrittenText() doesn't 
+					seem to work on such mismatched source ranges. After some experimentation, it's still unclear 
+					how or if one can obtain the beginning corresponding source location in the macro body. */
+					int q = 5;
+				} else {
+					int q = 5;
+				}
+			}
 
 			{
 				/* The element could be nested within multiple macro instances. We are going to obtain
@@ -2998,7 +3013,9 @@ namespace convm1 {
 		} else if (!function_type_state_ref.m_params_current_str.empty()) {
 			retval = function_type_state_ref.m_params_current_str;
 		} else if (functionProtoTypeLoc) {
-			auto parens_SR = write_once_source_range(cm1_nice_source_range(functionProtoTypeLoc.getParensRange(), Rewrite));
+			auto parens_SR = write_once_source_range(state1_ptr
+						? cm1_adj_nice_source_range(functionProtoTypeLoc.getParensRange(), *state1_ptr, Rewrite)
+						: cm1_nice_source_range(functionProtoTypeLoc.getParensRange(), Rewrite));
 			if (parens_SR.isValid()) {
 
 #ifndef NDEBUG
@@ -5368,7 +5385,7 @@ namespace convm1 {
 			if (state1.m_recdecl_map.end() != rd_map_iter) {
 				auto RD = (*rd_map_iter).second;
 
-				auto res1 = state1.m_recdecl_conversion_state_map.insert(*RD, Rewrite);
+				auto res1 = state1.m_recdecl_conversion_state_map.insert(*RD, Rewrite, state1);
 				auto rdcs_map_iter = res1.first;
 				auto& rdcs_ref = (*rdcs_map_iter).second;
 				//bool update_declaration_flag = res1.second;
@@ -6150,7 +6167,7 @@ namespace convm1 {
 			if (EXSR.isValid()) {
 				auto excs_iter = state1.m_expr_conversion_state_map.find(EX);
 				if (state1.m_expr_conversion_state_map.end() == excs_iter) {
-					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*EX, m_Rewrite);
+					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*EX, m_Rewrite, state1);
 					excs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 				}
 				auto& excs_shptr_ref = (*excs_iter).second;
@@ -6178,7 +6195,7 @@ namespace convm1 {
 			if (EXSR.isValid()) {
 				auto excs_iter = state1.m_expr_conversion_state_map.find(EX);
 				if (state1.m_expr_conversion_state_map.end() == excs_iter) {
-					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*EX, m_Rewrite);
+					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*EX, m_Rewrite, state1);
 					excs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 				}
 				auto& excs_shptr_ref = (*excs_iter).second;
@@ -6845,7 +6862,7 @@ namespace convm1 {
 			if ((UOSR.isValid()) && (ase_SR.isValid())) {
 				auto uocs_iter = state1.m_expr_conversion_state_map.find(UO);
 				if (state1.m_expr_conversion_state_map.end() == uocs_iter) {
-					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CAddressofExprConversionState>(*UO, m_Rewrite, *ASE);
+					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CAddressofExprConversionState>(*UO, m_Rewrite, state1, *ASE);
 					uocs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 				}
 				auto& uocs_shptr_ref = (*uocs_iter).second;
@@ -6855,14 +6872,14 @@ namespace convm1 {
 				if (index_expr_cptr && array_expr_cptr) {
 					auto index_cs_iter = state1.m_expr_conversion_state_map.find(index_expr_cptr);
 					if (state1.m_expr_conversion_state_map.end() == index_cs_iter) {
-						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*index_expr_cptr, m_Rewrite);
+						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*index_expr_cptr, m_Rewrite, state1);
 						index_cs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 					}
 					auto& index_cs_shptr_ref = (*index_cs_iter).second;
 
 					auto array_cs_iter = state1.m_expr_conversion_state_map.find(array_expr_cptr);
 					if (state1.m_expr_conversion_state_map.end() == array_cs_iter) {
-						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*array_expr_cptr, m_Rewrite);
+						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*array_expr_cptr, m_Rewrite, state1);
 						array_cs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 					}
 					auto& array_cs_shptr_ref = (*array_cs_iter).second;
@@ -6893,7 +6910,7 @@ namespace convm1 {
 			if ((UOSR.isValid()) && (ase_SR.isValid())) {
 				auto uocs_iter = state1.m_expr_conversion_state_map.find(UO);
 				if (state1.m_expr_conversion_state_map.end() == uocs_iter) {
-					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CAddressofExprConversionState>(*UO, m_Rewrite, *ASE);
+					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CAddressofExprConversionState>(*UO, m_Rewrite, state1, *ASE);
 					uocs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 				}
 				auto& uocs_shptr_ref = (*uocs_iter).second;
@@ -6919,14 +6936,14 @@ namespace convm1 {
 				if (index_expr_cptr && array_expr_cptr) {
 					auto index_cs_iter = state1.m_expr_conversion_state_map.find(index_expr_cptr);
 					if (state1.m_expr_conversion_state_map.end() == index_cs_iter) {
-						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*index_expr_cptr, m_Rewrite);
+						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*index_expr_cptr, m_Rewrite, state1);
 						index_cs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 					}
 					auto& index_cs_shptr_ref = (*index_cs_iter).second;
 
 					auto array_cs_iter = state1.m_expr_conversion_state_map.find(array_expr_cptr);
 					if (state1.m_expr_conversion_state_map.end() == array_cs_iter) {
-						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*array_expr_cptr, m_Rewrite);
+						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*array_expr_cptr, m_Rewrite, state1);
 						array_cs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 					}
 					auto& array_cs_shptr_ref = (*array_cs_iter).second;
@@ -6978,7 +6995,7 @@ namespace convm1 {
 			if ((UOSR.isValid()) && (ase_SR.isValid())) {
 				auto uocs_iter = state1.m_expr_conversion_state_map.find(UO);
 				if (state1.m_expr_conversion_state_map.end() == uocs_iter) {
-					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CAddressofExprConversionState>(*UO, m_Rewrite, *ASE);
+					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CAddressofExprConversionState>(*UO, m_Rewrite, state1, *ASE);
 					uocs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 				}
 				auto& uocs_shptr_ref = (*uocs_iter).second;
@@ -6988,14 +7005,14 @@ namespace convm1 {
 				if (index_expr_cptr && array_expr_cptr) {
 					auto index_cs_iter = state1.m_expr_conversion_state_map.find(index_expr_cptr);
 					if (state1.m_expr_conversion_state_map.end() == index_cs_iter) {
-						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*index_expr_cptr, m_Rewrite);
+						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*index_expr_cptr, m_Rewrite, state1);
 						index_cs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 					}
 					auto& index_cs_shptr_ref = (*index_cs_iter).second;
 
 					auto array_cs_iter = state1.m_expr_conversion_state_map.find(array_expr_cptr);
 					if (state1.m_expr_conversion_state_map.end() == array_cs_iter) {
-						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*array_expr_cptr, m_Rewrite);
+						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*array_expr_cptr, m_Rewrite, state1);
 						array_cs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 					}
 					auto& array_cs_shptr_ref = (*array_cs_iter).second;
@@ -7026,7 +7043,7 @@ namespace convm1 {
 			if ((UOSR.isValid()) && (ase_SR.isValid())) {
 				auto uocs_iter = state1.m_expr_conversion_state_map.find(UO);
 				if (state1.m_expr_conversion_state_map.end() == uocs_iter) {
-					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CAddressofExprConversionState>(*UO, m_Rewrite, *ASE);
+					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CAddressofExprConversionState>(*UO, m_Rewrite, state1, *ASE);
 					uocs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 				}
 				auto& uocs_shptr_ref = (*uocs_iter).second;
@@ -7052,14 +7069,14 @@ namespace convm1 {
 				if (index_expr_cptr && array_expr_cptr) {
 					auto index_cs_iter = state1.m_expr_conversion_state_map.find(index_expr_cptr);
 					if (state1.m_expr_conversion_state_map.end() == index_cs_iter) {
-						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*index_expr_cptr, m_Rewrite);
+						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*index_expr_cptr, m_Rewrite, state1);
 						index_cs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 					}
 					auto& index_cs_shptr_ref = (*index_cs_iter).second;
 
 					auto array_cs_iter = state1.m_expr_conversion_state_map.find(array_expr_cptr);
 					if (state1.m_expr_conversion_state_map.end() == array_cs_iter) {
-						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*array_expr_cptr, m_Rewrite);
+						std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*array_expr_cptr, m_Rewrite, state1);
 						array_cs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 					}
 					auto& array_cs_shptr_ref = (*array_cs_iter).second;
@@ -7499,7 +7516,7 @@ namespace convm1 {
 					if (lhs_needs_to_be_wrapped || rhs_needs_to_be_wrapped) {
 						cocs_iter = state1.m_expr_conversion_state_map.find(CO);
 						if (state1.m_expr_conversion_state_map.end() == cocs_iter) {
-							auto shptr1 = make_expr_conversion_state_shared_ptr<CConditionalOperatorExprConversionState>(*CO, m_Rewrite);
+							auto shptr1 = make_expr_conversion_state_shared_ptr<CConditionalOperatorExprConversionState>(*CO, m_Rewrite, state1);
 							cocs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 						}
 					}
@@ -7621,7 +7638,7 @@ namespace convm1 {
 
 				if (RD->isThisDeclarationADefinition()) {
 					if (false) {
-						auto res1 = (*this).m_state1.m_recdecl_conversion_state_map.insert(*RD, Rewrite);
+						auto res1 = (*this).m_state1.m_recdecl_conversion_state_map.insert(*RD, Rewrite, m_state1);
 						auto rdcs_map_iter = res1.first;
 						if ((*this).m_state1.m_recdecl_conversion_state_map.end() == rdcs_map_iter) {
 							return;
@@ -7630,7 +7647,7 @@ namespace convm1 {
 						//bool update_declaration_flag = res1.second;
 					}
 					{
-						auto res1 = (*this).m_state1.m_recdecl_map.insert(*RD, Rewrite);
+						auto res1 = (*this).m_state1.m_recdecl_map.insert(*RD, Rewrite, m_state1);
 						auto rdcs_map_iter = res1.first;
 						if ((*this).m_state1.m_recdecl_map.end() == rdcs_map_iter) {
 							return;
@@ -7658,10 +7675,11 @@ namespace convm1 {
 	struct CAllocFunctionInfo {
 		bool m_seems_to_be_some_kind_of_malloc_or_realloc = false;
 		bool m_seems_to_be_some_kind_of_realloc = false;
+		bool m_seems_to_be_some_kind_of_free = false;
 		std::string m_num_bytes_arg_source_text;
-		std::string m_realloc_pointer_arg_source_text;
-		std::string m_realloc_pointer_arg_adjusted_source_text;
-		clang::ValueDecl const * m_realloc_pointer_arg_DD = nullptr;
+		std::string m_realloc_or_free_pointer_arg_source_text;
+		std::string m_realloc_or_free_pointer_arg_adjusted_source_text;
+		clang::ValueDecl const * m_realloc_or_free_pointer_arg_DD = nullptr;
 	};
 	CAllocFunctionInfo analyze_malloc_resemblance(const clang::FunctionDecl& function_decl_ref, CTUState& state1, Rewriter &Rewrite) {
 		CAllocFunctionInfo retval;
@@ -7721,9 +7739,59 @@ namespace convm1 {
 							retval.m_num_bytes_arg_source_text = num_bytes_param_source_text;
 							if (contains_realloc && (2 <= num_params)) {
 								retval.m_seems_to_be_some_kind_of_realloc = true;
-								retval.m_realloc_pointer_arg_source_text = realloc_pointer_param_source_text;
-								retval.m_realloc_pointer_arg_adjusted_source_text = realloc_pointer_param_source_text;
-								retval.m_realloc_pointer_arg_DD = realloc_pointer_param_DD;
+								retval.m_realloc_or_free_pointer_arg_source_text = realloc_pointer_param_source_text;
+								retval.m_realloc_or_free_pointer_arg_adjusted_source_text = realloc_pointer_param_source_text;
+								retval.m_realloc_or_free_pointer_arg_DD = realloc_pointer_param_DD;
+							}
+						}
+					}
+				}
+			}
+
+			if (!(retval.m_seems_to_be_some_kind_of_malloc_or_realloc)) {
+				bool return_type_is_void = ("void" == return_type_str);
+
+				static const std::string free_str = "free";
+
+				bool ends_with_free = ((lc_function_name.size() >= free_str.size())
+						&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
+
+				bool contains_free = (std::string::npos != lc_function_name.find(free_str));
+
+				bool not_yet_ruled_out1 = (contains_free && (1 <= num_params));
+				not_yet_ruled_out1 = (not_yet_ruled_out1 && return_type_is_void);
+				if (not_yet_ruled_out1) {
+					std::string free_pointer_param_source_text;
+					clang::ValueDecl const * free_pointer_param_DD = nullptr;
+					for (auto param : function_decl->parameters()) {
+						auto param_qtype = param->getType();
+						IF_DEBUG(std::string param_qtype_str = param_qtype.getAsString();)
+						auto raw_param_source_range = param->getSourceRange();
+						auto param_source_range = cm1_adjusted_source_range(param->getSourceRange(), state1, Rewrite);
+						if (!param_source_range.isValid()) {
+							/*assert(false); */continue;
+						}
+						if (param->getSourceRange().getBegin().isMacroID()) {
+							int q = 5;
+							//continue;
+						}
+						std::string l_param_source_text = Rewrite.getRewrittenText(param_source_range);
+						clang::ValueDecl const * DD = nullptr;
+						if (contains_free && param->getType()->isPointerType()) {
+							free_pointer_param_source_text = l_param_source_text;
+							break;
+						}
+					}
+
+					if (!free_pointer_param_source_text.empty()) {
+						{
+							if (true) {
+								retval.m_seems_to_be_some_kind_of_free = true;
+								{
+									retval.m_realloc_or_free_pointer_arg_source_text = free_pointer_param_source_text;
+									retval.m_realloc_or_free_pointer_arg_adjusted_source_text = free_pointer_param_source_text;
+									retval.m_realloc_or_free_pointer_arg_DD = free_pointer_param_DD;
+								}
 							}
 						}
 					}
@@ -7873,9 +7941,9 @@ namespace convm1 {
 							retval.m_num_bytes_arg_source_text = num_bytes_arg_source_text;
 							if ((!(realloc_pointer_arg_source_text.empty())) && (2 <= num_args)) {
 								retval.m_seems_to_be_some_kind_of_realloc = true;
-								retval.m_realloc_pointer_arg_source_text = realloc_pointer_arg_source_text;
-								retval.m_realloc_pointer_arg_adjusted_source_text = realloc_pointer_arg_adjusted_source_text;
-								retval.m_realloc_pointer_arg_DD = realloc_pointer_arg_DD;
+								retval.m_realloc_or_free_pointer_arg_source_text = realloc_pointer_arg_source_text;
+								retval.m_realloc_or_free_pointer_arg_adjusted_source_text = realloc_pointer_arg_adjusted_source_text;
+								retval.m_realloc_or_free_pointer_arg_DD = realloc_pointer_arg_DD;
 
 							}
 							auto res1 = analyze_malloc_resemblance(*function_decl, state1, Rewrite);
@@ -8664,17 +8732,17 @@ namespace convm1 {
 									bo_replacement_code = lhs_source_text;
 									bo_replacement_code += " = MSE_LH_REALLOC(";
 									bo_replacement_code += lhs_element_type_str + ", ";
-									bo_replacement_code += alloc_function_info1.m_realloc_pointer_arg_adjusted_source_text + ", ";
+									bo_replacement_code += alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text + ", ";
 									bo_replacement_code += adjusted_num_bytes_str + ")";
 								} else if ("FasterAndStricter" == ConvertMode) {
 									bo_replacement_code = lhs_source_text;
 									bo_replacement_code += " = mse::lh::reallocate(";
-									bo_replacement_code += alloc_function_info1.m_realloc_pointer_arg_adjusted_source_text + ", ";
+									bo_replacement_code += alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text + ", ";
 									bo_replacement_code += adjusted_num_bytes_str + ")";
 								} else {
 									bo_replacement_code = lhs_source_text;
 									bo_replacement_code += " = mse::lh::reallocate(";
-									bo_replacement_code += alloc_function_info1.m_realloc_pointer_arg_adjusted_source_text + ", ";
+									bo_replacement_code += alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text + ", ";
 									bo_replacement_code += adjusted_num_bytes_str + ")";
 								}
 							} else {
@@ -8731,15 +8799,15 @@ namespace convm1 {
 								if ("Dual" == ConvertMode) {
 									replacement_code_str += "MSE_LH_REALLOC(";
 									replacement_code_str += lhs_element_type_str + ", ";
-									replacement_code_str += alloc_function_info1.m_realloc_pointer_arg_adjusted_source_text + ", ";
+									replacement_code_str += alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text + ", ";
 									replacement_code_str += adjusted_num_bytes_str + ")";
 								} else if ("FasterAndStricter" == ConvertMode) {
 									replacement_code_str += "mse::lh::reallocate(";
-									replacement_code_str += alloc_function_info1.m_realloc_pointer_arg_adjusted_source_text + ", ";
+									replacement_code_str += alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text + ", ";
 									replacement_code_str += adjusted_num_bytes_str + ")";
 								} else {
 									replacement_code_str += "mse::lh::reallocate(";
-									replacement_code_str += alloc_function_info1.m_realloc_pointer_arg_adjusted_source_text + ", ";
+									replacement_code_str += alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text + ", ";
 									replacement_code_str += adjusted_num_bytes_str + ")";
 								}
 							} else {
@@ -10098,7 +10166,7 @@ namespace convm1 {
 								assert(nullptr != RHS);
 								auto rhs_iter = state1.m_expr_conversion_state_map.find(RHS);
 								if (state1.m_expr_conversion_state_map.end() == rhs_iter) {
-									std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*RHS, Rewrite);
+									std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*RHS, Rewrite, state1);
 									rhs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 								}
 								auto& rhs_shptr_ref = (*rhs_iter).second;
@@ -10443,7 +10511,7 @@ namespace convm1 {
 						assert(nullptr != RHS);
 						auto rhs_iter = state1.m_expr_conversion_state_map.find(RHS);
 						if (state1.m_expr_conversion_state_map.end() == rhs_iter) {
-							std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*RHS, Rewrite);
+							std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*RHS, Rewrite, state1);
 							rhs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 						}
 						auto& rhs_shptr_ref = (*rhs_iter).second;
@@ -10951,7 +11019,7 @@ namespace convm1 {
 								assert(nullptr != arg_EX);
 								auto arg_iter = state1.m_expr_conversion_state_map.find(arg_EX);
 								if (state1.m_expr_conversion_state_map.end() == arg_iter) {
-									std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX, Rewrite);
+									std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX, Rewrite, state1);
 									arg_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 								}
 								auto& arg_shptr_ref = (*arg_iter).second;
@@ -11025,7 +11093,7 @@ namespace convm1 {
 										assert(nullptr != arg_EX);
 										auto arg_iter = state1.m_expr_conversion_state_map.find(arg_EX);
 										if (state1.m_expr_conversion_state_map.end() == arg_iter) {
-											std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX, Rewrite);
+											std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX, Rewrite, state1);
 											arg_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 										}
 										auto& arg_shptr_ref = (*arg_iter).second;
@@ -11068,7 +11136,7 @@ namespace convm1 {
 
 											auto arg_iter = state1.m_expr_conversion_state_map.find(arg_EX);
 											if (state1.m_expr_conversion_state_map.end() == arg_iter) {
-												std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX, Rewrite);
+												std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX, Rewrite, state1);
 												arg_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 											}
 											auto& arg_shptr_ref = (*arg_iter).second;
@@ -11487,17 +11555,17 @@ namespace convm1 {
 							std::string pointer_initializer_info_str;
 
 							if (alloc_function_info1.m_seems_to_be_some_kind_of_realloc) {
-								array_initializer_info_str = "MSE_LH_REALLOC(" + element_type_str + ", " + alloc_function_info1.m_realloc_pointer_arg_adjusted_source_text;
+								array_initializer_info_str = "MSE_LH_REALLOC(" + element_type_str + ", " + alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text;
 								array_initializer_info_str += ", " + adjusted_num_bytes_str + ")";
 
 								if ("Dual" == ConvertMode) {
-									array_initializer_info_str = "MSE_LH_REALLOC(" + element_type_str + ", " + alloc_function_info1.m_realloc_pointer_arg_adjusted_source_text;
+									array_initializer_info_str = "MSE_LH_REALLOC(" + element_type_str + ", " + alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text;
 									array_initializer_info_str += ", " + adjusted_num_bytes_str + ")";
 								} else if ("FasterAndStricter" == ConvertMode) {
-									array_initializer_info_str = "mse::lh::reallocate(" + alloc_function_info1.m_realloc_pointer_arg_adjusted_source_text;
+									array_initializer_info_str = "mse::lh::reallocate(" + alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text;
 									array_initializer_info_str += ", " + adjusted_num_bytes_str + ")";
 								} else {
-									array_initializer_info_str = "mse::lh::reallocate(" + alloc_function_info1.m_realloc_pointer_arg_adjusted_source_text;
+									array_initializer_info_str = "mse::lh::reallocate(" + alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text;
 									array_initializer_info_str += ", " + adjusted_num_bytes_str + ")";
 								}
 
@@ -11505,7 +11573,7 @@ namespace convm1 {
 								array. */
 								pointer_initializer_info_str = array_initializer_info_str;
 
-								if (alloc_function_info1.m_realloc_pointer_arg_DD) {
+								if (alloc_function_info1.m_realloc_or_free_pointer_arg_DD) {
 									auto VLD = dyn_cast<const clang::ValueDecl>(DD);
 									auto first_arg_ii = IgnoreParenImpNoopCasts(CE->getArg(0), *(MR.Context));
 									IF_DEBUG(std::string first_arg_ii_qtype_str = first_arg_ii->getType().getAsString();)
