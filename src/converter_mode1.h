@@ -7733,17 +7733,13 @@ namespace convm1 {
 				}
 
 				if (!num_bytes_param_source_text.empty()) {
-					{
-						if (true) {
-							retval.m_seems_to_be_some_kind_of_malloc_or_realloc = true;
-							retval.m_num_bytes_arg_source_text = num_bytes_param_source_text;
-							if (contains_realloc && (2 <= num_params)) {
-								retval.m_seems_to_be_some_kind_of_realloc = true;
-								retval.m_realloc_or_free_pointer_arg_source_text = realloc_pointer_param_source_text;
-								retval.m_realloc_or_free_pointer_arg_adjusted_source_text = realloc_pointer_param_source_text;
-								retval.m_realloc_or_free_pointer_arg_DD = realloc_pointer_param_DD;
-							}
-						}
+					retval.m_seems_to_be_some_kind_of_malloc_or_realloc = true;
+					retval.m_num_bytes_arg_source_text = num_bytes_param_source_text;
+					if (contains_realloc && (2 <= num_params)) {
+						retval.m_seems_to_be_some_kind_of_realloc = true;
+						retval.m_realloc_or_free_pointer_arg_source_text = realloc_pointer_param_source_text;
+						retval.m_realloc_or_free_pointer_arg_adjusted_source_text = realloc_pointer_param_source_text;
+						retval.m_realloc_or_free_pointer_arg_DD = realloc_pointer_param_DD;
 					}
 				}
 			}
@@ -7784,16 +7780,11 @@ namespace convm1 {
 					}
 
 					if (!free_pointer_param_source_text.empty()) {
-						{
-							if (true) {
-								retval.m_seems_to_be_some_kind_of_free = true;
-								{
-									retval.m_realloc_or_free_pointer_arg_source_text = free_pointer_param_source_text;
-									retval.m_realloc_or_free_pointer_arg_adjusted_source_text = free_pointer_param_source_text;
-									retval.m_realloc_or_free_pointer_arg_DD = free_pointer_param_DD;
-								}
-							}
-						}
+						retval.m_seems_to_be_some_kind_of_free = true;
+
+						retval.m_realloc_or_free_pointer_arg_source_text = free_pointer_param_source_text;
+						retval.m_realloc_or_free_pointer_arg_adjusted_source_text = free_pointer_param_source_text;
+						retval.m_realloc_or_free_pointer_arg_DD = free_pointer_param_DD;
 					}
 				}
 			}
@@ -7807,25 +7798,8 @@ namespace convm1 {
 		auto function_decl = CE->getDirectCallee();
 		auto num_args = CE->getNumArgs();
 		if (function_decl && (1 <= num_args)) {
-			std::string return_type_str = definition_qtype(function_decl->getReturnType()).getAsString();
-			bool return_type_is_void_star = ("void *" == return_type_str);
-
-			std::string function_name = function_decl->getNameAsString();
-			static const std::string alloc_str = "alloc";
-			static const std::string realloc_str = "realloc";
-			auto lc_function_name = tolowerstr(function_name);
-
-			bool ends_with_alloc = ((lc_function_name.size() >= alloc_str.size())
-					&& (0 == lc_function_name.compare(lc_function_name.size() - alloc_str.size(), alloc_str.size(), alloc_str)));
-			bool ends_with_realloc = (ends_with_alloc && (lc_function_name.size() >= realloc_str.size())
-					&& (0 == lc_function_name.compare(lc_function_name.size() - realloc_str.size(), realloc_str.size(), realloc_str)));
-
-			bool contains_alloc = (std::string::npos != lc_function_name.find(alloc_str));
-			bool contains_realloc = (std::string::npos != lc_function_name.find(realloc_str));
-
-			bool not_yet_ruled_out1 = (contains_alloc && (1 <= num_args)) || (contains_realloc && (2 <= num_args));
-			not_yet_ruled_out1 = (not_yet_ruled_out1 && return_type_is_void_star);
-			if (not_yet_ruled_out1) {
+			auto res2 = analyze_malloc_resemblance(*function_decl, state1, Rewrite);
+			if (res2.m_seems_to_be_some_kind_of_malloc_or_realloc) {
 				std::string realloc_pointer_arg_source_text;
 				std::string realloc_pointer_arg_adjusted_source_text;
 				clang::ValueDecl const * realloc_pointer_arg_DD = nullptr;
@@ -7844,7 +7818,7 @@ namespace convm1 {
 					}
 					std::string l_arg_source_text = Rewrite.getRewrittenText(arg_source_range);
 					clang::ValueDecl const * DD = nullptr;
-					if (contains_realloc && arg->getType()->isPointerType() && (!realloc_pointer_arg_DD)) {
+					if (res2.m_seems_to_be_some_kind_of_realloc && arg->getType()->isPointerType() && (!realloc_pointer_arg_DD)) {
 						realloc_pointer_arg_source_text = l_arg_source_text;
 						realloc_pointer_arg_adjusted_source_text = l_arg_source_text;
 
@@ -7892,66 +7866,133 @@ namespace convm1 {
 				}
 
 				if (!num_bytes_arg_source_text.empty()) {
-					{
-						bool asterisk_found = false;
-						auto sizeof_start_index = num_bytes_arg_source_text.find("sizeof(");
-						if (std::string::npos != sizeof_start_index) {
-							auto sizeof_end_index = num_bytes_arg_source_text.find(")", sizeof_start_index);
-							if (std::string::npos != sizeof_end_index) {
-								assert(sizeof_end_index > sizeof_start_index);
-								std::string before_str = num_bytes_arg_source_text.substr(0, sizeof_start_index);
-								std::string after_str;
-								if (sizeof_end_index + 1 < num_bytes_arg_source_text.size()) {
-									after_str = num_bytes_arg_source_text.substr(sizeof_end_index + 1);
+					bool asterisk_found = false;
+					auto sizeof_start_index = num_bytes_arg_source_text.find("sizeof(");
+					if (std::string::npos != sizeof_start_index) {
+						auto sizeof_end_index = num_bytes_arg_source_text.find(")", sizeof_start_index);
+						if (std::string::npos != sizeof_end_index) {
+							assert(sizeof_end_index > sizeof_start_index);
+							std::string before_str = num_bytes_arg_source_text.substr(0, sizeof_start_index);
+							std::string after_str;
+							if (sizeof_end_index + 1 < num_bytes_arg_source_text.size()) {
+								after_str = num_bytes_arg_source_text.substr(sizeof_end_index + 1);
+							}
+
+							auto index = before_str.size() - 1;
+							while (0 <= index) {
+								if ('*' == before_str[index]) {
+									asterisk_found = true;
+								}
+								if (!std::isspace(before_str[index])) {
+									break;
 								}
 
-								auto index = before_str.size() - 1;
-								while (0 <= index) {
-									if ('*' == before_str[index]) {
+								index -= 1;
+							}
+							if (asterisk_found) {
+								before_str = before_str.substr(0, index);
+							} else {
+								size_t index2 = 0;
+								while (after_str.size() > index2) {
+									if ('*' == after_str[index2]) {
 										asterisk_found = true;
 									}
-									if (!std::isspace(before_str[index])) {
+									if (!std::isspace(after_str[index2])) {
 										break;
 									}
 
-									index -= 1;
+									index2 += 1;
 								}
 								if (asterisk_found) {
-									before_str = before_str.substr(0, index);
-								} else {
-									size_t index2 = 0;
-									while (after_str.size() > index2) {
-										if ('*' == after_str[index2]) {
-											asterisk_found = true;
-										}
-										if (!std::isspace(after_str[index2])) {
-											break;
-										}
-
-										index2 += 1;
-									}
-									if (asterisk_found) {
-										after_str = after_str.substr(index2 + 1);
-									}
+									after_str = after_str.substr(index2 + 1);
 								}
-							}
-						}
-						if (true || asterisk_found) {
-							retval.m_seems_to_be_some_kind_of_malloc_or_realloc = true;
-							retval.m_num_bytes_arg_source_text = num_bytes_arg_source_text;
-							if ((!(realloc_pointer_arg_source_text.empty())) && (2 <= num_args)) {
-								retval.m_seems_to_be_some_kind_of_realloc = true;
-								retval.m_realloc_or_free_pointer_arg_source_text = realloc_pointer_arg_source_text;
-								retval.m_realloc_or_free_pointer_arg_adjusted_source_text = realloc_pointer_arg_adjusted_source_text;
-								retval.m_realloc_or_free_pointer_arg_DD = realloc_pointer_arg_DD;
-
-							}
-							auto res1 = analyze_malloc_resemblance(*function_decl, state1, Rewrite);
-							if (!(res1.m_seems_to_be_some_kind_of_malloc_or_realloc)) {
-								retval.m_seems_to_be_some_kind_of_malloc_or_realloc = false;
 							}
 						}
 					}
+					if (true || asterisk_found) {
+						retval.m_seems_to_be_some_kind_of_malloc_or_realloc = true;
+						retval.m_num_bytes_arg_source_text = num_bytes_arg_source_text;
+						if ((!(realloc_pointer_arg_source_text.empty())) && (2 <= num_args)) {
+							retval.m_seems_to_be_some_kind_of_realloc = true;
+							retval.m_realloc_or_free_pointer_arg_source_text = realloc_pointer_arg_source_text;
+							retval.m_realloc_or_free_pointer_arg_adjusted_source_text = realloc_pointer_arg_adjusted_source_text;
+							retval.m_realloc_or_free_pointer_arg_DD = realloc_pointer_arg_DD;
+						}
+					}
+				} else {
+					int q = 3;
+				}
+			} else if (res2.m_seems_to_be_some_kind_of_free) {
+				std::string free_pointer_arg_source_text;
+				std::string free_pointer_arg_adjusted_source_text;
+				clang::ValueDecl const * free_pointer_arg_DD = nullptr;
+				clang::MemberExpr const * ME = nullptr;
+				std::string num_bytes_arg_source_text;
+				for (auto arg : CE->arguments()) {
+					auto arg_qtype = arg->getType();
+					IF_DEBUG(std::string arg_qtype_str = arg_qtype.getAsString();)
+					auto arg_source_range = cm1_adjusted_source_range(arg->getSourceRange(), state1, Rewrite);
+					if (!arg_source_range.isValid()) {
+						/*assert(false); */continue;
+					}
+					if (arg->getSourceRange().getBegin().isMacroID()) {
+						int q = 5;
+						//continue;
+					}
+					std::string l_arg_source_text = Rewrite.getRewrittenText(arg_source_range);
+					clang::ValueDecl const * DD = nullptr;
+					if (arg->getType()->isPointerType() && (!free_pointer_arg_DD)) {
+						free_pointer_arg_source_text = l_arg_source_text;
+						free_pointer_arg_adjusted_source_text = l_arg_source_text;
+
+						auto arg_ii = IgnoreParenImpCasts(arg);
+						auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_ii);
+						if (CSCE) {
+							auto csce_QT = definition_qtype(CSCE->getType());
+							IF_DEBUG(std::string csce_QT_str = csce_QT.getAsString();)
+							//MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(csce_QT);
+							auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
+							assert(precasted_expr_ptr);
+							auto precasted_expr_QT = precasted_expr_ptr->getType();
+							IF_DEBUG(std::string precasted_expr_QT_str = precasted_expr_QT.getAsString();)
+							arg_ii = precasted_expr_ptr;
+
+							auto adj_arg_qtype = arg_ii->getType();
+							IF_DEBUG(std::string adj_arg_qtype_str = adj_arg_qtype.getAsString();)
+							auto adj_arg_source_range = cm1_adjusted_source_range(arg_ii->getSourceRange(), state1, Rewrite);
+							if (!adj_arg_source_range.isValid()) {
+								/*assert(false); */continue;
+							}
+							if (arg_ii->getSourceRange().getBegin().isMacroID()) {
+								int q = 5;
+								//continue;
+							}
+							std::string l_adj_arg_source_text = Rewrite.getRewrittenText(adj_arg_source_range);
+							if (!(l_adj_arg_source_text.empty())) {
+								free_pointer_arg_adjusted_source_text = l_adj_arg_source_text;
+							} else {
+								int q = 5;
+							}
+						}
+						auto DRE = dyn_cast<const clang::DeclRefExpr>(arg_ii);
+						auto ME = dyn_cast<const clang::MemberExpr>(arg_ii);
+						if (DRE) {
+							free_pointer_arg_DD = DRE->getDecl();
+						} else if (ME) {
+							free_pointer_arg_DD = ME->getMemberDecl();
+						}
+						break;
+					}
+				}
+
+				if (!free_pointer_arg_source_text.empty()) {
+					retval.m_seems_to_be_some_kind_of_free = true;
+
+					retval.m_realloc_or_free_pointer_arg_source_text = free_pointer_arg_source_text;
+					retval.m_realloc_or_free_pointer_arg_adjusted_source_text = free_pointer_arg_adjusted_source_text;
+					retval.m_realloc_or_free_pointer_arg_DD = free_pointer_arg_DD;
+				} else {
+					int q = 3;
 				}
 			}
 		}
@@ -8068,7 +8109,7 @@ namespace convm1 {
 									std::string rhs_ddecl_current_direct_qtype_str = (*rhs_res2.ddecl_conversion_state_ptr).current_direct_qtype_str();
 									auto casted_expr_SR = cm1_adj_nice_source_range(casted_expr_ptr->getSourceRange(), m_state1, Rewrite);
 									auto CCESR = cm1_adj_nice_source_range(CCE->getSourceRange(), m_state1, Rewrite);
-									auto cast_operation_SR = write_once_source_range(clang::SourceRange(CCE->getLParenLoc(), CCE->getRParenLoc()));
+									auto cast_operation_SR = cm1_adj_nice_source_range({ CCE->getLParenLoc(), CCE->getRParenLoc() }, m_state1, Rewrite);
 
 									if (cast_operation_SR.isValid()
 											&& (("void" == rhs_ddecl_current_direct_qtype_str) || ("const void" == rhs_ddecl_current_direct_qtype_str))) {
@@ -8076,11 +8117,13 @@ namespace convm1 {
 											(*rhs_res2.ddecl_conversion_state_ptr).set_current_direct_qtype(direct_rhs_qtype);
 
 											auto cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);
-											/* This is not the proper way to modify an expression. See the function
-											* CConditionalOperatorReconciliation2ReplacementAction::do_replacement() for an example of
-											* the proper way to do it. But for now this is good enough. */
-											m_state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, "");
-											//auto res2 = Rewrite.ReplaceText(cast_operation_SR, "");
+											/* We're going to "blank out"/erase the original source text of the C-style cast operation
+											(including the parenthesis) (but not the expression that was being casted). */
+											std::string blank_text = cast_operation_text;
+											for (auto& ch : blank_text) {
+												ch = ' ';
+											}
+											m_state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, blank_text);
 
 											static const std::string void_str = "void";
 											auto void_pos = (*rhs_res2.ddecl_conversion_state_ptr).m_current_initialization_expr_str.find(void_str);
@@ -9082,13 +9125,9 @@ namespace convm1 {
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (1 == num_args)) {
-					{
-						std::string function_name = function_decl->getNameAsString();
-						static const std::string free_str = "free";
-						auto lc_function_name = tolowerstr(function_name);
-						bool ends_with_free = ((lc_function_name.size() >= free_str.size())
-								&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
-						if (ends_with_free) {
+					auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
+					if (alloc_function_info1.m_seems_to_be_some_kind_of_free) {
+						{
 							auto arg_iter = CE->arg_begin();
 							assert((*arg_iter)->getType().getTypePtrOrNull());
 							auto arg_source_range = cm1_adj_nice_source_range((*arg_iter)->getSourceRange(), state1, Rewrite);
@@ -9097,34 +9136,21 @@ namespace convm1 {
 								arg_source_text = Rewrite.getRewrittenText(arg_source_range);
 								//auto arg_source_text_sans_ws = with_whitespace_removed(arg_source_text);
 
-								auto ARG = (*(arg_iter))->IgnoreParenCasts();
-								auto arg_res2 = infer_array_type_info_from_stmt(*ARG, "malloc target", state1);
-								bool arg_is_an_indirect_type = is_an_indirect_type(ARG->getType());
+								auto arg_E = (*(arg_iter));
+								auto arg_E_ic = (*(arg_iter))->IgnoreParenCasts();
+								auto arg_res2 = infer_array_type_info_from_stmt(*arg_E_ic, "malloc target", state1);
+								bool arg_is_an_indirect_type = is_an_indirect_type(arg_E_ic->getType());
 
 								if (arg_res2.update_declaration_flag) {
 									update_declaration_if_not_suppressed(*(arg_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 								}
 
-								auto arg_QT = ARG->getType();
+								auto arg_QT = arg_E_ic->getType();
 								const clang::Type* arg_TP = arg_QT.getTypePtr();
 								auto arg_type_str = arg_QT.getAsString();
 								if (arg_QT->isPointerType()) {
 									auto callee_SR = write_once_source_range(cm1_adj_nice_source_range(CE->getCallee()->getSourceRange(), state1, Rewrite));
 									auto callee_raw_SR = CE->getCallee()->getSourceRange();
-									if (callee_raw_SR.getBegin().isMacroID()) {
-										auto& SM = Rewrite.getSourceMgr();
-										auto callee_spelling_SR = write_once_source_range(clang::SourceRange{ SM.getSpellingLoc(callee_raw_SR.getBegin()), Rewrite.getSourceMgr().getSpellingLoc(callee_raw_SR.getEnd()) });
-										std::string callee_spelling_text = Rewrite.getRewrittenText(callee_spelling_SR);
-										auto lc_function_name = tolowerstr(callee_spelling_text);
-										bool ends_with_free = ((lc_function_name.size() >= free_str.size())
-												&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
-										if (ends_with_free) {
-											callee_SR = callee_spelling_SR;
-										} else {
-											/* The "free" function call seems to be part of a macro we aren't (currently) able to handle. */
-											return;
-										}
-									}
 									if (callee_SR.isValid()) {
 										IF_DEBUG(auto callee_text = Rewrite.getRewrittenText(callee_SR);)
 										IF_DEBUG(auto callee_text1 = Rewrite.getRewrittenText(callee_raw_SR);)
@@ -9140,6 +9166,19 @@ namespace convm1 {
 
 										if (ConvertToSCPP) {
 											state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, callee_SR, callee_replacement_code);
+
+											auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_E);
+											if (CSCE) {
+												auto cast_operation_SR = cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite);
+												std::string cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);
+												/* We're going to "blank out"/erase the original source text of the C-style cast operation
+												(including the parenthesis) (but not the expression that was being casted). */
+												std::string blank_text = cast_operation_text;
+												for (auto& ch : blank_text) {
+													ch = ' ';
+												}
+												state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, blank_text);
+											}
 										}
 									} else {
 										int q = 5;
@@ -10122,7 +10161,7 @@ namespace convm1 {
 			IF_DEBUG(std::string precasted_expr_QT_str = precasted_expr_QT.getAsString();)
 			auto precasted_expr_SR = cm1_adj_nice_source_range(precasted_expr_ptr->getSourceRange(), state1, Rewrite);
 			auto CSCESR = write_once_source_range(cm1_adj_nice_source_range(CSCE->getSourceRange(), state1, Rewrite));
-			auto cast_operation_SR = clang::SourceRange(CSCE->getLParenLoc(), CSCE->getRParenLoc());
+			auto cast_operation_SR = cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite);
 
 			if ((csce_QT->isPointerType() || csce_QT->isArrayType())
 				&& (precasted_expr_QT->isPointerType() || precasted_expr_QT->isArrayType())
@@ -10135,6 +10174,12 @@ namespace convm1 {
 					if (function_decl1) {
 						std::string function_name = function_decl1->getNameAsString();
 						auto lc_function_name = tolowerstr(function_name);
+
+						auto res1 = analyze_malloc_resemblance(*function_decl1, state1, Rewrite);
+						if (res1.m_seems_to_be_some_kind_of_malloc_or_realloc || res1.m_seems_to_be_some_kind_of_free) {
+							/* This case should be handled as part of the replacement of the parent *alloc() or *free() function. */
+							return;
+						}
 
 						auto function_decl1_SR = cm1_adj_nice_source_range(function_decl1->getSourceRange(), state1, Rewrite);
 						bool FD_is_non_modifiable = is_non_modifiable(*function_decl1, MR, Rewrite, state1);
@@ -10306,7 +10351,7 @@ namespace convm1 {
 			auto precasted_expr_SR = cm1_adj_nice_source_range(precasted_expr_ptr->getSourceRange(), state1, Rewrite);
 			auto CXXSCESR = write_once_source_range(cm1_adj_nice_source_range(CXXSCE->getSourceRange(), state1, Rewrite));
 			auto angle_brackets_SR = write_once_source_range(cm1_adj_nice_source_range(CXXSCE->getAngleBrackets(), state1, Rewrite));
-			auto cast_operation_SR = clang::SourceRange(CXXSCESR.getBegin(), angle_brackets_SR.getEnd());
+			auto cast_operation_SR = cm1_adj_nice_source_range({ CXXSCESR.getBegin(), angle_brackets_SR.getEnd() }, state1, Rewrite);
 
 			if ((csce_QT->isPointerType() || csce_QT->isArrayType())
 				&& (precasted_expr_QT->isPointerType() || precasted_expr_QT->isArrayType())
@@ -10357,7 +10402,7 @@ namespace convm1 {
 			auto precasted_expr_SR = cm1_adj_nice_source_range(precasted_expr_ptr->getSourceRange(), state1, Rewrite);
 			auto CXXSCESR = write_once_source_range(cm1_adj_nice_source_range(CXXSCE->getSourceRange(), state1, Rewrite));
 			auto angle_brackets_SR = write_once_source_range(cm1_adj_nice_source_range(CXXSCE->getAngleBrackets(), state1, Rewrite));
-			auto cast_operation_SR = clang::SourceRange(CXXSCESR.getBegin(), angle_brackets_SR.getEnd());
+			auto cast_operation_SR = cm1_adj_nice_source_range({ CXXSCESR.getBegin(), angle_brackets_SR.getEnd() }, state1, Rewrite);
 
 			if ((csce_QT->isPointerType() || csce_QT->isArrayType())
 				&& (precasted_expr_QT->isPointerType() || precasted_expr_QT->isArrayType())
@@ -10577,7 +10622,7 @@ namespace convm1 {
 					assert(precasted_expr_ptr);
 					auto precasted_expr_SR = cm1_adj_nice_source_range(precasted_expr_ptr->getSourceRange(), state1, Rewrite);
 					auto CSCESR = write_once_source_range(cm1_adj_nice_source_range(CSCE->getSourceRange(), state1, Rewrite));
-					auto cast_operation_SR = write_once_source_range(clang::SourceRange(CSCE->getLParenLoc(), CSCE->getRParenLoc()));
+					auto cast_operation_SR = write_once_source_range(cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite));
 
 					if ((csce_QT->isPointerType()) && precasted_expr_ptr->getType()->isPointerType() && cast_operation_SR.isValid()) {
 						std::string csce_QT_str = csce_QT.getAsString();
@@ -11756,7 +11801,7 @@ namespace convm1 {
 						auto CSCE = llvm::cast<const clang::CStyleCastExpr>(retvalii_EX);
 						if (CSCE) {
 							handle_c_style_cast_without_context(MR, Rewrite, state1, CSCE);
-							auto cast_operation_SR = clang::SourceRange(CSCE->getLParenLoc(), CSCE->getRParenLoc());
+							auto cast_operation_SR = cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite);
 						} else { assert(false); }
 					}
 
