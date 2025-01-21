@@ -277,7 +277,7 @@ namespace convm1 {
 		bool m_is_ineligible_for_xscope_status = false;
 	};
 
-	inline std::string adjusted_qtype_str(std::string qtype_str, std::optional<clang::QualType> const maybe_qtype = {}, CTUState* state1_ptr = nullptr) {
+	inline std::string adjusted_qtype_str(std::string qtype_str, std::optional<clang::QualType> const maybe_qtype = {}) {
 		if ("_Bool" == qtype_str) {
 			qtype_str = "bool";
 		} else if ("const _Bool" == qtype_str) {
