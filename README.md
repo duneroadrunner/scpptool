@@ -80,6 +80,8 @@ The build script does not require root privileges.
 
 (Note that the scpptool executable uses a clang include directory located in the relative path '../lib/clang' created by the build script. So copying or moving the scpptool executable would also require copying or moving that include directory so that the relative path remains the same.)
 
+To uninstall: Just delete the directories where you extracted scpptool repo and clang+llvm pre-built binaries to. Currently, the build script doesn't actually "install" anything.
+
 ### How to Use:
 
 The usage syntax is as follows:
