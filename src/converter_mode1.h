@@ -277,22 +277,11 @@ namespace convm1 {
 		bool m_is_ineligible_for_xscope_status = false;
 	};
 
-	inline std::string adjusted_qtype_str(std::string qtype_str) {
+	inline std::string adjusted_qtype_str(std::string qtype_str, std::optional<clang::QualType> const maybe_qtype = {}, CTUState* state1_ptr = nullptr) {
 		if ("_Bool" == qtype_str) {
 			qtype_str = "bool";
 		} else if ("const _Bool" == qtype_str) {
 			qtype_str = "const bool";
-		} else {
-			/* hack alert */
-			static const std::string struct_space_str = "struct ";
-			static const std::string const_struct_space_str = "const struct ";
-			if (string_begins_with(qtype_str, struct_space_str)) {
-				/* Remove legacy C "struct" type specifer. Apparently C++ doesn't like it when it is
-				applied to C++ (i.e. non-C) struct types. */
-				qtype_str = qtype_str.substr(struct_space_str.size());
-			} else if (string_begins_with(qtype_str, const_struct_space_str)) {
-				qtype_str = "const " + qtype_str.substr(const_struct_space_str.size());
-			}
 		}
 		return qtype_str;
 	}
@@ -366,7 +355,7 @@ namespace convm1 {
 							return function_type_str;
 						}
 					}
-					return adjusted_qtype_str(qtype.getAsString());
+					return adjusted_qtype_str(qtype.getAsString(), qtype);
 				}
 			}
 			return m_current_qtype_or_return_qtype_str + m_function_type_state.m_params_current_str;
@@ -2559,6 +2548,11 @@ namespace convm1 {
 		it here so that we don't have to pass it around separately, but we're not totally
 		sure that it will be valid for the entire lifetime of this state. */
 		clang::ASTContext* m_ast_context_ptr = nullptr;
+
+		/* This value is required for reading from and writing to the source text. We put
+		it here so that we don't have to pass it around separately, but we're not totally
+		sure that it will be valid for the entire lifetime of this state. */
+		clang::Rewriter* m_Rewrite_ptr = nullptr;
 	};
 
 
@@ -11075,7 +11069,7 @@ namespace convm1 {
 								if (ConvertToSCPP) {
 									std::shared_ptr<CExprTextModifier> shptr1;
 									auto arg_EX_ii_qtype_str = arg_EX_ii_qtype.getAsString();
-									if (("void *" != arg_EX_ii_qtype_str) && ("const void *" != arg_EX_ii_qtype_str)) {
+									if (true || (("void *" != arg_EX_ii_qtype_str) && ("const void *" != arg_EX_ii_qtype_str))) {
 										shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
 										if (1 <= (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.size()) {
 											if ("unsafe make raw pointer from" == (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
@@ -11085,6 +11079,8 @@ namespace convm1 {
 											}
 										}
 									} else {
+										/* mse::us::lh::make_raw_pointer_from() now supoorts making a `void*` from an 
+										mse::void_star_replacement, so this branch shouldn't be needed anymore. Right? */
 										auto param_VD_qtype_str = param_VD_qtype.getAsString();
 										if (("void *" != param_VD_qtype_str) && ("const void *" != param_VD_qtype_str)) {
 											shptr1 = std::make_shared<CUnsafeCastExprTextModifier>(param_VD_qtype);
@@ -13660,6 +13656,12 @@ namespace convm1 {
 		HandlerForSSSArgToReferenceParameterPassing(R, tu_state()), HandlerForSSSReturnValue(R, tu_state()), HandlerForSSSFRead(R, tu_state()), HandlerForSSSFWrite(R, tu_state()), 
 		HandlerForSSSAddressOf(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForMisc1(R, tu_state(), CI)
 	{
+		if (tu_state_param.m_Rewrite_ptr != &R) {
+			tu_state_param.m_Rewrite_ptr = &R;
+		}
+		tu_state_param.m_Rewrite_ptr = &R;
+
+
 		Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerForMisc1);
 
 		/* The ordering of the matchers has not yet been thoroughly considered, but generally you'd want
