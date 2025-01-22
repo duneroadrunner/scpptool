@@ -2746,6 +2746,10 @@ namespace convm1 {
 									than needing to be applied to the definition of the macro. We would prefer
 									not to modify the definition of a macro if it's not necessary. */
 									returnSR = adjusted_macro_SPSR;
+								} else {
+									/* The macro seems like it might consist of additional expressions and/or statements other than the
+									outside of the source range we were given. */
+									break;
 								}
 							} else {
 								int q = 5;
