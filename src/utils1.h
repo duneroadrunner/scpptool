@@ -179,6 +179,11 @@ bool is_macro_instantiation(const clang::SourceRange& sr, clang::Rewriter &Rewri
 bool first_is_a_subset_of_second(const clang::SourceRange& first, const clang::SourceRange& second);
 bool first_is_a_proper_subset_of_second(const clang::SourceRange& first, const clang::SourceRange& second);
 
+struct CFilteringResult {
+	bool m_suppress_errors = false;
+	bool m_do_not_process = false;
+};
+CFilteringResult evaluate_filtering_by_full_path_name(const std::string &full_path_name);
 bool filtered_out_by_location(const clang::SourceManager &SM, clang::SourceLocation SL);
 bool filtered_out_by_location(clang::ASTContext const& Ctx, clang::SourceLocation SL);
 bool filtered_out_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceLocation SL);

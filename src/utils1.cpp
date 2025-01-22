@@ -194,11 +194,6 @@ bool first_is_a_proper_subset_of_second(const clang::SourceRange& first, const c
 	return retval;
 }
 
-struct CFilteringResult {
-	bool m_suppress_errors = false;
-	bool m_do_not_process = false;
-};
-
 CFilteringResult evaluate_filtering_by_filename(const std::string &filename) {
 	CFilteringResult retval;
 
@@ -221,6 +216,39 @@ CFilteringResult evaluate_filtering_by_filename(const std::string &filename) {
 	} else if (built_in_str == filename) {
 		retval.m_do_not_process = true;
 		retval.m_suppress_errors = true;
+	}
+
+	return retval;
+}
+
+CFilteringResult evaluate_filtering_by_full_path_name(const std::string &full_path_name) {
+	CFilteringResult retval;
+
+	auto get_filename = [](std::string const& full_path_name) {
+		std::string filename = full_path_name;
+		const auto last_slash_pos = full_path_name.find_last_of('/');
+		if (std::string::npos != last_slash_pos) {
+			if (last_slash_pos + 1 < full_path_name.size()) {
+				filename = full_path_name.substr(last_slash_pos+1);
+			} else {
+				filename = "";
+			}
+		}
+		return filename;
+	};
+
+	const auto lib_clang_pos = full_path_name.find("/lib/clang/");
+	if (std::string::npos != lib_clang_pos) {
+		retval.m_do_not_process = true;
+		retval.m_suppress_errors = true;
+	} else if (string_begins_with(full_path_name, "/usr/include/")) {
+		retval.m_do_not_process = true;
+		retval.m_suppress_errors = true;
+	} else {
+		std::string filename = get_filename(full_path_name);
+		auto res1 = evaluate_filtering_by_filename(filename);
+		retval.m_do_not_process = res1.m_do_not_process;
+		retval.m_suppress_errors = res1.m_suppress_errors;
 	}
 
 	return retval;
@@ -293,16 +321,9 @@ CFilteringResultByLocation evaluate_filtering_by_location(const SourceManager &S
 			retval.m_do_not_process = true;
 		*/
 		} else {
-			const auto lib_clang_pos = full_path_name.find("/lib/clang/");
-			if (std::string::npos != lib_clang_pos) {
-				retval.m_do_not_process = true;
-				retval.m_suppress_errors = true;
-			} else {
-				std::string filename = get_filename(full_path_name);
-				auto res1 = evaluate_filtering_by_filename(filename);
-				retval.m_do_not_process = res1.m_do_not_process;
-				retval.m_suppress_errors = res1.m_suppress_errors;
-			}
+			auto res1 = evaluate_filtering_by_full_path_name(full_path_name);
+			retval.m_do_not_process = res1.m_do_not_process;
+			retval.m_suppress_errors = res1.m_suppress_errors;
 		}
 	}
 	tl_maybe_cached_result = retval;

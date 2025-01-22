@@ -10143,6 +10143,67 @@ namespace convm1 {
 		if (suppress_check_flag) {
 			return true;
 		}
+		{
+			auto& SM = Rewrite.getSourceMgr();
+			auto get_full_path_name = [&SM](clang::SourceLocation const& SL, bool* filename_is_invalid_ptr) {
+				auto full_path_name = std::string(SM.getBufferName(SL, filename_is_invalid_ptr));
+				if ("" == full_path_name) {
+					full_path_name = std::string(SL.printToString(SM));
+
+					/*
+					static const std::string spelling_prefix("<Spelling=");
+					auto last_spelling_pos = full_path_name.rfind(spelling_prefix);
+					if (last_spelling_pos + spelling_prefix.length() + 1 < full_path_name.size()) {
+						full_path_name = full_path_name.substr(last_spelling_pos + spelling_prefix.length());
+					}
+					*/
+
+					auto last_colon_pos = full_path_name.find_first_of(':');
+					if (last_colon_pos + 1 < full_path_name.size()) {
+						full_path_name = full_path_name.substr(0, last_colon_pos);
+					} else {
+						int q = 7;
+					}
+				}
+				return full_path_name;
+			};
+			auto get_filename = [](std::string const& full_path_name) {
+				std::string filename = full_path_name;
+				const auto last_slash_pos = full_path_name.find_last_of('/');
+				if (std::string::npos != last_slash_pos) {
+					if (last_slash_pos + 1 < full_path_name.size()) {
+						filename = full_path_name.substr(last_slash_pos+1);
+					} else {
+						filename = "";
+					}
+				}
+				return filename;
+			};
+			auto SR = decl.getSourceRange();
+			if (!(SR.isValid())) {
+				return true;
+			}
+			auto SL = SR.getBegin();
+			bool filename_is_invalid = false;
+			auto full_path_name = get_full_path_name(SL, &filename_is_invalid);
+
+			static const std::string invalid_buffer_str = "<invalid buffer>";
+			if (invalid_buffer_str == full_path_name) {
+				auto SPSL = SM.getSpellingLoc(SL);
+				if (!(SPSL.isValid())) {
+					return true;
+				}
+				bool SP_filename_is_invalid = false;
+				auto SP_full_path_name = get_full_path_name(SPSL, &SP_filename_is_invalid);
+
+				auto res1 = evaluate_filtering_by_full_path_name(SP_full_path_name);
+				if (res1.m_do_not_process) {
+					/* We've observed that arriving here can indicate a situation where the given decl refers to an 
+					element in the body of an instantiated "system" macro. */
+					return true;
+				}
+			}
+		}
 		return false;
 	}
 
@@ -10469,7 +10530,33 @@ namespace convm1 {
 
 			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-			RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+			auto& SM = Rewrite.getSourceMgr();
+			auto b10 = SM.isMacroArgExpansion(RHS->getSourceRange().getBegin());
+			auto b10b = SM.isMacroArgExpansion(RHS->getSourceRange().getEnd());
+			if (b10 && b10b) {
+				/* The RHS expression seems like it might be an argument to a function macro. If the macro is some 
+				kind of "system" macro that can't be changed, then the RHS expression may have to be adjusted to 
+				accommodate that. */
+				int q = 5;
+			} else {
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+			}
+
+			bool vld_is_filtered_out = false;
+			if (VLD) {
+				auto VLD_SR = cm1_adj_nice_source_range(VLD->getSourceRange(), state1, Rewrite);
+				if ((!VLD_SR.isValid()) || filtered_out_by_location(MR, VLD_SR.getBegin())) {
+					vld_is_filtered_out = true;
+				}
+			}
+			bool rhs_is_filtered_out = false;
+			if ((!SR.isValid()) || filtered_out_by_location(MR, SR.getBegin())) {
+				if (vld_is_filtered_out) {
+					//return void();
+				}
+				rhs_is_filtered_out = true;
+			}
+
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -10530,11 +10617,11 @@ namespace convm1 {
 			if (lhs_res2.ddecl_cptr) {
 				auto LHSDD_SR = cm1_adj_nice_source_range(lhs_res2.ddecl_cptr->getSourceRange(), state1, Rewrite);
 				bool LHS_decl_is_non_modifiable = is_non_modifiable(*(lhs_res2.ddecl_cptr), MR, Rewrite, state1);
-				if (LHS_decl_is_non_modifiable && LHS && RHS) {
+				if (LHS_decl_is_non_modifiable && (LHS || VLD) && RHS) {
 					/* LHS will, for whatever reason, not be converted to a safe pointer. But presumably the RHS wiil 
 					(or at least could) be. So we may need to add an unsafe cast from the RHS safe pointer to the LHS
 					raw pointer. */
-					auto LHS_qtype = LHS->getType();
+					auto LHS_qtype = LHS ? LHS->getType() : VLD->getType();
 					auto RHS_qtype = RHS->getType();
 
 					assert(RHS->getType().getTypePtrOrNull());
@@ -10562,7 +10649,7 @@ namespace convm1 {
 						if (ConvertToSCPP) {
 							std::shared_ptr<CExprTextModifier> shptr1;
 							auto RHS_qtype_str = RHS_qtype.getAsString();
-							if (("void *" != RHS_qtype_str) && ("const void *" != RHS_qtype_str)) {
+							if (true || (("void *" != RHS_qtype_str) && ("const void *" != RHS_qtype_str))) {
 								shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
 								if (1 <= (*rhs_shptr_ref).m_expr_text_modifier_stack.size()) {
 									if ("unsafe make raw pointer from" == (*rhs_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
@@ -10935,7 +11022,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -14084,7 +14171,7 @@ namespace convm1 {
 		std::string macro_name = MacroNameTok.getName();
 		std::string macro_text = m_Rewriter_ref.getRewrittenText(Range);
 
-		auto&SM = (*this).m_Rewriter_ref.getSourceMgr();
+		auto& SM = (*this).m_Rewriter_ref.getSourceMgr();
 		IF_DEBUG(std::string debug_source_location_str = Range.getBegin().printToString(SM);)
 
 		if (filtered_out_by_location(SM, Range.getBegin())) {
