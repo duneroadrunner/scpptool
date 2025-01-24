@@ -2467,13 +2467,14 @@ namespace convm1 {
 	/* A definition of a preprocessor macro. */
 	class CPPMacroDefinitionInfo {
 	public:
-		CPPMacroDefinitionInfo(const Token &MacroNameTok, const MacroDirective& MD, bool is_function_macro = false)
-			: m_MacroNameTok(MacroNameTok), m_MD_ptr(&MD), m_is_function_macro(is_function_macro) {}
+		CPPMacroDefinitionInfo(const Token &MacroNameTok, const MacroDirective& MD, bool is_function_macro = false, std::string_view macro_def_body_str = {})
+			: m_MacroNameTok(MacroNameTok), m_MD_ptr(&MD), m_is_function_macro(is_function_macro), m_macro_def_body_str(macro_def_body_str) {}
 
 		Token m_MacroNameTok;
 		const MacroDirective *m_MD_ptr;
 		bool m_is_function_macro = false;
 		SourceRange definition_SR() const { return SourceRange{ (*m_MD_ptr).getMacroInfo()->getDefinitionLoc(), (*m_MD_ptr).getMacroInfo()->getDefinitionEndLoc() }; }
+		std::string m_macro_def_body_str;
 	};
 	/* This container holds information about definitions of preprocessor macros. */
 	class CPPMacroDefinitions : public std::map<std::string, CPPMacroDefinitionInfo> {
@@ -2649,15 +2650,25 @@ namespace convm1 {
 				}
 			}
 
+			std::string SPSR_source_text;
+			if ((SPSR).isValid() && (((SPSR).getBegin() < (SPSR).getEnd()) || ((SPSR).getBegin() == (SPSR).getEnd()))) {
+				SPSR_source_text = Rewrite.getRewrittenText(SPSR);
+			}
+			std::string SPSR_source_text_with_added_parens = "(" + SPSR_source_text + ")";
+
 			{
 				/* The element could be nested within multiple macro instances. We are going to obtain
 				and store a list of (the source ranges of) all the (nested) macro instances which contain
 				the element. */
 				auto nested_macro_ranges = std::vector<clang::SourceRange>{};
-				auto macro1_SL = SM.getImmediateMacroCallerLoc(SL);
-				auto macro1_SLE = SM.getImmediateMacroCallerLoc(SLE);
 				auto last_macro1_SL = SL;
 				auto last_macro1_SLE = SLE;
+				auto macro1_SL = SM.getImmediateMacroCallerLoc(SL);
+				auto macro1_SLE = SM.getImmediateMacroCallerLoc(SLE);
+
+				const auto expansion_SR = SM.getExpansionRange(macro1_SL).getAsRange();
+				DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, expansion_SR, Rewrite);
+
 				while (macro1_SL != last_macro1_SL) {
 					nested_macro_ranges.push_back({ macro1_SL, macro1_SLE });
 
@@ -2670,6 +2681,9 @@ namespace convm1 {
 					DEBUG_SOURCE_TEXT_STR(debug_macro1_source_text, new_macro1_SR, Rewrite);
 					auto adjusted_macro_SPSR = clang::SourceRange{ SM.getSpellingLoc(new_macro1_SR.getBegin()), SM.getSpellingLoc(new_macro1_SR.getEnd()) };
 					DEBUG_SOURCE_TEXT_STR(debug_adjusted_macro_source_text, adjusted_macro_SPSR, Rewrite);
+
+					const auto expansion_SR = SM.getExpansionRange(macro1_SL).getAsRange();
+					DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, expansion_SR, Rewrite);
 
 					auto b16 = SM.isMacroArgExpansion(macro1_SL);
 					auto b17 = SM.isMacroArgExpansion(adjusted_macro_SPSR.getBegin());
@@ -2737,14 +2751,23 @@ namespace convm1 {
 							auto found_macro_iter = state1.m_pp_macro_definitions.find(macro_name);
 							if (state1.m_pp_macro_definitions.end() != found_macro_iter) {
 								std::string macro_def_text = Rewrite.getRewrittenText(found_macro_iter->second.definition_SR());
+
+								bool is_essentially_the_whole_macro = false;
 								auto found_iter2 = macro_def_text.find_first_of(";=");
 								if (std::string::npos == found_iter2) {
-									/* Here we're going to assume that the macro definition is just a single
-									expression. (Todo: improve the criteria for making such an assumption.) So
-									we're going to presume that it's likely that any given  transformation
-									could be appropriately applied to the instantiation of the macro, rather
-									than needing to be applied to the definition of the macro. We would prefer
-									not to modify the definition of a macro if it's not necessary. */
+									if (found_macro_iter->second.m_macro_def_body_str == SPSR_source_text) {
+										is_essentially_the_whole_macro = true;
+									} else if (found_macro_iter->second.m_macro_def_body_str == SPSR_source_text_with_added_parens) {
+										is_essentially_the_whole_macro = true;
+									}
+								}
+
+								if (is_essentially_the_whole_macro) {
+									/* It looks like the macro expansion is essentially just the given source 
+									range. So we're going to presume that it's likely that any given 
+									transformation could be appropriately applied to the instantiation of the 
+									macro, rather than needing to be applied to the definition of the macro. We 
+									would prefer not to modify the definition of a macro if it's not necessary. */
 									returnSR = adjusted_macro_SPSR;
 								} else {
 									/* The macro seems like it might consist of additional expressions and/or statements other than the
@@ -14132,12 +14155,28 @@ namespace convm1 {
 			return;
 		}
 
-#ifndef NDEBUG
 		auto macro_def = MD->getDefinition();
 		auto MDSL = macro_def.getMacroInfo()->getDefinitionLoc();
 		auto MDSLE = macro_def.getMacroInfo()->getDefinitionEndLoc();
 		std::string macro_def_text = m_Rewriter_ref.getRewrittenText({ MDSL, MDSLE });
-#endif /*!NDEBUG*/
+		std::string_view macro_def_body_sv;
+		{
+			std::string::size_type search_start_pos = 0;
+			if (is_function_macro) {
+				auto rparen_pos = macro_def_text.find(")");
+				if (std::string::npos == rparen_pos) {
+					int q = 3;
+				} else {
+					search_start_pos = rparen_pos;
+				}
+			}
+			auto wh_pos = Parse::find_whitespace(macro_def_text, search_start_pos);
+			auto nwh_pos = Parse::find_non_whitespace(macro_def_text, wh_pos);
+			std::string_view macro_def_text_sv = macro_def_text;
+			if (macro_def_text_sv.size() > nwh_pos) {
+				macro_def_body_sv = macro_def_text_sv.substr(nwh_pos);
+			}
+		}
 
 		if (current_fii_shptr()) {
 			if (!(current_fii_shptr()->m_first_macro_directive_ptr_is_valid)) {
@@ -14146,7 +14185,7 @@ namespace convm1 {
 			}
 		}
 
-		auto ppmdi = CPPMacroDefinitionInfo(MacroNameTok, *MD);
+		auto ppmdi = CPPMacroDefinitionInfo(MacroNameTok, *MD, is_function_macro, macro_def_body_sv);
 		auto iter1 = (*this).m_tu_state_ptr->m_pp_macro_definitions.find(macro_name);
 		if ((*this).m_tu_state_ptr->m_pp_macro_definitions.end() != iter1) {
 			IF_DEBUG(std::string found_macro_text = m_Rewriter_ref.getRewrittenText(iter1->second.definition_SR());)
