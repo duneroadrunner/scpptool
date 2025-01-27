@@ -2778,8 +2778,6 @@ namespace convm1 {
 				}
 			}
 
-			std::string SPSR_source_text_with_added_parens = "(" + SPSR_source_text + ")";
-
 			if (may_be_a_gnu_attr) {
 				auto maybe_SR2 = extended_to_include_entire_gnu_attribute_if_any(SPSR, state1, Rewrite);
 				if (maybe_SR2.has_value()) {
@@ -2789,7 +2787,6 @@ namespace convm1 {
 						SPSR = SPSR2;
 						SPSR_source_text = text2;
 						retval.m_source_text_as_if_expanded = SPSR_source_text;
-						SPSR_source_text_with_added_parens = "(" + SPSR_source_text + ")";
 					} else {
 						int q = 3;
 					}
@@ -2832,8 +2829,10 @@ namespace convm1 {
 					int q = 5;
 				}
 
+				std::string source_text_as_if_expanded = SPSR_source_text;
 				if (1 <= nested_macro_ranges.size()) {
 					retval = SPSR;
+					retval.m_source_text_as_if_expanded = source_text_as_if_expanded;
 				} else {
 					int q = 3;
 				}
@@ -2919,9 +2918,9 @@ namespace convm1 {
 								std::string macro_def_text = Rewrite.getRewrittenText(found_macro_iter->second.definition_SR());
 
 								bool is_essentially_the_whole_macro = false;
-								if (found_macro_iter->second.m_macro_def_body_str == SPSR_source_text) {
+								if (found_macro_iter->second.m_macro_def_body_str == source_text_as_if_expanded) {
 									is_essentially_the_whole_macro = true;
-								} else if (found_macro_iter->second.m_macro_def_body_str == SPSR_source_text_with_added_parens) {
+								} else if (found_macro_iter->second.m_macro_def_body_str == ("(" + source_text_as_if_expanded + ")")) {
 									is_essentially_the_whole_macro = true;
 								}
 
@@ -2932,10 +2931,31 @@ namespace convm1 {
 									macro, rather than needing to be applied to the definition of the macro. We 
 									would prefer not to modify the definition of a macro if it's not necessary. */
 									retval = adjusted_macro_SPSR;
+									source_text_as_if_expanded = Rewrite.getRewrittenText(adjusted_macro_SPSR);
 								} else {
 									/* The macro seems like it might consist of additional expressions and/or statements other than the
 									outside of the source range we were given. */
-									break;
+
+									auto& macro_params = found_macro_iter->second.m_parameter_names;
+									if (macro_params.size() <= macro_args.size()) {
+										if (macro_params.size() != macro_args.size()) {
+											int q = 5;
+										}
+										auto arg_citer = macro_args.cbegin();
+										for (auto& macro_param : macro_params) {
+											auto found_range = Parse::find_uncommented_token(macro_param, source_text_as_if_expanded);
+											while (found_range.begin < source_text_as_if_expanded.length()) {
+												source_text_as_if_expanded.replace(found_range.begin, (found_range.end - found_range.begin), *arg_citer);
+												retval.m_source_text_as_if_expanded = source_text_as_if_expanded;
+
+												found_range = Parse::find_uncommented_token(macro_param, source_text_as_if_expanded, found_range.begin + (*arg_citer).length());
+											}
+											++arg_citer;
+										}
+									} else {
+										int q = 3;
+									}
+									//break;
 								}
 							} else {
 								int q = 5;
@@ -8221,11 +8241,14 @@ namespace convm1 {
 					if (!arg_source_range.isValid()) {
 						/*assert(false); */continue;
 					}
-					if (arg->getSourceRange().getBegin().isMacroID()) {
-						int q = 5;
-						//continue;
-					}
 					std::string l_arg_source_text = Rewrite.getRewrittenText(arg_source_range);
+					if (arg->getSourceRange().getBegin().isMacroID() && ("" != arg_source_range.m_source_text_as_if_expanded)) {
+						/* At this point, l_arg_source_text should have the actual text of the expression from the source 
+						code. But if the text is in the body of a macro function, then we would actually want any macro 
+						parameters in the text to be replaced by their corresponding macro argument. 
+						arg_source_range.m_source_text_as_if_expanded should contain the text we want. */
+						l_arg_source_text = arg_source_range.m_source_text_as_if_expanded;
+					}
 					clang::ValueDecl const * DD = nullptr;
 					if (res2.m_seems_to_be_some_kind_of_realloc && arg->getType()->isPointerType() && (!realloc_pointer_arg_DD)) {
 						realloc_pointer_arg_source_text = l_arg_source_text;
