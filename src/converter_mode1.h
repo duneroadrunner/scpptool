@@ -732,8 +732,8 @@ namespace convm1 {
 
 			if (clang::Type::Paren == type_class) {
 				if (llvm::isa<const clang::ParenType>(l_qtype)) {
-					auto PNQT = llvm::cast<const clang::ParenType>(l_qtype);
-					if (PNQT) {
+					auto PNT = llvm::cast<const clang::ParenType>(l_qtype);
+					if (PNT) {
 						std::optional<clang::TypeLoc> new_maybe_typeLoc;
 						if (maybe_typeLoc.has_value()) {
 							IF_DEBUG(auto typeLocClass = maybe_typeLoc.value().getTypeLocClass();)
@@ -742,7 +742,7 @@ namespace convm1 {
 								new_maybe_typeLoc = ParenLoc.getInnerLoc();
 							}
 						}
-						return populateQTypeIndirectionStack(stack, PNQT->getInnerType(), new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
+						return populateQTypeIndirectionStack(stack, PNT->getInnerType(), new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
 					} else {
 						assert(false);
 					}
@@ -767,6 +767,9 @@ namespace convm1 {
 					assert(false);
 				}
 			}
+		}
+		if (is_function_type) {
+			stack.m_direct_type_state.m_is_ineligible_for_xscope_status = true;
 		}
 
 		std::string l_qtype_str = l_qtype.getAsString();
@@ -850,14 +853,12 @@ namespace convm1 {
 						new_maybe_typeLoc = ArrayLoc.getElementLoc();
 					}
 				}
-
-				if ("" == size_text) {
-					/* A array type without a size argument is basically just a pointer, right? But we'll at least assume
-					that it is intended to point to (or into) some kind of an array. */
-					stack.push_back(CIndirectionState(l_maybe_typeLoc, "native pointer", "inferred array", size_text));
-				} else {
-					stack.push_back(CIndirectionState(l_maybe_typeLoc, "native array", "native array", size_text));
+				auto indirection_state = ("" == size_text) ? CIndirectionState(l_maybe_typeLoc, "native pointer", "inferred array", size_text)
+					: CIndirectionState(l_maybe_typeLoc, "native array", "native array", size_text);
+				if (is_function_type) {
+					indirection_state.m_is_ineligible_for_xscope_status = true;
 				}
+				stack.push_back(indirection_state);
 
 				return populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
 			} else {
@@ -873,8 +874,8 @@ namespace convm1 {
 			}
 
 			if (llvm::isa<const clang::PointerType>(l_qtype)) {
-				auto PQT = llvm::cast<const clang::PointerType>(l_qtype);
-				if (PQT) {
+				auto PT = llvm::cast<const clang::PointerType>(l_qtype);
+				if (PT) {
 					int q = 5;
 				} else {
 					int q = 5;
@@ -916,15 +917,19 @@ namespace convm1 {
 				}
 			}
 
-			stack.push_back(CIndirectionState(l_maybe_typeLoc, "native pointer", "native pointer", is_function_type, param_qtypes, new_maybe_functionProtoTypeLoc));
+			auto indirection_state = CIndirectionState(l_maybe_typeLoc, "native pointer", "native pointer", is_function_type, param_qtypes, new_maybe_functionProtoTypeLoc);
+			if (is_function_type) {
+				indirection_state.m_is_ineligible_for_xscope_status = true;
+			}
+			stack.push_back(indirection_state);
 
 			return populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
 		} else if (l_qtype->isReferenceType()) {
 			auto type_class = l_qtype->getTypeClass();
 
 			if (llvm::isa<const clang::ReferenceType>(l_qtype)) {
-				auto PQT = llvm::cast<const clang::ReferenceType>(l_qtype);
-				if (PQT) {
+				auto PT = llvm::cast<const clang::ReferenceType>(l_qtype);
+				if (PT) {
 					int q = 5;
 				} else {
 					int q = 5;
@@ -955,7 +960,11 @@ namespace convm1 {
 				}
 			}
 
-			stack.push_back(CIndirectionState(l_maybe_typeLoc, "native reference", "native reference", is_function_type, param_qtypes, new_maybe_functionProtoTypeLoc));
+			auto indirection_state = CIndirectionState(l_maybe_typeLoc, "native reference", "native reference", is_function_type, param_qtypes, new_maybe_functionProtoTypeLoc);
+			if (is_function_type) {
+				indirection_state.m_is_ineligible_for_xscope_status = true;
+			}
+			stack.push_back(indirection_state);
 
 			return populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
 		}
@@ -977,7 +986,6 @@ namespace convm1 {
 			} else {
 				int q = 5;
 			}
-
 		}
 		return qtype;
 	}
