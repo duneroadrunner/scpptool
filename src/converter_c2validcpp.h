@@ -343,6 +343,13 @@ namespace convc2validcpp {
 					return adjusted_qtype_str(qtype.getAsString());
 				}
 			}
+			if (m_maybe_original_qtype.has_value()) {
+				if (!(m_maybe_original_qtype.value()->isFunctionType())) {
+					return m_current_qtype_or_return_qtype_str;
+				} else {
+					return m_current_qtype_or_return_qtype_str + m_function_type_state.m_params_current_str;
+				}
+			}
 			return m_current_qtype_or_return_qtype_str + m_function_type_state.m_params_current_str;
 		}
 		/* If the type is a function type, then just the function return type is returned (as a

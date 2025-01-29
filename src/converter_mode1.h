@@ -183,6 +183,15 @@ namespace convm1 {
 			m_params_current_str = params_current_str;
 			m_current_qtypes_are_current = false;
 		}
+		bool operator==(const CFunctionTypeState& other) const {
+			return ((other.m_param_qtypes_original == m_param_qtypes_original)
+				&& (other.m_param_qtypes_current == m_param_qtypes_current)
+				&& (other.m_current_qtypes_are_current == m_current_qtypes_are_current)
+				&& (other.m_params_current_str == m_params_current_str)
+				&& (other.m_function_decl_ptr == m_function_decl_ptr)
+				&& (other.m_maybe_functionProtoTypeLoc.has_value() == m_maybe_functionProtoTypeLoc.has_value())
+				);
+		}
 		std::vector<clang::QualType> m_param_qtypes_original;
 		std::vector<clang::QualType> m_param_qtypes_current;
 		bool m_current_qtypes_are_current = false;
@@ -347,15 +356,22 @@ namespace convm1 {
 				} else {
 					auto qtype = m_maybe_current_qtype.value();
 					if (llvm::isa<const clang::FunctionType>(qtype)) {
-						auto FNQT = llvm::cast<const clang::FunctionType>(qtype);
-						if (FNQT && (!(m_function_type_state.m_params_current_str.empty()))) {
+						auto FNT = llvm::cast<const clang::FunctionType>(qtype);
+						if (FNT && (!(m_function_type_state.m_params_current_str.empty()))) {
 							std::string function_type_str = (m_current_qtype_or_return_qtype_str.empty())
-								? adjusted_qtype_str(FNQT->getReturnType().getAsString()) : m_current_qtype_or_return_qtype_str;
+								? adjusted_qtype_str(FNT->getReturnType().getAsString()) : m_current_qtype_or_return_qtype_str;
 							function_type_str += m_function_type_state.m_params_current_str;
 							return function_type_str;
 						}
 					}
 					return adjusted_qtype_str(qtype.getAsString(), qtype);
+				}
+			}
+			if (m_maybe_original_qtype.has_value()) {
+				if (m_maybe_original_qtype.value()->isFunctionType()) {
+					return m_current_qtype_or_return_qtype_str + m_function_type_state.m_params_current_str;
+				} else {
+					return m_current_qtype_or_return_qtype_str;
 				}
 			}
 			return m_current_qtype_or_return_qtype_str + m_function_type_state.m_params_current_str;
@@ -369,10 +385,10 @@ namespace convm1 {
 				} else {
 					auto qtype = m_maybe_current_qtype.value();
 					if (llvm::isa<const clang::FunctionType>(qtype)) {
-						auto FNQT = llvm::cast<const clang::FunctionType>(qtype);
-						if (FNQT) {
+						auto FNT = llvm::cast<const clang::FunctionType>(qtype);
+						if (FNT) {
 							assert(m_current_qtype_or_return_qtype_str.empty());
-							return adjusted_qtype_str(FNQT->getReturnType().getAsString());
+							return adjusted_qtype_str(FNT->getReturnType().getAsString());
 						}
 					}
 					return adjusted_qtype_str(qtype.getAsString());
@@ -425,6 +441,27 @@ namespace convm1 {
 				auto padded_current_qtype_str = " " + current_qtype_str() + " ";
 				return (std::string::npos != padded_current_qtype_str.find(" const "));
 			}
+		}
+		bool seems_to_be_a_function_type() const {
+			bool retval = false;
+			if (m_maybe_current_qtype.has_value()) {
+				auto& current_qtype = m_maybe_current_qtype.value();
+				if (current_qtype->isFunctionType()) {
+					return true;
+				}
+				return false;
+			}
+			if (m_maybe_original_qtype.has_value()) {
+				auto& original_qtype = m_maybe_original_qtype.value();
+				if (original_qtype->isFunctionType()) {
+					return true;
+				}
+				return false;
+			}
+			if (!(CFunctionTypeState() == m_function_type_state)) {
+				return true;
+			}
+			return false;
 		}
 
 		std::optional<clang::SourceRange> m_maybe_source_range;
@@ -644,6 +681,7 @@ namespace convm1 {
 	clang::QualType populateQTypeIndirectionStack(CIndirectionStateStack& stack, clang::QualType qtype, std::optional<clang::TypeLoc> maybe_typeLoc = {}, Rewriter* Rewrite_ptr = nullptr, CTUState* state1_ptr = nullptr, int depth = 0) {
 		qtype = definition_qtype(qtype);
 		auto l_qtype = qtype;
+		IF_DEBUG(auto l_qtype_str2 = l_qtype.getAsString();)
 		auto l_maybe_typeLoc = maybe_typeLoc;
 		std::optional<clang::FunctionProtoTypeLoc> new_maybe_functionProtoTypeLoc;
 
@@ -657,10 +695,10 @@ namespace convm1 {
 				int q = 5;
 			} else if (clang::Type::FunctionProto == type_class) {
 				if (llvm::isa<const clang::FunctionProtoType>(l_qtype)) {
-					auto FNQT = llvm::cast<const clang::FunctionProtoType>(l_qtype);
-					if (FNQT) {
-						auto num_params = FNQT->getNumParams();
-						auto param_types = FNQT->param_types();
+					auto FNT = llvm::cast<const clang::FunctionProtoType>(l_qtype);
+					if (FNT) {
+						auto num_params = FNT->getNumParams();
+						auto param_types = FNT->param_types();
 						for (auto& param_type : param_types) {
 							param_qtypes.push_back(param_type);
 						}
@@ -713,10 +751,10 @@ namespace convm1 {
 				}
 			}
 			if (llvm::isa<const clang::FunctionType>(l_qtype)) {
-				auto FNQT = llvm::cast<const clang::FunctionType>(l_qtype);
-				if (FNQT) {
+				auto FNT = llvm::cast<const clang::FunctionType>(l_qtype);
+				if (FNT) {
 					is_function_type = true;
-					l_qtype = FNQT->getReturnType();
+					l_qtype = FNT->getReturnType();
 
 					if (maybe_typeLoc.has_value()) {
 						IF_DEBUG(auto typeLocClass = maybe_typeLoc.value().getTypeLocClass();)
@@ -1216,9 +1254,12 @@ namespace convm1 {
 		return maybe_typeLoc;
 	}
 
+	inline std::string params_string_from_qtypes(const std::vector<clang::QualType>& qtypes, Rewriter &Rewrite);
+	inline std::string params_string_from_qtypes(const std::vector<clang::QualType>& qtypes);
+
 	class CDDeclConversionState {
 	public:
-		CDDeclConversionState(const clang::DeclaratorDecl& ddecl, Rewriter* Rewrite_ptr = nullptr, CTUState* state1_ptr = nullptr) : m_ddecl_cptr(&ddecl) {
+		CDDeclConversionState(const clang::DeclaratorDecl& ddecl, Rewriter* Rewrite_ptr = nullptr, CTUState* state1_ptr = nullptr, bool function_return_value_only = false) : m_ddecl_cptr(&ddecl) {
 #ifndef NDEBUG
 			if ((*this).m_ddecl_cptr) {
 				std::string variable_name = m_ddecl_cptr->getNameAsString();
@@ -1238,7 +1279,38 @@ namespace convm1 {
 			}
 			auto maybe_typeLoc = typeLoc_if_available(ddecl);
 			auto original_direct_qtype = populateQTypeIndirectionStack(m_indirection_state_stack, QT, maybe_typeLoc, Rewrite_ptr, state1_ptr);
+			if (function_return_value_only) {
+				if (original_direct_qtype->isFunctionType()) {
+					auto FNT = llvm::cast<const clang::FunctionType>(original_direct_qtype);
+					if (FNT) {
+						original_direct_qtype = FNT->getReturnType();
+					}
+				} else {
+					int q = 3;
+				}
+			}
 			set_original_direct_qtype(original_direct_qtype);
+
+			if (llvm::isa<const clang::FunctionType>(original_direct_qtype)) {
+				auto FNT = llvm::cast<const clang::FunctionType>(original_direct_qtype);
+				std::string return_type_str = FNT->getReturnType().getAsString();
+				std::string params_str;
+				std::vector<clang::QualType> param_qtypes;
+				if (llvm::isa<const clang::FunctionProtoType>(original_direct_qtype)) {
+					auto FNPT = llvm::cast<const clang::FunctionProtoType>(original_direct_qtype);
+					auto param_types = FNPT->getParamTypes();
+					for (auto& param_type : param_types) {
+						param_qtypes.push_back(param_type);
+					}
+				}
+				if (Rewrite_ptr) {
+					params_str = params_string_from_qtypes(param_qtypes, *Rewrite_ptr);
+				} else {
+					params_str = params_string_from_qtypes(param_qtypes);
+				}
+				set_current_direct_function_qtype_str(return_type_str, params_str);
+			}
+
 			//std::reverse(m_indirection_state_stack.begin(), m_indirection_state_stack.end());
 			m_indirection_state_stack.m_maybe_DD = &ddecl;
 		}
@@ -1391,9 +1463,9 @@ namespace convm1 {
 				auto current_direct_qtype = direct_type_state_ref().current_qtype_if_any().value();
 				auto non_const_direct_return_qtype = current_direct_qtype;
 				if (llvm::isa<const clang::FunctionType>(current_direct_qtype)) {
-					auto FNQT = llvm::cast<const clang::FunctionType>(current_direct_qtype);
-					if (FNQT) {
-						non_const_direct_return_qtype = FNQT->getReturnType();
+					auto FNT = llvm::cast<const clang::FunctionType>(current_direct_qtype);
+					if (FNT) {
+						non_const_direct_return_qtype = FNT->getReturnType();
 					}
 				}
 				non_const_direct_return_qtype.removeLocalConst();
@@ -1431,9 +1503,9 @@ namespace convm1 {
 
 	class CDDeclConversionStateMap : public std::unordered_map<const clang::DeclaratorDecl*, CDDeclConversionState> {
 	public:
-		std::pair<iterator, bool> insert(const clang::DeclaratorDecl& ddecl, Rewriter* Rewrite_ptr = nullptr, CTUState* state1_ptr = nullptr) {
+		std::pair<iterator, bool> insert(const clang::DeclaratorDecl& ddecl, Rewriter* Rewrite_ptr = nullptr, CTUState* state1_ptr = nullptr, bool function_return_value_only = false) {
 			std::string variable_name = ddecl.getNameAsString();
-			value_type item(&ddecl, CDDeclConversionState(ddecl, Rewrite_ptr, state1_ptr));
+			value_type item(&ddecl, CDDeclConversionState(ddecl, Rewrite_ptr, state1_ptr, function_return_value_only));
 			return std::unordered_map<const clang::DeclaratorDecl*, CDDeclConversionState>::insert(item);
 		}
 	};
@@ -3419,7 +3491,6 @@ namespace convm1 {
 	enum class ESuppressModifications { No, Yes };
 
 	inline std::string generate_qtype_replacement_code(clang::QualType qtype, Rewriter &Rewrite, EIsFunctionParam is_a_function_parameter/* = EIsFunctionParam::No*/, std::optional<clang::StorageDuration> maybe_storage_duration/* = {}*/);
-	inline std::string params_string_from_qtypes(const std::vector<clang::QualType>& qtypes, Rewriter &Rewrite);
 
 	inline std::string current_params_string(Rewriter &Rewrite, CFunctionTypeState& function_type_state_ref, clang::FunctionProtoTypeLoc functionProtoTypeLoc, bool suppress_modifications = false, CTUState *state1_ptr = nullptr, bool is_declaration = false) {
 		std::string retval;
@@ -4809,6 +4880,22 @@ namespace convm1 {
 		return retval;
 	}
 
+	inline std::string params_string_from_qtypes(const std::vector<clang::QualType>& qtypes) {
+		std::string retval = "(";
+		bool is_first_param = true;
+		for (const auto& qtype : qtypes) {
+			if (!is_first_param) {
+				retval += ", ";
+			} else {
+				is_first_param = false;
+			}
+			//retval += qtype.getAsString();
+			retval += qtype.getAsString();
+		}
+		retval += ")";
+		return retval;
+	}
+
 	inline bool satisfies_restrictions_for_static_storage_duration(clang::QualType qtype) {
 		bool satisfies_checks = false;
 		static const std::string const_char_star_str = "const char *";
@@ -5405,7 +5492,7 @@ namespace convm1 {
 		if (FND) {
 			assert(type_is_function_type);
 			if (changed_from_original || individual_from_compound_declaration || ddcs_ref.m_function_return_type_original_source_text_str.empty()) {
-				replacement_return_type_str += prefix_str + direct_qtype_str + suffix_str;
+				replacement_return_type_str += prefix_str + ddcs_ref.current_direct_return_qtype_str() + suffix_str;
 				replacement_return_type_post_params_suffix_str = post_name_suffix_str;
 			} else {
 				replacement_return_type_str = ddcs_ref.m_function_return_type_original_source_text_str;
@@ -6560,11 +6647,26 @@ namespace convm1 {
 				auto expr2_QT = expr2_DD->getType();
 				auto expr2_type_str = expr2_QT.getAsString();
 				std::string expr2_variable_name = expr2_DD->getNameAsString();
-
 				if (nullptr == l_DD) {
 					l_DD = expr2_DD;
 				}
-				auto res1 = state1_ref.m_ddecl_conversion_state_map.insert(*l_DD);
+
+				bool function_return_value_only = false;
+				if (l_DD->getType()->isFunctionType()) {
+					auto E = dyn_cast<const clang::Expr>(&stmt_cref);
+					if (E) {
+						auto E_ii = state1_ref.m_ast_context_ptr ? IgnoreParenImpNoopCasts(E, *(state1_ref.m_ast_context_ptr))
+							: IgnoreParenImpCasts(E);
+						auto CE = dyn_cast<const clang::CallExpr>(E_ii);
+						if (CE && (l_DD->getType() == CE->getType())) {
+							/* The given statement was (essentially) a call expression, and presumably l_DD refers to the 
+							declaration of the called function. And presumably, because the function was actually called, 
+							we're interested in the return value, not the "value" of the function itself. */
+							function_return_value_only = true;
+						}
+					}
+				}
+				auto res1 = state1_ref.m_ddecl_conversion_state_map.insert(*l_DD, state1_ref.m_Rewrite_ptr, &state1_ref, function_return_value_only);
 				auto ddcs_map_iter = res1.first;
 				auto& ddcs_ref = (*ddcs_map_iter).second;
 				bool update_declaration_flag = res1.second;
@@ -6707,8 +6809,16 @@ namespace convm1 {
 			auto& lhs_function_state_ref = (CDDeclIndirection::no_indirection == trgt_indirection_level) ? lhs_ddcs_ref.direct_type_state_ref().m_function_type_state : lhs_ddcs_ref.m_indirection_state_stack.at(trgt_indirection_level).m_function_type_state;
 			auto& rhs_function_state_ref = (CDDeclIndirection::no_indirection == src_indirection_level) ? rhs_ddcs_ref.direct_type_state_ref().m_function_type_state : rhs_ddcs_ref.m_indirection_state_stack.at(src_indirection_level).m_function_type_state;
 			if (lhs_function_state_ref.has_been_changed()) {
-				rhs_function_state_ref = lhs_function_state_ref;
-				rhs_update_declaration_flag |= true;
+				bool assign_function_state = true;
+				if (CDDeclIndirection::no_indirection == src_indirection_level) {
+					if (!rhs_ddcs_ref.direct_type_state_ref().seems_to_be_a_function_type()) {
+						assign_function_state = false;
+					}
+				}
+				if (assign_function_state) {
+					rhs_function_state_ref = lhs_function_state_ref;
+					rhs_update_declaration_flag |= true;
+				}
 			}
 		}
 
@@ -6788,8 +6898,16 @@ namespace convm1 {
 			auto& lhs_function_state_ref = (CDDeclIndirection::no_indirection == trgt_indirection_level) ? lhs_ddcs_ref.direct_type_state_ref().m_function_type_state : lhs_ddcs_ref.m_indirection_state_stack.at(trgt_indirection_level).m_function_type_state;
 			auto& rhs_function_state_ref = (CDDeclIndirection::no_indirection == src_indirection_level) ? rhs_ddcs_ref.direct_type_state_ref().m_function_type_state : rhs_ddcs_ref.m_indirection_state_stack.at(src_indirection_level).m_function_type_state;
 			if (rhs_function_state_ref.has_been_changed()) {
-				lhs_function_state_ref = rhs_function_state_ref;
-				lhs_update_declaration_flag |= true;
+				bool assign_function_state = true;
+				if (CDDeclIndirection::no_indirection == trgt_indirection_level) {
+					if (!lhs_ddcs_ref.direct_type_state_ref().seems_to_be_a_function_type()) {
+						assign_function_state = false;
+					}
+				}
+				if (assign_function_state) {
+					lhs_function_state_ref = rhs_function_state_ref;
+					lhs_update_declaration_flag |= true;
+				}
 			}
 		}
 
@@ -6904,12 +7022,30 @@ namespace convm1 {
 			auto& rhs_function_state_ref = (CDDeclIndirection::no_indirection == rhs_indirection.m_indirection_level) ? rhs_ddcs_ref.direct_type_state_ref().m_function_type_state : rhs_ddcs_ref.m_indirection_state_stack.at(rhs_indirection.m_indirection_level).m_function_type_state;
 			if (rhs_function_state_ref.has_been_changed()) {
 				if (!lhs_function_state_ref.has_been_changed()) {
-					lhs_function_state_ref = rhs_function_state_ref;
+					bool assign_function_state = true;
+					if (CDDeclIndirection::no_indirection == lhs_indirection.m_indirection_level) {
+						if (!lhs_ddcs_ref.direct_type_state_ref().seems_to_be_a_function_type()) {
+							assign_function_state = false;
+						}
+					}
+					if (assign_function_state) {
+						lhs_function_state_ref = rhs_function_state_ref;
+						lhs_update_declaration_flag |= true;
+					}
 				} else {
 					int q = 7;
 				}
 			} else if (lhs_function_state_ref.has_been_changed()) {
-				rhs_function_state_ref = lhs_function_state_ref;
+				bool assign_function_state = true;
+				if (CDDeclIndirection::no_indirection == rhs_indirection.m_indirection_level) {
+					if (!rhs_ddcs_ref.direct_type_state_ref().seems_to_be_a_function_type()) {
+						assign_function_state = false;
+					}
+				}
+				if (assign_function_state) {
+					rhs_function_state_ref = lhs_function_state_ref;
+					rhs_update_declaration_flag |= true;
+				}
 			}
 		}
 
@@ -7567,8 +7703,8 @@ namespace convm1 {
 
 			assert(ddcs_ref.direct_type_state_ref().current_qtype_if_any().has_value());
 			if (llvm::isa<const clang::FunctionType>(ddcs_ref.direct_type_state_ref().current_qtype_if_any().value())) {
-				auto FNQT = llvm::cast<const clang::FunctionType>(ddcs_ref.direct_type_state_ref().current_qtype_if_any().value());
-				std::string new_return_type_code = FNQT->getReturnType().getAsString();
+				auto FNT = llvm::cast<const clang::FunctionType>(ddcs_ref.direct_type_state_ref().current_qtype_if_any().value());
+				std::string new_return_type_code = FNT->getReturnType().getAsString();
 				std::string new_params_code = "(";
 
 				for (size_t i = 0; (i < CE->getNumArgs()); i += 1) {
