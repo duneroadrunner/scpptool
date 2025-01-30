@@ -199,6 +199,8 @@ CFilteringResult evaluate_filtering_by_filename(const std::string &filename) {
 
 	static const std::string mse_str = "mse";
 	static const std::string built_in_str = "<built-in>";
+	/* Presumably config.h would be a build-time generated file with platform-specific macro defines? */
+	static const std::string config_h_str = "config.h";
 	if (0 == filename.compare(0, mse_str.size(), mse_str)) {
 		retval.m_suppress_errors = true;
 
@@ -213,7 +215,7 @@ CFilteringResult evaluate_filtering_by_filename(const std::string &filename) {
 		} else {
 			retval.m_do_not_process = true;
 		}
-	} else if (built_in_str == filename) {
+	} else if ((built_in_str == filename) || (config_h_str == filename)) {
 		retval.m_do_not_process = true;
 		retval.m_suppress_errors = true;
 	}
