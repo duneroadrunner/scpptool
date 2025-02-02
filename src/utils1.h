@@ -1468,7 +1468,7 @@ public:
 		if (!maybe_dyn_typed_node.has_value()) {
 			int q = 5;
 		}
-		while (maybe_dyn_typed_node.has_value()) {
+		/*while*/if (maybe_dyn_typed_node.has_value()) {
 			const auto& dyn_typed_node_cref = maybe_dyn_typed_node.value();
 			if (false) {
 				/* We're not using the m_dyn_type_nodes at the moment because they don't seem to
