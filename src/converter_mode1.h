@@ -1296,6 +1296,18 @@ namespace convm1 {
 				} else {
 					int q = 3;
 				}
+				if (m_is_a_function) {
+					auto& state1 = *state1_ptr;
+					auto& ddcs_ref = *this;
+					/* Here we are not permtting functions to return scope types. */
+					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+						ddcs_ref.m_indirection_state_stack.at(0).set_xscope_eligibility(false);
+						//state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FND, 0));
+					} else {
+						ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
+						//state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FND, CDDeclIndirection::no_indirection));
+					}
+				}
 			}
 			set_original_direct_qtype(original_direct_qtype);
 
@@ -1317,6 +1329,28 @@ namespace convm1 {
 					params_str = params_string_from_qtypes(param_qtypes);
 				}
 				set_current_direct_function_qtype_str(return_type_str, params_str);
+			}
+			if (llvm::isa<clang::ParmVarDecl>(&ddecl)) {
+				auto PVD = dyn_cast<const clang::VarDecl>(&ddecl);
+				assert(PVD);
+				const auto PVD_qtype = PVD->getType();
+				IF_DEBUG(auto PVD_qtype_str = PVD_qtype.getAsString();)
+
+				if ((!ScopeTypeFunctionParameters)/* || (!ScopeTypePointerFunctionParameters)*/) {
+					if (PVD_qtype->isPointerType()) {
+						auto& ddcs_ref = *this;
+
+						/* Here we are not permtting function parameters to be scope types. */
+						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+							ddcs_ref.m_indirection_state_stack.at(0).set_xscope_eligibility(false);
+							//state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FND, 0));
+						} else {
+							ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
+							//state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FND, CDDeclIndirection::no_indirection));
+						}
+					}
+				}
+
 			}
 
 			//std::reverse(m_indirection_state_stack.begin(), m_indirection_state_stack.end());
@@ -3795,11 +3829,7 @@ namespace convm1 {
 							prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
 							suffix_str = "> ";
 						} else {
-							bool l_is_xscope_ineligible_by_criteria1 = false;
-							if (is_a_function_parameter && (!ScopeTypeFunctionParameters) && is_outermost_indirection) {
-								l_is_xscope_ineligible_by_criteria1 = true;
-							}
-							if (indirection_state_ref.xscope_eligibility() && (!l_is_xscope_ineligible_by_criteria1))
+							if (indirection_state_ref.xscope_eligibility())
 							{
 								if ("Dual" == ConvertMode) {
 									prefix_str = "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(";
@@ -3927,12 +3957,7 @@ namespace convm1 {
 								prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
 								suffix_str = "> ";
 							} else {
-								//if (ScopeTypeFunctionParameters && is_outermost_indirection)
-								bool l_is_xscope_ineligible_by_criteria1 = false;
-								if (is_a_function_parameter && (!ScopeTypeFunctionParameters) && is_outermost_indirection) {
-									l_is_xscope_ineligible_by_criteria1 = true;
-								}
-								if (indirection_state_ref.xscope_eligibility() && (!l_is_xscope_ineligible_by_criteria1))
+								if (indirection_state_ref.xscope_eligibility())
 								{
 									if ("Dual" == ConvertMode) {
 										prefix_str = "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(";
@@ -4065,7 +4090,6 @@ namespace convm1 {
 								prefix_str = "mse::TXScopeAnyPointer<";
 								suffix_str = "> ";
 							} else {
-								//if (is_a_function_parameter && (ScopeTypePointerFunctionParameters || ScopeTypeFunctionParameters) && is_outermost_indirection)
 								if (indirection_state_ref.xscope_eligibility())
 								{
 									if ("Dual" == ConvertMode) {
@@ -4592,12 +4616,7 @@ namespace convm1 {
 														prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
 														suffix_str = "> ";
 													} else {
-														//if (ScopeTypeFunctionParameters && is_outermost_indirection)
-														bool l_is_xscope_ineligible_by_criteria1 = false;
-														if (is_a_function_parameter && (!ScopeTypeFunctionParameters) && is_outermost_indirection) {
-															l_is_xscope_ineligible_by_criteria1 = true;
-														}
-														if (indirection_state_ref.xscope_eligibility() && (!l_is_xscope_ineligible_by_criteria1))
+														if (indirection_state_ref.xscope_eligibility())
 														{
 															if ("Dual" == ConvertMode) {
 																prefix_str = "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(";
@@ -8107,7 +8126,7 @@ namespace convm1 {
 								}
 							}
 							if (ConvertToSCPP && (!already_wrapped_flag)) {
-								auto shptr1 = std::make_shared<CNullableAnyRandomAccessIterCastExprTextModifier>(LHS->getType()->getPointeeType(), ScopeTypeFunctionParameters ? EXScopeEligibility::Yes : EXScopeEligibility::No);
+								auto shptr1 = std::make_shared<CNullableAnyRandomAccessIterCastExprTextModifier>(LHS->getType()->getPointeeType(), EXScopeEligibility::No);
 								(*lhscs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 								(*lhscs_shptr_ref).update_current_text();
 							}
@@ -8128,7 +8147,7 @@ namespace convm1 {
 								}
 							}
 							if (ConvertToSCPP && (!already_wrapped_flag)) {
-								auto shptr1 = std::make_shared<CNullableAnyRandomAccessIterCastExprTextModifier>(RHS->getType()->getPointeeType(), ScopeTypeFunctionParameters ? EXScopeEligibility::Yes : EXScopeEligibility::No);
+								auto shptr1 = std::make_shared<CNullableAnyRandomAccessIterCastExprTextModifier>(RHS->getType()->getPointeeType(), EXScopeEligibility::No);
 								(*rhscs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 								(*rhscs_shptr_ref).update_current_text();
 							}
@@ -11086,6 +11105,7 @@ namespace convm1 {
 			}
 		}
 	}
+	static void decl_util_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1, const clang::Decl* D);
 
 	class MCSSSAssignment : public MatchFinder::MatchCallback
 	{
@@ -11163,6 +11183,7 @@ namespace convm1 {
 			} else {
 				const DeclaratorDecl* lhs_DD = llvm::cast<const clang::DeclaratorDecl>(VLD);
 				if (lhs_DD) {
+					decl_util_handler1(MR, Rewrite, state1, VLD);
 					auto res1 = state1.m_ddecl_conversion_state_map.insert(*lhs_DD, &Rewrite, &state1);
 					auto ddcs_map_iter = res1.first;
 					auto& ddcs_ref = (*ddcs_map_iter).second;
@@ -11421,8 +11442,8 @@ namespace convm1 {
 								rhs_res2.update_declaration_flag |= true;
 								state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level));
 							}
-						}					}
-
+						}
+					}
 					{
 						/* Here we're establishing and "enforcing" the constraint that the rhs value must
 						* be of an (array) type that can be assigned to the lhs. */
@@ -12946,10 +12967,8 @@ namespace convm1 {
 		MCSSSDeclUtil (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
-		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1)
+		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1, const clang::Decl* D)
 		{
-			const clang::Decl* D = MR.Nodes.getNodeAs<clang::Decl>("mcsssdeclutil1");
-
 			if ((D != nullptr))
 			{
 				auto SR = cm1_adj_nice_source_range(D->getSourceRange(), state1, Rewrite);
@@ -13251,14 +13270,6 @@ namespace convm1 {
 							}
 						}
 					} else if (FND) {
-						/* Here we are not permtting functions to return scope types. */
-						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-							ddcs_ref.m_indirection_state_stack.at(0).set_xscope_eligibility(false);
-							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FND, 0));
-						} else {
-							ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
-							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FND, CDDeclIndirection::no_indirection));
-						}
 						if (FND->hasAttrs()) {
 							auto vec = FND->getAttrs();
 							struct CAttrInfo {
@@ -13510,12 +13521,12 @@ namespace convm1 {
 
 				if (ConvertToSCPP && SR.isValid()) {
 					if (false) {
-						auto lambda = [MR, *this](){ s_handler1(MR, (*this).Rewrite, (*this).m_state1); };
+						auto lambda = [MR, *this, D](){ s_handler1(MR, (*this).Rewrite, (*this).m_state1, D); };
 						/* This modification needs to be queued so that it will be executed after any other
 						modifications that might affect the relevant part of the source text. */
 						(*this).m_state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
 					} else {
-						s_handler1(MR, (*this).Rewrite, (*this).m_state1);
+						s_handler1(MR, (*this).Rewrite, (*this).m_state1, D);
 					}
 				} else {
 					int q = 7;
@@ -13527,6 +13538,10 @@ namespace convm1 {
 		Rewriter &Rewrite;
 		CTUState& m_state1;
 	};
+
+	static void decl_util_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1, const clang::Decl* D) {
+		MCSSSDeclUtil::s_handler1(MR, Rewrite, state1, D);
+	}
 
 	class MCSSSExprUtil : public MatchFinder::MatchCallback
 	{
