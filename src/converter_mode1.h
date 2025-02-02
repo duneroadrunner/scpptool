@@ -5572,16 +5572,30 @@ namespace convm1 {
 
 					size_t num_init_elements_rough_estimate = std::count(initializer_append_str.begin(), initializer_append_str.end(), ',');
 					if (64/* arbitrary */ < num_init_elements_rough_estimate) {
-						static const std::string aggregate_initialization_prefix = " = {";
-						if (string_begins_with(initializer_append_str, aggregate_initialization_prefix)) {
-							/* The SaferCPlusPlus arrays emulate aggregate initialization (at compile-time). Some
-							compilers may have difficulty handling large initalizer lists. So we insert an
-							intermediate std::array<>. */
-							std::string aggregate_initialization_prefix_replacement = " = std::array<";
-							aggregate_initialization_prefix_replacement += direct_qtype_str;
-							aggregate_initialization_prefix_replacement += ", " + res4.m_native_array_size_text;
-							aggregate_initialization_prefix_replacement += " > {";
-							initializer_append_str.replace(0, aggregate_initialization_prefix.length(), aggregate_initialization_prefix_replacement);
+						auto first_token_range = Parse::find_potential_noncomment_token_v1(initializer_append_str);
+						auto first_token_sv = Parse::substring_view(initializer_append_str, first_token_range);
+						if ("=" == first_token_sv) {
+							auto second_token_range = Parse::find_potential_noncomment_token_v1(initializer_append_str, first_token_range.end);
+							auto second_token_sv = Parse::substring_view(initializer_append_str, second_token_range);
+							if ("{" == second_token_sv) {
+								auto terminating_delimiter_index = initializer_append_str.length() - 1;
+								while ((1 <= terminating_delimiter_index) && ('}' != initializer_append_str.at(terminating_delimiter_index))) {
+									terminating_delimiter_index -= 1;
+								}
+								if ('}' == initializer_append_str.at(terminating_delimiter_index)) {
+									/* The SaferCPlusPlus arrays emulate aggregate initialization (at compile-time). Some
+									compilers may have difficulty handling large initalizer lists. So we insert an
+									intermediate std::array<>. */
+
+									initializer_append_str.replace(terminating_delimiter_index, initializer_append_str.length() - terminating_delimiter_index, "} };");
+
+									std::string aggregate_initialization_prefix_replacement = " = std::array<";
+									aggregate_initialization_prefix_replacement += direct_qtype_str;
+									aggregate_initialization_prefix_replacement += ", " + res4.m_native_array_size_text;
+									aggregate_initialization_prefix_replacement += " > { {";
+									initializer_append_str.replace(0, second_token_range.end, aggregate_initialization_prefix_replacement);
+								}
+							}
 						}
 					}
 				} else {
