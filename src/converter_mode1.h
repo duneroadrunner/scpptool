@@ -2388,6 +2388,24 @@ namespace convm1 {
 		return length;
 	}
 
+	struct CCodeModificationActionAndID {
+		typedef decltype(std::declval<std::hash<std::string> >()(std::declval<std::string>())) id_type;
+		CCodeModificationActionAndID() = default;
+		CCodeModificationActionAndID(CCodeModificationActionAndID&& src) = default;
+		CCodeModificationActionAndID(CCodeModificationActionAndID const& src) = default;
+		template<typename TFun, std::enable_if_t<std::is_constructible_v<std::function<void(void)>, TFun>, bool>* = nullptr >
+		CCodeModificationActionAndID(TFun&& action, std::optional<id_type> const& maybe_id = {}) : m_action(std::forward<decltype(action)>(action)) , m_maybe_id(maybe_id) {}
+		template<typename TFun, std::enable_if_t<std::is_constructible_v<std::function<void(void)>, TFun>, bool>* = nullptr >
+		CCodeModificationActionAndID(TFun const& action, std::optional<id_type> const& maybe_id = {}) : m_action(action) , m_maybe_id(maybe_id) {}
+		CCodeModificationActionAndID& operator=(CCodeModificationActionAndID&& src) = default;
+		CCodeModificationActionAndID& operator=(CCodeModificationActionAndID const& src) = default;
+		void operator()() const { m_action(); }
+		void operator()() { m_action(); }
+
+		std::function<void(void)> m_action;
+		std::optional<id_type> m_maybe_id;
+	};
+
 	/* A CCodeModificationActions object stores an ordered map of source location ranges to function
 	objects that modify the source text within the corresponding source range. This container is
 	used to (re)order the code modification actions such that any action for a given source range is
@@ -2396,14 +2414,34 @@ namespace convm1 {
 	
 	You want to try to ensure this because modifying the contents of a source range could (and often
 	does) invalidate any subranges (i.e. contained source ranges). */
-	class CCodeModificationActions : public std::map<COrderedSourceRange, std::list<std::function<void(void)>> > {
+	class CCodeModificationActions : public std::map<COrderedSourceRange, std::list<CCodeModificationActionAndID> > {
 		public:
-		typedef std::map<COrderedSourceRange, std::list<std::function<void(void)>> > base_class;
+		typedef std::map<COrderedSourceRange, std::list<CCodeModificationActionAndID> > base_class;
 		using base_class::base_class;
 
-		std::pair<base_class::iterator, bool> add_replacement_action(const COrderedSourceRange& OSR, const std::function<void(void)>& modifier) {
+		std::pair<base_class::iterator, bool> add_replacement_action(const COrderedSourceRange& OSR, const CCodeModificationActionAndID& modifier) {
 			auto iter1 = base_class::find(OSR);
 			if (base_class::end() != iter1) {
+				if (modifier.m_maybe_id.has_value()) {
+					auto const& id = modifier.m_maybe_id.value();
+					auto predicate1 = [&id](auto& item) -> bool {
+						if (item.m_maybe_id.has_value()) {
+							auto const& item_id = item.m_maybe_id.value();
+							if (item_id == id) {
+								return true;
+							}
+						}
+						return false;
+					};
+					auto iter2 = std::find_if((*iter1).second.begin(), (*iter1).second.end(), predicate1);
+					if ((*iter1).second.end() != iter2) {
+						/* There is already a "modification action" with the same id. We'll consider the given action 
+						either redundant or an update and just overwrite the existing action. */
+						(*iter2).m_action = modifier.m_action;
+						return std::pair<base_class::iterator, bool>(iter1, false);
+					}
+				}
+
 				(*iter1).second.push_back(modifier);
 				return std::pair<base_class::iterator, bool>(iter1, false);
 			} else {
@@ -2455,7 +2493,7 @@ namespace convm1 {
 				};
 			return add_replacement_action(OSR, lambda);
 		}
-		std::pair<base_class::iterator, bool> add_insert_after_token_at_given_location_action(Rewriter &Rewrite, const COrderedSourceRange& OSR, clang::SourceLocation insertion_point, const std::string& new_text) {
+		std::pair<base_class::iterator, bool> add_insert_after_token_at_given_location_action(Rewriter &Rewrite, const COrderedSourceRange& OSR, clang::SourceLocation insertion_point, const std::string& new_text, std::optional<CCodeModificationActionAndID::id_type> maybe_id = {}) {
 			auto lambda = [this, &Rewrite, OSR, insertion_point, new_text]() {
 					if (insertion_point.isValid()) {
 						DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, OSR, Rewrite);
@@ -2483,9 +2521,9 @@ namespace convm1 {
 						int q = 3;
 					}
 				};
-			return add_replacement_action(OSR, lambda);
+			return add_replacement_action(OSR, CCodeModificationActionAndID(lambda, maybe_id));
 		}
-		std::pair<base_class::iterator, bool> add_insert_before_given_location_action(Rewriter &Rewrite, const COrderedSourceRange& OSR, clang::SourceLocation insertion_point, const std::string& new_text) {
+		std::pair<base_class::iterator, bool> add_insert_before_given_location_action(Rewriter &Rewrite, const COrderedSourceRange& OSR, clang::SourceLocation insertion_point, const std::string& new_text, std::optional<CCodeModificationActionAndID::id_type> maybe_id = {}) {
 			auto lambda = [this, &Rewrite, OSR, insertion_point, new_text]() {
 					if (insertion_point.isValid()) {
 						DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, OSR, Rewrite);
@@ -2513,7 +2551,7 @@ namespace convm1 {
 						int q = 3;
 					}
 				};
-			return add_replacement_action(OSR, lambda);
+			return add_replacement_action(OSR, CCodeModificationActionAndID(lambda, maybe_id));
 		}
 		std::pair<base_class::iterator, bool> add_replacement_of_instances_of_given_string_action(Rewriter &Rewrite, const COrderedSourceRange& OSR, const std::string& old_string, const std::string& new_string) {
 			auto lambda = [this, &Rewrite, OSR, old_string, new_string]() {
@@ -5587,7 +5625,7 @@ namespace convm1 {
 									compilers may have difficulty handling large initalizer lists. So we insert an
 									intermediate std::array<>. */
 
-									initializer_append_str.replace(terminating_delimiter_index, initializer_append_str.length() - terminating_delimiter_index, "} };");
+									initializer_append_str.replace(terminating_delimiter_index, initializer_append_str.length() - terminating_delimiter_index, "} }");
 
 									std::string aggregate_initialization_prefix_replacement = " = std::array<";
 									aggregate_initialization_prefix_replacement += direct_qtype_str;
@@ -11801,7 +11839,17 @@ namespace convm1 {
 										(*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
 										(*arg_EX_ii_shptr_ref).update_current_text();
 
-										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, arg_EX_ii_SR, (*arg_EX_ii_shptr_ref).m_current_text_str);
+										/* Here we're going to generate some IDs for the "modification actions" so that they, or actions 
+										submitted in the future, can be identified as repeats or updates of previously submitted actions. */
+										auto insert_after_action_id_string = "insert_after: " + std::to_string(uintptr_t(arg_EX_ii));
+										auto insert_after_action_id = std::hash<std::string>()(insert_after_action_id_string);
+										auto insert_before_action_id_string = "insert_before: " + std::to_string(uintptr_t(arg_EX_ii));
+										auto insert_before_action_id = std::hash<std::string>()(insert_before_action_id_string);
+
+										state1.m_pending_code_modification_actions.add_insert_after_token_at_given_location_action(Rewrite, { arg_EX_ii_SR.getEnd(), arg_EX_ii_SR.getEnd() }, arg_EX_ii_SR.getEnd(), ")", insert_after_action_id);
+										state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, { arg_EX_ii_SR.getBegin(), arg_EX_ii_SR.getBegin() }, arg_EX_ii_SR.getBegin()
+											, ("Dual" == ConvertMode) ? "MSE_LH_UNSAFE_MAKE_RAW_POINTER_FROM(" : "mse::us::lh::make_raw_pointer_from(", insert_before_action_id);
+										//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, arg_EX_ii_SR, (*arg_EX_ii_shptr_ref).m_current_text_str);
 										//(*this).Rewrite.ReplaceText(arg_EX_ii_SR, (*arg_EX_ii_shptr_ref).m_current_text_str);
 										//return;
 									}
