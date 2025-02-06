@@ -256,6 +256,29 @@ namespace convm1 {
 		auto xscope_eligibility() const {
 			return (!m_is_ineligible_for_xscope_status);
 		}
+		bool has_been_determined_to_be_an_array() const {
+			bool retval = false;
+			if (("inferred array" == m_current_species) || ("dynamic array" == m_current_species) || ("native array" == m_current_species) || ("variously native and dynamic array" == m_current_species)) {
+				retval = true;
+			}
+			return retval;
+		}
+		bool has_been_determined_to_be_a_dynamic_array() const {
+			bool retval = false;
+			if ("dynamic array" == m_current_species) {
+				retval = true;
+			}
+			return retval;
+		}
+		bool is_a_pointer_that_has_not_been_determined_to_be_an_array() const {
+			bool retval = false;
+			if (("native pointer" == m_current_species) || ("malloc target" == m_current_species) 
+				|| ("non-malloc target" == m_current_species) || ("variously malloc and non-malloc target" == m_current_species)) {
+				
+				retval = true;
+			}
+			return retval;
+		}
 
 	private:
 		std::string m_original_species;
@@ -1414,10 +1437,7 @@ namespace convm1 {
 			bool retval = false;
 			assert((CDDeclIndirection::no_indirection != indirection_level) && (m_indirection_state_stack.size() > indirection_level));
 			if (m_indirection_state_stack.size() > indirection_level) {
-				const auto& current_state = m_indirection_state_stack.at(indirection_level).current_species();
-				if (("inferred array" == current_state) || ("dynamic array" == current_state) || ("native array" == current_state) || ("variously native and dynamic array" == current_state)) {
-					retval = true;
-				}
+				retval = m_indirection_state_stack.at(indirection_level).has_been_determined_to_be_an_array();
 			}
 			return retval;
 		}
@@ -1425,10 +1445,7 @@ namespace convm1 {
 			bool retval = false;
 			assert((CDDeclIndirection::no_indirection != indirection_level) && (m_indirection_state_stack.size() > indirection_level));
 			if (m_indirection_state_stack.size() > indirection_level) {
-				const auto& current_state = m_indirection_state_stack.at(indirection_level).current_species();
-				if ("dynamic array" == current_state) {
-					retval = true;
-				}
+				retval = m_indirection_state_stack.at(indirection_level).has_been_determined_to_be_a_dynamic_array();
 			}
 			return retval;
 		}
@@ -3854,8 +3871,7 @@ namespace convm1 {
 				}
 
 				if (("inferred array" == indirection_state_ref.current_species()) || ("variously native and dynamic array" == indirection_state_ref.current_species())
-					|| (is_char_star && (("native pointer" == indirection_state_ref.current_species())
-						|| ("malloc target" == indirection_state_ref.current_species())))) {
+					|| (is_char_star && (indirection_state_ref.is_a_pointer_that_has_not_been_determined_to_be_an_array()))) {
 					if (false && is_char_star) {
 						/* We're assuming this is a null terminated string. We'll just leave it as a
 						* char* for now. At some point we'll replace it with an mse::string or whatever. */
@@ -4052,8 +4068,7 @@ namespace convm1 {
 							}
 						}
 					}
-				} else if (("native pointer" == indirection_state_ref.current_species())
-					|| ("malloc target" == indirection_state_ref.current_species())) {
+				} else if (indirection_state_ref.is_a_pointer_that_has_not_been_determined_to_be_an_array()) {
 					if (false && is_char_star) {
 						/* We're assuming this is a null terminated string. We'll just leave it as a
 						* char* for now. At some point we'll replace it with an mse::string or whatever. */
@@ -6502,7 +6517,9 @@ namespace convm1 {
 		bool update_declaration_flag = res1.second;
 
 		if (ddcs_ref.m_indirection_state_stack.size() >= ddecl_indirection.m_indirection_level) {
-			if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(ddecl_indirection.m_indirection_level).current_species()) {
+			if ((ddcs_ref.m_indirection_state_stack.at(ddecl_indirection.m_indirection_level).is_a_pointer_that_has_not_been_determined_to_be_an_array()) 
+				&& ("malloc target" != ddcs_ref.m_indirection_state_stack.at(ddecl_indirection.m_indirection_level).current_species())) {
+
 				ddcs_ref.set_indirection_current(ddecl_indirection.m_indirection_level, "inferred array");
 				update_declaration_flag |= true;
 				state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, ddecl_indirection);
@@ -6649,14 +6666,20 @@ namespace convm1 {
 			if (("" == stmt_indirection_stack[i])) {
 				/* We're using the empty string as a generic state for the "terminal level of indirection"
 				* when we don't want to bother specifying a specific state. */
-			} else if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(i).current_species()) {
+			} else if (("native pointer" == ddcs_ref.m_indirection_state_stack.at(i).current_species()) 
+				|| ("non-malloc target" == ddcs_ref.m_indirection_state_stack.at(i).current_species())) {
+
 				if (("ArraySubscriptExpr" == stmt_indirection_stack[i])
 						|| ("pointer arithmetic" == stmt_indirection_stack[i])) {
 					ddcs_ref.set_indirection_current(i, "inferred array");
 					retval.update_declaration_flag = true;
 					state1_ref.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1_ref, CDDeclIndirection(*DD, i));
 				} else if (("malloc target" == stmt_indirection_stack[i])) {
-					ddcs_ref.set_indirection_current(i, "malloc target");
+					if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(i).current_species()) {
+						ddcs_ref.set_indirection_current(i, "malloc target");
+					} else {
+						ddcs_ref.set_indirection_current(i, "variously malloc and non-malloc target");
+					}
 					retval.update_declaration_flag = true;
 				} else if (("set to null" == stmt_indirection_stack[i]) ||
 						("memset/cpy target" == stmt_indirection_stack[i])) {
@@ -6668,6 +6691,13 @@ namespace convm1 {
 					retval.update_declaration_flag = true;
 					state1_ref.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1_ref, CDDeclIndirection(*DD, i));
 					state1_ref.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1_ref, CDDeclIndirection(*DD, i));
+				}
+			} else if ("variously malloc and non-malloc target" == ddcs_ref.m_indirection_state_stack.at(i).current_species()) {
+				if (("ArraySubscriptExpr" == stmt_indirection_stack[i])
+						|| ("pointer arithmetic" == stmt_indirection_stack[i])) {
+					ddcs_ref.set_indirection_current(i, "variously native and dynamic array");
+					retval.update_declaration_flag = true;
+					state1_ref.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1_ref, CDDeclIndirection(*DD, i));
 				}
 			} else if ("inferred array" == ddcs_ref.m_indirection_state_stack.at(i).current_species()) {
 				if (("malloc target" == stmt_indirection_stack[i]) ||
@@ -6938,14 +6968,11 @@ namespace convm1 {
 					src_ddcs_ref.set_indirection_current(src_indirection_level, "dynamic array");
 					src_update_declaration_flag |= true;
 					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, src_indirection);
-				} else if ("native array" == src_species) {
-					src_ddcs_ref.set_indirection_current(src_indirection_level, "variously native and dynamic array");
-					src_update_declaration_flag |= true;
 				}
 			}
 
-			if (("inferred array" == trgt_species) || ("dynamic array" == trgt_species)) {
-				if ("native pointer" == src_species) {
+			if (trgt_ddcs_ref.m_indirection_state_stack.at(trgt_indirection_level).has_been_determined_to_be_an_array()) {
+				if (("native pointer" == src_species) || ("non-malloc target" == src_species)) {
 					src_ddcs_ref.set_indirection_current(src_indirection_level, "inferred array");
 					src_update_declaration_flag |= true;
 					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, src_indirection);
@@ -6954,17 +6981,12 @@ namespace convm1 {
 					src_update_declaration_flag |= true;
 					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, src_indirection);
 					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, src_indirection);
-				} else {
-					int q = 3;
-				}
-			} else if ("variously native and dynamic array" == trgt_species) {
-				if ("variously native and dynamic array" != src_species) {
-					bool had_been_determined_to_be_an_array = src_ddcs_ref.has_been_determined_to_be_an_array(src_indirection_level);
+				} else if ("variously malloc and non-malloc target" == src_species) {
 					src_ddcs_ref.set_indirection_current(src_indirection_level, "variously native and dynamic array");
 					src_update_declaration_flag |= true;
-					if (!had_been_determined_to_be_an_array) {
-						state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, src_indirection);
-					}
+					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, src_indirection);
+				} else {
+					int q = 3;
 				}
 			}
 		} else {
@@ -7017,16 +7039,27 @@ namespace convm1 {
 			const auto& src_species = src_ddcs_ref.m_indirection_state_stack.at(src_indirection_level).current_species();
 			const auto& trgt_species = trgt_ddcs_ref.m_indirection_state_stack.at(trgt_indirection_level).current_species();
 
-			if (("inferred array" == src_species) || ("dynamic array" == src_species)) {
-				if ("native pointer" == trgt_species) {
+			//(src_ddcs_ref.m_indirection_state_stack.at(src_indirection_level).has_been_determined_to_be_an_array())
+			//("dynamic array" == src_species)
+
+			if (src_ddcs_ref.m_indirection_state_stack.at(src_indirection_level).has_been_determined_to_be_an_array()) {
+				if (("native pointer" == trgt_species) || ("non-malloc target" == trgt_species)) {
 					trgt_ddcs_ref.set_indirection_current(trgt_indirection_level, "inferred array");
 					trgt_update_declaration_flag |= true;
 					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, src_indirection);
 				} else if ("malloc target" == trgt_species) {
-					trgt_ddcs_ref.set_indirection_current(trgt_indirection_level, "dynamic array");
+					if ("dynamic array" == src_species) {
+						trgt_ddcs_ref.set_indirection_current(trgt_indirection_level, "dynamic array");
+					} else {
+						trgt_ddcs_ref.set_indirection_current(trgt_indirection_level, "variously native and dynamic array");
+					}
 					trgt_update_declaration_flag |= true;
 					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, src_indirection);
 					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, src_indirection);
+				} else if ("variously malloc and non-malloc target" == trgt_species) {
+					trgt_ddcs_ref.set_indirection_current(trgt_indirection_level, "variously native and dynamic array");
+					trgt_update_declaration_flag |= true;
+					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, src_indirection);
 				} else {
 					int q = 3;
 				}
@@ -7163,7 +7196,7 @@ namespace convm1 {
 
 			if ("native pointer" == lhs_current_cref) {
 				if ("native pointer" == rhs_current_cref) {
-				} else if ("malloc target" == rhs_current_cref) {
+				} else if (rhs_indirection_state_ref.is_a_pointer_that_has_not_been_determined_to_be_an_array()) {
 					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, rhs_current_cref);
 					lhs_update_declaration_flag |= true;
 				} else if (("inferred array" == rhs_current_cref) || ("variously native and dynamic array" == rhs_current_cref)) {
@@ -7185,6 +7218,14 @@ namespace convm1 {
 					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, lhs_current_cref);
 					rhs_update_declaration_flag |= true;
 				} else if ("malloc target" == rhs_current_cref) {
+				} else if ("non-malloc target" == rhs_current_cref) {
+					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, "variously malloc and non-malloc target");
+					lhs_update_declaration_flag |= true;
+					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, "variously malloc and non-malloc target");
+					rhs_update_declaration_flag |= true;
+				} else if ("variously malloc and non-malloc target" == rhs_current_cref) {
+					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, "variously malloc and non-malloc target");
+					lhs_update_declaration_flag |= true;
 				} else if ("inferred array" == rhs_current_cref) {
 					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, "dynamic array");
 					lhs_update_declaration_flag |= true;
@@ -7211,8 +7252,21 @@ namespace convm1 {
 					lhs_update_declaration_flag |= true;
 					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_indirection);
 				}
+			} else if ("variously malloc and non-malloc target" == lhs_current_cref) {
+				if ("variously malloc and non-malloc target" == rhs_current_cref) {
+				} else if (rhs_indirection_state_ref.is_a_pointer_that_has_not_been_determined_to_be_an_array()) {
+					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, lhs_current_cref);
+					rhs_update_declaration_flag |= true;
+				} else if (rhs_indirection_state_ref.has_been_determined_to_be_an_array()) {
+					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, "variously native and dynamic array");
+					lhs_update_declaration_flag |= true;
+					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_indirection);
+
+					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, "variously native and dynamic array");
+					rhs_update_declaration_flag |= true;
+				}
 			} else if ("inferred array" == lhs_current_cref) {
-				if ("native pointer" == rhs_current_cref) {
+				if (("native pointer" == rhs_current_cref) || ("non-malloc target" == rhs_current_cref)) {
 					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, lhs_current_cref);
 					rhs_update_declaration_flag |= true;
 					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
@@ -7225,6 +7279,12 @@ namespace convm1 {
 					rhs_update_declaration_flag |= true;
 					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
 					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
+				} else if ("variously malloc and non-malloc target" == rhs_current_cref) {
+					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, "variously native and dynamic array");
+					lhs_update_declaration_flag |= true;
+					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, "variously native and dynamic array");
+					rhs_update_declaration_flag |= true;
+					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
 				} else if ("inferred array" == rhs_current_cref) {
 				} else if ("dynamic array" == rhs_current_cref) {
 					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, rhs_current_cref);
@@ -7245,6 +7305,13 @@ namespace convm1 {
 					rhs_update_declaration_flag |= true;
 					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
 					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
+				} else if (("non-malloc target" == rhs_current_cref) || ("variously malloc and non-malloc target" == rhs_current_cref)) {
+					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, "variously native and dynamic array");
+					lhs_update_declaration_flag |= true;
+
+					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, "variously native and dynamic array");
+					rhs_update_declaration_flag |= true;
+					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
 				} else if ("inferred array" == rhs_current_cref) {
 					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, lhs_current_cref);
 					rhs_update_declaration_flag |= true;
@@ -7261,11 +7328,11 @@ namespace convm1 {
 					lhs_update_declaration_flag |= true;
 				}
 			} else if ("native array" == lhs_current_cref) {
-				if ("native pointer" == rhs_current_cref) {
+				if (("native pointer" == rhs_current_cref) || ("non-malloc target" == rhs_current_cref)) {
 					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, lhs_current_cref);
 					rhs_update_declaration_flag |= true;
 					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
-				} else if ("malloc target" == rhs_current_cref) {
+				} else if (("malloc target" == rhs_current_cref) || ("variously malloc and non-malloc target" == rhs_current_cref)) {
 					lhs_ddcs_ref.set_indirection_current(lhs_indirection_level, "variously native and dynamic array");
 					lhs_update_declaration_flag |= true;
 
@@ -7287,16 +7354,13 @@ namespace convm1 {
 					lhs_update_declaration_flag |= true;
 				}
 			} else if ("variously native and dynamic array" == lhs_current_cref) {
-				if (("native pointer" == rhs_current_cref) || ("malloc target" == rhs_current_cref)) {
+				if (rhs_indirection_state_ref.is_a_pointer_that_has_not_been_determined_to_be_an_array()) {
 					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, lhs_current_cref);
 					rhs_update_declaration_flag |= true;
-					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
-				} else if (("inferred array" == rhs_current_cref) || ("dynamic array" == rhs_current_cref) 
-					|| ("native array" == rhs_current_cref)) {
-
+				} else if ("variously native and dynamic array" == rhs_current_cref) {
+				} else if (rhs_indirection_state_ref.has_been_determined_to_be_an_array()) {
 					rhs_ddcs_ref.set_indirection_current(rhs_indirection_level, "variously native and dynamic array");
 					rhs_update_declaration_flag |= true;
-				} else if ("variously native and dynamic array" == rhs_current_cref) {
 				}
 			}
 
@@ -11549,6 +11613,22 @@ namespace convm1 {
 					}
 					{
 						/* Here we're establishing the constraint in the opposite direction as well. */
+
+						if (rhs_res2.ddecl_cptr) {
+							bool RHS_decl_is_non_modifiable = is_non_modifiable(*(rhs_res2.ddecl_cptr), MR, Rewrite, state1);
+							if (RHS_decl_is_non_modifiable && (LHS || VLD) && RHS) {
+								/* RHS will, for whatever reason, not be converted to a safe iterator. But presumably the LHS wiil 
+								(or at least could) be. So we may need to ensure that LHS gets converted to a type that can handle 
+								being assigned a raw pointer (iterator). */
+								if ((*(rhs_res2.ddecl_conversion_state_ptr)).has_been_determined_to_be_an_array(rhs_indirection_level)) {
+									(*(lhs_res2.ddecl_conversion_state_ptr)).set_indirection_current(adjusted_lhs_indirection_level, "variously native and dynamic array");
+								} else {
+									(*(lhs_res2.ddecl_conversion_state_ptr)).set_indirection_current(adjusted_lhs_indirection_level, "variously malloc and non-malloc target");
+								}
+								update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+							}
+						}
+
 						std::shared_ptr<CArray2ReplacementAction> cr_shptr;
 						if (1 > adjusted_lhs_indirection_level) {
 							cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level), CDDeclIndirection(*(lhs_res2.ddecl_cptr), adjusted_lhs_indirection_level));
@@ -12397,6 +12477,8 @@ namespace convm1 {
 						bool lhs_has_been_determined_to_be_an_array = false;
 						if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
 							ddcs_ref.set_indirection_current(0, "malloc target");
+						} else if ("non-malloc target" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
+							ddcs_ref.set_indirection_current(0, "variously malloc and non-malloc target");
 						} else if ("inferred array" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
 							ddcs_ref.set_indirection_current(0, "dynamic array");
 							lhs_has_been_determined_to_be_an_array = true;
