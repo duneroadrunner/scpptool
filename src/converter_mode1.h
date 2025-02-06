@@ -1696,6 +1696,19 @@ namespace convm1 {
 		}
 	};
 
+	class CUnsafeMakeTemporaryArrayOfRawPointersFromExprTextModifier : public CWrapExprTextModifier {
+	public:
+		CUnsafeMakeTemporaryArrayOfRawPointersFromExprTextModifier() :
+			CWrapExprTextModifier(("Dual" == ConvertMode)
+				? "MSE_LH_UNSAFE_MAKE_TEMPORARY_ARRAY_OF_RAW_POINTERS_FROM("
+				: "mse::us::lh::make_temporary_array_of_raw_pointers_from("
+				, ")") {}
+		virtual ~CUnsafeMakeTemporaryArrayOfRawPointersFromExprTextModifier() {}
+		virtual std::string species_str() const {
+			return "unsafe make temporary array of raw pointers from";
+		}
+	};
+
 	class CStraightReplacementExprTextModifier : public CExprTextModifier {
 	public:
 		CStraightReplacementExprTextModifier(const std::string& replacement_text) :
@@ -6117,12 +6130,22 @@ namespace convm1 {
 					replacing (overwriting) them. */
 					static const std::string semicolon_space_str = "; ";
 					std::vector<std::string> action_species_list;
-					for (const auto& ddecl_cref : ddecls) {
-						auto res = generate_declaration_replacement_code(ddecl_cref, Rewrite, &state1, state1.m_ddecl_conversion_state_map, options_str);
-						changed_from_original |= res.m_changed_from_original;
+					for (auto ddecl_ptr : ddecls) {
+						if ((state1.m_ast_context_ptr) && (state1.m_suppress_check_region_set.contains(ddecl_ptr, Rewrite, *(state1.m_ast_context_ptr)))) {
+							auto DDSR = cm1_adj_nice_source_range(ddecl_ptr->getSourceRange(), state1, Rewrite);
+							if (DDSR.isValid()) {
+								l_replacement_code += Rewrite.getRewrittenText(DDSR);
+							} else {
+								int q = 3;
+							}
+						} else {
+							auto res = generate_declaration_replacement_code(ddecl_ptr, Rewrite, &state1, state1.m_ddecl_conversion_state_map, options_str);
+							changed_from_original |= res.m_changed_from_original;
 
-						action_species_list.push_back(res.m_action_species);
-						l_replacement_code += res.m_replacement_code;
+							action_species_list.push_back(res.m_action_species);
+							l_replacement_code += res.m_replacement_code;
+						}
+
 						l_replacement_code += semicolon_space_str;
 					}
 					if (l_replacement_code.size() >= 3) {
@@ -11794,13 +11817,70 @@ namespace convm1 {
 							if (arg_EX_ii_SR.isValid()) {
 								IF_DEBUG(arg_EX_ii_source_text = Rewrite.getRewrittenText(arg_EX_ii_SR);)
 							}
+							if (is_nullptr_literal(arg_EX_ii, *(MR.Context))) {
+								continue;
+							}
 
-							auto DRE = given_or_descendant_DeclRefExpr(arg_EX_ii, *(MR.Context));
-
-							if ((nullptr != param_VD) && (nullptr != DRE) && arg_EX_ii_SR.isValid()
+							if ((nullptr != param_VD) && arg_EX_ii_SR.isValid()
 								&& param_VD->getType()->isPointerType() && (!param_VD->getType()->isFunctionPointerType())) {
 
 								assert(nullptr != arg_EX_ii);
+								bool is_pointer_to_pointer = false;
+
+								auto param_VD_pointee_qtype = param_VD->getType()->getPointeeType();
+								if (param_VD_pointee_qtype->isPointerType() || param_VD_pointee_qtype->isArrayType()) {
+									/* The (unmodifiable) parameter seems to be a pointer to a pointer. We can't simply cast from a 
+									(safe) smart pointer targeting another (safe) smart pointer to a raw pointer targeting another 
+									raw pointer. We instead use a more specialized "cast" which will construct a temporary array of
+									raw pointers. */
+
+									if ((arg_EX_ii_qtype->isPointerType()) || (arg_EX_ii_qtype->isArrayType())) {
+										auto pointee_type_ptr = arg_EX_ii_qtype->getPointeeOrArrayElementType();
+										if (pointee_type_ptr) {
+											auto pointee_qtype = clang::QualType(pointee_type_ptr , 0/*I'm just assuming zero specifies no qualifiers*/);
+											IF_DEBUG(std::string pointee_qtype_str = pointee_qtype.getAsString();)
+											if (pointee_type_ptr->isPointerType() || pointee_type_ptr->isArrayType()) {
+												is_pointer_to_pointer = true;
+											}
+										} else { assert(false); }
+									}
+
+									if (false && is_pointer_to_pointer) {
+										auto DRE = given_or_descendant_DeclRefExpr(arg_EX_ii, *(MR.Context));
+										if (DRE) {
+											auto DD = clang::dyn_cast<clang::DeclaratorDecl>(DRE->getDecl());
+											if (DD) {
+												auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &state1);
+												auto ddcs_map_iter = res1.first;
+												auto& ddcs_ref = (*ddcs_map_iter).second;
+												bool update_declaration_flag = res1.second;
+
+												if (2 <= ddcs_ref.m_indirection_state_stack.size()) {
+													/* So here we're setting the conversion state of any nested indirections back to their original state. */
+													for (size_t i = 1; ddcs_ref.m_indirection_state_stack.size() > i; ++i) {
+														ddcs_ref.m_indirection_state_stack.at(i).set_current_species(ddcs_ref.m_indirection_state_stack.at(i).original_species());
+													}
+												}
+
+												/* And here we're adding the declaration of the argument to the "suppress_check_region_set" so that 
+												it won't be subsequently modified (to be safe). */
+												auto l_ISR = instantiation_source_range(DD->getSourceRange(), Rewrite);
+												DEBUG_SOURCE_LOCATION_STR(debug_source_location_str2, l_ISR, Rewrite);
+												DEBUG_SOURCE_TEXT_STR(debug_source_text2, l_ISR, Rewrite);
+												SourceLocation l_ISL = l_ISR.getBegin();
+												SourceLocation l_ISLE = l_ISR.getEnd();
+
+												state1.m_suppress_check_region_set.emplace(l_ISR);
+												state1.m_suppress_check_region_set.insert(DD);
+
+												int q = 5;
+											}
+										}
+									} else {
+										int q = 3;
+									}
+								}
+
 								auto arg_EX_ii_iter = state1.m_expr_conversion_state_map.find(arg_EX_ii);
 								if (state1.m_expr_conversion_state_map.end() == arg_EX_ii_iter) {
 									std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX_ii, Rewrite, state1);
@@ -11812,12 +11892,21 @@ namespace convm1 {
 									std::shared_ptr<CExprTextModifier> shptr1;
 									auto arg_EX_ii_qtype_str = arg_EX_ii_qtype.getAsString();
 									if (true || (("void *" != arg_EX_ii_qtype_str) && ("const void *" != arg_EX_ii_qtype_str))) {
-										shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
-										if (1 <= (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.size()) {
-											if ("unsafe make raw pointer from" == (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
-												/* already applied */
-												shptr1 = nullptr;
-												//return;
+										if (is_pointer_to_pointer) {
+											shptr1 = std::make_shared<CUnsafeMakeTemporaryArrayOfRawPointersFromExprTextModifier>();
+											if (1 <= (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.size()) {
+												if ("unsafe make temporary array of raw pointers from" == (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+													/* already applied */
+													shptr1 = nullptr;
+												}
+											}
+										} else {
+											shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
+											if (1 <= (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.size()) {
+												if ("unsafe make raw pointer from" == (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+													/* already applied */
+													shptr1 = nullptr;
+												}
 											}
 										}
 									} else {
@@ -11846,9 +11935,15 @@ namespace convm1 {
 										auto insert_before_action_id_string = "insert_before: " + std::to_string(uintptr_t(arg_EX_ii));
 										auto insert_before_action_id = std::hash<std::string>()(insert_before_action_id_string);
 
-										state1.m_pending_code_modification_actions.add_insert_after_token_at_given_location_action(Rewrite, { arg_EX_ii_SR.getEnd(), arg_EX_ii_SR.getEnd() }, arg_EX_ii_SR.getEnd(), ")", insert_after_action_id);
-										state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, { arg_EX_ii_SR.getBegin(), arg_EX_ii_SR.getBegin() }, arg_EX_ii_SR.getBegin()
-											, ("Dual" == ConvertMode) ? "MSE_LH_UNSAFE_MAKE_RAW_POINTER_FROM(" : "mse::us::lh::make_raw_pointer_from(", insert_before_action_id);
+										if (is_pointer_to_pointer) {
+											state1.m_pending_code_modification_actions.add_insert_after_token_at_given_location_action(Rewrite, { arg_EX_ii_SR.getEnd(), arg_EX_ii_SR.getEnd() }, arg_EX_ii_SR.getEnd(), ")", insert_after_action_id);
+											state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, { arg_EX_ii_SR.getBegin(), arg_EX_ii_SR.getBegin() }, arg_EX_ii_SR.getBegin()
+												, ("Dual" == ConvertMode) ? "MSE_LH_UNSAFE_MAKE_TEMPORARY_ARRAY_OF_RAW_POINTERS_FROM(" : "mse::us::lh::make_temporary_array_of_raw_pointers_from(", insert_before_action_id);
+										} else {
+											state1.m_pending_code_modification_actions.add_insert_after_token_at_given_location_action(Rewrite, { arg_EX_ii_SR.getEnd(), arg_EX_ii_SR.getEnd() }, arg_EX_ii_SR.getEnd(), ")", insert_after_action_id);
+											state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, { arg_EX_ii_SR.getBegin(), arg_EX_ii_SR.getBegin() }, arg_EX_ii_SR.getBegin()
+												, ("Dual" == ConvertMode) ? "MSE_LH_UNSAFE_MAKE_RAW_POINTER_FROM(" : "mse::us::lh::make_raw_pointer_from(", insert_before_action_id);
+										}
 										//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, arg_EX_ii_SR, (*arg_EX_ii_shptr_ref).m_current_text_str);
 										//(*this).Rewrite.ReplaceText(arg_EX_ii_SR, (*arg_EX_ii_shptr_ref).m_current_text_str);
 										//return;
