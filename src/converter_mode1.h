@@ -702,16 +702,17 @@ namespace convm1 {
 	* can, of course, function as arrays, but context is required to identify those situations. Such identification
 	* is not done in this function. It is done elsewhere.  */
 	clang::QualType populateQTypeIndirectionStack(CIndirectionStateStack& stack, clang::QualType qtype, std::optional<clang::TypeLoc> maybe_typeLoc = {}, Rewriter* Rewrite_ptr = nullptr, CTUState* state1_ptr = nullptr, int depth = 0) {
+		auto starting_stack_size = stack.size();
 		qtype = definition_qtype(qtype);
 		auto l_qtype = qtype;
 		IF_DEBUG(auto l_qtype_str2 = l_qtype.getAsString();)
 		auto l_maybe_typeLoc = maybe_typeLoc;
 		std::optional<clang::FunctionProtoTypeLoc> new_maybe_functionProtoTypeLoc;
+		auto type_class = l_qtype->getTypeClass();
 
 		bool is_function_type = false;
 		std::vector<clang::QualType> param_qtypes;
 		if(l_qtype->isFunctionType()) {
-			auto type_class = l_qtype->getTypeClass();
 			if (clang::Type::Decayed == type_class) {
 				int q = 5;
 			} else if (clang::Type::FunctionNoProto == type_class) {
@@ -752,51 +753,49 @@ namespace convm1 {
 				}
 				int q = 5;
 			}
+		}
 
-			if (clang::Type::Paren == type_class) {
-				if (llvm::isa<const clang::ParenType>(l_qtype)) {
-					auto PNT = llvm::cast<const clang::ParenType>(l_qtype);
-					if (PNT) {
-						std::optional<clang::TypeLoc> new_maybe_typeLoc;
-						if (maybe_typeLoc.has_value()) {
-							IF_DEBUG(auto typeLocClass = maybe_typeLoc.value().getTypeLocClass();)
-							auto ParenLoc = definition_TypeLoc(maybe_typeLoc.value()).getAsAdjusted<clang::ParenTypeLoc>();
-							if (ParenLoc) {
-								new_maybe_typeLoc = ParenLoc.getInnerLoc();
-							}
-						}
-						return populateQTypeIndirectionStack(stack, PNT->getInnerType(), new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
-					} else {
-						assert(false);
-					}
-				} else {
-					int q = 7;
-				}
-			}
-			if (llvm::isa<const clang::FunctionType>(l_qtype)) {
-				auto FNT = llvm::cast<const clang::FunctionType>(l_qtype);
-				if (FNT) {
-					is_function_type = true;
-					l_qtype = FNT->getReturnType();
-
+		if (clang::Type::Paren == type_class) {
+			if (llvm::isa<const clang::ParenType>(l_qtype)) {
+				auto PNT = llvm::cast<const clang::ParenType>(l_qtype);
+				if (PNT) {
+					std::optional<clang::TypeLoc> new_maybe_typeLoc;
 					if (maybe_typeLoc.has_value()) {
 						IF_DEBUG(auto typeLocClass = maybe_typeLoc.value().getTypeLocClass();)
-						auto FunLoc = definition_TypeLoc(maybe_typeLoc.value()).getAsAdjusted<clang::FunctionTypeLoc>();
-						if (FunLoc) {
-							l_maybe_typeLoc = FunLoc.getReturnLoc();
+						auto ParenLoc = definition_TypeLoc(maybe_typeLoc.value()).getAsAdjusted<clang::ParenTypeLoc>();
+						if (ParenLoc) {
+							new_maybe_typeLoc = ParenLoc.getInnerLoc();
 						}
 					}
+					return populateQTypeIndirectionStack(stack, PNT->getInnerType(), new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
 				} else {
 					assert(false);
 				}
+			} else {
+				int q = 7;
 			}
 		}
-		if (is_function_type) {
-			stack.m_direct_type_state.m_is_ineligible_for_xscope_status = true;
+		if (llvm::isa<const clang::FunctionType>(l_qtype)) {
+			auto FNT = llvm::cast<const clang::FunctionType>(l_qtype);
+			if (FNT) {
+				is_function_type = true;
+				l_qtype = FNT->getReturnType();
+
+				if (maybe_typeLoc.has_value()) {
+					IF_DEBUG(auto typeLocClass = maybe_typeLoc.value().getTypeLocClass();)
+					auto FunLoc = definition_TypeLoc(maybe_typeLoc.value()).getAsAdjusted<clang::FunctionTypeLoc>();
+					if (FunLoc) {
+						l_maybe_typeLoc = FunLoc.getReturnLoc();
+					}
+				}
+			} else {
+				assert(false);
+			}
 		}
 
 		std::string l_qtype_str = l_qtype.getAsString();
 		auto TP = l_qtype.getTypePtr();
+		bool processed = false;
 
 		if (TP->isArrayType()) {
 			auto type_class = l_qtype->getTypeClass();
@@ -883,11 +882,11 @@ namespace convm1 {
 				}
 				stack.push_back(indirection_state);
 
-				return populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
+				qtype = populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
+				processed = true;
 			} else {
 				assert(false);
 			}
-
 		} else if (l_qtype->isPointerType()) {
 			auto type_class = l_qtype->getTypeClass();
 			if (clang::Type::Decayed == type_class) {
@@ -946,7 +945,8 @@ namespace convm1 {
 			}
 			stack.push_back(indirection_state);
 
-			return populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
+			qtype = populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
+			processed = true;
 		} else if (l_qtype->isReferenceType()) {
 			auto type_class = l_qtype->getTypeClass();
 
@@ -989,10 +989,11 @@ namespace convm1 {
 			}
 			stack.push_back(indirection_state);
 
-			return populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
+			qtype = populateQTypeIndirectionStack(stack, QT, new_maybe_typeLoc, Rewrite_ptr, state1_ptr, depth+1);
+			processed = true;
 		}
 
-		if (maybe_typeLoc.has_value()) {
+		if ((!processed) && maybe_typeLoc.has_value()) {
 			stack.m_direct_type_state.m_maybe_typeLoc = maybe_typeLoc;
 
 			if (Rewrite_ptr) {
@@ -1010,6 +1011,15 @@ namespace convm1 {
 				int q = 5;
 			}
 		}
+
+		if (is_function_type) {
+			/* Here we are not permtting functions to return scope types. */
+			stack.m_direct_type_state.set_xscope_eligibility(false);
+			for (auto i = starting_stack_size; stack.size() > i; ++i) {
+				stack.at(i).set_xscope_eligibility(false);
+			}
+		}
+
 		return qtype;
 	}
 
@@ -1310,6 +1320,7 @@ namespace convm1 {
 			}
 			auto maybe_typeLoc = typeLoc_if_available(ddecl);
 			auto original_direct_qtype = populateQTypeIndirectionStack(m_indirection_state_stack, QT, maybe_typeLoc, Rewrite_ptr, state1_ptr);
+			IF_DEBUG(auto original_direct_qtype_str = original_direct_qtype.getAsString();)
 			if (function_return_value_only) {
 				if (original_direct_qtype->isFunctionType()) {
 					auto FNT = llvm::cast<const clang::FunctionType>(original_direct_qtype);
@@ -1319,18 +1330,8 @@ namespace convm1 {
 				} else {
 					int q = 3;
 				}
-				if (m_is_a_function) {
-					auto& state1 = *state1_ptr;
-					auto& ddcs_ref = *this;
-					/* Here we are not permtting functions to return scope types. */
-					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-						ddcs_ref.m_indirection_state_stack.at(0).set_xscope_eligibility(false);
-						//state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FND, 0));
-					} else {
-						ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
-						//state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FND, CDDeclIndirection::no_indirection));
-					}
-				}
+			} else if (m_is_a_function) {
+				int q = 5;
 			}
 			set_original_direct_qtype(original_direct_qtype);
 
@@ -6785,16 +6786,38 @@ namespace convm1 {
 
 				bool function_return_value_only = false;
 				if (l_DD->getType()->isFunctionType()) {
+					auto FND = dyn_cast<const clang::FunctionDecl>(l_DD);
 					auto E = dyn_cast<const clang::Expr>(&stmt_cref);
-					if (E) {
+					if (E && FND) {
 						auto E_ii = state1_ref.m_ast_context_ptr ? IgnoreParenImpNoopCasts(E, *(state1_ref.m_ast_context_ptr))
 							: IgnoreParenImpCasts(E);
 						auto CE = dyn_cast<const clang::CallExpr>(E_ii);
-						if (CE && (l_DD->getType() == CE->getType())) {
-							/* The given statement was (essentially) a call expression, and presumably l_DD refers to the 
-							declaration of the called function. And presumably, because the function was actually called, 
-							we're interested in the return value, not the "value" of the function itself. */
-							function_return_value_only = true;
+						if (!(CE)) {
+							auto DRE = dyn_cast<const clang::DeclRefExpr>(E_ii);
+							if (DRE) {
+								for (auto child : DRE->children()) {
+									auto E = dyn_cast<const clang::Expr>(child);
+									if (E) {
+										auto E_ii = state1_ref.m_ast_context_ptr ? IgnoreParenImpNoopCasts(E, *(state1_ref.m_ast_context_ptr))
+											: IgnoreParenImpCasts(E);
+										CE = dyn_cast<const clang::CallExpr>(E_ii);
+									}
+								}
+							}
+						}
+						if (CE) {
+							auto const fun_return_qtype = FND->getReturnType();
+							auto const rr_fun_return_qtype = remove_reference(fun_return_qtype);
+							auto const ce_qtype = CE->getType();
+							auto const rr_ce_qtype = remove_reference(ce_qtype);
+							if (rr_fun_return_qtype == rr_ce_qtype) {
+								/* The given statement was (essentially) a call expression, and presumably l_DD refers to the 
+								declaration of the called function. And presumably, because the function was actually called, 
+								we're interested in the return value, not the "value" of the function itself. */
+								function_return_value_only = true;
+							} else {
+								int q = 5;
+							}
 						}
 					}
 				}
