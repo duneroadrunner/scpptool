@@ -695,6 +695,23 @@ namespace convm1 {
 	public:
 		std::optional<const clang::DeclaratorDecl*> m_maybe_DD;
 		CTypeState1 m_direct_type_state;
+		void set_xscope_eligibility(bool eligibility, size_t indirection_level) {
+			assert((*this).size() > indirection_level);
+			(*this).at(indirection_level).set_xscope_eligibility(eligibility);
+			if (false == eligibility) {
+				/* If an indirection is ineligible for xscope status, then so are any nested indirections of that
+				indirection. */
+				for (auto i = indirection_level + 1; (*this).size() > i; ++i) {
+					(*this).at(i).set_xscope_eligibility(false);
+				}
+			}
+		}
+		auto xscope_eligibility(size_t indirection_level) const {
+			bool retval = false;
+			assert((*this).size() > indirection_level);
+			auto xscope_eligibility = (*this).at(indirection_level).xscope_eligibility();
+			return (xscope_eligibility);
+		}
 	};
 
 	/* Given a type and an (empty) CIndirectionStateStack, this function will fill the stack with indications of
@@ -1015,8 +1032,8 @@ namespace convm1 {
 		if (is_function_type) {
 			/* Here we are not permtting functions to return scope types. */
 			stack.m_direct_type_state.set_xscope_eligibility(false);
-			for (auto i = starting_stack_size; stack.size() > i; ++i) {
-				stack.at(i).set_xscope_eligibility(false);
+			if (stack.size() > starting_stack_size) {
+				stack.at(starting_stack_size).set_xscope_eligibility(false);
 			}
 		}
 
@@ -1365,16 +1382,14 @@ namespace convm1 {
 						auto& ddcs_ref = *this;
 
 						/* Here we are not permtting function parameters to be scope types. */
-						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-							ddcs_ref.m_indirection_state_stack.at(0).set_xscope_eligibility(false);
-							//state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FND, 0));
-						} else {
-							ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
-							//state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FND, CDDeclIndirection::no_indirection));
+						ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
+						//state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FND, CDDeclIndirection::no_indirection));
+						for (auto& indirection_state : ddcs_ref.m_indirection_state_stack) {
+							indirection_state.set_xscope_eligibility(false);
+							//state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, indirection_state);
 						}
 					}
 				}
-
 			}
 
 			//std::reverse(m_indirection_state_stack.begin(), m_indirection_state_stack.end());
@@ -8185,17 +8200,23 @@ namespace convm1 {
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 					/* At the moment we only support the case where the value option expressions are
 					* just declared variables. */
+
+					/* If a declaration for this conditional operator option is available, then
+					we'll mark that declaration as ineligible for "xscope status". The idea
+					being that conditional operator options are likely the (obfuscated) source of an
+					assignment operation (including being passed as a function argument). */
+					ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
+					state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*lhs_DD, CDDeclIndirection::no_indirection));
+					size_t indirection_level = 0;
+					for (auto& indirection_state : ddcs_ref.m_indirection_state_stack) {
+						indirection_state.set_xscope_eligibility(false);
+						state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*lhs_DD, indirection_level));
+						++indirection_level;
+					}
+					lhs_update_flag |= true;
+
 					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 						auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(0);
-						if (true == indirection_state_ref.xscope_eligibility()) {
-							/* If a declaration for this conditional operator option is available, then
-							we'll mark that declaration as ineligible for "xscope status". The idea
-							being that conditional operator options are likely the (obfuscated) source of an
-							assignment operation (including being passed as a function argument). */
-							indirection_state_ref.set_xscope_eligibility(false);
-							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*lhs_DD, 0));
-							lhs_update_flag |= true;
-						}
 						if ("dynamic array" == indirection_state_ref.current_species()) {
 							lhs_is_dynamic_array = true;
 							lhs_is_known_to_be_an_array = true;
@@ -8225,17 +8246,23 @@ namespace convm1 {
 					auto res1 = state1.m_ddecl_conversion_state_map.insert(*rhs_DD, &m_Rewrite, &state1);
 					auto ddcs_map_iter = res1.first;
 					auto& ddcs_ref = (*ddcs_map_iter).second;
+
+					/* If a declaration for this conditional operator option is available, then
+					we'll mark that declaration as ineligible for "xscope status". The idea
+					being that conditional operator options are likely the (obfuscated) source of an
+					assignment operation (including being passed as a function argument). */
+					ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
+					state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*rhs_DD, CDDeclIndirection::no_indirection));
+					size_t indirection_level = 0;
+					for (auto& indirection_state : ddcs_ref.m_indirection_state_stack) {
+						indirection_state.set_xscope_eligibility(false);
+						state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*rhs_DD, indirection_level));
+						++indirection_level;
+					}
+					rhs_update_flag |= true;
+
 					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 						auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(0);
-						if (true == indirection_state_ref.xscope_eligibility()) {
-							/* If a declaration for this conditional operator option is available, then
-							we'll mark that declaration as ineligible for "xscope status". The idea
-							being that conditional operator options are likely the (obfuscated) source of an
-							assignment operation (including being passed as a function argument). */
-							indirection_state_ref.set_xscope_eligibility(false);
-							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*rhs_DD, 0));
-							rhs_update_flag |= true;
-						}
 						if ("dynamic array" == indirection_state_ref.current_species()) {
 							rhs_is_dynamic_array = true;
 							rhs_is_known_to_be_an_array = true;
@@ -9109,15 +9136,18 @@ namespace convm1 {
 					auto& ddcs_ref = (*ddcs_map_iter).second;
 					bool update_declaration_flag = res1.second;
 					if (ddcs_ref.m_indirection_state_stack.size() > res2.indirection_level) {
-						if (true == ddcs_ref.m_indirection_state_stack.at(res2.indirection_level).xscope_eligibility()) {
-							/* If a declaration for the pointer arithmetic expression is available, then
-							we'll mark that declaration as ineligible for "xscope status". The idea
-							being that pointer arithmetic expressions are likely the (obfuscated) source of an
-							assignment operation (including being passed as a function argument). */
-							ddcs_ref.m_indirection_state_stack.at(res2.indirection_level).set_xscope_eligibility(false);
-							res2.update_declaration_flag |= true;
-							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*DD, res2.indirection_level));
+
+						/* If a declaration for the pointer arithmetic expression is available, then
+						we'll mark that declaration as ineligible for "xscope status". The idea
+						being that conditional operator options are likely the (obfuscated) source of an
+						assignment operation (including being passed as a function argument). */
+						ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
+						state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*DD, CDDeclIndirection::no_indirection));
+						for (auto indirection_level = res2.indirection_level ; ddcs_ref.m_indirection_state_stack.size() > indirection_level; ++indirection_level) {
+							ddcs_ref.m_indirection_state_stack.at(indirection_level).set_xscope_eligibility(false);
+							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*DD, indirection_level));
 						}
+						res2.update_declaration_flag |= true;
 					}
 
 					if (res2.update_declaration_flag) {
@@ -9512,16 +9542,11 @@ namespace convm1 {
 							auto& ddcs_ref = (*ddcs_map_iter).second;
 							bool update_declaration_flag = res1.second;
 
-							for (auto& indirection_state_ref : ddcs_ref.m_indirection_state_stack) {
-								if (true == indirection_state_ref.xscope_eligibility()) {
-									indirection_state_ref.set_xscope_eligibility(false);
-									update_declaration_flag |= true;
-								}
+							ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
+							for (auto& indirection_state : ddcs_ref.m_indirection_state_stack) {
+								indirection_state.set_xscope_eligibility(false);
 							}
-							if (true == ddcs_ref.direct_type_state_ref().xscope_eligibility()) {
-								ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
-								update_declaration_flag |= true;
-							}
+							update_declaration_flag |= true;
 
 							if (update_declaration_flag) {
 								update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), state1);
@@ -11567,14 +11592,17 @@ namespace convm1 {
 					have no corresponding indirection level in the rhs variable because a `&`
 					("address of") operator caused the correspondence to be shifted (by one level). */
 					if (EIsAnInitialization::No == is_an_initialization) {
-						auto& lhs_indirection_state_ref = lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.at(i);
-						if (lhs_indirection_state_ref.xscope_eligibility()) {
-							/* Currently, (non-initialization) assignment operations make the
-							target (and therefore the source too) ineligible for xscope status. */
-							lhs_indirection_state_ref.set_xscope_eligibility(false);
-							lhs_res2.update_declaration_flag |= true;
-							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*(lhs_res2.ddecl_cptr), i));
+						auto l_DD = lhs_res2.ddecl_cptr;
+						auto& ddcs_ref = *(lhs_res2.ddecl_conversion_state_ptr);
+						ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
+						state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*l_DD, CDDeclIndirection::no_indirection));
+						size_t indirection_level = 0;
+						for (auto& indirection_state : ddcs_ref.m_indirection_state_stack) {
+							indirection_state.set_xscope_eligibility(false);
+							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*l_DD, indirection_level));
+							++indirection_level;
 						}
+						lhs_res2.update_declaration_flag |= true;
 					}
 				}
 				for (size_t i = 0; (i + lhs_res2.indirection_level + lhs_indirection_level_adjustment < (*(lhs_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack.size())
@@ -13449,20 +13477,27 @@ namespace convm1 {
 							const std::string pointee_qtype_str = VD->getType()->getPointeeType().getAsString();
 							if ("void" == pointee_qtype_str) {
 								if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-									ddcs_ref.m_indirection_state_stack.at(0).set_xscope_eligibility(false);
-									state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*VD, 0));
+									ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
+									state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*VD, CDDeclIndirection::no_indirection));
+									size_t indirection_level = 0;
+									for (auto& indirection_state : ddcs_ref.m_indirection_state_stack) {
+										indirection_state.set_xscope_eligibility(false);
+										state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*VD, indirection_level));
+										++indirection_level;
+									}
 								} else {
 									assert(false);
 								}
 							}
 						}
 					} else if (FD) {
-						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-							ddcs_ref.m_indirection_state_stack.at(0).set_xscope_eligibility(false);
-							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FD, 0));
-						} else {
-							ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
-							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FD, CDDeclIndirection::no_indirection));
+						ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
+						state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FD, CDDeclIndirection::no_indirection));
+						size_t indirection_level = 0;
+						for (auto& indirection_state : ddcs_ref.m_indirection_state_stack) {
+							indirection_state.set_xscope_eligibility(false);
+							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FD, indirection_level));
+							++indirection_level;
 						}
 
 						if (false && (qtype.getTypePtr()->isPointerType() || qtype.getTypePtr()->isReferenceType())) {
