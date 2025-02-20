@@ -80,7 +80,7 @@ The build script does not require root privileges.
 
 (Note that the scpptool executable uses a clang include directory located in the relative path '../lib/clang' created by the build script. So copying or moving the scpptool executable would also require copying or moving that include directory so that the relative path remains the same.)
 
-To uninstall: Just delete the directories where you extracted scpptool repo and clang+llvm pre-built binaries to. Currently, the build script doesn't actually "install" anything.
+To uninstall: Just delete the directories where you extracted the scpptool repo and clang+llvm pre-built binaries to. Currently, the build script doesn't actually "install" anything.
 
 ### How to Use:
 
@@ -188,7 +188,7 @@ After the first parameter we added `MSE_ATTR_PARAM_STR("mse::lifetime_label(42)"
 
 After the function declaration (and before the body of the function), we added the annotation `MSE_ATTR_FUNC_STR("mse::lifetime_notes{ labels(42, 99); encompasses(42, 99) }")`. `mse::lifetime_notes{}` is used as a sometimes more compact way of expressing multiple annotations separated by semicolons, and without the `mse::lifetime_` prefix on each one. So for example, in place of this annotation we could have instead wrote `MSE_ATTR_FUNC_STR("mse::lifetime_labels(42, 99)") MSE_ATTR_FUNC_STR("mse::lifetime_encompasses(42, 99)")`, which is equivalent (and might even be preferred in cases where you want to put each annotation on its own line).
 
-Ok, so the `labels(42, 99)` annotation is just the declaration of the lifetime labels, akin to declaring variables before use. Though here we place the declarations below the place where they are used, but that's just an asthetic choice on our part. You can place them before the function declaration if you prefer. (Note that at the time of writing the tool actually allows you to use lifetime labels without declaring them separately, but is expected to be more strict in the future.)
+Ok, so the `labels(42, 99)` annotation is just the declaration of the lifetime labels, akin to declaring variables before use. Though here we place the declarations below the place where they are used. But that's just an asthetic choice on our part. You can place them before the function declaration if you prefer. (Note that at the time of writing the tool actually allows you to use lifetime labels without declaring them separately, but is expected to be more strict in the future.)
 
 `encompasses(42, 99)` declares a constraint on the two lifespans. Namely that the `99` lifespan must be contained within the duration of the `42` lifespan. Or, essentially, that the object associated with the `42` lifespan must outlive the object associated with the `99` lifespan.
 
@@ -250,7 +250,7 @@ It works the same way. Note that the lifetime labels refer to the lifetimes of t
 
 But pointers can point to different objects during the execution of the program. Does this mean that lifetime labels associated with the target of a pointer can refer to different lifetimes at different points in the execution of a program?
 
-No. (At least not currently.) Our description thus far of what a lifetime label is has maybe been a little misleading. A lifetime label actually represents the lower bound of possible lifespans of any objects that might be targeted by the associated pointer/reference. (In the case of (raw) references (or `const` pointers), since they cannot be retargeted after initialization, there is only one possible object.) This lower bound is determined at the point where the pointer or reference object is declared (at compile-time). It's determined and set from either the initialization value, specified "constraint" annotations, and/or a default value based on the location of the declaration in the code. You might think of lifetime labels as sort of pseudo (deduced) template parameters.
+No. (At least not currently.) Our description thus far of what a lifetime label has maybe been a little misleading. A lifetime label actually represents the lower bound of possible lifespans of any objects that might be targeted by the associated pointer/reference. (In the case of (raw) references (or `const` pointers), since they cannot be retargeted after initialization, there is only one possible object.) This lower bound is determined at the point where the pointer or reference object is declared (at compile-time). It's determined and set from either the initialization value, specified "constraint" annotations, and/or a default value based on the location of the declaration in the code. You might think of lifetime labels as sort of pseudo (deduced) template parameters.
 
 Often there is not enough information to determine the lower bound precisely. In such cases, the tool will use what information is available to try to verify safety as best it can.
 
