@@ -8,6 +8,7 @@
 #ifndef __CONVERTER_MODE1_H
 #define __CONVERTER_MODE1_H
 
+#include <cstddef>
 #ifndef EXCLUDE_CONVERTER_MODE1
 
 #include "utils1.h"
@@ -11898,33 +11899,73 @@ namespace convm1 {
 					bool FD_is_non_modifiable = is_non_modifiable(*function_decl1, MR, Rewrite, state1);
 					bool function_is_variadic = function_decl1->isVariadic();
 
-					static const std::string free_str = "free";
-					bool ends_with_free = ((lc_function_name.size() >= free_str.size())
-							&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
+					do {
+						static const std::string free_str = "free";
+						bool ends_with_free = ((lc_function_name.size() >= free_str.size())
+								&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
+						if (ends_with_free) {
+							return;
+						}
 
-					auto res1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
-					bool seems_to_be_some_kind_of_malloc_or_realloc = res1.m_seems_to_be_some_kind_of_malloc_or_realloc;
+						auto res1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
+						bool seems_to_be_some_kind_of_malloc_or_realloc = res1.m_seems_to_be_some_kind_of_malloc_or_realloc;
+						if (seems_to_be_some_kind_of_malloc_or_realloc) {
+							return;
+						}
 
-					bool begins_with__builtin_ = string_begins_with(function_name, "__builtin_");
-					bool is_memcpy = false;
-					bool is_memcmp = false;
-					bool is_memset = false;
-					if (FD_is_non_modifiable && string_begins_with(function_name, "mem")) {
-						is_memcpy = ("memcpy" == function_name);
-						is_memcmp = ("memcmp" == function_name);
-						is_memset = ("memset" == function_name);
-					}
+						if (FD_is_non_modifiable) {
+							bool begins_with__builtin_ = string_begins_with(function_name, "__builtin_");
+							if (begins_with__builtin_) {
+								return;
+							}
+							bool is_memcpy = false;
+							bool is_memcmp = false;
+							bool is_memset = false;
+							if (string_begins_with(function_name, "mem")) {
+								is_memcpy = ("memcpy" == function_name);
+								is_memcmp = ("memcmp" == function_name);
+								is_memset = ("memset" == function_name);
+								if (is_memcpy || is_memcmp || is_memset) {
+									return;
+								}
+							}
+
+							auto get_arg_EX_ii = [&](const size_t arg_index) {
+									clang::Expr const* retval = nullptr;
+									const auto num_args = CE->getNumArgs();
+									if (num_args > arg_index) {
+										auto arg_EX = CE->getArg(arg_index);
+										auto arg_EX_qtype = arg_EX->getType();
+										IF_DEBUG(std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();)
+										assert(arg_EX->getType().getTypePtrOrNull());
+										auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+										auto arg_EX_ii_qtype = arg_EX_ii->getType();
+										IF_DEBUG(std::string arg_EX_ii_qtype_str = arg_EX_ii_qtype.getAsString();)
+										assert(arg_EX_ii->getType().getTypePtrOrNull());
+										retval = arg_EX_ii;
+									}
+									return retval;
+								};
+
+							if ("fprintf" == function_name) {
+								const auto arg_EX_ii = get_arg_EX_ii(1);
+								if (arg_EX_ii) {
+									auto SL = dyn_cast<const clang::StringLiteral>(arg_EX_ii);
+									if (SL) {
+										//return;
+									}
+								}
+							}
 
 #ifndef NDEBUG
-					if ("_setjmp" == function_name) {
-						int q = 5;
-					}
+							if ("_setjmp" == function_name) {
+								int q = 5;
+							}
 #endif /*!NDEBUG*/
+						}
+					} while (false);
 
-					if (ends_with_free || seems_to_be_some_kind_of_malloc_or_realloc
-						|| is_memcpy || is_memcmp || is_memset || begins_with__builtin_) {
-						return;
-					} else if (FD_is_non_modifiable || function_is_variadic) {
+					if (FD_is_non_modifiable || function_is_variadic) {
 						const auto num_args = CE->getNumArgs();
 						const auto num_params = function_decl1->getNumParams();
 						size_t arg_index = 0;
@@ -11950,6 +11991,50 @@ namespace convm1 {
 							}
 							if (is_nullptr_literal(arg_EX_ii, *(MR.Context))) {
 								continue;
+							}
+							auto SL = dyn_cast<const clang::StringLiteral>(arg_EX_ii);
+							if (SL) {
+								continue;
+							}
+							auto is_unmodifiable_raw_pointer_type = [&MR, &Rewrite, &state1](clang::Expr const& arg_EX_ii_cref) {
+									auto arg_EX_ii_qtype = arg_EX_ii_cref.getType();
+									if (arg_EX_ii_qtype->isPointerType()) {
+										auto arg_CE = dyn_cast<const clang::CallExpr>(&arg_EX_ii_cref);
+										if (arg_CE) {
+											auto arg_function_decl1 = arg_CE->getDirectCallee();
+											auto arg_num_args = arg_CE->getNumArgs();
+											if (arg_function_decl1) {
+												IF_DEBUG(std::string debug_arg_function_name = arg_function_decl1->getNameAsString();)
+												bool arg_FD_is_non_modifiable = is_non_modifiable(*arg_function_decl1, MR, Rewrite, state1);
+												if (arg_FD_is_non_modifiable) {
+													/* This argument corresponding to a pointer parameter that cannot be converted to a safe pointer, 
+													seems to be the direct return value of a function that also cannot be converted to return a safe 
+													pointer. */
+													return true;
+												}
+											}
+										}
+									}
+									return false;
+								};
+
+							if (is_unmodifiable_raw_pointer_type(*arg_EX_ii)) {
+								/* This argument corresponding to a pointer parameter that cannot be converted to a safe pointer, 
+								seems to be the direct return value of a function that also cannot be converted to return a safe 
+								pointer. So we'll just leave this passing of a raw pointer as is. */
+								continue;
+							}
+							auto CO = dyn_cast<const clang::ConditionalOperator>(arg_EX_ii);
+							if (CO) {
+								auto lhs_ptr = CO->getLHS();
+								auto rhs_ptr = CO->getRHS();
+								if (lhs_ptr && rhs_ptr) {
+									auto lhs_ii = IgnoreParenImpNoopCasts(lhs_ptr, *(MR.Context));
+									auto rhs_ii = IgnoreParenImpNoopCasts(rhs_ptr, *(MR.Context));
+									if (is_unmodifiable_raw_pointer_type(*lhs_ii) && is_unmodifiable_raw_pointer_type(*rhs_ii)) {
+										continue;
+									}
+								}
 							}
 
 							if ((nullptr != param_VD) && arg_EX_ii_SR.isValid()
