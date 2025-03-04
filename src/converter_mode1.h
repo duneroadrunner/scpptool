@@ -58,6 +58,10 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/IR/Function.h"
 
+#define RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1 \
+				if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR.getBegin())) { \
+					return void(); \
+				}
 
 namespace convm1 {
     using namespace llvm;
@@ -6244,7 +6248,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-		//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+		//RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -6308,7 +6312,7 @@ namespace convm1 {
 
 		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-		//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+		//RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -7896,7 +7900,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-			//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+			//RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -7998,7 +8002,7 @@ namespace convm1 {
 
 			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-			//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+			//RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -8397,7 +8401,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -8804,7 +8808,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -9081,7 +9085,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -9201,7 +9205,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 #ifndef NDEBUG
 				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
@@ -9258,7 +9262,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -9452,7 +9456,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -9703,7 +9707,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -9741,7 +9745,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -9889,7 +9893,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 #ifndef NDEBUG
 				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
@@ -10048,7 +10052,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -10127,7 +10131,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -10233,7 +10237,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -10339,7 +10343,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -10412,7 +10416,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -10467,7 +10471,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -10537,7 +10541,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -10603,7 +10607,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -10921,7 +10925,7 @@ namespace convm1 {
 	}
 
 	bool is_non_modifiable(clang::Decl const& decl, const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::Rewriter &Rewrite, CTUState& state1) {
-		if (filtered_out_by_location(MR, decl.getSourceRange().getBegin())) {
+		if (filtered_out_by_location<options_t<converter_mode_t> >(MR, decl.getSourceRange().getBegin())) {
 			return true;
 		}
 		auto suppress_check_flag = state1.m_suppress_check_region_set.contains(&decl, Rewrite, *(MR.Context));
@@ -11325,7 +11329,7 @@ namespace convm1 {
 				accommodate that. */
 				int q = 5;
 			} else {
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 			}
 
 			bool vld_is_filtered_out = false;
@@ -11828,7 +11832,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				//RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -11873,7 +11877,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -12423,7 +12427,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -12559,7 +12563,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -12762,7 +12766,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -12809,7 +12813,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -12908,7 +12912,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -12956,7 +12960,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
@@ -13100,7 +13104,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -13154,7 +13158,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -13294,7 +13298,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 #ifndef NDEBUG
 				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
@@ -13351,7 +13355,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -13885,7 +13889,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -13942,7 +13946,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -14134,7 +14138,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -14180,7 +14184,7 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 

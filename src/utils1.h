@@ -179,14 +179,178 @@ bool is_macro_instantiation(const clang::SourceRange& sr, clang::Rewriter &Rewri
 bool first_is_a_subset_of_second(const clang::SourceRange& first, const clang::SourceRange& second);
 bool first_is_a_proper_subset_of_second(const clang::SourceRange& first, const clang::SourceRange& second);
 
+bool string_begins_with(const std::string_view s1, const std::string_view prefix);
+bool string_ends_with(const std::string_view s1, const std::string_view suffix);
+
+struct converter_mode_t {};
+template<class... Bases>
+struct options_t : Bases... { };
+
 struct CFilteringResult {
 	bool m_suppress_errors = false;
 	bool m_do_not_process = false;
 };
-CFilteringResult evaluate_filtering_by_full_path_name(const std::string &full_path_name);
-bool filtered_out_by_location(const clang::SourceManager &SM, clang::SourceLocation SL);
-bool filtered_out_by_location(clang::ASTContext const& Ctx, clang::SourceLocation SL);
-bool filtered_out_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceLocation SL);
+
+template<typename TOptions = options_t<> >
+inline CFilteringResult evaluate_filtering_by_filename(const std::string &filename) {
+	CFilteringResult retval;
+
+	static const std::string mse_str = "mse";
+	static const std::string built_in_str = "<built-in>";
+	/* Presumably config.h would be a build-time generated file with platform-specific macro defines? */
+	static const std::string config_h_str = "config.h";
+	if (0 == filename.compare(0, mse_str.size(), mse_str)) {
+		retval.m_suppress_errors = true;
+
+		static const std::string msealgorithm_h_str = "msealgorithm.h";
+		static const bool for_conversion_mode = std::is_base_of<converter_mode_t, TOptions>::value;
+		if ((!for_conversion_mode) && (msealgorithm_h_str == filename)) {
+			/* Evaluation of lifetimes inside the msealgorithm.h file is sometimes necessary because some of its
+			elements call and pass arguments to user supplied callable objects. So far this doesn't seem to be
+			the case for the other mse*.h files, but that could change in the future. */
+			//retval.m_do_not_process = true;
+			retval.m_suppress_errors = false;
+			int q = 5;
+		} else {
+			retval.m_do_not_process = true;
+		}
+	} else if ((built_in_str == filename) || (config_h_str == filename)) {
+		retval.m_do_not_process = true;
+		retval.m_suppress_errors = true;
+	}
+
+	return retval;
+}
+
+template<typename TOptions = options_t<> >
+inline CFilteringResult evaluate_filtering_by_full_path_name(const std::string &full_path_name) {
+	CFilteringResult retval;
+
+	auto get_filename = [](std::string const& full_path_name) {
+		std::string filename = full_path_name;
+		const auto last_slash_pos = full_path_name.find_last_of('/');
+		if (std::string::npos != last_slash_pos) {
+			if (last_slash_pos + 1 < full_path_name.size()) {
+				filename = full_path_name.substr(last_slash_pos+1);
+			} else {
+				filename = "";
+			}
+		}
+		return filename;
+	};
+
+	const auto lib_clang_pos = full_path_name.find("/lib/clang/");
+	if (std::string::npos != lib_clang_pos) {
+		retval.m_do_not_process = true;
+		retval.m_suppress_errors = true;
+	} else if (string_begins_with(full_path_name, "/usr/include/")) {
+		retval.m_do_not_process = true;
+		retval.m_suppress_errors = true;
+	} else {
+		std::string filename = get_filename(full_path_name);
+		auto res1 = evaluate_filtering_by_filename<TOptions>(filename);
+		retval.m_do_not_process = res1.m_do_not_process;
+		retval.m_suppress_errors = res1.m_suppress_errors;
+	}
+
+	return retval;
+}
+
+struct CFilteringResultByLocation : public CFilteringResult {
+	CFilteringResultByLocation(clang::SourceLocation SL) : m_SL(SL) {}
+	clang::SourceLocation m_SL;
+};
+
+template<typename TOptions = options_t<> >
+inline CFilteringResultByLocation evaluate_filtering_by_location(const clang::SourceManager &SM, clang::SourceLocation SL) {
+	CFilteringResultByLocation retval { SL };
+	thread_local std::optional<CFilteringResultByLocation> tl_maybe_cached_result;
+
+	if (tl_maybe_cached_result.has_value() && (SL == tl_maybe_cached_result.value().m_SL)) {
+		return tl_maybe_cached_result.value();
+	}
+	auto get_full_path_name = [&SM](clang::SourceLocation const& SL, bool* filename_is_invalid_ptr) {
+		auto full_path_name = std::string(SM.getBufferName(SL, filename_is_invalid_ptr));
+		if ("" == full_path_name) {
+			full_path_name = std::string(SL.printToString(SM));
+
+			/*
+			static const std::string spelling_prefix("<Spelling=");
+			auto last_spelling_pos = full_path_name.rfind(spelling_prefix);
+			if (last_spelling_pos + spelling_prefix.length() + 1 < full_path_name.size()) {
+				full_path_name = full_path_name.substr(last_spelling_pos + spelling_prefix.length());
+			}
+			*/
+
+			auto last_colon_pos = full_path_name.find_first_of(':');
+			if (last_colon_pos + 1 < full_path_name.size()) {
+				full_path_name = full_path_name.substr(0, last_colon_pos);
+			} else {
+				int q = 7;
+			}
+		}
+		return full_path_name;
+	};
+	auto get_filename = [](std::string const& full_path_name) {
+		std::string filename = full_path_name;
+		const auto last_slash_pos = full_path_name.find_last_of('/');
+		if (std::string::npos != last_slash_pos) {
+			if (last_slash_pos + 1 < full_path_name.size()) {
+				filename = full_path_name.substr(last_slash_pos+1);
+			} else {
+				filename = "";
+			}
+		}
+		return filename;
+	};
+
+	if (!(SL.isValid())) {
+		retval.m_suppress_errors = true;
+	} else {
+		bool filename_is_invalid = false;
+		auto full_path_name = get_full_path_name(SL, &filename_is_invalid);
+		if (SM.isInSystemHeader(SL)) {
+			static const std::string algorithm_str = "algorithm";
+			std::string filename/* = get_filename(full_path_name)*/;
+			if (false && (algorithm_str == filename)) {
+				retval.m_do_not_process = false;
+				retval.m_suppress_errors = false;
+			} else {
+				retval.m_do_not_process = true;
+				retval.m_suppress_errors = true;
+			}
+		/*
+		} else if (MainFileOnly && (!(SM.isInMainFile(SL)))) {
+			retval.m_do_not_process = true;
+		*/
+		} else {
+			auto res1 = evaluate_filtering_by_full_path_name<TOptions>(full_path_name);
+			retval.m_do_not_process = res1.m_do_not_process;
+			retval.m_suppress_errors = res1.m_suppress_errors;
+		}
+	}
+	tl_maybe_cached_result = retval;
+	return retval;
+}
+
+template<typename TOptions = options_t<> >
+inline bool filtered_out_by_location(const clang::SourceManager &SM, clang::SourceLocation SL) {
+	auto res1 = evaluate_filtering_by_location<TOptions>(SM, SL);
+	return res1.m_do_not_process;
+}
+template<typename TOptions = options_t<> >
+inline bool filtered_out_by_location(clang::ASTContext const& Ctx, clang::SourceLocation SL) {
+  const clang::SourceManager &SM = Ctx.getSourceManager();
+  return filtered_out_by_location<TOptions>(SM, SL);
+}
+template<typename TOptions = options_t<> >
+inline bool filtered_out_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceLocation SL) {
+  clang::ASTContext *const ASTC = MR.Context;
+  assert(MR.Context);
+  const clang::SourceManager &SM = ASTC->getSourceManager();
+  return filtered_out_by_location<TOptions>(SM, SL);
+}
+
 bool errors_suppressed_by_location(const clang::SourceManager &SM, clang::SourceLocation SL);
 bool errors_suppressed_by_location(clang::ASTContext const& Ctx, clang::SourceLocation SL);
 bool errors_suppressed_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceLocation SL);
@@ -205,9 +369,6 @@ std::string with_newlines_removed(const std::string_view str);
 std::vector<std::string> f_declared_object_strings(const std::string_view decl_stmt_str);
 
 std::string tolowerstr(const std::string_view a);
-
-bool string_begins_with(const std::string_view s1, const std::string_view prefix);
-bool string_ends_with(const std::string_view s1, const std::string_view suffix);
 
 
 /* This function returns a list of individual declarations contained in the same declaration statement
@@ -917,6 +1078,7 @@ inline bool has_direct_base_class(const clang::Type& type, const std::string& qu
 	const auto CXXRD = TP->getAsCXXRecordDecl();
 	if (CXXRD) {
 		if (CXXRD->hasDefinition()) {
+			auto num_bases = CXXRD->getNumBases();
 			for (const auto& base : CXXRD->bases()) {
 				const auto base_qtype = base.getType();
 				IF_DEBUG(const auto base_qtype_str = base_qtype.getAsString();)
@@ -967,6 +1129,7 @@ inline bool has_ancestor_base_class(const clang::Type& type, const std::string& 
 	const auto CXXRD = TP->getAsCXXRecordDecl();
 	if (CXXRD) {
 		if (CXXRD->hasDefinition()) {
+			auto num_bases = CXXRD->getNumBases();
 			for (const auto& base : CXXRD->bases()) {
 				const auto base_qtype = base.getType();
 				IF_DEBUG(const auto base_qtype_str = base_qtype.getAsString();)
