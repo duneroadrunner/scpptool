@@ -1375,11 +1375,59 @@ namespace checker {
 		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
 	}
 
+	template <typename Haystack, typename Needle>
+	struct contains;
+
+	// specialization for any kind of type list or anything tuple-like:
+	template <template <typename...> typename Haystack, typename Needle, typename... Args>
+	struct contains<Haystack<Args...>, Needle>
+		: std::bool_constant<std::disjunction_v<std::is_same<Needle, Args>...> > {};
+
+	template<class... TItems>
+	struct optional_params_t : std::tuple<TItems...> { };
+
+	template<typename TOptionalParams = optional_params_t<> >
 	inline void apply_to_all_owned_types(clang::QualType qtype, const std::function<void(clang::QualType qtype, std::optional<clang::Decl const *>, std::optional<clang::CXXBaseSpecifier const *>)>& fn1
-		, std::optional<clang::Decl const *> maybe_D = {}, std::optional<clang::CXXBaseSpecifier const *> maybe_CXXBS = {}, int depth = 0) {
+		, std::optional<clang::Decl const *> maybe_D = {}, std::optional<clang::CXXBaseSpecifier const *> maybe_CXXBS = {}, TOptionalParams const& optional_params = TOptionalParams{}, int depth = 0) {
 
 		MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype);
 		IF_DEBUG(const auto qtype_str = qtype.getAsString();)
+
+		fn1(qtype, maybe_D, maybe_CXXBS);
+
+		if (!(maybe_D.has_value())) {
+			auto RD = qtype->getAsRecordDecl();
+			if (RD) {
+				maybe_D = RD;
+			}
+		}
+		if (maybe_D.has_value()) {
+			auto D = maybe_D.value();
+
+			if constexpr (contains<TOptionalParams, Rewriter*>::value && contains<TOptionalParams, MatchFinder::MatchResult const *>::value) {
+				auto Rewrite_ptr = std::get<Rewriter*>(optional_params);
+				auto SR = Rewrite_ptr ? nice_source_range(D->getSourceRange(), *Rewrite_ptr)
+					: D->getSourceRange();
+
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				auto MR_ptr = std::get<MatchFinder::MatchResult const *>(optional_params);
+				if (MR_ptr) {
+					auto MR = *MR_ptr;
+					RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				}
+
+				if constexpr (contains<TOptionalParams, const CCommonTUState1&>::value) {
+					auto& tu_state_cref = std::get<const CCommonTUState1&>(optional_params);
+					if (MR_ptr && MR_ptr->Context && Rewrite_ptr) {
+						auto suppress_check_flag = tu_state_cref.m_suppress_check_region_set.contains(D, *Rewrite_ptr, *(MR_ptr->Context));
+						if (suppress_check_flag) {
+							return;
+						}
+					}
+				}
+			}
+		}
 
 		depth += 1;
 		thread_local std::unordered_set<clang::Type const *> tl_already_processed_set;
@@ -1401,7 +1449,7 @@ namespace checker {
 					auto template_arg_qtype = template_arg_maybe_type.value();
 					IF_DEBUG(auto template_arg_qtype_str = template_arg_qtype.getAsString();)
 
-					apply_to_all_owned_types(template_arg_qtype, fn1, maybe_D, {}, depth);
+					apply_to_all_owned_types(template_arg_qtype, fn1, maybe_D, {}, optional_params, depth);
 				}
 			}
 		}
@@ -1412,7 +1460,7 @@ namespace checker {
 				const auto base_qtype = CXXBS.getType();
 				IF_DEBUG(const auto base_qtype_str = base_qtype.getAsString();)
 
-				apply_to_all_owned_types(base_qtype, fn1, CXXRD, &CXXBS, depth);
+				apply_to_all_owned_types(base_qtype, fn1, CXXRD, &CXXBS, optional_params, depth);
 			}
 		}
 
@@ -1424,11 +1472,9 @@ namespace checker {
 				const auto field_qtype = FD->getType();
 				IF_DEBUG(const auto field_qtype_str = field_qtype.getAsString();)
 
-				apply_to_all_owned_types(field_qtype, fn1, FD, {}, depth);
+				apply_to_all_owned_types(field_qtype, fn1, FD, {}, optional_params, depth);
 			}
 		}
-
-		fn1(qtype, maybe_D, maybe_CXXBS);
 	}
 
 	inline bool contains_non_owning_scope_reference(const clang::QualType qtype, const CCommonTUState1& tu_state_cref, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr);
@@ -1437,6 +1483,11 @@ namespace checker {
 
 		const auto qtype = get_cannonical_type(clang::QualType(&type, 0/*I'm just assuming zero specifies no qualifiers*/));
 		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+#ifndef NDEBUG
+		if ("struct CFoo" == qtype_str) {
+			int q = 5;
+		}
+#endif /*!NDEBUG*/
 
 		auto contains_non_owning_scope_reference_shallow = [&retval, &tu_state_cref, &MR_ptr, &Rewrite_ptr](clang::QualType qtype_param, std::optional<clang::Decl const *> maybe_D = {}, std::optional<clang::CXXBaseSpecifier const *> maybe_CXXBS = {}) {
 			if (retval) {
@@ -1446,6 +1497,12 @@ namespace checker {
 
 			const auto qtype = get_cannonical_type(qtype_param);
 			IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+
+			DECLARE_CACHED_CONST_STRING(ContainsNonOwningScopeReference_tag_str, mse_namespace_str() + "::us::impl::ContainsNonOwningScopeReferenceTagBase");
+			if (has_ancestor_base_class(qtype, ContainsNonOwningScopeReference_tag_str)) {
+				retval |= true;
+				return;
+			}
 
 			if (!(maybe_D.has_value())) {
 				auto RD = qtype->getAsRecordDecl();
@@ -1484,11 +1541,6 @@ namespace checker {
 				}
 			}
 
-			DECLARE_CACHED_CONST_STRING(ContainsNonOwningScopeReference_tag_str, mse_namespace_str() + "::us::impl::ContainsNonOwningScopeReferenceTagBase");
-			if (has_ancestor_base_class(qtype, ContainsNonOwningScopeReference_tag_str)) {
-				retval |= true;
-				return;
-			}
 			if ((!tu_state_cref.raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(qtype))
 				&& ((qtype->isPointerType()) || (qtype->isReferenceType()))) {
 
@@ -1497,7 +1549,7 @@ namespace checker {
 			}
 		};
 
-		apply_to_all_owned_types(qtype, contains_non_owning_scope_reference_shallow, {});
+		apply_to_all_owned_types(qtype, contains_non_owning_scope_reference_shallow, {}, {}, std::tuple{tu_state_cref, MR_ptr, Rewrite_ptr});
 
 		return retval;
 	}
@@ -2759,6 +2811,12 @@ namespace checker {
 									auto template_arg_type = maybe_template_arg_type.value();
 									bool res1 = is_xscope_type(remove_reference(template_arg_type), state1, MR_ptr, Rewrite_ptr);
 									if (res1) {
+										IF_DEBUG(auto template_arg_type_str = template_arg_type.getAsString();)
+#ifndef NDEBUG
+										if ("struct CFoo" == template_arg_type_str) {
+											int q = 5;
+										}
+#endif /*!NDEBUG*/
 										if (MR_ptr) {
 											std::string error_desc = std::string("Template parameter '") + template_name + "' instantiated with scope type '";
 											error_desc += template_arg_type.getAsString() + "' prohibited by a 'scope_types_prohibited_for_template_parameter_by_name()' lifetime constraint.";
@@ -3333,6 +3391,12 @@ namespace checker {
 									auto template_arg_type = maybe_template_arg_type.value();
 									bool res1 = is_xscope_type(remove_reference(template_arg_type), state1, MR_ptr, Rewrite_ptr);
 									if (res1) {
+										IF_DEBUG(auto template_arg_type_str = template_arg_type.getAsString();)
+#ifndef NDEBUG
+										if ("struct CFoo" == template_arg_type_str) {
+											int q = 5;
+										}
+#endif /*!NDEBUG*/
 										if (MR_ptr) {
 											std::string error_desc = std::string("Template parameter '") + template_name + "' instantiated with scope type '";
 											error_desc += template_arg_type.getAsString() + "' prohibited by a 'scope_types_prohibited_for_template_parameter_by_name()' lifetime constraint.";
@@ -8705,7 +8769,10 @@ namespace checker {
 							break;
 						}
 					}
-					if (has_an_mse_fparam_parameter) {
+
+					auto retval_contains_non_owning_scope_reference = contains_non_owning_scope_reference(return_qtype, m_state1, &MR, &Rewrite);
+
+					if (retval_contains_non_owning_scope_reference || has_an_mse_fparam_parameter) {
 						bool xscope_return_value_wrapper_present = false;
 						const clang::Stmt* stii = IgnoreParenImpNoopCasts(ST->getRetValue(), *(MR.Context));
 						while (!dyn_cast<const CallExpr>(stii)) {
@@ -8730,9 +8797,13 @@ namespace checker {
 							}
 						}
 						if (!xscope_return_value_wrapper_present) {
-							std::string error_desc = std::string("Return values of xscope type (such as '")
-							+ return_qtype.getAsString() + "'), in functions that have 'FParam<>' parameters, need to be "
-							+ "wrapped in the mse::return_value() function wrapper.";
+							std::string error_desc = std::string("The return value expression (of type '") + return_qtype.getAsString()+ "')";
+							if (retval_contains_non_owning_scope_reference) {
+								error_desc = error_desc + " containing a scope reference";
+							} else if (has_an_mse_fparam_parameter) {
+								error_desc = error_desc + " in a function that have an 'FParam<>' parameter";
+							}
+							error_desc = error_desc + " needs to be wrapped in the mse::return_value() function wrapper. (Or lifetime annotations used to clarify the return value lifetime(s).)";
 
 							auto FND = enclosing_function_if_any(ST->getRetValue(), *(MR.Context));
 							if (FND) {
