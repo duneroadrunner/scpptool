@@ -2480,6 +2480,10 @@ namespace checker {
 				}
 			}
 		}
+
+		typedef std::string field_name_t;
+		typedef std::string lifetime_labels_t;
+		std::unordered_map<field_name_t, lifetime_labels_t> implicit_member_field_lifetime_labels_map;
 		if (0 == lta_statement_infos.size()) {
 			/* Here we'll check to see if it is a recognized "legacy" type and if so add some implicit 
 			lifetime annotations as appropriate. */
@@ -2517,16 +2521,19 @@ namespace checker {
 						if (ND1 && ND2) {
 							auto tparam1_name = ND1->getNameAsString();
 							auto lta1_str = std::string("lifetime_set_alias_from_template_parameter_by_name(") + tparam1_name
-								+ ", alias__implicit_1_$)";
+								+ ", alias__implicit_11_$)";
 							lta_statement_infos.push_back( CLTAStatementInfo{ lta1_str, nullptr } );
 
 							auto tparam2_name = ND2->getNameAsString();
 							auto lta2_str = std::string("lifetime_set_alias_from_template_parameter_by_name(") + tparam2_name
-								+ ", alias__implicit_2_$)";
+								+ ", alias__implicit_12_$)";
 							lta_statement_infos.push_back( CLTAStatementInfo{ lta2_str, nullptr } );
 
-							auto lta3_str = std::string("lifetime_labels(alias__implicit_1_$, alias__implicit2_$)");
+							auto lta3_str = std::string("lifetime_labels(alias__implicit_11_$, alias__implicit_12_$)");
 							lta_statement_infos.push_back( CLTAStatementInfo{ lta3_str, nullptr } );
+
+							implicit_member_field_lifetime_labels_map.insert({ "first", "alias__implicit_11_$" });
+							implicit_member_field_lifetime_labels_map.insert({ "second", "alias__implicit_12_$" });
 						}
 					}
 				}
@@ -2902,16 +2909,19 @@ namespace checker {
 		clang::RecordDecl const * RD = type_ptr ? type_ptr->getAsRecordDecl() : (decltype(RD))(nullptr);
 		if (RD) {
 			for (auto FD : RD->fields()) {
+				const auto field_name = FD->getNameAsString();
+
+				struct CLTAStatementInfo {
+					CLTAStatementInfo(std::string_view text, clang::Attr const * attr_ptr, bool is_a_lifetime_note = false)
+						: m_text(text), m_attr_ptr(attr_ptr), m_is_a_lifetime_note(is_a_lifetime_note) {}
+					std::string m_text;
+					clang::Attr const * m_attr_ptr = nullptr;
+					bool m_is_a_lifetime_note = false;
+				};
+				std::vector<CLTAStatementInfo> lta_statement_infos;
+
+				CAbstractLifetimeSet abstract_lifetime_set;
 				if (FD->hasAttrs()) {
-					DECLARE_CACHED_CONST_STRING(lifetime_labels, "lifetime_labels");
-					DECLARE_CACHED_CONST_STRING(lifetime_label, "lifetime_label");
-					DECLARE_CACHED_CONST_STRING(lifetime_set, "lifetime_set");
-
-					DECLARE_CACHED_CONST_STRING(mse_lifetime_labels, mse_namespace_str() + "::lifetime_labels");
-					DECLARE_CACHED_CONST_STRING(mse_lifetime_label, mse_namespace_str() + "::lifetime_label");
-					DECLARE_CACHED_CONST_STRING(mse_lifetime_set, mse_namespace_str() + "::lifetime_set");
-
-					CAbstractLifetimeSet abstract_lifetime_set;
 					auto& vec = FD->getAttrs();
 					for (const auto& attr : vec) {
 						auto attr_SR = attr->getRange();
@@ -2928,6 +2938,30 @@ namespace checker {
 							continue;
 						}
 						std::string pretty_str = raw_pretty_str.substr(first_mse_range.begin);
+
+						lta_statement_infos.push_back( CLTAStatementInfo{ pretty_str, attr } );
+					}
+				}
+				if (0 == lta_statement_infos.size()) {
+					auto found_iter = implicit_member_field_lifetime_labels_map.find(field_name);
+					if (implicit_member_field_lifetime_labels_map.end() != found_iter) {
+						auto lta3_str = std::string("mse::lifetime_labels(" + found_iter->second + ")");
+						lta_statement_infos.push_back( CLTAStatementInfo{ lta3_str, nullptr } );
+					}
+				}
+				if (1 <= lta_statement_infos.size()) {
+					DECLARE_CACHED_CONST_STRING(lifetime_labels, "lifetime_labels");
+					DECLARE_CACHED_CONST_STRING(lifetime_label, "lifetime_label");
+					DECLARE_CACHED_CONST_STRING(lifetime_set, "lifetime_set");
+
+					DECLARE_CACHED_CONST_STRING(mse_lifetime_labels, mse_namespace_str() + "::lifetime_labels");
+					DECLARE_CACHED_CONST_STRING(mse_lifetime_label, mse_namespace_str() + "::lifetime_label");
+					DECLARE_CACHED_CONST_STRING(mse_lifetime_set, mse_namespace_str() + "::lifetime_set");
+
+					for (const auto& lta_statement_info : lta_statement_infos) {
+						std::string_view pretty_str = lta_statement_info.m_text;
+						std::string_view sv1 = lta_statement_info.m_text;
+						auto attr_SR = lta_statement_info.m_attr_ptr ? lta_statement_info.m_attr_ptr->getRange() : clang::SourceRange{};
 
 						auto lifetime_labels_range = Parse::find_token_sequence({ mse_namespace_str(), "::", lifetime_labels }, pretty_str);
 						if (pretty_str.length() <= lifetime_labels_range.begin) {
@@ -3194,6 +3228,7 @@ namespace checker {
 				}
 			}
 		}
+
 		std::unordered_map<param_ordinal_t, std::string> implicit_parameter_lifetime_labels_map;
 		if (0 == lta_statement_infos.size()) {
 			/* Here we'll check to see if it is a recognized "legacy" type and if so add some implicit 
@@ -3204,13 +3239,6 @@ namespace checker {
 
 			auto fnd_name = func_decl.getNameAsString();
 			auto fnd_qname = func_decl.getQualifiedNameAsString();
-			if ((std::string::npos != fnd_qname.find("pair")) && (std::string::npos == fnd_qname.find("pair_"))/* && (1 == num_params)*/) {
-				auto CXXCD = dyn_cast<const clang::CXXConstructorDecl>(&func_decl);
-				if (CXXCD) {
-					int q = 5;
-				}
-				int q = 5;
-			}
 
 			auto FTSI = func_decl.getTemplateSpecializationInfo();
 			if (FTSI) {
@@ -3262,16 +3290,20 @@ namespace checker {
 
 										static const std::string std_pair_str = "std::pair";
 
-										if ((std_get_str == ftd_qname) && (std_pair_str == cxxrd_qname) && (2 == RRPVD_num_tparams) && ((3 == num_tparams) || (2 == num_tparams)) 
-											&& ((1 <= num_template_args) && (clang::TemplateArgument::ArgKind::Integral == template_args.get(0).getKind()) && (template_args.get(0).getAsIntegral().tryExtValue().has_value()))
+										if ((std_get_str == ftd_qname) && (std_pair_str == cxxrd_qname) && (2 == RRPVD_num_tparams) && (3 == num_tparams) 
+											&& ((3 == num_template_args) && (clang::TemplateArgument::ArgKind::Integral == template_args.get(0).getKind()) && (template_args.get(0).getAsIntegral().tryExtValue().has_value())
+												 && (clang::TemplateArgument::ArgKind::Type == template_args.get(1).getKind())&& (clang::TemplateArgument::ArgKind::Type == template_args.get(2).getKind())
+												 )
 											) {
 											/* This is the `std::get<I, T, U>(std::pair<T, U> const&)` case. `get` functions like this are injected 
 											into the AST for "destructuring" declarations. */
 
 											auto get_index = template_args.get(0).getAsIntegral().tryExtValue().value();
+											auto targ2_qtype = template_args.get(1).getAsType();
+											auto targ3_qtype = template_args.get(2).getAsType();
 
-											const auto ND1 = (3 == num_tparams) ? tparam_list.getParam(1) : tparam_list.getParam(0);
-											const auto ND2 = (3 == num_tparams) ? tparam_list.getParam(2) : tparam_list.getParam(1);
+											const auto ND1 = tparam_list.getParam(1);
+											const auto ND2 = tparam_list.getParam(2);
 											if (ND1 && ND2) {
 												auto tparam1_name = ND1->getNameAsString();
 												auto lta1_str = std::string("lifetime_set_alias_from_template_parameter_by_name(") + tparam1_name
@@ -3286,13 +3318,23 @@ namespace checker {
 												auto lta3_str = std::string("lifetime_labels(_implicit_1_, alias__implicit_11_$, alias__implicit_12_$)");
 												lta_statement_infos.push_back( CLTAStatementInfo{ lta3_str, nullptr } );
 
-												auto lta4_str = std::string("lifetime_return_value(_implicit_1_ [alias__implicit_1");
+												auto lta4_str = std::string("lifetime_return_value(");
+												auto targ_qtype = targ2_qtype;
+												std::string which_field_str;
 												if (1 == get_index) {
-													lta4_str += "2";
+													which_field_str = "2";
+													targ_qtype = targ3_qtype;
 												} else {
-													lta4_str += "1";
+													which_field_str = "1";
+													targ_qtype = targ2_qtype;
 												}
-												lta4_str += std::string("_$])");
+												if (targ_qtype->isReferenceType()) {
+													/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
+													same as the object it refers to (without an added level of indirection). */
+													lta4_str += "alias__implicit_1" + which_field_str + "_$)";
+												} else {
+													lta4_str += "_implicit_1_ [alias__implicit_1" + which_field_str + "_$])";
+												}
 												lta_statement_infos.push_back( CLTAStatementInfo{ lta4_str, nullptr } );
 											
 												implicit_parameter_lifetime_labels_map.insert({ param_ordinal_t(1), "_implicit_1_ [alias__implicit_11_$, alias__implicit_12_$]" });
@@ -3346,8 +3388,6 @@ namespace checker {
 												implicit_parameter_lifetime_labels_map.insert({ param_ordinal_t(1), "_ [alias__implicit_12_$]" });
 											}
 										}
-
-										int q = 5;
 									}
 								}
 							}
@@ -11317,6 +11357,9 @@ namespace checker {
 				auto FD = dyn_cast<const clang::FieldDecl>(VLD);
 				auto VD = dyn_cast<const clang::VarDecl>(VLD); /* for static members */
 				if (FD && !(ME->isBoundMemberFunction(Ctx))) {
+					IF_DEBUG(const auto debug_field_name = FD->getNameAsString();)
+					auto FD_qtype = FD->getType();
+					IF_DEBUG(const auto FD_qtype_str = FD_qtype.getAsString();)
 					auto containing_ref_EX = containing_object_ref_expr_from_member_expr(ME);
 					auto containing_qtype = containing_ref_EX->getType();
 					IF_DEBUG(const auto containing_ref_qtype_str = containing_qtype.getAsString();)
@@ -11409,6 +11452,20 @@ namespace checker {
 
 										if (field_abstract_lifetime1 == (*owner_talt_iter1)) {
 											expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos.push_back(*owner_tlv_iter1);
+
+											if (FD_qtype->isReferenceType()) {
+												/* Unlike other pointer/reference objects, the lifetime of a native reference variable is the
+												same as the object it refers to (without an added level of indirection). */
+												/* So we will attempt to remove one level of indirection from the expression lifetime. */
+												auto& sublifetimes = expr_slti.m_sublifetimes_vlptr->m_primary_lifetime_infos;
+												if (1 == sublifetimes.size()) {
+													expr_slti = sublifetimes.at(0);
+												} else {
+													/* unexpected */
+													int q = 3;
+													expr_slti = CScopeLifetimeInfo1{};
+												}
+											}
 											break;
 										}
 									}
