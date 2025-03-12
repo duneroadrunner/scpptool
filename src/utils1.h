@@ -217,6 +217,10 @@ inline CFilteringResult evaluate_filtering_by_filename(const std::string &filena
 	} else if ((built_in_str == filename) || (config_h_str == filename)) {
 		retval.m_do_not_process = true;
 		retval.m_suppress_errors = true;
+	} else if (string_begins_with(filename, "<")) {
+		/* We've encountered path names like "<scratch space>:..." */
+		retval.m_do_not_process = true;
+		retval.m_suppress_errors = true;
 	}
 
 	return retval;
@@ -243,7 +247,13 @@ inline CFilteringResult evaluate_filtering_by_full_path_name(const std::string &
 	if (std::string::npos != lib_clang_pos) {
 		retval.m_do_not_process = true;
 		retval.m_suppress_errors = true;
-	} else if (string_begins_with(full_path_name, "/usr/include/")) {
+	} else if (string_begins_with(full_path_name, "/usr/") 
+		&& (string_begins_with(full_path_name, "/usr/include/") || string_begins_with(full_path_name, "/usr/lib/"))) {
+
+		retval.m_do_not_process = true;
+		retval.m_suppress_errors = true;
+	} else if (string_begins_with(full_path_name, "<")) {
+		/* We've encountered path names like "<scratch space>:..." */
 		retval.m_do_not_process = true;
 		retval.m_suppress_errors = true;
 	} else {

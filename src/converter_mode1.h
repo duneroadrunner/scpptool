@@ -5921,7 +5921,7 @@ namespace convm1 {
 
 		IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 
-		if (filtered_out_by_location(SM, SR.getBegin())) {
+		if (filtered_out_by_location<options_t<converter_mode_t> >(SM, SR.getBegin())) {
 			return void();
 		}
 
@@ -6463,7 +6463,7 @@ namespace convm1 {
 
 		IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 
-		if (filtered_out_by_location(SM, SR.getBegin())) {
+		if (filtered_out_by_location<options_t<converter_mode_t> >(SM, SR.getBegin())) {
 			return void();
 		}
 
@@ -9642,16 +9642,16 @@ namespace convm1 {
 								}
 							} else {
 								if ("Dual" == ConvertMode) {
-									replacement_code_str = "MSE_LH_ALLOC_DYN_ARRAY1(";
-									replacement_code_str += lhs_element_type_str + ", ";
+									replacement_code_str = "MSE_LH_ALLOC_DYN_ARRAY1(MSE_LH_DYNAMIC_ARRAY_ITERATOR_TYPE(";
+									replacement_code_str += lhs_element_type_str + "), ";
 									replacement_code_str += adjusted_num_bytes_str + ")";
 								} else if ("FasterAndStricter" == ConvertMode) {
-									replacement_code_str = "mse::lh::allocate_dyn_array1<";
-									replacement_code_str += lhs_element_type_str + ">()";
+									replacement_code_str = "mse::lh::allocate_dyn_array1<mse::lh::TStrongVectorIterator<";
+									replacement_code_str += lhs_element_type_str + "> >(";
 									replacement_code_str += adjusted_num_bytes_str + ")";
 								} else {
-									replacement_code_str = "mse::lh::allocate_dyn_array1<";
-									replacement_code_str += lhs_element_type_str + ">()";
+									replacement_code_str = "mse::lh::allocate_dyn_array1<mse::lh::TStrongVectorIterator<";
+									replacement_code_str += lhs_element_type_str + "> >(";
 									replacement_code_str += adjusted_num_bytes_str + ")";
 								}
 							}
@@ -10985,7 +10985,7 @@ namespace convm1 {
 				bool SP_filename_is_invalid = false;
 				auto SP_full_path_name = get_full_path_name(SPSL, &SP_filename_is_invalid);
 
-				auto res1 = evaluate_filtering_by_full_path_name(SP_full_path_name);
+				auto res1 = evaluate_filtering_by_full_path_name<options_t<converter_mode_t> >(SP_full_path_name);
 				if (res1.m_do_not_process) {
 					/* We've observed that arriving here can indicate a situation where the given decl refers to an 
 					element in the body of an instantiated "system" macro. */
@@ -11065,14 +11065,26 @@ namespace convm1 {
 								auto& rhs_shptr_ref = (*rhs_iter).second;
 
 								if (ConvertToSCPP) {
+
+									std::string rhs_function_qname_if_any;
+									auto rhs_CE = dyn_cast<const clang::CallExpr>(RHS_ii);
+									if (rhs_CE) {
+										auto rhs_function_decl1 = rhs_CE->getDirectCallee();
+										if (rhs_function_decl1) {
+											rhs_function_qname_if_any = rhs_function_decl1->getQualifiedNameAsString();
+										}
+									}
+
 									std::shared_ptr<CExprTextModifier> shptr1;
 									auto RHS_qtype_str = RHS_qtype.getAsString();
 									if (("void *" != RHS_qtype_str) && ("const void *" != RHS_qtype_str)) {
-										shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
-										if (1 <= (*rhs_shptr_ref).m_expr_text_modifier_stack.size()) {
-											if ("unsafe make raw pointer from" == (*rhs_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
-												/* already applied */
-												return;
+										if (!string_begins_with(rhs_function_qname_if_any, "mse::")) {
+											shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
+											if (1 <= (*rhs_shptr_ref).m_expr_text_modifier_stack.size()) {
+												if ("unsafe make raw pointer from" == (*rhs_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+													/* already applied */
+													return;
+												}
 											}
 										}
 									} else {
@@ -11335,12 +11347,12 @@ namespace convm1 {
 			bool vld_is_filtered_out = false;
 			if (VLD) {
 				auto VLD_SR = cm1_adj_nice_source_range(VLD->getSourceRange(), state1, Rewrite);
-				if ((!VLD_SR.isValid()) || filtered_out_by_location(MR, VLD_SR.getBegin())) {
+				if ((!VLD_SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, VLD_SR.getBegin())) {
 					vld_is_filtered_out = true;
 				}
 			}
 			bool rhs_is_filtered_out = false;
-			if ((!SR.isValid()) || filtered_out_by_location(MR, SR.getBegin())) {
+			if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR.getBegin())) {
 				if (vld_is_filtered_out) {
 					//return void();
 				}
@@ -11438,14 +11450,26 @@ namespace convm1 {
 						auto& rhs_shptr_ref = (*rhs_iter).second;
 
 						if (ConvertToSCPP) {
+
+							std::string rhs_function_qname_if_any;
+							auto rhs_CE = dyn_cast<const clang::CallExpr>(RHS_ii);
+							if (rhs_CE) {
+								auto rhs_function_decl1 = rhs_CE->getDirectCallee();
+								if (rhs_function_decl1) {
+									rhs_function_qname_if_any = rhs_function_decl1->getQualifiedNameAsString();
+								}
+							}
+
 							std::shared_ptr<CExprTextModifier> shptr1;
 							auto RHS_qtype_str = RHS_qtype.getAsString();
 							if (true || (("void *" != RHS_qtype_str) && ("const void *" != RHS_qtype_str))) {
-								shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
-								if (1 <= (*rhs_shptr_ref).m_expr_text_modifier_stack.size()) {
-									if ("unsafe make raw pointer from" == (*rhs_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
-										/* already applied */
-										return;
+								if (!string_begins_with(rhs_function_qname_if_any, "mse::")) {
+									shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
+									if (1 <= (*rhs_shptr_ref).m_expr_text_modifier_stack.size()) {
+										if ("unsafe make raw pointer from" == (*rhs_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+											/* already applied */
+											return;
+										}
 									}
 								}
 							} else {
@@ -11970,6 +11994,7 @@ namespace convm1 {
 					} while (false);
 
 					if (FD_is_non_modifiable || function_is_variadic) {
+						const std::string function_qname = function_decl1->getQualifiedNameAsString();
 						const auto num_args = CE->getNumArgs();
 						const auto num_params = function_decl1->getNumParams();
 						size_t arg_index = 0;
@@ -12109,24 +12134,43 @@ namespace convm1 {
 								auto& arg_EX_ii_shptr_ref = (*arg_EX_ii_iter).second;
 
 								if (ConvertToSCPP) {
+
+									std::string arg_function_qname_if_any;
+									auto arg_CE = dyn_cast<const clang::CallExpr>(arg_EX_ii);
+									if (arg_CE) {
+										auto arg_function_decl1 = arg_CE->getDirectCallee();
+										if (arg_function_decl1) {
+											arg_function_qname_if_any = arg_function_decl1->getQualifiedNameAsString();
+										}
+									}
+
 									std::shared_ptr<CExprTextModifier> shptr1;
 									auto arg_EX_ii_qtype_str = arg_EX_ii_qtype.getAsString();
 									if (true || (("void *" != arg_EX_ii_qtype_str) && ("const void *" != arg_EX_ii_qtype_str))) {
+
 										if (is_pointer_to_pointer) {
-											shptr1 = std::make_shared<CUnsafeMakeTemporaryArrayOfRawPointersFromExprTextModifier>();
-											if (1 <= (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.size()) {
-												if ("unsafe make temporary array of raw pointers from" == (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
-													/* already applied */
-													shptr1 = nullptr;
+											if ((!string_begins_with(function_qname, "mse::")) && (!string_begins_with(arg_function_qname_if_any, "mse::"))) {
+												shptr1 = std::make_shared<CUnsafeMakeTemporaryArrayOfRawPointersFromExprTextModifier>();
+												if (1 <= (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.size()) {
+													if ("unsafe make temporary array of raw pointers from" == (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+														/* already applied */
+														shptr1 = nullptr;
+													}
 												}
+											} else {
+												int q = 5;
 											}
 										} else {
-											shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
-											if (1 <= (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.size()) {
-												if ("unsafe make raw pointer from" == (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
-													/* already applied */
-													shptr1 = nullptr;
+											if ((!string_begins_with(function_qname, "mse::")) && (!string_begins_with(arg_function_qname_if_any, "mse::"))) {
+												shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
+												if (1 <= (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.size()) {
+													if ("unsafe make raw pointer from" == (*arg_EX_ii_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+														/* already applied */
+														shptr1 = nullptr;
+													}
 												}
+											} else {
+												int q = 5;
 											}
 										}
 									} else {
@@ -12197,6 +12241,15 @@ namespace convm1 {
 
 								auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
 
+								std::string arg_function_qname_if_any;
+								auto arg_CE = dyn_cast<const clang::CallExpr>(arg_EX_ii);
+								if (arg_CE) {
+									auto arg_function_decl1 = arg_CE->getDirectCallee();
+									if (arg_function_decl1) {
+										arg_function_qname_if_any = arg_function_decl1->getQualifiedNameAsString();
+									}
+								}
+
 								auto DRE = given_or_descendant_DeclRefExpr(arg_EX_ii, *(MR.Context));
 
 								if ((nullptr != DRE) && arg_source_range.isValid() && !(arg_EX->getType()->isFunctionPointerType())) {
@@ -12213,13 +12266,17 @@ namespace convm1 {
 											std::shared_ptr<CExprTextModifier> shptr1;
 											auto arg_EX_qtype_str = arg_EX_qtype.getAsString();
 											if (("void *" != arg_EX_qtype_str) && ("const void *" != arg_EX_qtype_str)) {
-												shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
-												if (1 <= (*arg_shptr_ref).m_expr_text_modifier_stack.size()) {
-													if ("unsafe make raw pointer from" == (*arg_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
-														/* already applied */
-														shptr1 = nullptr;
-														//return;
+												if ((!string_begins_with(function_qname, "mse::")) && (!string_begins_with(arg_function_qname_if_any, "mse::"))) {
+													shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
+													if (1 <= (*arg_shptr_ref).m_expr_text_modifier_stack.size()) {
+														if ("unsafe make raw pointer from" == (*arg_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+															/* already applied */
+															shptr1 = nullptr;
+															//return;
+														}
 													}
+												} else {
+													int q = 5;
 												}
 											}
 											if (shptr1) {
@@ -14005,6 +14062,22 @@ namespace convm1 {
 									}
 									if (!finished_cast_handling_flag) {
 										MCSSSMalloc2::s_handler1(MR, Rewrite, state1, CSCE, CE);
+
+										auto cast_operation_SR = cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite);
+										if (cast_operation_SR.isValid()) {
+											std::string cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);
+											/* We're going to "blank out"/erase the original source text of the C-style cast operation
+											(including the parenthesis) (but not the expression that was being casted). */
+											std::string blank_text = cast_operation_text;
+											for (auto& ch : blank_text) {
+												ch = ' ';
+											}
+											state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, blank_text);
+										} else {
+											int q = 3;
+										}
+
+										finished_cast_handling_flag = true;
 									}
 								}
 							}
@@ -14123,6 +14196,11 @@ namespace convm1 {
 							MCSSSMalloc2::s_handler1(MR, Rewrite, state1, BO, CE);
 						}
 					}
+				}
+
+				auto CO = dyn_cast<const clang::ConditionalOperator>(E);
+				if (CO) {
+					int q = 5;
 				}
 			}
 		}
@@ -14581,7 +14659,7 @@ namespace convm1 {
 						if (!SR.isValid()) {
 							continue;
 						}
-						if (filtered_out_by_location(localRewriter.getSourceMgr(), SR.getBegin())) {
+						if (filtered_out_by_location<options_t<converter_mode_t> >(localRewriter.getSourceMgr(), SR.getBegin())) {
 							continue;
 						}
 
@@ -15187,7 +15265,7 @@ namespace convm1 {
 		auto& SM = (*this).m_Rewriter_ref.getSourceMgr();
 		IF_DEBUG(std::string debug_source_location_str = Range.getBegin().printToString(SM);)
 
-		if (filtered_out_by_location(SM, Range.getBegin())) {
+		if (filtered_out_by_location<options_t<converter_mode_t> >(SM, Range.getBegin())) {
 			return;
 		}
 
@@ -15453,7 +15531,7 @@ namespace convm1 {
 						bool filename_is_invalid = false;
 						auto full_path_name = std::string(TheRewriter.getSourceMgr().getBufferName(fii_ref.m_beginning_of_file_loc, &filename_is_invalid));
 
-						if (filtered_out_by_location(TheRewriter.getSourceMgr(), fii_ref.m_beginning_of_file_loc)) {
+						if (filtered_out_by_location<options_t<converter_mode_t> >(TheRewriter.getSourceMgr(), fii_ref.m_beginning_of_file_loc)) {
 							continue;
 						}
 
@@ -15505,7 +15583,12 @@ namespace convm1 {
 						filename = pathname;
 					}
 					std::pair<std::string, std::string> item(path, filename);
-					filename_info_set.insert(item);
+					auto res1 = evaluate_filtering_by_full_path_name<options_t<converter_mode_t> >(pathname);
+					if (!(res1.m_do_not_process)) {
+						filename_info_set.insert(item);
+					} else {
+						int q = 3;
+					}
 
 					int q = 5;
 				}
@@ -15988,6 +16071,23 @@ namespace convm1 {
         ScopeTypePointerFunctionParameters = options.ScopeTypePointerFunctionParameters || options.ScopeTypeFunctionParameters;
 		AddressableVars = options.AddressableVars;
 
+		std::cout << "\nNote, this program attempts to modify the specified source files in place, including any directly or indirectly `#include`d files, which may sometimes include files you may not expect. So be careful not to run this program with write permissions to files you can't risk being modified. \n";
+		std::cout << "Continue [y/n]? \n";
+		int ich2 = 0;
+		if (SuppressPrompts) {
+			ich2 = int('Y');
+		} else {
+			do {
+				ich2 = std::getchar();
+				//std::putchar(ich2);
+			} while ((int('y') != ich2) && (int('n') != ich2) && (int('Y') != ich2) && (int('N') != ich2));
+		}
+		if (((int('y') != ich2) && (int('Y') != ich2)) || (DoNotReplaceOriginalSource)) {
+			std::cout << "\n\nOperation cancelled. Source files were not replaced/modified. \n";
+			typedef decltype(Tool.run(newFrontendActionFactory<MyFrontendActionPass1>().get())) return_t;
+			return return_t{-1};
+		}
+
 		int Status = Tool.buildASTs(Misc1::s_multi_tu_state_ref().ast_units);
 
 		int ASTStatus = 0;
@@ -16005,7 +16105,7 @@ namespace convm1 {
 
 		auto retval = Tool.run(newFrontendActionFactory<MyFrontendActionPass1>().get());
 
-		std::cout << "\nThe specified and dependent source files will be replaced/modified. Make sure you have appropriate backup copies before proceeding. \n";
+		std::cout << "\nThe specified and dependent source files will now be replaced/modified. Make sure you have appropriate backup copies before proceeding!!! \n";
 		std::cout << "Continue [y/n]? \n";
 		int ich = 0;
 		if (SuppressPrompts) {
