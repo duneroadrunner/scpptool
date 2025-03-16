@@ -7747,10 +7747,8 @@ namespace convm1 {
 				//state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, (*this).ddecl_indirection_cref());
 				//state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, (*this).ddecl_indirection_cref());
 
-				auto& ecs_ref = state1.get_expr_conversion_state_ref(*BO, Rewrite);
-				ecs_ref.add_straight_replacement_modifier((*this).m_bo_replacement_code);
-
-				state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, BOSR, state1, BO);
+				state1.add_pending_straight_replacement_expression_update(Rewrite, BOSR, BO, (*this).m_bo_replacement_code);
+				//state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, BOSR, state1, BO);
 				//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, BOSR, (*this).m_bo_replacement_code);
 				//auto res2 = Rewrite.ReplaceText(BOSR, (*this).m_bo_replacement_code);
 
@@ -7843,10 +7841,8 @@ namespace convm1 {
 				//state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, ddecl_indirection_cref());
 				//state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, ddecl_indirection_cref());
 
-				auto& ecs_ref = state1.get_expr_conversion_state_ref(*CE, Rewrite);
-				ecs_ref.add_straight_replacement_modifier((*this).m_ce_replacement_code);
-
-				state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CESR, state1, CE);
+				state1.add_pending_straight_replacement_expression_update(Rewrite, CESR, CE, (*this).m_ce_replacement_code);
+				//state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CESR, state1, CE);
 				//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, CESR, m_ce_replacement_code);
 				//auto res2 = Rewrite.ReplaceText(CESR, m_ce_replacement_code);
 			} else {
@@ -8015,9 +8011,9 @@ namespace convm1 {
 					}
 
 					if (ConvertToSCPP) {
-						uo_ecs_ref.add_straight_replacement_modifier(UO_replacement_text);
 
-						state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, UOSR, state1, UO);
+						state1.add_pending_straight_replacement_expression_update(Rewrite, UOSR, UO, UO_replacement_text);
+						//state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, UOSR, state1, UO);
 						//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, UOSR, (*uocs_shptr_ref).current_text());
 						//(*this).m_Rewrite.ReplaceText(UOSR, uo_ecs_ref.current_text());
 					}
@@ -8068,11 +8064,9 @@ namespace convm1 {
 
 					std::string UO_replacement_text = "((" + (*array_cs_shptr_ref).current_text() + ") + (" + (*index_cs_shptr_ref).current_text() + "))";
 					if (ConvertToSCPP) {
-						std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(UO_replacement_text);
-						(*uocs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
-						(*uocs_shptr_ref).update_current_text();
 
-						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, UOSR, (*uocs_shptr_ref).current_text());
+						state1.add_pending_straight_replacement_expression_update(Rewrite, UOSR, UO, UO_replacement_text);
+						//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, UOSR, (*uocs_shptr_ref).current_text());
 						//(*this).m_Rewrite.ReplaceText(UOSR, (*uocs_shptr_ref).current_text());
 					}
 				}
@@ -8147,11 +8141,9 @@ namespace convm1 {
 					}
 
 					if (ConvertToSCPP) {
-						std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(UO_replacement_text);
-						(*uocs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
-						(*uocs_shptr_ref).update_current_text();
 
-						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, UOSR, (*uocs_shptr_ref).current_text());
+						state1.add_pending_straight_replacement_expression_update(Rewrite, UOSR, UO, UO_replacement_text);
+						//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, UOSR, (*uocs_shptr_ref).current_text());
 						//(*this).m_Rewrite.ReplaceText(UOSR, (*uocs_shptr_ref).current_text());
 					}
 				}
@@ -9953,17 +9945,8 @@ namespace convm1 {
 
 							if (ConvertToSCPP && replacement_SR.isValid()) {
 								if (true) {
-									auto ce_iter = state1.m_expr_conversion_state_map.find(CE);
-									if (state1.m_expr_conversion_state_map.end() == ce_iter) {
-										auto shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*CE, Rewrite, state1);
-										ce_iter = state1.m_expr_conversion_state_map.insert(shptr1);
-									}
-									auto& ce_shptr_ref = (*ce_iter).second;
 
-									auto shptr2 = std::make_shared<CStraightReplacementExprTextModifier>(replacement_code_str);
-									(*ce_shptr_ref).m_expr_text_modifier_stack.push_back(shptr2);
-									(*ce_shptr_ref).update_current_text();
-
+									state1.add_pending_straight_replacement_expression_update(Rewrite, replacement_SR, CE, replacement_code_str);
 									state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, replacement_SR, state1, CE);
 									//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, replacement_SR, (*ce_shptr_ref).current_text());
 								} else {
@@ -11358,12 +11341,7 @@ namespace convm1 {
 								&& LHS_qtype->isPointerType() && (!LHS_qtype->isFunctionPointerType())) {
 
 								assert(nullptr != RHS);
-								auto rhs_iter = state1.m_expr_conversion_state_map.find(RHS);
-								if (state1.m_expr_conversion_state_map.end() == rhs_iter) {
-									std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*RHS, Rewrite, state1);
-									rhs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
-								}
-								auto& rhs_shptr_ref = (*rhs_iter).second;
+								auto& rhs_ecs_ref = state1.get_expr_conversion_state_ref(*RHS, Rewrite);
 
 								if (ConvertToSCPP) {
 
@@ -11381,8 +11359,8 @@ namespace convm1 {
 									if (("void *" != RHS_qtype_str) && ("const void *" != RHS_qtype_str)) {
 										if (!string_begins_with(rhs_function_qname_if_any, "mse::")) {
 											shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
-											if (1 <= (*rhs_shptr_ref).m_expr_text_modifier_stack.size()) {
-												if ("unsafe make raw pointer from" == (*rhs_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+											if (1 <= rhs_ecs_ref.m_expr_text_modifier_stack.size()) {
+												if ("unsafe make raw pointer from" == rhs_ecs_ref.m_expr_text_modifier_stack.back()->species_str()) {
 													/* already applied */
 													return;
 												}
@@ -11392,8 +11370,8 @@ namespace convm1 {
 										auto LHS_qtype_str = LHS_qtype.getAsString();
 										if (("void *" != LHS_qtype_str) && ("const void *" != LHS_qtype_str)) {
 											shptr1 = std::make_shared<CUnsafeCastExprTextModifier>(LHS_qtype);
-											if (1 <= (*rhs_shptr_ref).m_expr_text_modifier_stack.size()) {
-												if ("unsafe cast" == (*rhs_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+											if (1 <= rhs_ecs_ref.m_expr_text_modifier_stack.size()) {
+												if ("unsafe cast" == rhs_ecs_ref.m_expr_text_modifier_stack.back()->species_str()) {
 													/* already applied */
 													return;
 												}
@@ -11401,11 +11379,12 @@ namespace convm1 {
 										}
 									}
 									if (shptr1) {
-										(*rhs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
-										(*rhs_shptr_ref).update_current_text();
+										rhs_ecs_ref.m_expr_text_modifier_stack.push_back(shptr1);
+										rhs_ecs_ref.update_current_text();
 
-										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, rhs_source_range, (*rhs_shptr_ref).current_text());
-										//(*this).Rewrite.ReplaceText(rhs_source_range, (*rhs_shptr_ref).current_text());
+										state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, rhs_source_range, state1, RHS);
+										//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, rhs_source_range, rhs_ecs_ref.current_text());
+										//(*this).Rewrite.ReplaceText(rhs_source_range, rhs_ecs_ref.current_text());
 
 										std::string cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);
 										/* We're going to "blank out"/erase the original source text of the C-style cast operation
@@ -11743,12 +11722,7 @@ namespace convm1 {
 						&& LHS_qtype->isPointerType() && (!LHS_qtype->isFunctionPointerType())) {
 
 						assert(nullptr != RHS);
-						auto rhs_iter = state1.m_expr_conversion_state_map.find(RHS);
-						if (state1.m_expr_conversion_state_map.end() == rhs_iter) {
-							std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*RHS, Rewrite, state1);
-							rhs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
-						}
-						auto& rhs_shptr_ref = (*rhs_iter).second;
+						auto& rhs_ecs_ref = state1.get_expr_conversion_state_ref(*RHS, Rewrite);
 
 						if (ConvertToSCPP) {
 
@@ -11766,8 +11740,8 @@ namespace convm1 {
 							if (true || (("void *" != RHS_qtype_str) && ("const void *" != RHS_qtype_str))) {
 								if (!string_begins_with(rhs_function_qname_if_any, "mse::")) {
 									shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
-									if (1 <= (*rhs_shptr_ref).m_expr_text_modifier_stack.size()) {
-										if ("unsafe make raw pointer from" == (*rhs_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+									if (1 <= rhs_ecs_ref.m_expr_text_modifier_stack.size()) {
+										if ("unsafe make raw pointer from" == rhs_ecs_ref.m_expr_text_modifier_stack.back()->species_str()) {
 											/* already applied */
 											return;
 										}
@@ -11777,8 +11751,8 @@ namespace convm1 {
 								auto LHS_qtype_str = LHS_qtype.getAsString();
 								if (("void *" != LHS_qtype_str) && ("const void *" != LHS_qtype_str)) {
 									shptr1 = std::make_shared<CUnsafeCastExprTextModifier>(LHS_qtype);
-									if (1 <= (*rhs_shptr_ref).m_expr_text_modifier_stack.size()) {
-										if ("unsafe cast" == (*rhs_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+									if (1 <= rhs_ecs_ref.m_expr_text_modifier_stack.size()) {
+										if ("unsafe cast" == rhs_ecs_ref.m_expr_text_modifier_stack.back()->species_str()) {
 											/* already applied */
 											return;
 										}
@@ -11786,10 +11760,11 @@ namespace convm1 {
 								}
 							}
 							if (shptr1) {
-								(*rhs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
-								(*rhs_shptr_ref).update_current_text();
+								rhs_ecs_ref.m_expr_text_modifier_stack.push_back(shptr1);
+								rhs_ecs_ref.update_current_text();
 
-								state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, rhs_source_range, (*rhs_shptr_ref).current_text());
+								state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, rhs_source_range, state1, RHS);
+								//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, rhs_source_range, (*rhs_shptr_ref).current_text());
 								//(*this).Rewrite.ReplaceText(rhs_source_range, (*rhs_shptr_ref).current_text());
 								return;
 							}
@@ -12556,12 +12531,7 @@ namespace convm1 {
 								if ((nullptr != DRE) && arg_source_range.isValid() && !(arg_EX->getType()->isFunctionPointerType())) {
 									if (arg_EX->getType()->isPointerType()) {
 										assert(nullptr != arg_EX);
-										auto arg_iter = state1.m_expr_conversion_state_map.find(arg_EX);
-										if (state1.m_expr_conversion_state_map.end() == arg_iter) {
-											std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX, Rewrite, state1);
-											arg_iter = state1.m_expr_conversion_state_map.insert(shptr1);
-										}
-										auto& arg_shptr_ref = (*arg_iter).second;
+										auto& arg_ecs_ref = state1.get_expr_conversion_state_ref(*arg_EX, Rewrite);
 
 										if (ConvertToSCPP) {
 											std::shared_ptr<CExprTextModifier> shptr1;
@@ -12569,8 +12539,8 @@ namespace convm1 {
 											if (("void *" != arg_EX_qtype_str) && ("const void *" != arg_EX_qtype_str)) {
 												if ((!string_begins_with(function_qname, "mse::")) && (!string_begins_with(arg_function_qname_if_any, "mse::"))) {
 													shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
-													if (1 <= (*arg_shptr_ref).m_expr_text_modifier_stack.size()) {
-														if ("unsafe make raw pointer from" == (*arg_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+													if (1 <= arg_ecs_ref.m_expr_text_modifier_stack.size()) {
+														if ("unsafe make raw pointer from" == arg_ecs_ref.m_expr_text_modifier_stack.back()->species_str()) {
 															/* already applied */
 															shptr1 = nullptr;
 															//return;
@@ -12581,10 +12551,11 @@ namespace convm1 {
 												}
 											}
 											if (shptr1) {
-												(*arg_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
-												(*arg_shptr_ref).update_current_text();
+												arg_ecs_ref.m_expr_text_modifier_stack.push_back(shptr1);
+												arg_ecs_ref.update_current_text();
 
-												state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, arg_source_range, (*arg_shptr_ref).current_text());
+												state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, arg_source_range, state1, arg_EX);
+												//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, arg_source_range, (*arg_shptr_ref).current_text());
 												//(*this).Rewrite.ReplaceText(arg_source_range, (*arg_shptr_ref).current_text());
 												//return;
 											}
