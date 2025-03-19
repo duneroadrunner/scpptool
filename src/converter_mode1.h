@@ -10710,12 +10710,17 @@ namespace convm1 {
 
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
-				if (function_decl && (3 == num_args)) {
+				if (function_decl) {
 					std::string function_name = function_decl->getNameAsString();
 					std::string function_qname = function_decl->getQualifiedNameAsString();
 					auto maybe_function_index = s_function_conversion_index_if_any(function_qname);
 					if (maybe_function_index.has_value()) {
 						auto& fc_info = s_function_conversion_infos().at(maybe_function_index.value());
+						if (fc_info.m_maybe_num_parameters.has_value()) {
+							if (num_args != fc_info.m_maybe_num_parameters.value()) {
+								return;
+							}
+						}
 
 						auto callee_SR = write_once_source_range(cm1_adj_nice_source_range(CE->getCallee()->getSourceRange(), state1, Rewrite));
 						auto callee_raw_SR = CE->getCallee()->getSourceRange();
@@ -15176,7 +15181,6 @@ namespace convm1 {
 									hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("functioncall2")))).bind("functioncall3")),
 									hasDescendant(declRefExpr().bind("functioncall2"))
 							)))),
-							argumentCountIs(3),
 							hasAnyArgument(hasType(pointerType()))
 					)).bind("functioncall1"), &HandlerForSSSFunctionCall1);
 
