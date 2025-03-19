@@ -13910,7 +13910,10 @@ namespace convm1 {
 											if (2 == ddcs_ref.m_indirection_state_stack.size()) {
 												// Or should we be setting the species to "inferred array"?
 												ddcs_ref.m_indirection_state_stack.at(0).set_current_species("native array");
+												ddcs_ref.m_indirection_state_stack.at(0).set_xscope_eligibility(true);
+
 												ddcs_ref.m_indirection_state_stack.at(1).set_current_species("native array");
+												ddcs_ref.m_indirection_state_stack.at(1).set_xscope_eligibility(true);
 											} else {
 												int q = 3;
 												assert(false);
