@@ -2749,6 +2749,7 @@ namespace convm1 {
 			auto& state1 = (*this);
 			auto excs_iter = state1.m_expr_conversion_state_map.find(EX);
 			bool insert_or_assign = false;
+			std::optional<CExprTextModifierStack> maybe_modifier_stack;
 			if (state1.m_expr_conversion_state_map.end() == excs_iter) {
 				insert_or_assign = true;
 			} else {
@@ -2756,6 +2757,9 @@ namespace convm1 {
 				if constexpr (!std::is_same<TExprConversionState, CExprConversionState>::value) {
 					/* Since rtti is not available, we emulate it manually here using the species() virtual member function. */
 					if ("" == excs_ref.species()) {
+						/* The existing "expression conversion state" was a generic (base class) one. We'll replace it with 
+						the (potentially) more specific one indicated by the template parameter. */
+						maybe_modifier_stack = (*(*excs_iter).second).m_expr_text_modifier_stack;
 						insert_or_assign = true;
 					}
 				}
@@ -2763,6 +2767,11 @@ namespace convm1 {
 			if (insert_or_assign) {
 				std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<TExprConversionState>(*EX, Rewrite, state1, std::forward<TArgs>(args)...);
 				excs_iter = state1.m_expr_conversion_state_map.insert_or_assign(shptr1);
+				if (maybe_modifier_stack.has_value()) {
+					/* We're replacing a previously existing "expression conversion state", and so we'll copy any "text 
+					modifiers" it may have had. */
+					(*(*excs_iter).second).m_expr_text_modifier_stack = maybe_modifier_stack.value();
+				}
 			}
 			return *((*excs_iter).second);
 		}
@@ -4285,6 +4294,9 @@ namespace convm1 {
 							suffix_str = "* ";
 						}
 						retval.m_action_species = "char[]";
+					} else if(is_argv) {
+						suffix_str = "* ";
+						retval.m_action_species = "char** argv";
 					} else if (is_other_untranslatable_indirect_type) {
 						/* We'll just leave it as a native array. */
 						if ((true) || (1 == indirection_state_stack.size())) {
@@ -4298,7 +4310,7 @@ namespace convm1 {
 						retval.m_action_species = "other_untranslatable_indirect_type";
 					} else {
 						l_changed_from_original = true;
-						if (is_a_function_parameter) {
+						if (is_a_function_parameter || ("native array" != indirection_state_ref.original_species())) {
 							if ("FasterAndStricter" == ConvertMode) {
 								prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
 								suffix_str = "> ";
@@ -4956,7 +4968,7 @@ namespace convm1 {
 												retval.m_action_species = "other_untranslatable_indirect_type";
 											} else {
 												l_changed_from_original = true;
-												if (is_a_function_parameter) {
+												if (is_a_function_parameter || ("native array" != indirection_state_ref.original_species())) {
 													if ("FasterAndStricter" == ConvertMode) {
 														prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
 														suffix_str = "> ";
@@ -7360,7 +7372,14 @@ namespace convm1 {
 
 			if (src_ddcs_ref.m_indirection_state_stack.at(src_indirection_level).has_been_determined_to_be_an_array()) {
 				if (("native pointer" == trgt_species) || ("non-malloc target" == trgt_species)) {
-					trgt_ddcs_ref.set_indirection_current(trgt_indirection_level, "inferred array");
+					if ("native array" == src_species) {
+						/* Note that the species being "native array" indicates that the pointer is a native array decayed 
+						to a pointer *or* just a (separately declared) pointer that just happens to point to a native array. 
+						The (recorded) original species will be used to distinguish the two cases when needed. */
+						trgt_ddcs_ref.set_indirection_current(trgt_indirection_level, "native array");
+					} else {
+						trgt_ddcs_ref.set_indirection_current(trgt_indirection_level, "inferred array");
+					}
 					trgt_update_declaration_flag |= true;
 					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, src_indirection);
 				} else if ("malloc target" == trgt_species) {
@@ -7379,14 +7398,24 @@ namespace convm1 {
 				} else {
 					int q = 3;
 				}
-			} else if ("variously native and dynamic array" == src_species) {
-				if ("variously native and dynamic array" != trgt_species) {
+			} else if ("native array" == src_species) {
+				if ("dynamic array" == trgt_species) {
 					bool had_been_determined_to_be_an_array = trgt_ddcs_ref.has_been_determined_to_be_an_array(trgt_indirection_level);
 					trgt_ddcs_ref.set_indirection_current(trgt_indirection_level, "variously native and dynamic array");
 					trgt_update_declaration_flag |= true;
 					if (!had_been_determined_to_be_an_array) {
 						state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, trgt_indirection);
 					}
+				}
+			} else if ((("variously native and dynamic array" == src_species) && ("variously native and dynamic array" != trgt_species))
+				|| (("native array" == src_species) && ("dynamic array" != trgt_species))
+				|| (("dynamic array" == src_species) && ("native array" != trgt_species))) {
+
+				bool had_been_determined_to_be_an_array = trgt_ddcs_ref.has_been_determined_to_be_an_array(trgt_indirection_level);
+				trgt_ddcs_ref.set_indirection_current(trgt_indirection_level, "variously native and dynamic array");
+				trgt_update_declaration_flag |= true;
+				if (!had_been_determined_to_be_an_array) {
+					state1.m_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, trgt_indirection);
 				}
 			}
 		} else {
@@ -10608,17 +10637,53 @@ namespace convm1 {
 		CTUState& m_state1;
 	};
 
-	class MCSSSMemset : public MatchFinder::MatchCallback
+	struct CFConversionInfo {
+		std::string OriginalFunctionQName = "memset";
+		std::string NewFunctionQName = "mse::lh::memset";
+		std::string NewDualModeFunctionQName = "MSE_LH_MEMSET";
+		std::optional<size_t> m_maybe_num_parameters;
+	};
+	static std::vector<CFConversionInfo> const& s_function_conversion_infos() {
+		static std::vector<CFConversionInfo> sl_function_conversion_infos = {
+			{ "memset", "mse::lh::memset", "MSE_LH_MEMSET", {3} }
+			, { "memcpy", "mse::lh::memcpy", "MSE_LH_MEMCPY", {3} }
+			, { "memcmp", "mse::lh::memcmp", "MSE_LH_MEMCMP", {3} }
+			, { "strcpy", "mse::lh::strcpy", "MSE_LH_STRCPY", {2} }
+			, { "strcmp", "mse::lh::strcmp", "MSE_LH_STRCMP", {2} }
+			, { "strncmp", "mse::lh::strncmp", "MSE_LH_STRNCMP", {3} }
+			, { "strlen", "mse::lh::strlen", "MSE_LH_STRLEN", {1} }
+			, { "strnlen_s", "mse::lh::strnlen_s", "MSE_LH_STRNLEN_S", {2} }
+
+			, { "std::memcpy", "mse::lh::memcpy", "MSE_LH_MEMCPY", {3} }
+			, { "std::memcmp", "mse::lh::memcmp", "MSE_LH_MEMCMP", {3} }
+			, { "std::strcpy", "mse::lh::strcpy", "MSE_LH_STRCPY", {2} }
+			, { "std::strcmp", "mse::lh::strcmp", "MSE_LH_STRCMP", {2} }
+			, { "std::strncmp", "mse::lh::strncmp", "MSE_LH_STRNCMP", {3} }
+			, { "std::strlen", "mse::lh::strlen", "MSE_LH_STRLEN", {1} }
+			, { "std::strnlen_s", "mse::lh::strnlen_s", "MSE_LH_STRNLEN_S", {2} }
+		};
+		return sl_function_conversion_infos;
+	}
+	static std::optional<size_t> s_function_conversion_index_if_any(std::string_view target_fqname) {
+		size_t count = 0;
+		for (auto& function_conversion_info : s_function_conversion_infos()) {
+			if (target_fqname == function_conversion_info.OriginalFunctionQName) {
+				return count;
+			}
+			count += 1;
+		}
+		return {};
+	}
+
+	class MCSSSFunctionCall1 : public MatchFinder::MatchCallback
 	{
 	public:
-		MCSSSMemset (Rewriter &Rewrite, CTUState& state1) :
-			Rewrite(Rewrite), m_state1(state1) {}
+		MCSSSFunctionCall1 (Rewriter &Rewrite, CTUState& state1) : Rewrite(Rewrite), m_state1(state1) {}
 
 		static void modifier(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1)
 		{
-			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssmemset1");
-			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssmemset2");
-			const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssmemset3");
+			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("functioncall1");
+			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("functioncall2");
 
 			if ((CE != nullptr) && (DRE != nullptr))
 			{
@@ -10647,15 +10712,18 @@ namespace convm1 {
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (3 == num_args)) {
 					std::string function_name = function_decl->getNameAsString();
-					static const std::string memset_str = "memset";
-					if (memset_str == function_name) {
+					std::string function_qname = function_decl->getQualifiedNameAsString();
+					auto maybe_function_index = s_function_conversion_index_if_any(function_qname);
+					if (maybe_function_index.has_value()) {
+						auto& fc_info = s_function_conversion_infos().at(maybe_function_index.value());
+
 						auto callee_SR = write_once_source_range(cm1_adj_nice_source_range(CE->getCallee()->getSourceRange(), state1, Rewrite));
 						auto callee_raw_SR = CE->getCallee()->getSourceRange();
 						if (callee_raw_SR.getBegin().isMacroID()) {
 							auto& SM = Rewrite.getSourceMgr();
 							auto callee_spelling_SR = write_once_source_range(clang::SourceRange{ SM.getSpellingLoc(callee_raw_SR.getBegin()), Rewrite.getSourceMgr().getSpellingLoc(callee_raw_SR.getEnd()) });
 							std::string callee_spelling_text = Rewrite.getRewrittenText(callee_spelling_SR);
-							if ("memset" == callee_spelling_text) {
+							if (fc_info.OriginalFunctionQName == callee_spelling_text) {
 								callee_SR = callee_spelling_SR;
 							} else {
 								/* The "memset" function call seems to be part of a macro we aren't (currently) able to handle. */
@@ -10668,11 +10736,11 @@ namespace convm1 {
 
 							std::string callee_replacement_code;
 							if ("Dual" == ConvertMode) {
-								callee_replacement_code = "MSE_LH_MEMSET";
+								callee_replacement_code = fc_info.NewDualModeFunctionQName;
 							} else if ("FasterAndStricter" == ConvertMode) {
-								callee_replacement_code = "mse::lh::memset";
+								callee_replacement_code = fc_info.NewFunctionQName;
 							} else {
-								callee_replacement_code = "mse::lh::memset";
+								callee_replacement_code = fc_info.NewFunctionQName;
 							}
 
 							if (ConvertToSCPP) {
@@ -10689,9 +10757,8 @@ namespace convm1 {
 
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
-			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssmemset1");
-			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssmemset2");
-			const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssmemset3");
+			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("functioncall1");
+			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("functioncall2");
 
 			if ((CE != nullptr) && (DRE != nullptr))
 			{
@@ -10710,140 +10777,20 @@ namespace convm1 {
 					return;
 				}
 
-				auto function_decl = CE->getDirectCallee();
-				auto num_args = CE->getNumArgs();
-				if (function_decl && (3 == num_args)) {
+				const auto function_decl = CE->getDirectCallee();
+				const auto num_args = CE->getNumArgs();
+				if (function_decl) {
 					std::string function_name = function_decl->getNameAsString();
-					static const std::string memset_str = "memset";
-					if (memset_str == function_name) {
-						if (ConvertToSCPP && SR.isValid()) {
-
-							auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
-							/* This modification needs to be queued so that it will be executed after any other
-							modifications that might affect the relevant part of the source text.
-							(Update: This is probably no longer necessary since we no longer modify the arguments.) */
-							(*this).m_state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
-						} else {
-							int q = 7;
-						}
-					}
-				}
-			}
-		}
-
-	private:
-		Rewriter &Rewrite;
-		CTUState& m_state1;
-	};
-
-	class MCSSSMemcpy : public MatchFinder::MatchCallback
-	{
-	public:
-		MCSSSMemcpy (Rewriter &Rewrite, CTUState& state1) :
-			Rewrite(Rewrite), m_state1(state1) {}
-
-		static void modifier(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1)
-		{
-			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssmemcpy1");
-			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssmemcpy2");
-			const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssmemcpy3");
-
-			if ((CE != nullptr) && (DRE != nullptr))
-			{
-				auto SR = cm1_adj_nice_source_range(CE->getSourceRange(), state1, Rewrite);
-				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
-
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
-
-				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
-
-				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
-
-				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
-				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
-				if (suppress_check_flag) {
-					return;
-				}
-
-				auto function_decl = CE->getDirectCallee();
-				auto num_args = CE->getNumArgs();
-				if (function_decl && (3 == num_args)) {
-					std::string function_name = function_decl->getNameAsString();
-					static const std::string memcpy_str = "memcpy";
-					bool memcpy_flag = (memcpy_str == function_name);
-					static const std::string memcmp_str = "memcmp";
-					bool memcmp_flag = (!memcpy_flag) && (memcmp_str == function_name);
-					if (memcpy_flag || memcmp_flag) {
-
-						auto callee_SR = write_once_source_range(cm1_adj_nice_source_range(CE->getCallee()->getSourceRange(), state1, Rewrite));
-						auto callee_raw_SR = CE->getCallee()->getSourceRange();
-						if (callee_raw_SR.getBegin().isMacroID()) {
-							auto& SM = Rewrite.getSourceMgr();
-							auto callee_spelling_SR = write_once_source_range(clang::SourceRange{ SM.getSpellingLoc(callee_raw_SR.getBegin()), Rewrite.getSourceMgr().getSpellingLoc(callee_raw_SR.getEnd()) });
-							std::string callee_spelling_text = Rewrite.getRewrittenText(callee_spelling_SR);
-							if ("memcpy" == callee_spelling_text) {
-								callee_SR = callee_spelling_SR;
-							} else {
-								/* The "memcpy" function call seems to be part of a macro we aren't (currently) able to handle. */
+					std::string function_qname = function_decl->getQualifiedNameAsString();
+					auto maybe_function_index = s_function_conversion_index_if_any(function_qname);
+					if (maybe_function_index.has_value()) {
+						auto& fc_info = s_function_conversion_infos().at(maybe_function_index.value());
+						if (fc_info.m_maybe_num_parameters.has_value()) {
+							if (num_args != fc_info.m_maybe_num_parameters.value()) {
 								return;
 							}
 						}
-						if (callee_SR.isValid()) {
-							IF_DEBUG(auto callee_text = Rewrite.getRewrittenText(callee_SR);)
 
-							std::string callee_replacement_code;
-							if ("Dual" == ConvertMode) {
-								callee_replacement_code = memcpy_flag ? "MSE_LH_MEMCPY" : "MSE_LH_MEMCMP";
-							} else if ("FasterAndStricter" == ConvertMode) {
-								callee_replacement_code = memcpy_flag ? "mse::lh::memcpy" : "mse::lh::memcmp";
-							} else {
-								callee_replacement_code = memcpy_flag ? "mse::lh::memcpy" : "mse::lh::memcmp";
-							}
-
-							if (ConvertToSCPP) {
-								state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, callee_SR, callee_replacement_code);
-							}
-						} else {
-							int q = 5;
-						}
-					}
-
-				}
-			}
-		}
-
-		virtual void run(const MatchFinder::MatchResult &MR)
-		{
-			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("mcsssmemcpy1");
-			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcsssmemcpy2");
-			const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcsssmemcpy3");
-
-			if ((CE != nullptr) && (DRE != nullptr))
-			{
-				auto SR = cm1_adj_nice_source_range(CE->getSourceRange(), m_state1, Rewrite);
-				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
-
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
-
-				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
-
-				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
-
-				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(CE, Rewrite, *(MR.Context));
-				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
-				if (suppress_check_flag) {
-					return;
-				}
-
-				auto function_decl = CE->getDirectCallee();
-				auto num_args = CE->getNumArgs();
-				if (function_decl && (3 == num_args)) {
-					std::string function_name = function_decl->getNameAsString();
-					static const std::string memcpy_str = "memcpy";
-					bool memcpy_flag = (memcpy_str == function_name);
-					static const std::string memcmp_str = "memcmp";
-					bool memcmp_flag = (!memcpy_flag) && (memcmp_str == function_name);
-					if (memcpy_flag || memcmp_flag) {
 						if (ConvertToSCPP && SR.isValid()) {
 
 							auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
@@ -11209,75 +11156,118 @@ namespace convm1 {
 	}
 
 	bool is_non_modifiable(clang::Decl const& decl, const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::Rewriter &Rewrite, CTUState& state1) {
-		if (filtered_out_by_location<options_t<converter_mode_t> >(MR, decl.getSourceRange().getBegin())) {
-			return true;
-		}
 		auto suppress_check_flag = state1.m_suppress_check_region_set.contains(&decl, Rewrite, *(MR.Context));
 		if (suppress_check_flag) {
 			return true;
 		}
-		{
-			auto& SM = Rewrite.getSourceMgr();
-			auto get_full_path_name = [&SM](clang::SourceLocation const& SL, bool* filename_is_invalid_ptr) {
-				auto full_path_name = std::string(SM.getBufferName(SL, filename_is_invalid_ptr));
-				if ("" == full_path_name) {
-					full_path_name = std::string(SL.printToString(SM));
-
-					/*
-					static const std::string spelling_prefix("<Spelling=");
-					auto last_spelling_pos = full_path_name.rfind(spelling_prefix);
-					if (last_spelling_pos + spelling_prefix.length() + 1 < full_path_name.size()) {
-						full_path_name = full_path_name.substr(last_spelling_pos + spelling_prefix.length());
-					}
-					*/
-
-					auto last_colon_pos = full_path_name.find_first_of(':');
-					if (last_colon_pos + 1 < full_path_name.size()) {
-						full_path_name = full_path_name.substr(0, last_colon_pos);
-					} else {
-						int q = 7;
-					}
-				}
-				return full_path_name;
-			};
-			auto get_filename = [](std::string const& full_path_name) {
-				std::string filename = full_path_name;
-				const auto last_slash_pos = full_path_name.find_last_of('/');
-				if (std::string::npos != last_slash_pos) {
-					if (last_slash_pos + 1 < full_path_name.size()) {
-						filename = full_path_name.substr(last_slash_pos+1);
-					} else {
-						filename = "";
-					}
-				}
-				return filename;
-			};
-			auto SR = decl.getSourceRange();
-			if (!(SR.isValid())) {
-				return true;
+		bool non_modifiable_flag = false;
+		do {
+			if (filtered_out_by_location<options_t<converter_mode_t> >(MR, decl.getSourceRange().getBegin())) {
+				non_modifiable_flag = true;
+				break;
 			}
-			auto SL = SR.getBegin();
-			bool filename_is_invalid = false;
-			auto full_path_name = get_full_path_name(SL, &filename_is_invalid);
+			{
+				auto& SM = Rewrite.getSourceMgr();
+				auto get_full_path_name = [&SM](clang::SourceLocation const& SL, bool* filename_is_invalid_ptr) {
+					auto full_path_name = std::string(SM.getBufferName(SL, filename_is_invalid_ptr));
+					if ("" == full_path_name) {
+						full_path_name = std::string(SL.printToString(SM));
 
-			static const std::string invalid_buffer_str = "<invalid buffer>";
-			if (invalid_buffer_str == full_path_name) {
-				auto SPSL = SM.getSpellingLoc(SL);
-				if (!(SPSL.isValid())) {
+						/*
+						static const std::string spelling_prefix("<Spelling=");
+						auto last_spelling_pos = full_path_name.rfind(spelling_prefix);
+						if (last_spelling_pos + spelling_prefix.length() + 1 < full_path_name.size()) {
+							full_path_name = full_path_name.substr(last_spelling_pos + spelling_prefix.length());
+						}
+						*/
+
+						auto last_colon_pos = full_path_name.find_first_of(':');
+						if (last_colon_pos + 1 < full_path_name.size()) {
+							full_path_name = full_path_name.substr(0, last_colon_pos);
+						} else {
+							int q = 7;
+						}
+					}
+					return full_path_name;
+				};
+				auto get_filename = [](std::string const& full_path_name) {
+					std::string filename = full_path_name;
+					const auto last_slash_pos = full_path_name.find_last_of('/');
+					if (std::string::npos != last_slash_pos) {
+						if (last_slash_pos + 1 < full_path_name.size()) {
+							filename = full_path_name.substr(last_slash_pos+1);
+						} else {
+							filename = "";
+						}
+					}
+					return filename;
+				};
+				auto SR = decl.getSourceRange();
+				if (!(SR.isValid())) {
 					return true;
 				}
-				bool SP_filename_is_invalid = false;
-				auto SP_full_path_name = get_full_path_name(SPSL, &SP_filename_is_invalid);
+				auto SL = SR.getBegin();
+				bool filename_is_invalid = false;
+				auto full_path_name = get_full_path_name(SL, &filename_is_invalid);
 
-				auto res1 = evaluate_filtering_by_full_path_name<options_t<converter_mode_t> >(SP_full_path_name);
-				if (res1.m_do_not_process) {
-					/* We've observed that arriving here can indicate a situation where the given decl refers to an 
-					element in the body of an instantiated "system" macro. */
-					return true;
+				static const std::string invalid_buffer_str = "<invalid buffer>";
+				if (invalid_buffer_str == full_path_name) {
+					auto SPSL = SM.getSpellingLoc(SL);
+					if (!(SPSL.isValid())) {
+						non_modifiable_flag = true;
+						break;
+					}
+					bool SP_filename_is_invalid = false;
+					auto SP_full_path_name = get_full_path_name(SPSL, &SP_filename_is_invalid);
+
+					auto res1 = evaluate_filtering_by_full_path_name<options_t<converter_mode_t> >(SP_full_path_name);
+					if (res1.m_do_not_process) {
+						/* We've observed that arriving here can indicate a situation where the given decl refers to an 
+						element in the body of an instantiated "system" macro. */
+						non_modifiable_flag = true;
+						break;
+					}
+				}
+			}
+		} while (false);
+
+		if (non_modifiable_flag) {
+			auto FND = dyn_cast<const clang::FunctionDecl>(&decl);
+			if (!FND) {
+				auto PVD = dyn_cast<const clang::ParmVarDecl>(&decl);
+				if (PVD && state1.m_ast_context_ptr) {
+					auto DC = PVD->getParentFunctionOrMethod();
+					FND = dyn_cast<const clang::FunctionDecl>(DC);
+					//FND = Tget_immediately_containing_element_of_type<clang::FunctionDecl>(&decl, *(state1.m_ast_context_ptr));
+				}
+			}
+			if (FND) {
+				auto num_params = FND->getNumParams();
+				std::string function_qname = FND->getQualifiedNameAsString();
+				if (std::string::npos != function_qname.find("main")) {
+					if ("main" == function_qname) {
+						int q = 5;
+					}
+				}
+
+				auto maybe_function_conversion_index = s_function_conversion_index_if_any(function_qname);
+				if (maybe_function_conversion_index.has_value()) {
+					/* While the function would've otherwise been "non-modifiable", it may be one of the recognized 
+					functions slated for conversion. */
+					auto index = maybe_function_conversion_index.value();
+					auto& function_conversion_infos = s_function_conversion_infos();
+					if (function_conversion_infos.at(index).m_maybe_num_parameters.has_value()) {
+						const auto fc_num_params = function_conversion_infos.at(index).m_maybe_num_parameters.value();
+						if (fc_num_params == num_params) {
+							return false;
+						}
+					} else {
+						return false;
+					}
 				}
 			}
 		}
-		return false;
+		return non_modifiable_flag;
 	}
 
 	inline static void handle_c_style_cast_without_context(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
@@ -12194,10 +12184,11 @@ namespace convm1 {
 				}
 
 				auto function_decl1 = CE->getDirectCallee();
-				auto num_args = CE->getNumArgs();
+				const auto num_args = CE->getNumArgs();
 				if (function_decl1) {
 					std::string function_name = function_decl1->getNameAsString();
 					auto lc_function_name = tolowerstr(function_name);
+					std::string function_qname = function_decl1->getQualifiedNameAsString();
 
 					auto function_decl1_SR = cm1_adj_nice_source_range(function_decl1->getSourceRange(), state1, Rewrite);
 					bool FD_is_non_modifiable = is_non_modifiable(*function_decl1, MR, Rewrite, state1);
@@ -12221,17 +12212,6 @@ namespace convm1 {
 							bool begins_with__builtin_ = string_begins_with(function_name, "__builtin_");
 							if (begins_with__builtin_) {
 								return;
-							}
-							bool is_memcpy = false;
-							bool is_memcmp = false;
-							bool is_memset = false;
-							if (string_begins_with(function_name, "mem")) {
-								is_memcpy = ("memcpy" == function_name);
-								is_memcmp = ("memcmp" == function_name);
-								is_memset = ("memset" == function_name);
-								if (is_memcpy || is_memcmp || is_memset) {
-									return;
-								}
 							}
 
 							auto get_arg_EX_ii = [&](const size_t arg_index) {
@@ -13908,6 +13888,33 @@ namespace convm1 {
 								}
 							}
 						}
+						auto PVD = dyn_cast<const clang::ParmVarDecl>(VD);
+						if (PVD) {
+							auto const& varname = PVD->getName();
+							if ("argv" == varname) {
+								if ("char **" == qtype_str) {
+									/* Technically, we should verify that argv is a parameter of the main() function.*/
+									auto DC = PVD->getParentFunctionOrMethod();
+									FND = dyn_cast<const clang::FunctionDecl>(DC);
+									if (FND) {
+										auto FND_qname = FND->getQualifiedNameAsString();
+										if ("main" == FND_qname) {
+											auto res1 = state1.m_ddecl_conversion_state_map.insert(*PVD, &Rewrite, &state1);
+											auto ddcs_map_iter = res1.first;
+											auto& ddcs_ref = (*ddcs_map_iter).second;
+											if (2 == ddcs_ref.m_indirection_state_stack.size()) {
+												// Or should we be setting the species to "inferred array"?
+												ddcs_ref.m_indirection_state_stack.at(0).set_current_species("native array");
+												ddcs_ref.m_indirection_state_stack.at(1).set_current_species("native array");
+											} else {
+												int q = 3;
+												assert(false);
+											}
+										}
+									}
+								}
+							}
+						}
 					} else if (FD) {
 						ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
 						state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FD, CDDeclIndirection::no_indirection));
@@ -15094,299 +15101,284 @@ namespace convm1 {
 	};
 
 	class MyASTConsumerPass1 : public ASTConsumer {
-
 	public:
-	MyASTConsumerPass1(Rewriter &R, CompilerInstance &CI, CTUState &tu_state_param) : m_tu_state_ptr(&tu_state_param),
-		HandlerForSSSExprUtil(R, tu_state()), HandlerForSSSRecordDecl(R, tu_state()), HandlerForSSSVarDecl2(R, tu_state()), 
-		HandlerForSSSPointerArithmetic2(R, tu_state()), HandlerForSSSNullToPointer(R, tu_state()), HandlerForSSSMalloc2(R, tu_state()),
-		HandlerForSSSMallocInitializer2(R, tu_state()), HandlerForSSSNullInitializer(R, tu_state()), HandlerForSSSFree2(R, tu_state()),
-		HandlerForSSSSetToNull2(R, tu_state()), HandlerForSSSCompareWithNull2(R, tu_state()), HandlerForSSSMemset(R, tu_state()), HandlerForSSSMemcpy(R, tu_state()),
-		HandlerForSSSConditionalInitializer(R, tu_state()), HandlerForSSSAssignment(R, tu_state()), HandlerForSSSArgToParameterPassingArray2(R, tu_state()),
-		HandlerForSSSArgToReferenceParameterPassing(R, tu_state()), HandlerForSSSReturnValue(R, tu_state()), HandlerForSSSFRead(R, tu_state()), HandlerForSSSFWrite(R, tu_state()), 
-		HandlerForSSSAddressOf(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForMisc1(R, tu_state(), CI)
-	{
-		if (tu_state_param.m_Rewrite_ptr != &R) {
+		MyASTConsumerPass1(Rewriter &R, CompilerInstance &CI, CTUState &tu_state_param) : m_tu_state_ptr(&tu_state_param),
+			HandlerForSSSExprUtil(R, tu_state()), HandlerForSSSRecordDecl(R, tu_state()), HandlerForSSSVarDecl2(R, tu_state()), 
+			HandlerForSSSPointerArithmetic2(R, tu_state()), HandlerForSSSNullToPointer(R, tu_state()), HandlerForSSSMalloc2(R, tu_state()),
+			HandlerForSSSMallocInitializer2(R, tu_state()), HandlerForSSSNullInitializer(R, tu_state()), HandlerForSSSFree2(R, tu_state()),
+			HandlerForSSSSetToNull2(R, tu_state()), HandlerForSSSCompareWithNull2(R, tu_state()), HandlerForSSSFunctionCall1(R, tu_state()),
+			HandlerForSSSConditionalInitializer(R, tu_state()), HandlerForSSSAssignment(R, tu_state()), HandlerForSSSArgToParameterPassingArray2(R, tu_state()),
+			HandlerForSSSArgToReferenceParameterPassing(R, tu_state()), HandlerForSSSReturnValue(R, tu_state()), HandlerForSSSFRead(R, tu_state()), HandlerForSSSFWrite(R, tu_state()), 
+			HandlerForSSSAddressOf(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForMisc1(R, tu_state(), CI)
+		{
+			if (tu_state_param.m_Rewrite_ptr != &R) {
+				tu_state_param.m_Rewrite_ptr = &R;
+			}
 			tu_state_param.m_Rewrite_ptr = &R;
-		}
-		tu_state_param.m_Rewrite_ptr = &R;
 
 
-		Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerForMisc1);
+			Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerForMisc1);
 
-		/* The ordering of the matchers has not yet been thoroughly considered, but generally you'd want
-		elements more likely to contain subelements (that could be potentially modified) to be matched
-		later. In this vein, we generally put the declaration matchers after the expression matchers. */
+			/* The ordering of the matchers has not yet been thoroughly considered, but generally you'd want
+			elements more likely to contain subelements (that could be potentially modified) to be matched
+			later. In this vein, we generally put the declaration matchers after the expression matchers. */
 
-		Matcher.addMatcher(expr(anyOf(gnuNullExpr(), cxxNullPtrLiteralExpr(), 
-				integerLiteral(equals(0), hasParent(expr(allOf(
-					hasType(pointerType()), anyOf(clang::ast_matchers::implicitCastExpr(), clang::ast_matchers::cStyleCastExpr().bind("b"))
-					)))))).bind("a"),
-			&HandlerForSSSNullToPointer);
+			Matcher.addMatcher(expr(anyOf(gnuNullExpr(), cxxNullPtrLiteralExpr(), 
+					integerLiteral(equals(0), hasParent(expr(allOf(
+						hasType(pointerType()), anyOf(clang::ast_matchers::implicitCastExpr(), clang::ast_matchers::cStyleCastExpr().bind("b"))
+						)))))).bind("a"),
+				&HandlerForSSSNullToPointer);
 
-		Matcher.addMatcher(expr().bind("mcsssexprutil1"), &HandlerForSSSExprUtil);
+			Matcher.addMatcher(expr().bind("mcsssexprutil1"), &HandlerForSSSExprUtil);
 
-		Matcher.addMatcher(expr(allOf(
-				hasParent(expr(anyOf(
-					unaryOperator(hasOperatorName("++")), unaryOperator(hasOperatorName("--")),
-					binaryOperator(hasOperatorName("+=")), binaryOperator(hasOperatorName("-=")),
-					castExpr(hasParent(expr(anyOf(
-							binaryOperator(hasOperatorName("+")), binaryOperator(hasOperatorName("+=")),
-							binaryOperator(hasOperatorName("-")), binaryOperator(hasOperatorName("-=")),
-							binaryOperator(hasOperatorName("<=")), binaryOperator(hasOperatorName("<")),
-							binaryOperator(hasOperatorName(">=")), binaryOperator(hasOperatorName(">")),
-							arraySubscriptExpr()
-						))))
-					))),
-				hasType(pointerType()),
-				anyOf(
-						memberExpr(expr(hasDescendant(declRefExpr().bind("mcssspointerarithmetic")))).bind("mcssspointerarithmetic2"),
-						declRefExpr().bind("mcssspointerarithmetic"),
-						hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcssspointerarithmetic")))).bind("mcssspointerarithmetic2")),
-						hasDescendant(declRefExpr().bind("mcssspointerarithmetic"))
-				)
-				)).bind("mcssspointerarithmetic3"), &HandlerForSSSPointerArithmetic2);
+			Matcher.addMatcher(expr(allOf(
+					hasParent(expr(anyOf(
+						unaryOperator(hasOperatorName("++")), unaryOperator(hasOperatorName("--")),
+						binaryOperator(hasOperatorName("+=")), binaryOperator(hasOperatorName("-=")),
+						castExpr(hasParent(expr(anyOf(
+								binaryOperator(hasOperatorName("+")), binaryOperator(hasOperatorName("+=")),
+								binaryOperator(hasOperatorName("-")), binaryOperator(hasOperatorName("-=")),
+								binaryOperator(hasOperatorName("<=")), binaryOperator(hasOperatorName("<")),
+								binaryOperator(hasOperatorName(">=")), binaryOperator(hasOperatorName(">")),
+								arraySubscriptExpr()
+							))))
+						))),
+					hasType(pointerType()),
+					anyOf(
+							memberExpr(expr(hasDescendant(declRefExpr().bind("mcssspointerarithmetic")))).bind("mcssspointerarithmetic2"),
+							declRefExpr().bind("mcssspointerarithmetic"),
+							hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcssspointerarithmetic")))).bind("mcssspointerarithmetic2")),
+							hasDescendant(declRefExpr().bind("mcssspointerarithmetic"))
+					)
+					)).bind("mcssspointerarithmetic3"), &HandlerForSSSPointerArithmetic2);
 
-		//Matcher.addMatcher(castExpr(allOf(hasCastKind(CK_ArrayToPointerDecay), unless(hasParent(arraySubscriptExpr())))).bind("mcsssarraytopointerdecay"), &HandlerForSSSArrayToPointerDecay);
+			//Matcher.addMatcher(castExpr(allOf(hasCastKind(CK_ArrayToPointerDecay), unless(hasParent(arraySubscriptExpr())))).bind("mcsssarraytopointerdecay"), &HandlerForSSSArrayToPointerDecay);
 
-		Matcher.addMatcher(
-				callExpr(allOf(
-						hasAnyArgument(ignoringParenCasts(
-						expr(anyOf(
-									memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssfree2")))).bind("mcsssfree3"),
-									declRefExpr().bind("mcsssfree2"),
-									hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssfree2")))).bind("mcsssfree3")),
-									hasDescendant(declRefExpr().bind("mcsssfree2"))
-							)))),
-							argumentCountIs(1),
-							hasAnyArgument(hasType(pointerType()))
-				)).bind("mcsssfree1"), &HandlerForSSSFree2);
+			Matcher.addMatcher(
+					callExpr(allOf(
+							hasAnyArgument(ignoringParenCasts(
+							expr(anyOf(
+										memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssfree2")))).bind("mcsssfree3"),
+										declRefExpr().bind("mcsssfree2"),
+										hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssfree2")))).bind("mcsssfree3")),
+										hasDescendant(declRefExpr().bind("mcsssfree2"))
+								)))),
+								argumentCountIs(1),
+								hasAnyArgument(hasType(pointerType()))
+					)).bind("mcsssfree1"), &HandlerForSSSFree2);
 
-		Matcher.addMatcher(
-				callExpr(allOf(
-						hasAnyArgument(
-								ignoringParenCasts(expr(anyOf(
-								memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssmemset2")))).bind("mcsssmemset3"),
-									declRefExpr().bind("mcsssmemset2"),
-									hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssmemset2")))).bind("mcsssmemset3")),
-									hasDescendant(declRefExpr().bind("mcsssmemset2"))
+			Matcher.addMatcher(
+					callExpr(allOf(
+							hasAnyArgument(
+									ignoringParenCasts(expr(anyOf(
+									memberExpr(expr(hasDescendant(declRefExpr().bind("functioncall2")))).bind("functioncall3"),
+									declRefExpr().bind("functioncall2"),
+									hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("functioncall2")))).bind("functioncall3")),
+									hasDescendant(declRefExpr().bind("functioncall2"))
 							)))),
 							argumentCountIs(3),
 							hasAnyArgument(hasType(pointerType()))
-				)).bind("mcsssmemset1"), &HandlerForSSSMemset);
+					)).bind("functioncall1"), &HandlerForSSSFunctionCall1);
 
-		Matcher.addMatcher(
-				callExpr(allOf(
-						hasAnyArgument(
-								ignoringParenCasts(expr(anyOf(
-								memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssmemcpy2")))).bind("mcsssmemcpy3"),
-									declRefExpr().bind("mcsssmemcpy2"),
-									hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssmemcpy2")))).bind("mcsssmemcpy3")),
-									hasDescendant(declRefExpr().bind("mcsssmemcpy2"))
-						)))),
-						argumentCountIs(3),
-						hasAnyArgument(hasType(pointerType()))
-				)).bind("mcsssmemcpy1"), &HandlerForSSSMemcpy);
-
-		Matcher.addMatcher(binaryOperator(allOf(
-				hasOperatorName("="),
-				hasLHS(anyOf(
-							ignoringParenCasts(declRefExpr().bind("mcssssettonull3")),
-							ignoringParenCasts(expr(hasDescendant(declRefExpr().bind("mcssssettonull3"))))
-					)),
-					hasLHS(expr(hasType(pointerType())))
-					)).bind("mcssssettonull1"), &HandlerForSSSSetToNull2);
-
-		Matcher.addMatcher(
-				callExpr(allOf(
-						hasAnyArgument(anyOf(
-								cStyleCastExpr(anyOf(
-										memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3"),
-										declRefExpr().bind("mcsssparameterpassing2"),
-										hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
-										hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
-								)).bind("mcsssparameterpassing4"),
-								expr(anyOf(
-										memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3"),
-										declRefExpr().bind("mcsssparameterpassing2"),
-										hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
-										hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
-								))
-							)),
-						hasAnyArgument(hasType(pointerType()))
-				)).bind("mcsssparameterpassing1"), &HandlerForSSSArgToParameterPassingArray2);
-
-		Matcher.addMatcher(
-				callExpr(allOf(
-						hasAnyArgument(anyOf(
-								cStyleCastExpr(anyOf(
-										memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3"),
-										declRefExpr().bind("mcsssparameterpassing2"),
-										hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
-										hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
-								)).bind("mcsssparameterpassing4"),
-								expr(anyOf(
-										memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3"),
-										declRefExpr().bind("mcsssparameterpassing2"),
-										hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
-										hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
-								))
-							)),
-						anything()
-				)).bind("mcsssparameterpassing1"), &HandlerForSSSArgToReferenceParameterPassing);
-
-		Matcher.addMatcher(
-				callExpr(allOf(
-						hasAnyArgument(
-								ignoringParenCasts(expr(anyOf(
-								memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssfread2")))).bind("mcsssfread3"),
-									declRefExpr().bind("mcsssfread2"),
-									hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssfread2")))).bind("mcsssfread3")),
-									hasDescendant(declRefExpr().bind("mcsssfread2"))
-							)))),
-							argumentCountIs(4),
-							hasAnyArgument(hasType(pointerType()))
-				)).bind("mcsssfread1"), &HandlerForSSSFRead);
-
-		Matcher.addMatcher(
-				callExpr(allOf(
-						hasAnyArgument(
-								ignoringParenCasts(expr(anyOf(
-								memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssfwrite2")))).bind("mcsssfwrite3"),
-									declRefExpr().bind("mcsssfwrite2"),
-									hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssfwrite2")))).bind("mcsssfwrite3")),
-									hasDescendant(declRefExpr().bind("mcsssfwrite2"))
-							)))),
-							argumentCountIs(4),
-							hasAnyArgument(hasType(pointerType()))
-				)).bind("mcsssfwrite1"), &HandlerForSSSFWrite);
-
-		Matcher.addMatcher(expr(allOf(
-				hasParent(expr(
-						unaryOperator(hasOperatorName("&")).bind("mcsssaddressof4"))),
-					anyOf(
-							memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssaddressof")))).bind("mcsssaddressof2"),
-							declRefExpr().bind("mcsssaddressof"),
-							hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssaddressof")))).bind("mcsssaddressof2")),
-							hasDescendant(declRefExpr().bind("mcsssaddressof"))
-					)
-					)).bind("mcsssaddressof3"), &HandlerForSSSAddressOf);
-
-		Matcher.addMatcher(returnStmt(allOf(
-				hasAncestor(functionDecl().bind("mcsssreturnvalue1")),
-					hasDescendant(declRefExpr().bind("mcsssreturnvalue3"))
-					)).bind("mcsssreturnvalue2"), &HandlerForSSSReturnValue);
-
-		Matcher.addMatcher(binaryOperator(allOf(
-				hasOperatorName("="),
-				hasRHS(
-						anyOf(
-								cStyleCastExpr(has(ignoringParenCasts(callExpr().bind("mcsssmalloc2")))),
-								ignoringParenCasts(callExpr().bind("mcsssmalloc2"))
-						)
-					),
-				hasLHS(ignoringParenCasts(anyOf(
-						memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssmalloc3")))).bind("mcsssmalloc4"),
-						declRefExpr().bind("mcsssmalloc3"),
-						hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssmalloc3")))).bind("mcsssmalloc4")),
-						hasDescendant(declRefExpr().bind("mcsssmalloc3"))
-					))),
-				hasLHS(expr(hasType(pointerType())))
-					)).bind("mcsssmalloc1"), &HandlerForSSSMalloc2);
-
-		Matcher.addMatcher(binaryOperator(allOf(
-				anyOf(hasOperatorName("=="), hasOperatorName("!=")),
-				hasLHS(anyOf(
-							ignoringParenCasts(declRefExpr().bind("mcssscomparewithnull3")),
-							ignoringParenCasts(expr(hasDescendant(declRefExpr().bind("mcssscomparewithnull3"))))
-					)),
-					hasLHS(expr(hasType(pointerType())))
-					)).bind("mcssscomparewithnull1"), &HandlerForSSSCompareWithNull2);
-
-		Matcher.addMatcher(binaryOperator(allOf(
-				anyOf(hasOperatorName("="), hasOperatorName("=="), hasOperatorName("!="),
-						hasOperatorName("<"), hasOperatorName(">"), hasOperatorName("<="), hasOperatorName(">=")),
-				hasLHS(expr(anyOf(
-						hasDescendant(declRefExpr().bind("mcsssassignment2")),
-						declRefExpr().bind("mcsssassignment2")
-						)).bind("mcsssassignment5")),
-				hasRHS(expr(anyOf(
-						cStyleCastExpr(hasDescendant(declRefExpr().bind("mcsssassignment3"))).bind("mcsssassignment4"),
-						expr(hasDescendant(declRefExpr().bind("mcsssassignment3")))
-						)).bind("mcsssassignment6"))
-					)).bind("mcsssassignment1"), &HandlerForSSSAssignment);
-
-		Matcher.addMatcher(declStmt(hasDescendant(
-				varDecl(hasInitializer(ignoringParens(
-						expr(anything()).bind("mcsssassignment6")
-				))).bind("mcsssassignment7")
-					)), &HandlerForSSSAssignment);
-
-		Matcher.addMatcher(clang::ast_matchers::recordDecl().bind("mcsssrecorddecl"), &HandlerForSSSRecordDecl);
-
-		Matcher.addMatcher(varDecl(hasInitializer(ignoringParenCasts(
-								callExpr().bind("mcsssmallocinitializer2")
-				))).bind("mcsssmallocinitializer3"), &HandlerForSSSMallocInitializer2);
-
-		//Matcher.addMatcher(varDecl(hasType(pointerType())).bind("mcsssnativepointer"), &HandlerForSSSNativePointer);
-		//Matcher.addMatcher(clang::ast_matchers::declaratorDecl().bind("mcsssvardecl"), &HandlerForSSSVarDecl2);
-		Matcher.addMatcher(varDecl(anyOf(
-				hasInitializer(anyOf(
-						expr(cStyleCastExpr(hasDescendant(declRefExpr().bind("mcsssvardecl5"))).bind("mcsssvardecl3")).bind("mcsssvardecl2"),
-						expr(hasDescendant(declRefExpr().bind("mcsssvardecl5"))).bind("mcsssvardecl2")
+			Matcher.addMatcher(binaryOperator(allOf(
+					hasOperatorName("="),
+					hasLHS(anyOf(
+								ignoringParenCasts(declRefExpr().bind("mcssssettonull3")),
+								ignoringParenCasts(expr(hasDescendant(declRefExpr().bind("mcssssettonull3"))))
 						)),
-				clang::ast_matchers::anything()
-				)).bind("mcsssvardecl"), &HandlerForSSSVarDecl2);
+						hasLHS(expr(hasType(pointerType())))
+						)).bind("mcssssettonull1"), &HandlerForSSSSetToNull2);
 
-		Matcher.addMatcher(varDecl(hasInitializer(ignoringParenCasts(
-								expr().bind("mcsssnullinitializer2")
-				))).bind("mcsssnullinitializer3"), &HandlerForSSSNullInitializer);
+			Matcher.addMatcher(
+					callExpr(allOf(
+							hasAnyArgument(anyOf(
+									cStyleCastExpr(anyOf(
+											memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3"),
+											declRefExpr().bind("mcsssparameterpassing2"),
+											hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
+											hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
+									)).bind("mcsssparameterpassing4"),
+									expr(anyOf(
+											memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3"),
+											declRefExpr().bind("mcsssparameterpassing2"),
+											hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
+											hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
+									))
+								)),
+							hasAnyArgument(hasType(pointerType()))
+					)).bind("mcsssparameterpassing1"), &HandlerForSSSArgToParameterPassingArray2);
 
-		Matcher.addMatcher(varDecl(hasInitializer(ignoringParenCasts(
+			Matcher.addMatcher(
+					callExpr(allOf(
+							hasAnyArgument(anyOf(
+									cStyleCastExpr(anyOf(
+											memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3"),
+											declRefExpr().bind("mcsssparameterpassing2"),
+											hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
+											hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
+									)).bind("mcsssparameterpassing4"),
+									expr(anyOf(
+											memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3"),
+											declRefExpr().bind("mcsssparameterpassing2"),
+											hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssparameterpassing2")))).bind("mcsssparameterpassing3")),
+											hasDescendant(declRefExpr().bind("mcsssparameterpassing2"))
+									))
+								)),
+							anything()
+					)).bind("mcsssparameterpassing1"), &HandlerForSSSArgToReferenceParameterPassing);
+
+			Matcher.addMatcher(
+					callExpr(allOf(
+							hasAnyArgument(
+									ignoringParenCasts(expr(anyOf(
+									memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssfread2")))).bind("mcsssfread3"),
+										declRefExpr().bind("mcsssfread2"),
+										hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssfread2")))).bind("mcsssfread3")),
+										hasDescendant(declRefExpr().bind("mcsssfread2"))
+								)))),
+								argumentCountIs(4),
+								hasAnyArgument(hasType(pointerType()))
+					)).bind("mcsssfread1"), &HandlerForSSSFRead);
+
+			Matcher.addMatcher(
+					callExpr(allOf(
+							hasAnyArgument(
+									ignoringParenCasts(expr(anyOf(
+									memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssfwrite2")))).bind("mcsssfwrite3"),
+										declRefExpr().bind("mcsssfwrite2"),
+										hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssfwrite2")))).bind("mcsssfwrite3")),
+										hasDescendant(declRefExpr().bind("mcsssfwrite2"))
+								)))),
+								argumentCountIs(4),
+								hasAnyArgument(hasType(pointerType()))
+					)).bind("mcsssfwrite1"), &HandlerForSSSFWrite);
+
+			Matcher.addMatcher(expr(allOf(
+					hasParent(expr(
+							unaryOperator(hasOperatorName("&")).bind("mcsssaddressof4"))),
 						anyOf(
-								conditionalOperator(has(declRefExpr())).bind("mcsssconditionalinitializer2"),
-								conditionalOperator(hasDescendant(declRefExpr())).bind("mcsssconditionalinitializer2")
+								memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssaddressof")))).bind("mcsssaddressof2"),
+								declRefExpr().bind("mcsssaddressof"),
+								hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssaddressof")))).bind("mcsssaddressof2")),
+								hasDescendant(declRefExpr().bind("mcsssaddressof"))
 						)
-				))).bind("mcsssconditionalinitializer3"), &HandlerForSSSConditionalInitializer);
+						)).bind("mcsssaddressof3"), &HandlerForSSSAddressOf);
 
-		Matcher.addMatcher(decl().bind("mcsssdeclutil1"), &HandlerForSSSDeclUtil);
+			Matcher.addMatcher(returnStmt(allOf(
+					hasAncestor(functionDecl().bind("mcsssreturnvalue1")),
+						hasDescendant(declRefExpr().bind("mcsssreturnvalue3"))
+						)).bind("mcsssreturnvalue2"), &HandlerForSSSReturnValue);
 
-	}
+			Matcher.addMatcher(binaryOperator(allOf(
+					hasOperatorName("="),
+					hasRHS(
+							anyOf(
+									cStyleCastExpr(has(ignoringParenCasts(callExpr().bind("mcsssmalloc2")))),
+									ignoringParenCasts(callExpr().bind("mcsssmalloc2"))
+							)
+						),
+					hasLHS(ignoringParenCasts(anyOf(
+							memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssmalloc3")))).bind("mcsssmalloc4"),
+							declRefExpr().bind("mcsssmalloc3"),
+							hasDescendant(memberExpr(expr(hasDescendant(declRefExpr().bind("mcsssmalloc3")))).bind("mcsssmalloc4")),
+							hasDescendant(declRefExpr().bind("mcsssmalloc3"))
+						))),
+					hasLHS(expr(hasType(pointerType())))
+						)).bind("mcsssmalloc1"), &HandlerForSSSMalloc2);
 
-	void HandleTranslationUnit(ASTContext &Context) override 
-	{
-		Matcher.matchAST(Context);
-	}
+			Matcher.addMatcher(binaryOperator(allOf(
+					anyOf(hasOperatorName("=="), hasOperatorName("!=")),
+					hasLHS(anyOf(
+								ignoringParenCasts(declRefExpr().bind("mcssscomparewithnull3")),
+								ignoringParenCasts(expr(hasDescendant(declRefExpr().bind("mcssscomparewithnull3"))))
+						)),
+						hasLHS(expr(hasType(pointerType())))
+						)).bind("mcssscomparewithnull1"), &HandlerForSSSCompareWithNull2);
 
-	private:
+			Matcher.addMatcher(binaryOperator(allOf(
+					anyOf(hasOperatorName("="), hasOperatorName("=="), hasOperatorName("!="),
+							hasOperatorName("<"), hasOperatorName(">"), hasOperatorName("<="), hasOperatorName(">=")),
+					hasLHS(expr(anyOf(
+							hasDescendant(declRefExpr().bind("mcsssassignment2")),
+							declRefExpr().bind("mcsssassignment2")
+							)).bind("mcsssassignment5")),
+					hasRHS(expr(anyOf(
+							cStyleCastExpr(hasDescendant(declRefExpr().bind("mcsssassignment3"))).bind("mcsssassignment4"),
+							expr(hasDescendant(declRefExpr().bind("mcsssassignment3")))
+							)).bind("mcsssassignment6"))
+						)).bind("mcsssassignment1"), &HandlerForSSSAssignment);
 
-	CTUState *m_tu_state_ptr = nullptr;
-	CTUState& tu_state() { return *m_tu_state_ptr;}
+			Matcher.addMatcher(declStmt(hasDescendant(
+					varDecl(hasInitializer(ignoringParens(
+							expr(anything()).bind("mcsssassignment6")
+					))).bind("mcsssassignment7")
+						)), &HandlerForSSSAssignment);
 
-	MCSSSExprUtil HandlerForSSSExprUtil;
-	MCSSSRecordDecl HandlerForSSSRecordDecl;
-	MCSSSVarDecl2 HandlerForSSSVarDecl2;
-	MCSSSPointerArithmetic2 HandlerForSSSPointerArithmetic2;
-	MCSSSNullToPointer HandlerForSSSNullToPointer;
-	MCSSSMalloc2 HandlerForSSSMalloc2;
-	MCSSSMallocInitializer2 HandlerForSSSMallocInitializer2;
-	MCSSSNullInitializer HandlerForSSSNullInitializer;
-	MCSSSFree2 HandlerForSSSFree2;
-	MCSSSSetToNull2 HandlerForSSSSetToNull2;
-	MCSSSCompareWithNull2 HandlerForSSSCompareWithNull2;
-	MCSSSMemset HandlerForSSSMemset;
-	MCSSSMemcpy HandlerForSSSMemcpy;
-	MCSSSConditionalInitializer HandlerForSSSConditionalInitializer;
-	MCSSSAssignment HandlerForSSSAssignment;
-	MCSSSArgToParameterPassingArray2 HandlerForSSSArgToParameterPassingArray2;
-	MCSSSArgToReferenceParameterPassing HandlerForSSSArgToReferenceParameterPassing;
-	MCSSSReturnValue HandlerForSSSReturnValue;
-	MCSSSFRead HandlerForSSSFRead;
-	MCSSSFWrite HandlerForSSSFWrite;
-	MCSSSAddressOf HandlerForSSSAddressOf;
-	MCSSSDeclUtil HandlerForSSSDeclUtil;
-	Misc1 HandlerForMisc1;
+			Matcher.addMatcher(clang::ast_matchers::recordDecl().bind("mcsssrecorddecl"), &HandlerForSSSRecordDecl);
 
-	MatchFinder Matcher;
+			Matcher.addMatcher(varDecl(hasInitializer(ignoringParenCasts(
+									callExpr().bind("mcsssmallocinitializer2")
+					))).bind("mcsssmallocinitializer3"), &HandlerForSSSMallocInitializer2);
+
+			//Matcher.addMatcher(varDecl(hasType(pointerType())).bind("mcsssnativepointer"), &HandlerForSSSNativePointer);
+			//Matcher.addMatcher(clang::ast_matchers::declaratorDecl().bind("mcsssvardecl"), &HandlerForSSSVarDecl2);
+			Matcher.addMatcher(varDecl(anyOf(
+					hasInitializer(anyOf(
+							expr(cStyleCastExpr(hasDescendant(declRefExpr().bind("mcsssvardecl5"))).bind("mcsssvardecl3")).bind("mcsssvardecl2"),
+							expr(hasDescendant(declRefExpr().bind("mcsssvardecl5"))).bind("mcsssvardecl2")
+							)),
+					clang::ast_matchers::anything()
+					)).bind("mcsssvardecl"), &HandlerForSSSVarDecl2);
+
+			Matcher.addMatcher(varDecl(hasInitializer(ignoringParenCasts(
+									expr().bind("mcsssnullinitializer2")
+					))).bind("mcsssnullinitializer3"), &HandlerForSSSNullInitializer);
+
+			Matcher.addMatcher(varDecl(hasInitializer(ignoringParenCasts(
+							anyOf(
+									conditionalOperator(has(declRefExpr())).bind("mcsssconditionalinitializer2"),
+									conditionalOperator(hasDescendant(declRefExpr())).bind("mcsssconditionalinitializer2")
+							)
+					))).bind("mcsssconditionalinitializer3"), &HandlerForSSSConditionalInitializer);
+
+			Matcher.addMatcher(decl().bind("mcsssdeclutil1"), &HandlerForSSSDeclUtil);
+
+		}
+
+		void HandleTranslationUnit(ASTContext &Context) override 
+		{
+			Matcher.matchAST(Context);
+		}
+
+		private:
+
+		CTUState *m_tu_state_ptr = nullptr;
+		CTUState& tu_state() { return *m_tu_state_ptr;}
+
+		MCSSSExprUtil HandlerForSSSExprUtil;
+		MCSSSRecordDecl HandlerForSSSRecordDecl;
+		MCSSSVarDecl2 HandlerForSSSVarDecl2;
+		MCSSSPointerArithmetic2 HandlerForSSSPointerArithmetic2;
+		MCSSSNullToPointer HandlerForSSSNullToPointer;
+		MCSSSMalloc2 HandlerForSSSMalloc2;
+		MCSSSMallocInitializer2 HandlerForSSSMallocInitializer2;
+		MCSSSNullInitializer HandlerForSSSNullInitializer;
+		MCSSSFree2 HandlerForSSSFree2;
+		MCSSSSetToNull2 HandlerForSSSSetToNull2;
+		MCSSSCompareWithNull2 HandlerForSSSCompareWithNull2;
+		MCSSSFunctionCall1 HandlerForSSSFunctionCall1;
+		MCSSSConditionalInitializer HandlerForSSSConditionalInitializer;
+		MCSSSAssignment HandlerForSSSAssignment;
+		MCSSSArgToParameterPassingArray2 HandlerForSSSArgToParameterPassingArray2;
+		MCSSSArgToReferenceParameterPassing HandlerForSSSArgToReferenceParameterPassing;
+		MCSSSReturnValue HandlerForSSSReturnValue;
+		MCSSSFRead HandlerForSSSFRead;
+		MCSSSFWrite HandlerForSSSFWrite;
+		MCSSSAddressOf HandlerForSSSAddressOf;
+		MCSSSDeclUtil HandlerForSSSDeclUtil;
+		Misc1 HandlerForMisc1;
+
+		MatchFinder Matcher;
 	};
 
 	/**********************************************************************************************************************/
@@ -16364,7 +16356,7 @@ namespace convm1 {
         ScopeTypePointerFunctionParameters = options.ScopeTypePointerFunctionParameters || options.ScopeTypeFunctionParameters;
 		AddressableVars = options.AddressableVars;
 
-		std::cout << "\nNote, this program attempts to modify the specified source files in place, including any directly or indirectly `#include`d files, which may sometimes include files you may not expect. So be careful not to run this program with write permissions to files you can't risk being modified. \n";
+		std::cout << "\nNote, this program attempts to modify the specified source files in place, and any directly or indirectly `#include`d files, which may include headers from 3rd party libraries or other files you may not expect. So be careful not to run this program with write permissions to files you can't risk being modified. \n";
 		std::cout << "Continue [y/n]? \n";
 		int ich2 = 0;
 		if (SuppressPrompts) {
