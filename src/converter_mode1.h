@@ -3014,6 +3014,38 @@ namespace convm1 {
 		CExprTextInfo m_rhs_text_info;
 	};
 
+	class CCallExprConversionState : public CExprConversionState {
+	public:
+		CCallExprConversionState(const clang::Expr& call_expr_cref, Rewriter &Rewrite, CTUState& state1, std::vector<const clang::Expr *> arg_expr_cptrs, std::string_view function_name)
+			: CExprConversionState(call_expr_cref, Rewrite, state1), m_arg_expr_cptrs(std::move(arg_expr_cptrs)), m_function_name(function_name) {
+				for (auto& arg_expr_cptr : m_arg_expr_cptrs) {
+					m_arg_text_infos.push_back(CExprTextInfo{ IgnoreParenImpCasts(arg_expr_cptr), Rewrite, state1 });
+				}
+			}
+
+		virtual void update_current_text() {
+			std::string updated_text = m_function_name + "(";
+			for (auto& arg_text_info : m_arg_text_infos) {
+				updated_text += arg_text_info.current_text() + ", ";
+			}
+			if (1 <= m_arg_text_infos.size()) {
+				updated_text = updated_text.substr(0, updated_text.length() - 2);
+			}
+			updated_text += ")";
+			updated_text = modified_copy(updated_text);
+			m_current_text_str = updated_text;
+		}
+		virtual std::string const& species() const {
+			static const auto sc_species_str = std::string("call expression");
+			return sc_species_str;
+		}
+
+	private:
+		std::vector<CExprTextInfo> m_arg_text_infos;
+		std::vector<const clang::Expr *> m_arg_expr_cptrs;
+		std::string m_function_name;
+	};
+
 	class CSingleArgCallExprConversionState : public CExprConversionState {
 	public:
 		CSingleArgCallExprConversionState(const clang::Expr& call_expr_cref, Rewriter &Rewrite, CTUState& state1, const clang::Expr& arg_expr_cref, std::string_view function_name)
@@ -3025,7 +3057,7 @@ namespace convm1 {
 			m_current_text_str = updated_text;
 		}
 		virtual std::string const& species() const {
-			static const auto sc_species_str = std::string("single arg call");
+			static const auto sc_species_str = std::string("single arg call expression");
 			return sc_species_str;
 		}
 
@@ -7965,12 +7997,6 @@ namespace convm1 {
 			auto UOSR = write_once_source_range(cm1_adj_nice_source_range(UO->getSourceRange(), state1, (*this).m_Rewrite));
 			auto ase_SR = cm1_adj_nice_source_range(ASE->getSourceRange(), state1, (*this).m_Rewrite);
 			if ((UOSR.isValid()) && (ase_SR.isValid())) {
-				auto uocs_iter = state1.m_expr_conversion_state_map.find(UO);
-				if (state1.m_expr_conversion_state_map.end() == uocs_iter) {
-					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CSingleArgCallExprConversionState>(*UO, m_Rewrite, state1, *ASE, "&");
-					uocs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
-				}
-				auto& uocs_shptr_ref = (*uocs_iter).second;
 				auto& uo_ecs_ref = state1.get_expr_conversion_state_ref<CSingleArgCallExprConversionState>(*UO, Rewrite, *ASE, "&");
 
 				const clang::Expr* index_expr_cptr = nullptr;
@@ -8038,12 +8064,7 @@ namespace convm1 {
 			auto UOSR = write_once_source_range(cm1_adj_nice_source_range(UO->getSourceRange(), state1, (*this).m_Rewrite));
 			auto ase_SR = cm1_adj_nice_source_range(ASE->getSourceRange(), state1, (*this).m_Rewrite);
 			if ((UOSR.isValid()) && (ase_SR.isValid())) {
-				auto uocs_iter = state1.m_expr_conversion_state_map.find(UO);
-				if (state1.m_expr_conversion_state_map.end() == uocs_iter) {
-					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CSingleArgCallExprConversionState>(*UO, m_Rewrite, state1, *ASE, "&");
-					uocs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
-				}
-				auto& uocs_shptr_ref = (*uocs_iter).second;
+				auto& uo_ecs_ref = state1.get_expr_conversion_state_ref<CSingleArgCallExprConversionState>(*UO, Rewrite, *ASE, "&");
 
 				auto index_expr_cptr = ASE->getIdx();
 				auto array_expr_cptr = ASE->getBase();
@@ -8084,12 +8105,7 @@ namespace convm1 {
 			auto UOSR = write_once_source_range(cm1_adj_nice_source_range(UO->getSourceRange(), state1, (*this).m_Rewrite));
 			auto ase_SR = cm1_adj_nice_source_range(ASE->getSourceRange(), state1, (*this).m_Rewrite);
 			if ((UOSR.isValid()) && (ase_SR.isValid())) {
-				auto uocs_iter = state1.m_expr_conversion_state_map.find(UO);
-				if (state1.m_expr_conversion_state_map.end() == uocs_iter) {
-					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CSingleArgCallExprConversionState>(*UO, m_Rewrite, state1, *ASE, "&");
-					uocs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
-				}
-				auto& uocs_shptr_ref = (*uocs_iter).second;
+				auto& uo_ecs_ref = state1.get_expr_conversion_state_ref<CSingleArgCallExprConversionState>(*UO, m_Rewrite, *ASE, "&");
 
 				const clang::Expr* index_expr_cptr = nullptr;
 				const clang::Expr* array_expr_cptr =  nullptr;
@@ -10679,40 +10695,65 @@ namespace convm1 {
 							}
 						}
 
-						auto callee_SR = write_once_source_range(cm1_adj_nice_source_range(CE->getCallee()->getSourceRange(), state1, Rewrite));
-						auto callee_raw_SR = CE->getCallee()->getSourceRange();
-						if (callee_raw_SR.getBegin().isMacroID()) {
-							auto& SM = Rewrite.getSourceMgr();
-							auto callee_spelling_SR = write_once_source_range(clang::SourceRange{ SM.getSpellingLoc(callee_raw_SR.getBegin()), Rewrite.getSourceMgr().getSpellingLoc(callee_raw_SR.getEnd()) });
-							std::string callee_spelling_text = Rewrite.getRewrittenText(callee_spelling_SR);
-							if (fc_info.OriginalFunctionQName == callee_spelling_text) {
-								callee_SR = callee_spelling_SR;
-							} else {
-								/* The "memset" function call seems to be part of a macro we aren't (currently) able to handle. */
-								return;
+						bool fall_back_flag = false;
+						std::vector<const clang::Expr *> arg_expr_cptrs;
+						const auto num_args = CE->getNumArgs();
+						for (size_t arg_index = 0; num_args > arg_index; arg_index += 1) {
+							auto arg_EX = CE->getArg(arg_index);
+							if (!arg_EX) {
+								fall_back_flag = true;
+								break;
 							}
+							auto arg_EX_qtype = arg_EX->getType();
+							IF_DEBUG(std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();)
+							assert(arg_EX->getType().getTypePtrOrNull());
+							auto arg_EX_ii = IgnoreParenImpCasts(arg_EX);
+							auto arg_EX_ii_qtype = arg_EX_ii->getType();
+							IF_DEBUG(std::string arg_EX_ii_qtype_str = arg_EX_ii_qtype.getAsString();)
+							assert(arg_EX_ii->getType().getTypePtrOrNull());
+							arg_expr_cptrs.push_back(arg_EX_ii);
 						}
-						if (callee_SR.isValid()) {
-							IF_DEBUG(auto callee_text = Rewrite.getRewrittenText(callee_SR);)
-							IF_DEBUG(auto callee_text1 = Rewrite.getRewrittenText(callee_raw_SR);)
 
-							std::string callee_replacement_code;
-							if ("Dual" == ConvertMode) {
-								callee_replacement_code = fc_info.NewDualModeFunctionQName;
-							} else if ("FasterAndStricter" == ConvertMode) {
-								callee_replacement_code = fc_info.NewFunctionQName;
-							} else {
-								callee_replacement_code = fc_info.NewFunctionQName;
-							}
-
-							if (ConvertToSCPP) {
-								state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, callee_SR, callee_replacement_code);
-							}
+						std::string callee_name_replacement_text;
+						if ("Dual" == ConvertMode) {
+							callee_name_replacement_text = fc_info.NewDualModeFunctionQName;
+						} else if ("FasterAndStricter" == ConvertMode) {
+							callee_name_replacement_text = fc_info.NewFunctionQName;
 						} else {
-							int q = 5;
+							callee_name_replacement_text = fc_info.NewFunctionQName;
+						}
+
+						if (!fall_back_flag) {
+							auto& ecs = state1.get_expr_conversion_state_ref<CCallExprConversionState>(*CE, Rewrite, arg_expr_cptrs, callee_name_replacement_text);
+							ecs.update_current_text();
+
+							state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, SR, state1, CE);
+						} else {
+							auto callee_SR = write_once_source_range(cm1_adj_nice_source_range(CE->getCallee()->getSourceRange(), state1, Rewrite));
+							auto callee_raw_SR = CE->getCallee()->getSourceRange();
+							if (callee_raw_SR.getBegin().isMacroID()) {
+								auto& SM = Rewrite.getSourceMgr();
+								auto callee_spelling_SR = write_once_source_range(clang::SourceRange{ SM.getSpellingLoc(callee_raw_SR.getBegin()), Rewrite.getSourceMgr().getSpellingLoc(callee_raw_SR.getEnd()) });
+								std::string callee_spelling_text = Rewrite.getRewrittenText(callee_spelling_SR);
+								if (fc_info.OriginalFunctionQName == callee_spelling_text) {
+									callee_SR = callee_spelling_SR;
+								} else {
+									/* The "memset" function call seems to be part of a macro we aren't (currently) able to handle. */
+									return;
+								}
+							}
+							if (callee_SR.isValid()) {
+								IF_DEBUG(auto callee_text = Rewrite.getRewrittenText(callee_SR);)
+								IF_DEBUG(auto callee_text1 = Rewrite.getRewrittenText(callee_raw_SR);)
+
+								if (ConvertToSCPP) {
+									state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, callee_SR, callee_name_replacement_text);
+								}
+							} else {
+								int q = 5;
+							}
 						}
 					}
-
 				}
 			}
 		}
@@ -14296,13 +14337,8 @@ namespace convm1 {
 											int q = 3;
 										}
 										if (true) {
-											auto csce_iter = state1.m_expr_conversion_state_map.find(CSCE);
-											if (state1.m_expr_conversion_state_map.end() == csce_iter) {
-												auto shptr1 = make_expr_conversion_state_shared_ptr<CSingleArgCallExprConversionState>(*CSCE, Rewrite, state1, *CE, blank_text);
-												csce_iter = state1.m_expr_conversion_state_map.insert(shptr1);
-											}
-											auto& csce_shptr_ref = (*csce_iter).second;
-											(*csce_shptr_ref).update_current_text();
+											auto& ecs_ref = state1.get_expr_conversion_state_ref<CSingleArgCallExprConversionState>(*CSCE, Rewrite, *CE, blank_text);
+											ecs_ref.update_current_text();
 
 											auto CSCE_SR = cm1_adj_nice_source_range(CSCE->getSourceRange(), state1, Rewrite);
 											if (CSCE_SR.isValid()) {
