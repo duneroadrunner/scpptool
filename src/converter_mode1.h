@@ -2727,6 +2727,17 @@ namespace convm1 {
 		* type it might be converted to.  */
 		CDDeclConversionStateMap m_ddecl_conversion_state_map;
 
+		/* Retrieves a reference to the "declaration conversion state" object associated with the given 
+		declaration. If no such object exists, one will be created and stored. */
+		std::pair<CDDeclConversionState&, bool> get_ddecl_conversion_state_ref_and_update_flag(clang::DeclaratorDecl const& ddecl, Rewriter* Rewrite_ptr = nullptr, bool function_return_value_only = false) {
+			auto* DD = &ddecl;
+			auto& state1 = (*this);
+			auto  res1 = state1.m_ddecl_conversion_state_map.insert(*DD, Rewrite_ptr, &state1, function_return_value_only);
+			auto  ddcs_map_iter = res1.first;
+			auto&  ddcs_ref = (*ddcs_map_iter).second;
+			return std::pair<CDDeclConversionState&, bool> { ddcs_ref, res1.second };
+		}
+
 		/* This container maps "clang::SourceLocation"s to "clang::RecordDecl"s at that
 		* location. */
 		CLocationToRecordDeclMap m_recdecl_map;
@@ -2739,7 +2750,7 @@ namespace convm1 {
 		* any modifications we might have made.  */
 		CExprConversionStateMap m_expr_conversion_state_map;
 
-		/* Retrieves a refernce to the "expression conversion state" object associated with the given 
+		/* Retrieves a reference to the "expression conversion state" object associated with the given 
 		expression. If no such object exists, one will be created and stored. If the existing object 
 		is an instance of the CExprConversionState base class, it will replaced by a new object of the 
 		specified subclass. */
@@ -6274,10 +6285,7 @@ namespace convm1 {
 				auto res = generate_declaration_replacement_code(&ddecl, Rewrite, &state1, state1.m_ddecl_conversion_state_map, options_str);
 				changed_from_original |= res.m_changed_from_original;
 
-				auto res1 = state1.m_ddecl_conversion_state_map.insert(ddecl, &Rewrite, &state1);
-				auto ddcs_map_iter = res1.first;
-				auto& ddcs_ref = (*ddcs_map_iter).second;
-				bool update_declaration_flag = res1.second;
+				auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(ddecl, &Rewrite);
 
 				if (ConvertToSCPP && return_type_source_range.isValid() && (1 <= res.m_replacement_code.size())
 						&& changed_from_original) {
@@ -6315,7 +6323,7 @@ namespace convm1 {
 				auto res1 = state1.m_recdecl_conversion_state_map.insert(*RD, Rewrite, state1);
 				auto rdcs_map_iter = res1.first;
 				auto& rdcs_ref = (*rdcs_map_iter).second;
-				//bool update_declaration_flag = res1.second;
+				////bool update_declaration_flag = res1.second;
 
 				std::string rd_name = rdcs_ref.recdecl_ptr()->getNameAsString();
 				if ("" != rd_name) {
@@ -6427,9 +6435,7 @@ namespace convm1 {
 			auto ddecls = IndividualDeclaratorDecls(DD, Rewrite);
 			if ((1 <= ddecls.size())/* && (ddecls.back() == DD)*/) {
 				for (const auto& ddecl_cref : ddecls) {
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*ddecl_cref, &Rewrite, &state1);
-					auto ddcs_map_iter = res1.first;
-					auto& ddcs_ref = (*ddcs_map_iter).second;
+					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*ddecl_cref, &Rewrite);
 					for (const auto& unsupported_element_encounterred : unsupported_elements_encounterred) {
 						std::string tmp_str = ddcs_ref.current_direct_qtype_str();
 						replace_whole_instances_of_given_string(tmp_str, unsupported_element_encounterred.m_element_type_name, unsupported_element_encounterred.m_replacement_element_type_name);
@@ -6485,9 +6491,9 @@ namespace convm1 {
 					IF_DEBUG(std::string last_decl_source_text = last_decl_source_range.isValid() ? Rewrite.getRewrittenText(last_decl_source_range) : std::string("[invalid]");)
 
 					{
-						auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &state1);
-						auto ddcs_map_iter = res1.first;
-						auto& ddcs_ref = (*ddcs_map_iter).second;
+						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+						//auto ddcs_map_iter = res1.first;
+						//auto& ddcs_ref = (*ddcs_map_iter).second;
 						/* In this case we're overwriting the whole declaration and including any
 						initializers, so we want to remove any direction to append the initializer to
 						the end of the declaration. */
@@ -6544,15 +6550,8 @@ namespace convm1 {
 		CSameTypeReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)
 			, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)).do_replacement(state1);
 
-		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref2, &Rewrite, &state1);
-		auto lhs_ddcs_map_iter = lhs_res1.first;
-		auto& lhs_ddcs_ref = (*lhs_ddcs_map_iter).second;
-		bool lhs_update_declaration_flag = lhs_res1.second;
-
-		auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref1, &Rewrite, &state1);
-		auto rhs_ddcs_map_iter = rhs_res1.first;
-		auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
-		bool rhs_update_declaration_flag = rhs_res1.second;
+		auto [lhs_ddcs_ref, lhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(ddecl_cref2, &Rewrite);
+		auto [rhs_ddcs_ref, rhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(ddecl_cref1, &Rewrite);
 
 		size_t lhs_indirection_level_adjustment = 0;
 		if (1 <= lhs_ddcs_ref.m_indirection_state_stack.size()) {
@@ -6815,10 +6814,7 @@ namespace convm1 {
 
 	void note_array_determination(Rewriter &Rewrite, CTUState& state1, const CDDeclIndirection& ddecl_indirection) {
 
-		auto res1 = state1.m_ddecl_conversion_state_map.insert(*(ddecl_indirection.m_ddecl_cptr), &Rewrite, &state1);
-		auto ddcs_map_iter = res1.first;
-		auto& ddcs_ref = (*ddcs_map_iter).second;
-		bool update_declaration_flag = res1.second;
+		auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(ddecl_indirection.m_ddecl_cptr), &Rewrite);
 
 		if (ddcs_ref.m_indirection_state_stack.size() >= ddecl_indirection.m_indirection_level) {
 			if ((ddcs_ref.m_indirection_state_stack.at(ddecl_indirection.m_indirection_level).is_a_pointer_that_has_not_been_determined_to_be_an_array()) 
@@ -7124,10 +7120,7 @@ namespace convm1 {
 						}
 					}
 				}
-				auto res1 = state1_ref.m_ddecl_conversion_state_map.insert(*l_DD, state1_ref.m_Rewrite_ptr, &state1_ref, function_return_value_only);
-				auto ddcs_map_iter = res1.first;
-				auto& ddcs_ref = (*ddcs_map_iter).second;
-				bool update_declaration_flag = res1.second;
+				auto [ddcs_ref, update_declaration_flag] = state1_ref.get_ddecl_conversion_state_ref_and_update_flag(*l_DD, state1_ref.m_Rewrite_ptr, function_return_value_only);
 
 				auto QT = (*l_DD).getType();
 				std::string variable_name = (*l_DD).getNameAsString();
@@ -7211,9 +7204,7 @@ namespace convm1 {
 		bool target_points_to_mallocked_obj = false;
 
 		auto& trgt_indirection = m_ddecl_indirection;
-		auto trgt_res1 = state1.m_ddecl_conversion_state_map.insert(*(trgt_indirection.m_ddecl_cptr), &m_Rewrite, &state1);
-		auto trgt_ddcs_map_iter = trgt_res1.first;
-		auto& trgt_ddcs_ref = (*trgt_ddcs_map_iter).second;
+		auto [trgt_ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(trgt_indirection.m_ddecl_cptr), &m_Rewrite);
 		auto trgt_indirection_level = trgt_indirection.m_indirection_level;
 
 #ifndef NDEBUG
@@ -7238,10 +7229,7 @@ namespace convm1 {
 		}
 
 		auto& src_indirection = m_ddecl_indirection2;
-		auto src_res1 = state1.m_ddecl_conversion_state_map.insert(*(src_indirection.m_ddecl_cptr), &m_Rewrite, &state1);
-		auto src_ddcs_map_iter = src_res1.first;
-		auto& src_ddcs_ref = (*src_ddcs_map_iter).second;
-		bool src_update_declaration_flag = src_res1.second;
+		auto [src_ddcs_ref, src_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(src_indirection.m_ddecl_cptr), &m_Rewrite);
 		auto src_indirection_level = src_indirection.m_indirection_level;
 
 		{
@@ -7330,16 +7318,11 @@ namespace convm1 {
 		Rewriter &Rewrite = m_Rewrite;
 
 		auto& trgt_indirection = m_ddecl_indirection2;
-		auto trgt_res1 = state1.m_ddecl_conversion_state_map.insert(*(trgt_indirection.m_ddecl_cptr), &m_Rewrite, &state1);
-		auto trgt_ddcs_map_iter = trgt_res1.first;
-		auto& trgt_ddcs_ref = (*trgt_ddcs_map_iter).second;
-		bool trgt_update_declaration_flag = trgt_res1.second;
+		auto [trgt_ddcs_ref, trgt_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(trgt_indirection.m_ddecl_cptr), &m_Rewrite);
 		auto trgt_indirection_level = trgt_indirection.m_indirection_level;
 
 		auto& src_indirection = m_ddecl_indirection;
-		auto src_res1 = state1.m_ddecl_conversion_state_map.insert(*(src_indirection.m_ddecl_cptr), &m_Rewrite, &state1);
-		auto src_ddcs_map_iter = src_res1.first;
-		auto& src_ddcs_ref = (*src_ddcs_map_iter).second;
+		auto [src_ddcs_ref, src_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(src_indirection.m_ddecl_cptr), &m_Rewrite);
 		auto src_indirection_level = src_indirection.m_indirection_level;
 
 		{
@@ -7431,16 +7414,10 @@ namespace convm1 {
 		Rewriter &Rewrite = m_Rewrite;
 
 		auto& lhs_indirection = m_ddecl_indirection2;
-		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(lhs_indirection.m_ddecl_cptr), &m_Rewrite, &state1);
-		auto lhs_ddcs_map_iter = lhs_res1.first;
-		auto& lhs_ddcs_ref = (*lhs_ddcs_map_iter).second;
-		bool lhs_update_declaration_flag = lhs_res1.second;
+		auto [lhs_ddcs_ref, lhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(lhs_indirection.m_ddecl_cptr), &m_Rewrite);
 
 		auto& rhs_indirection = m_ddecl_indirection;
-		auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(rhs_indirection.m_ddecl_cptr), &m_Rewrite, &state1);
-		auto rhs_ddcs_map_iter = rhs_res1.first;
-		auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
-		bool rhs_update_declaration_flag = rhs_res1.second;
+		auto [rhs_ddcs_ref, rhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(rhs_indirection.m_ddecl_cptr), &m_Rewrite);
 
 #ifndef NDEBUG
 		auto SR = cm1_adj_nice_source_range(rhs_indirection.m_ddecl_cptr->getSourceRange(), state1, Rewrite);
@@ -7743,10 +7720,7 @@ namespace convm1 {
 			auto BOSR = write_once_source_range(cm1_adj_nice_source_range(BO->getSourceRange(), state1, Rewrite));
 
 			if ((*this).ddecl_indirection_cref().m_ddecl_cptr) {
-				auto res1 = state1.m_ddecl_conversion_state_map.insert(*((*this).ddecl_indirection_cref().m_ddecl_cptr), &m_Rewrite, &state1);
-				auto ddcs_map_iter = res1.first;
-				auto& ddcs_ref = (*ddcs_map_iter).second;
-				bool update_declaration_flag = res1.second;
+				auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*((*this).ddecl_indirection_cref().m_ddecl_cptr), &m_Rewrite);
 
 				if (ddcs_ref.m_indirection_state_stack.size() >= (*this).ddecl_indirection_cref().m_indirection_level) {
 					if ("inferred array" == ddcs_ref.indirection_current((*this).ddecl_indirection_cref().m_indirection_level)) {
@@ -7818,9 +7792,9 @@ namespace convm1 {
 		{
 			auto decl_source_range = cm1_adj_nice_source_range(DD->getSourceRange(), state1, Rewrite);
 
-			auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &m_Rewrite, &state1);
-			auto ddcs_map_iter = res1.first;
-			auto& ddcs_ref = (*ddcs_map_iter).second;
+			auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &m_Rewrite);
+			//auto ddcs_map_iter = res1.first;
+			//auto& ddcs_ref = (*ddcs_map_iter).second;
 
 			std::string current_direct_qtype_str = ddcs_ref.current_direct_qtype_str();
 			std::string initializer_info_str = m_current_initialization_expr_str;
@@ -7883,10 +7857,7 @@ namespace convm1 {
 	void CAssignmentTargetConstrainsSourceDynamicArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
 
-		auto res1 = state1.m_ddecl_conversion_state_map.insert(*(m_ddecl_indirection2.m_ddecl_cptr), &m_Rewrite, &state1);
-		auto ddcs_map_iter = res1.first;
-		auto& ddcs_ref = (*ddcs_map_iter).second;
-		bool update_declaration_flag = res1.second;
+		auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(m_ddecl_indirection2.m_ddecl_cptr), &m_Rewrite);
 
 		if (ddcs_ref.m_indirection_state_stack.size() >= m_ddecl_indirection2.m_indirection_level) {
 			if (true) {
@@ -8186,9 +8157,7 @@ namespace convm1 {
 
 		const clang::CallExpr* CE = m_CE;
 		if (CE) {
-			auto res1 = state1.m_ddecl_conversion_state_map.insert(*((*this).m_indirect_function_DD), &m_Rewrite, &state1);
-			auto ddcs_map_iter = res1.first;
-			auto& ddcs_ref = (*ddcs_map_iter).second;
+			auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*((*this).m_indirect_function_DD), &m_Rewrite);
 			//ddcs_ref.current_direct_qtype_ref();
 
 			auto SR = cm1_adj_nice_source_range(CE->getSourceRange(), state1, Rewrite);
@@ -8288,9 +8257,9 @@ namespace convm1 {
 		auto DD = (*this).m_ddecl_indirection2.m_ddecl_cptr;
 
 		if (DD) {
-			auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &m_Rewrite, &state1);
-			auto ddcs_map_iter = res1.first;
-			auto& ddcs_ref = (*ddcs_map_iter).second;
+			auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &m_Rewrite);
+			//auto ddcs_map_iter = res1.first;
+			//auto& ddcs_ref = (*ddcs_map_iter).second;
 			//ddcs_ref.current_direct_qtype_ref();
 
 			auto SR = cm1_adj_nice_source_range(DD->getSourceRange(), state1, Rewrite);
@@ -8496,9 +8465,7 @@ namespace convm1 {
 				bool lhs_is_variously_native_and_dynamic_array = false;
 				bool lhs_update_flag = false;
 				if (lhs_DD != nullptr) {
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*lhs_DD, &m_Rewrite, &state1);
-					auto ddcs_map_iter = res1.first;
-					auto& ddcs_ref = (*ddcs_map_iter).second;
+					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &m_Rewrite);
 					/* At the moment we only support the case where the value option expressions are
 					* just declared variables. */
 
@@ -8544,9 +8511,7 @@ namespace convm1 {
 				bool rhs_is_variously_native_and_dynamic_array = false;
 				bool rhs_update_flag = false;
 				if (rhs_DD != nullptr) {
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*rhs_DD, &m_Rewrite, &state1);
-					auto ddcs_map_iter = res1.first;
-					auto& ddcs_ref = (*ddcs_map_iter).second;
+					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &m_Rewrite);
 
 					/* If a declaration for this conditional operator option is available, then
 					we'll mark that declaration as ineligible for "xscope status". The idea
@@ -8643,9 +8608,7 @@ namespace convm1 {
 					if (m_var_DD && (true)) {
 						cocs_ref.update_current_text();
 
-						auto res1 = state1.m_ddecl_conversion_state_map.insert(*m_var_DD, &m_Rewrite, &state1);
-						auto ddcs_map_iter = res1.first;
-						auto& ddcs_ref = (*ddcs_map_iter).second;
+						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*m_var_DD, &m_Rewrite);
 
 						clang::Expr const* pInitExpr = get_init_expr_if_any(m_var_DD);
 						if (pInitExpr && (!ddcs_ref.m_maybe_initialization_expr_text_info.has_value())) {
@@ -8722,7 +8685,7 @@ namespace convm1 {
 							return;
 						}
 						auto& rdcs_ref = (*rdcs_map_iter).second;
-						//bool update_declaration_flag = res1.second;
+						////bool update_declaration_flag = res1.second;
 					}
 					{
 						auto res1 = (*this).m_state1.m_recdecl_map.insert(*RD, Rewrite, m_state1);
@@ -8731,7 +8694,7 @@ namespace convm1 {
 							return;
 						}
 						auto& rdcs_ref = (*rdcs_map_iter).second;
-						//bool update_declaration_flag = res1.second;
+						////bool update_declaration_flag = res1.second;
 					}
 
 				}
@@ -9126,10 +9089,7 @@ namespace convm1 {
 					int q = 5;
 					//return;
 				} else {
-					auto res1 = (*this).m_state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &m_state1);
-					auto ddcs_map_iter = res1.first;
-					auto& ddcs_ref = (*ddcs_map_iter).second;
-					//bool update_declaration_flag = res1.second;
+					auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 					auto qtype = DD->getType();
 
 					if (AddressableVars) {
@@ -9443,10 +9403,10 @@ namespace convm1 {
 
 					auto res2 = infer_array_type_info_from_stmt(*E, "pointer arithmetic", state1, DD);
 
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &state1);
-					auto ddcs_map_iter = res1.first;
-					auto& ddcs_ref = (*ddcs_map_iter).second;
-					bool update_declaration_flag = res1.second;
+					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+					//auto ddcs_map_iter = res1.first;
+					//auto& ddcs_ref = (*ddcs_map_iter).second;
+					//bool update_declaration_flag = res1.second;
 					if (ddcs_ref.m_indirection_state_stack.size() > res2.indirection_level) {
 
 						/* If a declaration for the pointer arithmetic expression is available, then
@@ -9688,10 +9648,10 @@ namespace convm1 {
 						}
 					}
 
-					auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &m_state1);
-					auto ddcs_map_iter = res1.first;
-					auto& ddcs_ref = (*ddcs_map_iter).second;
-					bool update_declaration_flag = res1.second;
+					auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+					//auto ddcs_map_iter = res1.first;
+					//auto& ddcs_ref = (*ddcs_map_iter).second;
+					//bool update_declaration_flag = res1.second;
 
 					size_t target_indirection_index = CDDeclIndirection::no_indirection;
 					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
@@ -9849,10 +9809,10 @@ namespace convm1 {
 								return;
 							}
 
-							auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &state1);
-							auto ddcs_map_iter = res1.first;
-							auto& ddcs_ref = (*ddcs_map_iter).second;
-							bool update_declaration_flag = res1.second;
+							auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+							//auto ddcs_map_iter = res1.first;
+							//auto& ddcs_ref = (*ddcs_map_iter).second;
+							//bool update_declaration_flag = res1.second;
 
 							ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
 							for (auto& indirection_state : ddcs_ref.m_indirection_state_stack) {
@@ -10078,9 +10038,9 @@ namespace convm1 {
 				if (qtype.getTypePtr()->isPointerType()) {
 					Expr::NullPointerConstantKind kind = RHS->IgnoreParenCasts()->isNullPointerConstant(*(MR.Context), Expr::NullPointerConstantValueDependence());
 					if ((clang::Expr::NPCK_NotNull != kind) && (clang::Expr::NPCK_CXX11_nullptr != kind)) {
-						auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &m_state1);
-						auto ddcs_map_iter = res1.first;
-						auto& ddcs_ref = (*ddcs_map_iter).second;
+						auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+						//auto ddcs_map_iter = res1.first;
+						//auto& ddcs_ref = (*ddcs_map_iter).second;
 
 						if (!ddcs_ref.m_original_initialization_has_been_noted) {
 							int q = 5;
@@ -10116,10 +10076,7 @@ namespace convm1 {
 												return;
 											}
 
-											auto res1 = (*this).m_state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &m_state1);
-											auto ddcs_map_iter = res1.first;
-											auto& ddcs_ref = (*ddcs_map_iter).second;
-											bool update_declaration_flag = res1.second;
+											auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
 											const clang::Type* TP = QT.getTypePtr();
 											auto lhs_type_str = QT.getAsString();
@@ -10880,9 +10837,9 @@ namespace convm1 {
 				std::string var_current_state_str;
 				bool var_has_been_determined_to_be_an_array = false;
 
-				auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &m_state1);
-				auto ddcs_map_iter = res1.first;
-				auto& ddcs_ref = (*ddcs_map_iter).second;
+				auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+				//auto ddcs_map_iter = res1.first;
+				//auto& ddcs_ref = (*ddcs_map_iter).second;
 				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 					var_current_state_str = ddcs_ref.indirection_current(0);
 					var_has_been_determined_to_be_an_array = ddcs_ref.has_been_determined_to_be_an_array(0);
@@ -11024,9 +10981,7 @@ namespace convm1 {
 				std::string rhs_current_state_str;
 				if (lhs_qualifies || rhs_qualifies) {
 					if (lhs_qualifies && (lhs_res2.ddecl_cptr)) {
-						auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*(lhs_res2.ddecl_cptr), &Rewrite, &m_state1);
-						auto ddcs_map_iter = res1.first;
-						auto& ddcs_ref = (*ddcs_map_iter).second;
+						auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*(lhs_res2.ddecl_cptr), &Rewrite);
 						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 							lhs_current_state_str = ddcs_ref.m_indirection_state_stack.at(0).current_species();
 						} else {
@@ -11034,9 +10989,7 @@ namespace convm1 {
 						}
 					}
 					if (rhs_qualifies && (rhs_res2.ddecl_cptr)) {
-						auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*(rhs_res2.ddecl_cptr), &Rewrite, &m_state1);
-						auto ddcs_map_iter = res1.first;
-						auto& ddcs_ref = (*ddcs_map_iter).second;
+						auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*(rhs_res2.ddecl_cptr), &Rewrite);
 						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 							rhs_current_state_str = ddcs_ref.m_indirection_state_stack.at(0).current_species();
 						} else {
@@ -11133,10 +11086,7 @@ namespace convm1 {
 	inline bool set_xscope_elegibility_of_outermost_indirection_if_any(bool xscope_eligibility, clang::DeclaratorDecl const * DD, CTUState& state1) {
 		if (!DD) { return false; }
 
-		auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
-		auto ddcs_map_iter = res1.first;
-		auto& ddcs_ref = (*ddcs_map_iter).second;
-		bool update_declaration_flag = res1.second;
+		auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD);
 		if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 			ddcs_ref.m_indirection_state_stack.at(0).set_xscope_eligibility(xscope_eligibility);
 			return true;
@@ -11663,10 +11613,7 @@ namespace convm1 {
 				const DeclaratorDecl* lhs_DD = llvm::cast<const clang::DeclaratorDecl>(VLD);
 				if (lhs_DD) {
 					decl_util_handler1(MR, Rewrite, state1, VLD);
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*lhs_DD, &Rewrite, &state1);
-					auto ddcs_map_iter = res1.first;
-					auto& ddcs_ref = (*ddcs_map_iter).second;
-					bool update_declaration_flag = res1.second;
+					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &Rewrite);
 
 					lhs_res2.ddecl_cptr = lhs_DD;
 					lhs_res2.ddecl_conversion_state_ptr = &ddcs_ref;
@@ -11815,10 +11762,10 @@ namespace convm1 {
 				if (!finished_cast_handling_flag) {
 					if (cast_qtype->isPointerType() || (cast_qtype->isReferenceType())) {
 						if (DD && (DD->getType()->isPointerType() || (DD->getType()->isReferenceType()))) {
-							auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &state1);
-							auto ddcs_map_iter = res1.first;
-							auto& ddcs_ref = (*ddcs_map_iter).second;
-							bool update_declaration_flag = res1.second;
+							auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+							//auto ddcs_map_iter = res1.first;
+							//auto& ddcs_ref = (*ddcs_map_iter).second;
+							//bool update_declaration_flag = res1.second;
 
 							auto cast_pointee_qtype = definition_qtype(cast_qtype->getPointeeType());
 							auto DD_pointee_qtype = definition_qtype(DD->getType()->getPointeeType());
@@ -12024,9 +11971,7 @@ namespace convm1 {
 								update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 
 								for (auto param_PVD : rhs_FND->parameters()) {
-									auto PVD_res1 = state1.m_ddecl_conversion_state_map.insert(*param_PVD, &Rewrite, &state1);
-									auto PVD_ddcs_map_iter = PVD_res1.first;
-									auto& PVD_ddcs_ref = (*PVD_ddcs_map_iter).second;
+									auto [PVD_ddcs_ref, PVD_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*param_PVD, &Rewrite);
 									for (size_t j = 0; j < PVD_ddcs_ref.m_indirection_state_stack.size(); j += 1) {
 										auto cr_shptr = std::make_shared<CUpdateDeclIndirectionArray2ReplacementAction>(Rewrite, MR,
 											CDDeclIndirection(*param_PVD, j),
@@ -12048,9 +11993,7 @@ namespace convm1 {
 							update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 
 							for (auto param_PVD : rhs_FND->parameters()) {
-								auto PVD_res1 = state1.m_ddecl_conversion_state_map.insert(*param_PVD, &Rewrite, &state1);
-								auto PVD_ddcs_map_iter = PVD_res1.first;
-								auto& PVD_ddcs_ref = (*PVD_ddcs_map_iter).second;
+								auto [PVD_ddcs_ref, PVD_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*param_PVD, &Rewrite);
 								for (size_t j = 0; j < PVD_ddcs_ref.m_indirection_state_stack.size(); j += 1) {
 									auto cr_shptr = std::make_shared<CUpdateDeclIndirectionArray2ReplacementAction>(Rewrite, MR,
 										CDDeclIndirection(*param_PVD, j),
@@ -12065,18 +12008,12 @@ namespace convm1 {
 					}
 				}
 				if (true || (CDDeclIndirection::no_indirection == lhs_res2.indirection_level)) {
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*(lhs_res2.ddecl_cptr), &Rewrite, &state1);
-					auto ddcs_map_iter = res1.first;
-					auto& ddcs_ref = (*ddcs_map_iter).second;
-					bool update_declaration_flag = res1.second;
+					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(lhs_res2.ddecl_cptr), &Rewrite);
 
 					auto adjusted_lhs_indirection_level = lhs_res2.indirection_level + lhs_indirection_level_adjustment;
 					auto rhs_indirection_level = rhs_res2.indirection_level;
 					if (adjusted_lhs_indirection_level == rhs_indirection_level) {
-						auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(rhs_res2.ddecl_cptr), &Rewrite, &state1);
-						auto rhs_ddcs_map_iter = rhs_res1.first;
-						auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
-						bool rhs_update_declaration_flag = rhs_res1.second;
+						auto [rhs_ddcs_ref, rhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(rhs_res2.ddecl_cptr), &Rewrite);
 
 						auto& lhs_function_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state;
 						auto& rhs_function_state_ref = rhs_ddcs_ref.direct_type_state_ref().m_function_type_state;
@@ -12356,10 +12293,10 @@ namespace convm1 {
 										if (DRE) {
 											auto DD = clang::dyn_cast<clang::DeclaratorDecl>(DRE->getDecl());
 											if (DD) {
-												auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &state1);
-												auto ddcs_map_iter = res1.first;
-												auto& ddcs_ref = (*ddcs_map_iter).second;
-												bool update_declaration_flag = res1.second;
+												auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+												//auto ddcs_map_iter = res1.first;
+												//auto& ddcs_ref = (*ddcs_map_iter).second;
+												//bool update_declaration_flag = res1.second;
 
 												if (2 <= ddcs_ref.m_indirection_state_stack.size()) {
 													/* So here we're setting the conversion state of any nested indirections back to their original state. */
@@ -12554,10 +12491,10 @@ namespace convm1 {
 											objects that are pointer targets (aka "addressable" ojects) to C++ objects with
 											non-trivial copy constructors, we need to cast them back to their original scalar
 											type before passing them to a *printf() function. */
-											auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &state1);
-											auto ddcs_map_iter = res1.first;
-											auto& ddcs_ref = (*ddcs_map_iter).second;
-											bool update_declaration_flag = res1.second;
+											auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+											//auto ddcs_map_iter = res1.first;
+											//auto& ddcs_ref = (*ddcs_map_iter).second;
+											//bool update_declaration_flag = res1.second;
 
 											auto arg_iter = state1.m_expr_conversion_state_map.find(arg_EX);
 											if (state1.m_expr_conversion_state_map.end() == arg_iter) {
@@ -12815,10 +12752,7 @@ namespace convm1 {
 														does apply the constraint both ways. */
 														std::shared_ptr<CDDeclIndirectionReplacementAction> cr_shptr = std::make_shared<CSameTypeReplacementAction>(Rewrite, MR, *param_VD, *arg_VD2);
 
-														auto res1 = state1.m_ddecl_conversion_state_map.insert(*param_VD, &Rewrite, &state1);
-														auto ddcs_map_iter = res1.first;
-														auto& ddcs_ref = (*ddcs_map_iter).second;
-														bool update_declaration_flag = res1.second;
+														auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*param_VD, &Rewrite);
 
 														if (ddcs_ref.has_been_determined_to_be_a_pointer_target()) {
 															(*cr_shptr).do_replacement(state1);
@@ -12923,10 +12857,10 @@ namespace convm1 {
 							return;
 						}
 
-						auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &state1);
-						auto ddcs_map_iter = res1.first;
-						auto& ddcs_ref = (*ddcs_map_iter).second;
-						bool update_declaration_flag = res1.second;
+						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+						//auto ddcs_map_iter = res1.first;
+						//auto& ddcs_ref = (*ddcs_map_iter).second;
+						//bool update_declaration_flag = res1.second;
 
 						bool lhs_has_been_determined_to_be_an_array = false;
 						if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
@@ -13690,10 +13624,10 @@ namespace convm1 {
 					const auto qtype = DD->getType();
 					const std::string qtype_str = DD->getType().getAsString();
 
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, &Rewrite, &state1);
-					auto ddcs_map_iter = res1.first;
-					auto& ddcs_ref = (*ddcs_map_iter).second;
-					bool update_declaration_flag = res1.second;
+					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+					//auto ddcs_map_iter = res1.first;
+					//auto& ddcs_ref = (*ddcs_map_iter).second;
+					//bool update_declaration_flag = res1.second;
 
 					auto VD = dyn_cast<const clang::VarDecl>(D);
 					auto FD = dyn_cast<const clang::FieldDecl>(D);
@@ -13904,9 +13838,7 @@ namespace convm1 {
 									if (FND) {
 										auto FND_qname = FND->getQualifiedNameAsString();
 										if ("main" == FND_qname) {
-											auto res1 = state1.m_ddecl_conversion_state_map.insert(*PVD, &Rewrite, &state1);
-											auto ddcs_map_iter = res1.first;
-											auto& ddcs_ref = (*ddcs_map_iter).second;
+											auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*PVD, &Rewrite);
 											if (2 == ddcs_ref.m_indirection_state_stack.size()) {
 												// Or should we be setting the species to "inferred array"?
 												ddcs_ref.m_indirection_state_stack.at(0).set_current_species("native array");
@@ -14676,13 +14608,11 @@ namespace convm1 {
 										}
 									}
 
-
 									{
-										/*  */
 										auto l_DD = field;
-										auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*l_DD, &Rewrite, &m_state1);
-										auto ddcs_map_iter = res1.first;
-										auto& ddcs_ref = (*ddcs_map_iter).second;
+										auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*l_DD, &Rewrite);
+										//auto ddcs_map_iter = res1.first;
+										//auto& ddcs_ref = (*ddcs_map_iter).second;
 
 										update_declaration_if_not_suppressed(*l_DD, Rewrite, *(MR.Context), m_state1);
 									}
