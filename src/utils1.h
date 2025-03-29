@@ -12,6 +12,7 @@
 #include <optional>
 #include <iostream>
 #include <string>
+#include <type_traits>
 #include <vector>
 #include <map>
 #include <unordered_map>
@@ -587,16 +588,49 @@ inline auto NonParenNoopCastThisOrParent(const clang::Expr* ptr, clang::ASTConte
 
 /* This function just returns the immediate parent node, ignoring "Implicit", "Paren(thesis)"
 or "NoopCast" expressions, if that parent is the specified type. Otherwise it returns nullptr. */
-template <typename ContainingElementT>
-inline auto NonParenNoopCastParentOfType(const clang::Expr* ptr, clang::ASTContext& Ctx) {
+template <typename ContainingElementT, typename NodeT>
+inline auto NonParenNoopCastParentOfType(const NodeT* ptr, clang::ASTContext& Ctx) {
 	ContainingElementT const* retval = nullptr;
 	if (!ptr) { return retval; }
 	auto parent_E = Tget_immediately_containing_element_of_type<clang::Expr>(ptr, Ctx);
+	std::optional<clang::Expr const*> maybe_last_parent_E;
 	while (parent_E && (IgnoreParenImpNoopCasts(parent_E, Ctx) != parent_E)) {
-		ptr = parent_E;
+		maybe_last_parent_E = parent_E;
 		parent_E = Tget_immediately_containing_element_of_type<clang::Expr>(parent_E, Ctx);
 	}
-	retval = Tget_immediately_containing_element_of_type<ContainingElementT>(ptr, Ctx);
+	if (maybe_last_parent_E.has_value()) {
+		retval = Tget_immediately_containing_element_of_type<ContainingElementT>(maybe_last_parent_E.value(), Ctx);
+	} else {
+		if constexpr (std::is_same_v<ContainingElementT, clang::Expr>) {
+			retval = parent_E;
+		} else {
+			retval = Tget_immediately_containing_element_of_type<ContainingElementT>(ptr, Ctx);
+		}
+	}
+	return retval;
+}
+
+/* This function just returns the immediate parent node, ignoring "Implicit" or "Paren(thesis)"
+expressions, if that parent is the specified type. Otherwise it returns nullptr. */
+template <typename ContainingElementT, typename NodeT>
+inline auto NonParenImpCastParentOfType(const NodeT* ptr, clang::ASTContext& Ctx) {
+	ContainingElementT const* retval = nullptr;
+	if (!ptr) { return retval; }
+	auto parent_E = Tget_immediately_containing_element_of_type<clang::Expr>(ptr, Ctx);
+	std::optional<clang::Expr const*> maybe_last_parent_E;
+	while (parent_E && (IgnoreParenImpCasts(parent_E) != parent_E)) {
+		maybe_last_parent_E = parent_E;
+		parent_E = Tget_immediately_containing_element_of_type<clang::Expr>(parent_E, Ctx);
+	}
+	if (maybe_last_parent_E.has_value()) {
+		retval = Tget_immediately_containing_element_of_type<ContainingElementT>(maybe_last_parent_E.value(), Ctx);
+	} else {
+		if constexpr (std::is_same_v<ContainingElementT, clang::Expr>) {
+			retval = parent_E;
+		} else {
+			retval = Tget_immediately_containing_element_of_type<ContainingElementT>(ptr, Ctx);
+		}
+	}
 	return retval;
 }
 
