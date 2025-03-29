@@ -325,6 +325,14 @@ namespace convm1 {
 			bool m_known_to_have_malloc_target = false;
 			bool m_known_to_have_non_malloc_target = false;
 			bool m_is_known_to_be_used_as_array_iterator = false;
+			bool operator==(const CIndirectionProperties1& rhs) const {
+				return (m_known_to_have_malloc_target == rhs.m_known_to_have_malloc_target)
+					&& (m_known_to_have_non_malloc_target == rhs.m_known_to_have_non_malloc_target)
+					&& (m_is_known_to_be_used_as_array_iterator == rhs.m_is_known_to_be_used_as_array_iterator);
+			}
+			bool operator!=(const CIndirectionProperties1& rhs) const {
+				return !((*this) == rhs);
+			}
 		};
 		bool is_known_to_have_malloc_target() const {
 			return m_indirection_properties1.m_known_to_have_malloc_target;
@@ -6856,6 +6864,28 @@ namespace convm1 {
 
 	/* Ensure that all the (re)declarations of the same variable are the same type. */
 	void homogenize_redeclaration_types(const clang::DeclaratorDecl* ddecl_cptr, CTUState& state1, Rewriter &Rewrite, int ttl = -1) {
+		/* While the ttl parameter is used to deal with runaway direct recursion, it's not unrealistic that 
+		future code changes might result in (subtle) potential indirect infinite recursion. So we have a 
+		separate mechanism to address that possibility. */
+		static int sl_context_independent_recursion_depth = 0;
+		struct CRAIIDepthTrackingHelper {
+			CRAIIDepthTrackingHelper() {
+				sl_context_independent_recursion_depth += 1;
+			}
+			~CRAIIDepthTrackingHelper() {
+				sl_context_independent_recursion_depth -= 1;
+			}
+		};
+		CRAIIDepthTrackingHelper raii_depth_tracking_helper1;
+		if (100/*arbitrary*/ < sl_context_independent_recursion_depth) {
+			static bool note_given = false;
+			if (!note_given) {
+				llvm::errs() << "\nnote: homogenize_redeclaration_types() recursion cut off due to exceeding (preset) limit. \n";
+				note_given = true;
+			}
+			return;
+		}
+
 		if (!ddecl_cptr) { return; }
 
 #ifndef NDEBUG
@@ -7740,8 +7770,15 @@ namespace convm1 {
 		if ((lhs_ddcs_ref.m_indirection_state_stack.size() > lhs_indirection.m_indirection_level) &&
 				(rhs_ddcs_ref.m_indirection_state_stack.size() > rhs_indirection.m_indirection_level)){
 
-			CAssignmentSourceConstrainsTargetReplacementAction(m_Rewrite, m_ddecl_indirection, m_ddecl_indirection2).do_replacement(state1);
-			CAssignmentSourceConstrainsTargetReplacementAction(m_Rewrite, m_ddecl_indirection2, m_ddecl_indirection).do_replacement(state1);
+			auto& rhs_indirection_state = rhs_ddcs_ref.m_indirection_state_stack.at(rhs_indirection.m_indirection_level);
+			auto& lhs_indirection_state = lhs_ddcs_ref.m_indirection_state_stack.at(lhs_indirection.m_indirection_level);
+
+			//if (!(rhs_indirection_state.m_indirection_properties1 == lhs_indirection_state.m_indirection_properties1))
+			if (rhs_indirection_state.current_species() != lhs_indirection_state.current_species()) 
+			{
+				CAssignmentSourceConstrainsTargetReplacementAction(m_Rewrite, m_ddecl_indirection, m_ddecl_indirection2).do_replacement(state1);
+				CAssignmentSourceConstrainsTargetReplacementAction(m_Rewrite, m_ddecl_indirection2, m_ddecl_indirection).do_replacement(state1);
+			}
 
 			auto lhs_indirection_level = lhs_indirection.m_indirection_level;
 			auto rhs_indirection_level = rhs_indirection.m_indirection_level;
