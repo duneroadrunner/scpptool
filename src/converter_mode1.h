@@ -1447,9 +1447,26 @@ namespace convm1 {
 	public:
 		CExprTextInfo(const clang::Expr * expr_ptr, Rewriter &Rewrite, CTUState& state1) : m_expr_cptr(expr_ptr), m_state1(state1) {
 			if (expr_ptr) {
+				auto expr_SR = cm1_adjusted_source_range((*expr_ptr).getSourceRange(), state1, Rewrite);
+				if (expr_SR.isValid()) {
+					//m_original_source_text_str = Rewrite.getRewrittenText(cm1_adj_nice_source_range(expr.getSourceRange(), state1, Rewrite));
+					if ((*expr_ptr).getSourceRange().getBegin().isMacroID() && ("" != expr_SR.m_source_text_as_if_expanded)) {
+						m_original_source_text_str = expr_SR.m_source_text_as_if_expanded;
+					} else {
+						m_original_source_text_str = Rewrite.getRewrittenText(expr_SR);
+						if ("" == m_original_source_text_str) {
+							auto nice_SR = cm1_adj_nice_source_range((*expr_ptr).getSourceRange(), state1, Rewrite);
+							if (nice_SR.isValid()) {
+								m_original_source_text_str = Rewrite.getRewrittenText(nice_SR);
+							}
+						}
+					}
+
+				/*
 				auto SR = cm1_adj_nice_source_range(expr_ptr->getSourceRange(), state1, Rewrite);
 				if (SR.isValid()) {
 					m_original_source_text_str = Rewrite.getRewrittenText(SR);
+				*/
 				} else {
 					int q = 3;
 				}
@@ -1963,7 +1980,20 @@ namespace convm1 {
 	public:
 	struct do_not_set_up_child_dependencies_t {};
 		CExprConversionState(do_not_set_up_child_dependencies_t, const clang::Expr& expr, Rewriter &Rewrite, CTUState& state1) : m_expr_cptr(&expr), Rewrite(Rewrite), m_state1(state1) {
-			m_original_source_text_str = Rewrite.getRewrittenText(cm1_adj_nice_source_range(expr.getSourceRange(), state1, Rewrite));
+			auto expr_SR = cm1_adjusted_source_range(expr.getSourceRange(), state1, Rewrite);
+			if (expr_SR.isValid()) {
+				if (expr.getSourceRange().getBegin().isMacroID() && ("" != expr_SR.m_source_text_as_if_expanded)) {
+					m_original_source_text_str = expr_SR.m_source_text_as_if_expanded;
+				} else {
+					m_original_source_text_str = Rewrite.getRewrittenText(expr_SR);
+					if ("" == m_original_source_text_str) {
+						auto nice_SR = cm1_adj_nice_source_range(expr.getSourceRange(), state1, Rewrite);
+						if (nice_SR.isValid()) {
+							m_original_source_text_str = Rewrite.getRewrittenText(nice_SR);
+						}
+					}
+				}
+			}
 			m_current_text_str = m_original_source_text_str;
 			set_up_relation_to_parent_generically();
 		}
