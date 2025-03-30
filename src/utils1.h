@@ -281,7 +281,19 @@ inline CFilteringResultByLocation evaluate_filtering_by_location(const clang::So
 		return tl_maybe_cached_result.value();
 	}
 	auto get_full_path_name = [&SM](clang::SourceLocation const& SL, bool* filename_is_invalid_ptr) {
-		auto full_path_name = std::string(SM.getBufferName(SL, filename_is_invalid_ptr));
+		bool filename_is_invalid = false;
+		auto full_path_name = std::string(SM.getBufferName(SL, &filename_is_invalid));
+		if (filename_is_invalid) {
+			if (SL.isMacroID()) {
+				auto SPSL = SM.getSpellingLoc(SL);
+				if (SPSL.isValid()) {
+					full_path_name = std::string(SM.getBufferName(SPSL, &filename_is_invalid));
+				}
+			}
+		}
+		if (filename_is_invalid_ptr) {
+			*filename_is_invalid_ptr = filename_is_invalid;
+		}
 		if ("" == full_path_name) {
 			full_path_name = std::string(SL.printToString(SM));
 

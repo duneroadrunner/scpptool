@@ -11267,22 +11267,26 @@ namespace convm1 {
 				bool filename_is_invalid = false;
 				auto full_path_name = get_full_path_name(SL, &filename_is_invalid);
 
-				static const std::string invalid_buffer_str = "<invalid buffer>";
-				if (invalid_buffer_str == full_path_name) {
-					auto SPSL = SM.getSpellingLoc(SL);
-					if (!(SPSL.isValid())) {
-						non_modifiable_flag = true;
-						break;
-					}
-					bool SP_filename_is_invalid = false;
-					auto SP_full_path_name = get_full_path_name(SPSL, &SP_filename_is_invalid);
+				if (false) {
+					/* This case should now be addressed by the filtered_out_by_location<>() function. */
 
-					auto res1 = evaluate_filtering_by_full_path_name<options_t<converter_mode_t> >(SP_full_path_name);
-					if (res1.m_do_not_process) {
-						/* We've observed that arriving here can indicate a situation where the given decl refers to an 
-						element in the body of an instantiated "system" macro. */
-						non_modifiable_flag = true;
-						break;
+					static const std::string invalid_buffer_str = "<invalid buffer>";
+					if (filename_is_invalid /* invalid_buffer_str == full_path_name */) {
+						auto SPSL = SM.getSpellingLoc(SL);
+						if (!(SPSL.isValid())) {
+							non_modifiable_flag = true;
+							break;
+						}
+						bool SP_filename_is_invalid = false;
+						auto SP_full_path_name = get_full_path_name(SPSL, &SP_filename_is_invalid);
+
+						auto res1 = evaluate_filtering_by_full_path_name<options_t<converter_mode_t> >(SP_full_path_name);
+						if (res1.m_do_not_process) {
+							/* We've observed that arriving here can indicate a situation where the given decl refers to an 
+							element in the body of an instantiated "system" macro. */
+							non_modifiable_flag = true;
+							break;
+						}
 					}
 				}
 			}
