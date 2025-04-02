@@ -3555,7 +3555,13 @@ namespace convm1 {
 			}
 #endif /*!NDEBUG*/
 
-		if (b3) {
+		if (true && ((b3 && (!b4)) || ((!b3) && b4))) {
+			/* It seems that one end of the range is part of a macro, but the other end isn't. If this function 
+			is being called from cm1_nice_source_range(), then if we just return the input source range, 
+			cm1_nice_source_range() will handle this case. */
+			return sr;
+		}
+		if (b3 && b4) {
 			/* The element is part of a macro instance. */
 			auto& SM = Rewrite.getSourceMgr();
 
@@ -6212,13 +6218,24 @@ namespace convm1 {
 			}
 		}
 
-		bool individual_from_compound_declaration = false;
 		//if (("" != prefix_str) || ("" != suffix_str)/* || ("" != post_name_suffix_str)*/)
 		if (res4.m_changed_from_original || ddcs_ref.direct_qtype_has_been_changed()) {
 			changed_from_original = true;
 		} else if (ddcs_ref.initializer_has_been_changed() || (discard_initializer_option_flag)) {
 			changed_from_original = true;
-		} else if (true && (2 <= IndividualDeclaratorDecls(DD, Rewrite).size())) {
+		}
+
+		bool is_thread_local = (clang::StorageDuration::SD_Thread == storage_duration);
+		if ((!is_thread_local) && VD && (clang::StorageDuration::SD_Static == storage_duration)) {
+			if (!satisfies_restrictions_for_static_storage_duration(VD->getType())) {
+				/* was originally static storage duration, but needs to be converted to thread_local */
+				is_thread_local = true;
+				changed_from_original = true;
+			}
+		}
+
+		bool individual_from_compound_declaration = false;
+		if (true && (2 <= IndividualDeclaratorDecls(DD, Rewrite).size())) {
 			/* There is more than one declaration in the declaration statement. We split
 			* them so that each has their own separate declaration statement. This counts
 			* as a change from the original source code. */
@@ -6239,13 +6256,6 @@ namespace convm1 {
 				if (is_extern) {
 					if ("" == ddcs_ref.m_original_initialization_expr_str) {
 						replacement_code += "extern ";
-					}
-				}
-				bool is_thread_local = (clang::StorageDuration::SD_Thread == storage_duration);
-				if ((!is_thread_local) && VD && (clang::StorageDuration::SD_Static == storage_duration)) {
-					if (!satisfies_restrictions_for_static_storage_duration(VD->getType())) {
-						/* was originally static storage duration, but needs to be converted to thread_local */
-						is_thread_local = true;
 					}
 				}
 				if (is_thread_local) {
@@ -6549,6 +6559,7 @@ namespace convm1 {
 				}
 			}
 		}
+		/* Though I think that we may no longer depend on any source range being rewritable. */
 		return suspected_to_be_rewritable ? rewritable_source_range(unordered_SR) : write_once_source_range(unordered_SR);
 	}
 
@@ -6856,6 +6867,14 @@ namespace convm1 {
 						if (last_decl_source_range.is_rewritable()) {
 							state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, last_decl_source_range, replacement_code);
 						} else {
+							DEBUG_SOURCE_LOCATION_STR(debug_last_decl_source_location_str, last_decl_source_range, Rewrite);
+							DEBUG_SOURCE_TEXT_STR(debug_last_decl_source_text1, last_decl_source_range, Rewrite);
+#ifndef NDEBUG
+							if (std::string::npos != debug_last_decl_source_location_str.find(g_target_debug_source_location_str1)) {
+								int q = 5;
+							}
+#endif /*!NDEBUG*/
+
 							/* If the source range is not rewritable then this may be the one and only chance to write anything 
 							to the source range, so we cannot queue the modification for later execution, we must execute the 
 							modification here and now. */
@@ -6879,6 +6898,12 @@ namespace convm1 {
 							std::string replacement_code = Rewrite.getRewrittenText(SR);
 							bool changed_flag = replace_whole_instances_of_given_string(replacement_code, unsupported_element_encounterred.m_element_type_name, unsupported_element_encounterred.m_replacement_element_type_name);
 							if (changed_flag) {
+#ifndef NDEBUG
+								if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+									int q = 5;
+								}
+#endif /*!NDEBUG*/
+
 								auto res2 = Rewrite.ReplaceText(SR, replacement_code);
 								state1.m_pending_code_modification_actions.m_already_modified_regions.insert(SR);
 							}
