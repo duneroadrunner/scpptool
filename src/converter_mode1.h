@@ -761,8 +761,8 @@ namespace convm1 {
 				if ((!FLSLE_is_within_SL_immediate_macro) || (nice_SLE < nice_SL)) {
 					int q = 3;
 				}
-				nice_SLE == SL_macro_CSR.getAsRange().getEnd();
-				int q =5;
+				nice_SLE = SL_macro_CSR.getAsRange().getEnd();
+				int q = 5;
 			}
 			nice_SR = { nice_SL, nice_SLE };
 			DEBUG_SOURCE_TEXT_STR(debug_nice_SR_text, nice_SR, Rewrite);
@@ -3496,6 +3496,102 @@ namespace convm1 {
 		return extended_to_include_prefix_if_present("__attribute__", SR2, state1, Rewrite);
 	}
 
+	static clang::SourceRange source_range_with_both_ends_in_the_same_macro_body(clang::SourceRange sr, clang::Rewriter &Rewrite) {
+		auto& SM = Rewrite.getSourceMgr();
+		clang::SourceRange retval = sr;
+
+		/* Returns a list of ranges corresponding to nested macros (if any) that contain the given source location. */
+		auto nested_macro_ranges = [&SM, &Rewrite](clang::SourceLocation SL) {
+				std::vector<std::pair<clang::SourceLocation, clang::SourceRange> > retval;
+				auto last_macro1_SL = SL;
+				auto last_macro1_SR = clang::SourceRange{ SL, SL };
+				auto macro1_SR = SM.getExpansionRange(SL).getAsRange();
+				retval.push_back(std::pair{ SL, macro1_SR });
+				auto macro1_SL = SM.getImmediateMacroCallerLoc(SL);
+				macro1_SR = SM.getExpansionRange(macro1_SL).getAsRange();
+				DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, macro1_SR, Rewrite);
+
+				while (macro1_SL != last_macro1_SL) {
+					retval.push_back({ macro1_SL, macro1_SR });
+
+					last_macro1_SL = macro1_SL;
+					macro1_SL = SM.getImmediateMacroCallerLoc(macro1_SL);
+
+					macro1_SR = SM.getExpansionRange(macro1_SL).getAsRange();
+					DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, macro1_SR, Rewrite);
+
+					auto b16 = SM.isMacroArgExpansion(macro1_SL);
+					auto b18 = SM.isMacroBodyExpansion(macro1_SL);
+					int q = 5;
+				}
+
+				return retval;
+			};
+
+		auto nested_macro_ranges_of_begin = nested_macro_ranges(sr.getBegin());
+		auto nested_macro_ranges_of_end = nested_macro_ranges(sr.getEnd());
+		//std::reverse(nested_macro_ranges_of_begin.begin(), nested_macro_ranges_of_begin.end());
+		//std::reverse(nested_macro_ranges_of_end.begin(), nested_macro_ranges_of_end.end());
+
+		/* So we're searching for the most deeply nested macro that contains both the begin and end 
+		points of the given range. */
+		bool found_flag = false;
+		{
+			auto ranges_of_begin_iter = nested_macro_ranges_of_begin.begin();
+			auto ranges_of_end_iter = nested_macro_ranges_of_end.end();
+			for (; nested_macro_ranges_of_begin.end() != ranges_of_begin_iter; ++ranges_of_begin_iter) {
+				auto const& current_macro_range_of_begin = ranges_of_begin_iter->second;
+
+				/* For some reason there may be multiple entries of the same range, each with a different corresponding 
+				source location. I don't really get why. But presumably we want the least deeply nested one where the
+				corresponding source location is distinct from either the begin or end of the range. */
+				auto ranges_of_begin_iter2 = ranges_of_begin_iter;
+				++ranges_of_begin_iter2;
+				while (nested_macro_ranges_of_begin.end() != ranges_of_begin_iter2) {
+					if (current_macro_range_of_begin != ranges_of_begin_iter2->second) {
+						break;
+					};
+					if ((ranges_of_begin_iter2->first == current_macro_range_of_begin.getBegin()) && (ranges_of_begin_iter2->first == current_macro_range_of_begin.getEnd())) {
+						break;
+					}
+					ranges_of_begin_iter = ranges_of_begin_iter2;
+					++ranges_of_begin_iter2;
+				}
+
+				auto l_ranges_of_end_iter = nested_macro_ranges_of_end.begin();
+				for (; nested_macro_ranges_of_end.end() != l_ranges_of_end_iter; ++l_ranges_of_end_iter) {
+					if (current_macro_range_of_begin == l_ranges_of_end_iter->second) {
+
+						/* For some reason there may be multiple entries of the same range, each with a different corresponding 
+						source location. I don't really get why. But presumably we want the least deeply nested one where the
+						corresponding source location is distinct from either the begin or end of the range. */
+						auto ranges_of_end_iter2 = l_ranges_of_end_iter;
+						++ranges_of_end_iter2;
+						while (nested_macro_ranges_of_end.end() != ranges_of_end_iter2) {
+							if (current_macro_range_of_begin != ranges_of_end_iter2->second) {
+								break;
+							};
+							if ((ranges_of_end_iter2->first == current_macro_range_of_begin.getBegin()) && (ranges_of_end_iter2->first == current_macro_range_of_begin.getEnd())) {
+								break;
+							}
+							l_ranges_of_end_iter = ranges_of_end_iter2;
+							++ranges_of_end_iter2;
+						}
+
+						ranges_of_end_iter = l_ranges_of_end_iter;
+						found_flag = true;
+						retval = { ranges_of_begin_iter->first, l_ranges_of_end_iter->first };
+						break;
+					}
+				}
+				if (found_flag) {
+					break;
+				}
+			}
+		}
+		return retval;
+	}
+
 	/* Just returns the given range unmodified unless the source range refers to (part of) a macro,
 	in which case it uses a (currently oversimplistic) heuristic to guess whether the macro defintion
 	is just a single expression (as opposed to, for example, a declaration, or a compound statement,
@@ -3548,6 +3644,8 @@ namespace convm1 {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, sr, Rewrite);
 		DEBUG_SOURCE_TEXT_STR(debug_fl_source_text, FLSR.isValid() ? FLSR : sr, Rewrite);
 		DEBUG_SOURCE_TEXT_STR(debug_sp_source_text, SPSR.isValid() ? SPSR : sr, Rewrite);
+		DEBUG_SOURCE_TEXT_STR(debug_sl_source_text, SL.isValid() ? clang::SourceRange({ SPSL, SPSL }) : sr, Rewrite);
+		DEBUG_SOURCE_TEXT_STR(debug_sle_source_text, SLE.isValid() ? clang::SourceRange({ SPSLE, SPSLE }) : sr, Rewrite);
 
 #ifndef NDEBUG
 			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
@@ -3569,9 +3667,11 @@ namespace convm1 {
 			auto b10b = SM.isMacroArgExpansion(SLE);
 			auto b11 = SM.isMacroArgExpansion(FLSL);
 			auto b12 = SM.isMacroArgExpansion(SPSL);
+			auto b12b = SM.isMacroArgExpansion(SPSLE);
 			auto b13 = SM.isMacroBodyExpansion(SL);
 			auto b14 = SM.isMacroBodyExpansion(FLSL);
 			auto b15 = SM.isMacroBodyExpansion(SPSL);
+			auto b15b = SM.isMacroBodyExpansion(SPSLE);
 			if (b10) {
 				if (!b10b) {
 					/* It seems that beginning of the source range is a macro function argument, but the end isn't. 
@@ -3581,6 +3681,48 @@ namespace convm1 {
 					int q = 5;
 				} else {
 					int q = 5;
+				}
+			}
+
+			auto sr2_sl = SL;
+			auto sr2_sle = SLE;
+			auto sr2 = sr;
+			if ("" == SPSR_source_text) {
+				sr2 = source_range_with_both_ends_in_the_same_macro_body(sr, Rewrite);
+			}
+			if (sr2.isValid() && (!(sr2 == sr))) {
+				retval = sr2;
+				sr2_sl = sr2.getBegin();
+				sr2_sle = sr2.getEnd();
+
+				auto SP2SL = SM.getSpellingLoc(sr2.getBegin());
+				auto SP2SLE = SM.getSpellingLoc(sr2.getEnd());
+				auto b17 = SP2SL.isMacroID();
+				auto b18 = SP2SLE.isMacroID();
+				auto b18b = SP2SL.isFileID();
+				auto b18c = SP2SLE.isFileID();
+				auto SP2SR = clang::SourceRange{ SP2SL, SP2SLE };
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, sr2, Rewrite);
+
+				std::string SP2SR_source_text;
+				if ((SP2SR).isValid() && (((SP2SR).getBegin() < (SP2SR).getEnd()) || ((SP2SR).getBegin() == (SP2SR).getEnd()))) {
+					SP2SR_source_text = Rewrite.getRewrittenText(SP2SR);
+					if ("" != SP2SR_source_text) {
+						SPSR = SP2SR;
+						SPSR_source_text = SP2SR_source_text;
+						retval.m_source_text_as_if_expanded = SPSR_source_text;
+					} else {
+						std::string FLSR_source_text;
+						if ((FLSR).isValid() && (((FLSR).getBegin() < (FLSR).getEnd()) || ((FLSR).getBegin() == (FLSR).getEnd()))) {
+							FLSR_source_text = Rewrite.getRewrittenText(FLSR);
+							if ("" != FLSR_source_text) {
+								SPSR = FLSR;
+								SPSR_source_text = FLSR_source_text;
+								retval.m_source_text_as_if_expanded = SPSR_source_text;
+							}
+						}
+					}
 				}
 			}
 
@@ -3604,10 +3746,11 @@ namespace convm1 {
 				and store a list of (the source ranges of) all the (nested) macro instances which contain
 				the element. */
 				auto nested_macro_ranges = std::vector<clang::SourceRange>{};
-				auto last_macro1_SL = SL;
-				auto last_macro1_SLE = SLE;
-				auto macro1_SL = SM.getImmediateMacroCallerLoc(SL);
-				auto macro1_SLE = SM.getImmediateMacroCallerLoc(SLE);
+
+				auto last_macro1_SL = sr2_sl;
+				auto last_macro1_SLE = sr2_sle;
+				auto macro1_SL = SM.getImmediateMacroCallerLoc(sr2_sl);
+				auto macro1_SLE = SM.getImmediateMacroCallerLoc(sr2_sle);
 
 				const auto expansion_SR = SM.getExpansionRange(macro1_SL).getAsRange();
 				DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, expansion_SR, Rewrite);
@@ -3687,7 +3830,7 @@ namespace convm1 {
 									text1 = Rewrite.getRewrittenText({ SL1, SL1 });
 								}
 							}
-							DEBUG_SOURCE_LOCATION_STR(SL1_debug_source_location_str, clang::SourceRange(SL, SL), Rewrite);
+							DEBUG_SOURCE_LOCATION_STR(SL1_debug_source_location_str, clang::SourceRange(SL1, SL1), Rewrite);
 							if ("(" == text1) {
 								{
 									auto maybe_close_paren_SL = matching_close_parentheses_if_any(Rewrite, SL1);
@@ -8756,9 +8899,9 @@ namespace convm1 {
 						}
 					}
 
-					if (m_var_DD && (true)) {
-						state1.m_pending_code_modification_actions.add_expression_update_replacement_action(m_Rewrite, COSR, state1, CO);
+					state1.m_pending_code_modification_actions.add_expression_update_replacement_action(m_Rewrite, COSR, state1, CO);
 
+					if (m_var_DD && (true)) {
 						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*m_var_DD, &m_Rewrite);
 
 						clang::Expr const* pInitExpr = get_init_expr_if_any(m_var_DD);
@@ -10872,6 +11015,298 @@ namespace convm1 {
 					}
 				}
 			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
+	/* This class addresses conditional expressions and initialized declarations in the form "type var = cond ? lhs : rhs;". */
+	class MCSSSConditionalExpr : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSConditionalExpr (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+			, const clang::ConditionalOperator* CO, std::optional<const DeclaratorDecl*> maybe_DD) 
+		{
+			const Expr* LHS = nullptr;
+			const Expr* RHS = nullptr;
+			if (CO) {
+				LHS = CO->getLHS();
+				RHS = CO->getRHS();
+			}
+
+			if (/*(DS != nullptr) && */(LHS != nullptr) && (RHS != nullptr)
+				&& LHS->getType()->isPointerType() && RHS->getType()->isPointerType())
+			{
+				auto SR = cm1_adj_nice_source_range(CO->getSourceRange(), state1, Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
+				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(CO, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
+					return;
+				}
+
+				auto lhs_res2 = infer_array_type_info_from_stmt(*LHS, "", state1);
+				auto rhs_res2 = infer_array_type_info_from_stmt(*RHS, "", state1);
+				bool lhs_qualifies = false;
+				bool rhs_qualifies = false;
+
+				if (lhs_res2.ddecl_cptr && lhs_res2.update_declaration_flag) {
+					update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+				}
+				if (rhs_res2.ddecl_cptr && rhs_res2.update_declaration_flag) {
+					update_declaration_if_not_suppressed(*(rhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+				}
+
+				const DeclaratorDecl* possibly_null_DD = nullptr;
+
+				if (maybe_DD.has_value()) {
+					assert(nullptr != maybe_DD.value());
+					auto DD = maybe_DD.value();
+					possibly_null_DD == DD;
+					auto decl_source_range = cm1_adj_nice_source_range(DD->getSourceRange(), state1, Rewrite);
+					if (!decl_source_range.isValid()) {
+						return;
+					}
+					DEBUG_SOURCE_LOCATION_STR(decl_debug_source_location_str, decl_source_range, Rewrite);
+					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
+
+					QualType QT = DD->getType();
+					auto variable_name = DD->getNameAsString();
+
+					auto qualified_name = DD->getQualifiedNameAsString();
+					static const std::string mse_namespace_str1 = "mse::";
+					static const std::string mse_namespace_str2 = "::mse::";
+					if ((0 == qualified_name.compare(0, mse_namespace_str1.size(), mse_namespace_str1))
+							|| (0 == qualified_name.compare(0, mse_namespace_str2.size(), mse_namespace_str2))) {
+						return;
+					}
+
+					std::string var_current_state_str;
+					bool var_has_been_determined_to_point_to_an_array = false;
+
+					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+					//auto ddcs_map_iter = res1.first;
+					//auto& ddcs_ref = (*ddcs_map_iter).second;
+					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+						var_current_state_str = ddcs_ref.indirection_current(0);
+						var_has_been_determined_to_point_to_an_array = ddcs_ref.has_been_determined_to_point_to_an_array(0);
+					} else {
+						int q = 7;
+					}
+
+					{
+						auto& res2 = lhs_res2;
+						if (res2.ddecl_cptr && res2.declaration_expr_cptr) {
+							std::string variable_name = res2.ddecl_cptr->getNameAsString();
+							auto QT = res2.ddecl_cptr->getType();
+							IF_DEBUG(std::string QT_str = QT.getAsString();)
+							auto LHS_QT = LHS->getType();
+							IF_DEBUG(std::string LHS_QT_str = LHS_QT.getAsString();)
+							bool are_essentially_the_same_types = (QT == LHS_QT);
+							if (!are_essentially_the_same_types) {
+								if (QT->isArrayType() && LHS_QT->isPointerType()) {
+									auto AT = dyn_cast<const clang::ArrayType>(QT);
+									if (AT) {
+										IF_DEBUG(std::string AT_element_str = AT->getElementType().getAsString();)
+										IF_DEBUG(std::string LHS_QT_pointee_str = LHS_QT->getPointeeType().getAsString();)
+										if (AT->getElementType() == LHS_QT->getPointeeType()) {
+											are_essentially_the_same_types = true;
+										}
+									}
+								}
+							}
+							/* Currently we only support the case where the value expressions are direct
+							* references to declared variables. */
+							if (are_essentially_the_same_types/* && (1 == res2.indirection_level)*/) {
+								lhs_qualifies = true;
+								if (ConvertToSCPP && (nullptr != res2.ddecl_conversion_state_ptr)) {
+									{
+										/* Here we're establishing and "enforcing" the constraint that the lhs value must
+										* be of an (array) type that can be assigned to the target variable. */
+										auto cr_shptr = std::make_shared<CAssignmentTargetConstrainsSourceArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0), CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level));
+
+										if (var_has_been_determined_to_point_to_an_array) {
+											(*cr_shptr).do_replacement(state1);
+										} else {
+											if (ddcs_ref.has_been_determined_to_be_ineligible_for_xscope_status(0)) {
+												(*cr_shptr).do_replacement(state1);
+											} else {
+												state1.m_xscope_ineligibility_contingent_replacement_map.insert(cr_shptr);
+											}
+										}
+										state1.m_conversion_state_change_action_map.insert(cr_shptr);
+									}
+									{
+										/* Here we're establishing the constraint in the opposite direction as well. */
+										auto cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
+
+										if ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_point_to_an_array(res2.indirection_level)) {
+											(*cr_shptr).do_replacement(state1);
+										}
+										state1.m_conversion_state_change_action_map.insert(cr_shptr);
+									}
+								}
+							}
+						}
+					}
+
+					{
+						auto& res2 = rhs_res2;
+						if (res2.declaration_expr_cptr) {
+							if (res2.ddecl_cptr) {
+								std::string variable_name = res2.ddecl_cptr->getNameAsString();
+								auto QT = res2.ddecl_cptr->getType();
+								IF_DEBUG(std::string QT_str = QT.getAsString();)
+								auto RHS_QT = RHS->getType();
+								IF_DEBUG(std::string RHS_QT_str = RHS_QT.getAsString();)
+								bool are_essentially_the_same_types = (QT == RHS_QT);
+								if (!are_essentially_the_same_types) {
+									if (QT->isArrayType() && RHS_QT->isPointerType()) {
+										auto AT = dyn_cast<const clang::ArrayType>(QT);
+										if (AT) {
+											IF_DEBUG(std::string AT_element_str = AT->getElementType().getAsString();)
+											IF_DEBUG(std::string RHS_QT_pointee_str = RHS_QT->getPointeeType().getAsString();)
+											if (AT->getElementType() == RHS_QT->getPointeeType()) {
+												are_essentially_the_same_types = true;
+											}
+										}
+									}
+								}
+								/* Currently we only support the case where the value expressions are direct
+								* references to declared variables. */
+								if (are_essentially_the_same_types) {
+									rhs_qualifies = true;
+									if (ConvertToSCPP && (nullptr != res2.ddecl_conversion_state_ptr)) {
+										{
+											/* Here we're establishing and "enforcing" the constraint that the rhs value must
+											* be of an (array) type that can be assigned to the target variable. */
+											auto cr_shptr = std::make_shared<CAssignmentTargetConstrainsSourceArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0), CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level));
+
+											if (var_has_been_determined_to_point_to_an_array) {
+												(*cr_shptr).do_replacement(state1);
+											} else {
+												if (ddcs_ref.has_been_determined_to_be_ineligible_for_xscope_status(0)) {
+													(*cr_shptr).do_replacement(state1);
+												} else {
+													state1.m_xscope_ineligibility_contingent_replacement_map.insert(cr_shptr);
+												}
+											}
+											state1.m_conversion_state_change_action_map.insert(cr_shptr);
+										}
+										{
+											/* Here we're establishing the constraint in the opposite direction as well. */
+											auto cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
+
+											if ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_point_to_an_array(res2.indirection_level)) {
+												(*cr_shptr).do_replacement(state1);
+											}
+											state1.m_conversion_state_change_action_map.insert(cr_shptr);
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+
+				std::string lhs_current_state_str;
+				std::string rhs_current_state_str;
+				if (lhs_qualifies || rhs_qualifies) {
+					if (lhs_qualifies && (lhs_res2.ddecl_cptr)) {
+						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(lhs_res2.ddecl_cptr), &Rewrite);
+						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+							lhs_current_state_str = ddcs_ref.m_indirection_state_stack.at(0).current_species();
+						} else {
+							int q = 7;
+						}
+					}
+					if (rhs_qualifies && (rhs_res2.ddecl_cptr)) {
+						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(rhs_res2.ddecl_cptr), &Rewrite);
+						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+							rhs_current_state_str = ddcs_ref.m_indirection_state_stack.at(0).current_species();
+						} else {
+							int q = 7;
+						}
+					}
+				}
+
+				if (ConvertToSCPP) {
+					/* Here we're establishing and "enforcing" the constraint that the lhs and rhs
+					* values of the conditional operator must be the same type. */
+					if (lhs_res2.ddecl_cptr) {
+						auto cr_shptr = std::make_shared<CConditionalOperatorReconciliation2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*lhs_res2.ddecl_cptr, 0), CO, lhs_res2.ddecl_cptr, rhs_res2.ddecl_cptr, possibly_null_DD);
+
+						if ("dynamic array" == lhs_current_state_str) {
+							(*cr_shptr).do_replacement(state1);
+						} else if ("native array" == lhs_current_state_str) {
+							(*cr_shptr).do_replacement(state1);
+						} else if ("variously native and dynamic array" == lhs_current_state_str) {
+							(*cr_shptr).do_replacement(state1);
+						} else {
+							state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+							if ("inferred array" == lhs_current_state_str) {
+								(*cr_shptr).do_replacement(state1);
+							}
+							state1.m_conversion_state_change_action_map.insert(cr_shptr);
+						}
+					} else {
+						int q = 5;
+					}
+					if (rhs_res2.ddecl_cptr) {
+						auto cr_shptr = std::make_shared<CConditionalOperatorReconciliation2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*rhs_res2.ddecl_cptr, 0), CO, lhs_res2.ddecl_cptr, rhs_res2.ddecl_cptr, possibly_null_DD);
+
+						if ("dynamic array" == rhs_current_state_str) {
+							(*cr_shptr).do_replacement(state1);
+						} else if ("native array" == rhs_current_state_str) {
+							(*cr_shptr).do_replacement(state1);
+						} else if ("variously native and dynamic array" == lhs_current_state_str) {
+							(*cr_shptr).do_replacement(state1);
+						} else {
+							state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+							if ("inferred array" == rhs_current_state_str) {
+								(*cr_shptr).do_replacement(state1);
+							}
+							state1.m_conversion_state_change_action_map.insert(cr_shptr);
+						}
+					} else {
+						int q = 5;
+					}
+				}
+			}
+		}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			//const DeclStmt* DS = MR.Nodes.getNodeAs<clang::DeclStmt>("mcsssconditionalinitializer1");
+			const clang::ConditionalOperator* CO = MR.Nodes.getNodeAs<clang::ConditionalOperator>("mcsssconditionalinitializer2");
+			const DeclaratorDecl* DD = MR.Nodes.getNodeAs<clang::DeclaratorDecl>("mcsssconditionalinitializer3");
+
+			std::optional<const DeclaratorDecl*> maybe_DD;
+			if (DD) {
+				maybe_DD = DD;
+			} else {
+				int q = 5;
+			}
+
+			s_handler1(MR, Rewrite, m_state1, CO, maybe_DD);
 		}
 
 	private:
@@ -15066,7 +15501,7 @@ namespace convm1 {
 			HandlerForSSSPointerArithmetic2(R, tu_state()), HandlerForSSSNullToPointer(R, tu_state()), HandlerForSSSMalloc2(R, tu_state()),
 			HandlerForSSSMallocInitializer2(R, tu_state()), HandlerForSSSNullInitializer(R, tu_state()), HandlerForSSSFree2(R, tu_state()),
 			HandlerForSSSSetToNull2(R, tu_state()), HandlerForSSSCompareWithNull2(R, tu_state()), HandlerForSSSFunctionCall1(R, tu_state()),
-			HandlerForSSSConditionalInitializer(R, tu_state()), HandlerForSSSAssignment(R, tu_state()), HandlerForSSSArgToParameterPassingArray2(R, tu_state()),
+			HandlerForSSSConditionalExpr(R, tu_state()), HandlerForSSSAssignment(R, tu_state()), HandlerForSSSArgToParameterPassingArray2(R, tu_state()),
 			HandlerForSSSArgToReferenceParameterPassing(R, tu_state()), HandlerForSSSReturnValue(R, tu_state()), HandlerForSSSFRead(R, tu_state()), HandlerForSSSFWrite(R, tu_state()), 
 			HandlerForSSSAddressOf(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForMisc1(R, tu_state(), CI)
 		{
@@ -15297,12 +15732,14 @@ namespace convm1 {
 									conditionalOperator(has(declRefExpr())).bind("mcsssconditionalinitializer2"),
 									conditionalOperator(hasDescendant(declRefExpr())).bind("mcsssconditionalinitializer2")
 							)
-					))).bind("mcsssconditionalinitializer3"), &HandlerForSSSConditionalInitializer);
+					))).bind("mcsssconditionalinitializer3"), &HandlerForSSSConditionalExpr);
+
+			Matcher.addMatcher(conditionalOperator().bind("mcsssconditionalinitializer2"), &HandlerForSSSConditionalExpr);
 
 			Matcher.addMatcher(decl().bind("mcsssdeclutil1"), &HandlerForSSSDeclUtil);
 
 		}
-
+ 
 		void HandleTranslationUnit(ASTContext &Context) override 
 		{
 			Matcher.matchAST(Context);
@@ -15325,7 +15762,7 @@ namespace convm1 {
 		MCSSSSetToNull2 HandlerForSSSSetToNull2;
 		MCSSSCompareWithNull2 HandlerForSSSCompareWithNull2;
 		MCSSSFunctionCall1 HandlerForSSSFunctionCall1;
-		MCSSSConditionalInitializer HandlerForSSSConditionalInitializer;
+		MCSSSConditionalExpr HandlerForSSSConditionalExpr;
 		MCSSSAssignment HandlerForSSSAssignment;
 		MCSSSArgToParameterPassingArray2 HandlerForSSSArgToParameterPassingArray2;
 		MCSSSArgToReferenceParameterPassing HandlerForSSSArgToReferenceParameterPassing;
@@ -15416,7 +15853,7 @@ namespace convm1 {
 		}
 
 #ifndef NDEBUG
-		if (string_begins_with(macro_nametok_text, "MACRO")) {
+		if (string_begins_with(macro_nametok_text, "YY_CURRENT_BUFFER")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
