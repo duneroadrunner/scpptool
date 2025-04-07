@@ -3496,20 +3496,42 @@ namespace convm1 {
 		return extended_to_include_prefix_if_present("__attribute__", SR2, state1, Rewrite);
 	}
 
+	/* You may be given a SourceRange in which the the Begin and End points are at different levels 
+	of macro nesting. Given such a SourceRange, this function will try to return the most deeply
+	nested corresponding SourceRange in which the Begin and End points are at the same macro nesting
+	level. */
 	static clang::SourceRange source_range_with_both_ends_in_the_same_macro_body(clang::SourceRange sr, clang::Rewriter &Rewrite) {
 		auto& SM = Rewrite.getSourceMgr();
 		clang::SourceRange retval = sr;
+		auto SL = sr.getBegin();
+		auto SLE = sr.getEnd();
+
+		auto SL_function_macro_start = SL;
+		bool SL_isMacroArgExpansion_flag = SM.isMacroArgExpansion(SL, &SL_function_macro_start);
+		auto SLE_function_macro_start = SLE;
+		bool SLE_isMacroArgExpansion_flag = SM.isMacroArgExpansion(SLE, &SLE_function_macro_start);
+		if (SL_isMacroArgExpansion_flag && !SLE_isMacroArgExpansion_flag) {
+			sr = { SL_function_macro_start, SLE };
+		} else if ((!SL_isMacroArgExpansion_flag) && SLE_isMacroArgExpansion_flag) {
+			sr = { SL, SLE_function_macro_start };
+		}
+		auto adj_SPSL = SM.getSpellingLoc(sr.getBegin());
+		auto adj_SPSLE = SM.getSpellingLoc(sr.getEnd());
+		auto adj_SPSR = clang::SourceRange{ adj_SPSL, adj_SPSLE };
+		DEBUG_SOURCE_TEXT_STR(debug_adj_SPSR_source_text, adj_SPSR, Rewrite);
 
 		/* Returns a list of ranges corresponding to nested macros (if any) that contain the given source location. */
-		auto nested_macro_ranges = [&SM, &Rewrite](clang::SourceLocation SL) {
+		auto nested_macro_ranges = [&SM, &Rewrite](clang::SourceLocation SL, bool is_end_point = false) {
 				std::vector<std::pair<clang::SourceLocation, clang::SourceRange> > retval;
 				auto last_macro1_SL = SL;
 				auto last_macro1_SR = clang::SourceRange{ SL, SL };
 				auto macro1_SR = SM.getExpansionRange(SL).getAsRange();
+				DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, macro1_SR, Rewrite);
 				retval.push_back(std::pair{ SL, macro1_SR });
 				auto macro1_SL = SM.getImmediateMacroCallerLoc(SL);
+				last_macro1_SR = macro1_SR;
 				macro1_SR = SM.getExpansionRange(macro1_SL).getAsRange();
-				DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, macro1_SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_expansion2_source_text, macro1_SR, Rewrite);
 
 				while (macro1_SL != last_macro1_SL) {
 					retval.push_back({ macro1_SL, macro1_SR });
@@ -3529,9 +3551,7 @@ namespace convm1 {
 			};
 
 		auto nested_macro_ranges_of_begin = nested_macro_ranges(sr.getBegin());
-		auto nested_macro_ranges_of_end = nested_macro_ranges(sr.getEnd());
-		//std::reverse(nested_macro_ranges_of_begin.begin(), nested_macro_ranges_of_begin.end());
-		//std::reverse(nested_macro_ranges_of_end.begin(), nested_macro_ranges_of_end.end());
+		auto nested_macro_ranges_of_end = nested_macro_ranges(sr.getEnd(), true/* is_end_point */);
 
 		/* So we're searching for the most deeply nested macro that contains both the begin and end 
 		points of the given range. */
@@ -3578,16 +3598,44 @@ namespace convm1 {
 							++ranges_of_end_iter2;
 						}
 
-						ranges_of_end_iter = l_ranges_of_end_iter;
-						found_flag = true;
-						retval = { ranges_of_begin_iter->first, l_ranges_of_end_iter->first };
-						break;
+						/* Ok, so now we have a Begin and End point with an ostensibly common immediate parent macro invocation. But for some reason the 
+						immediate parent macro invocation reported (by clang) is not always actually the immediate parent macro invocation. Sometimes it 
+						seems to ignore some macros. So for extra verification we'll check to make sure that all ancestor macro invocations also match. */
+
+						if ((nested_macro_ranges_of_begin.end() - ranges_of_begin_iter2) == (nested_macro_ranges_of_end.end() - ranges_of_end_iter2)) {
+							bool all_further_ancestor_ranges_match = true;
+							while (nested_macro_ranges_of_begin.end() != ranges_of_begin_iter2) {
+								if (!(ranges_of_begin_iter2->second == ranges_of_end_iter2->second)) {
+									all_further_ancestor_ranges_match = false;
+									break;
+								}
+								++ranges_of_begin_iter2;
+								++ranges_of_end_iter2;
+							}
+
+							if (all_further_ancestor_ranges_match) {
+								/* Ok, we seem to have found a Begin and End point with an seemingly common immediate parent macro invocation. */
+								ranges_of_end_iter = l_ranges_of_end_iter;
+								found_flag = true;
+								retval = { ranges_of_begin_iter->first, l_ranges_of_end_iter->first };
+								break;
+							}
+						}
 					}
 				}
 				if (found_flag) {
 					break;
 				}
 			}
+		}
+		if (true && (!found_flag)) {
+			if (2 <= nested_macro_ranges_of_begin.size()) {
+				retval.setBegin(nested_macro_ranges_of_begin.back().first);
+			};
+			if (2 <= nested_macro_ranges_of_end.size()) {
+				retval.setEnd(nested_macro_ranges_of_end.back().first);
+			};
+			DEBUG_SOURCE_TEXT_STR(debug_retval_source_text, retval, Rewrite);
 		}
 		return retval;
 	}
@@ -3653,13 +3701,7 @@ namespace convm1 {
 			}
 #endif /*!NDEBUG*/
 
-		if (true && ((b3 && (!b4)) || ((!b3) && b4))) {
-			/* It seems that one end of the range is part of a macro, but the other end isn't. If this function 
-			is being called from cm1_nice_source_range(), then if we just return the input source range, 
-			cm1_nice_source_range() will handle this case. */
-			return sr;
-		}
-		if (b3 && b4) {
+		if (b3 || b4) {
 			/* The element is part of a macro instance. */
 			auto& SM = Rewrite.getSourceMgr();
 
@@ -3683,11 +3725,20 @@ namespace convm1 {
 					int q = 5;
 				}
 			}
+			if (true && ((b3 && (!b4)) || ((!b3) && b4))) {
+				int q = 5;
+				/* Note that we specifically omit the (defulted) CTUState pointer parameter as not omitting it 
+				risks infinite recursion with this function. */
+				return cm1_nice_source_range(sr, Rewrite);
+			}
 
 			auto sr2_sl = SL;
 			auto sr2_sle = SLE;
 			auto sr2 = sr;
-			if ("" == SPSR_source_text) {
+			if (true || ("" == SPSR_source_text)) {
+				/* The fact that we're not getting any source text from the "spelling" range may be due to the 
+				Begin and End points of the range being at different levels of macro nesting. So we'll attempt 
+				to get a corresponding range with the Begin and End points at the same macro nesting level. */
 				sr2 = source_range_with_both_ends_in_the_same_macro_body(sr, Rewrite);
 			}
 			if (sr2.isValid() && (!(sr2 == sr))) {
@@ -10834,7 +10885,10 @@ namespace convm1 {
 			, { "strncmp", "mse::lh::strncmp", "MSE_LH_STRNCMP", {3} }
 			, { "strlen", "mse::lh::strlen", "MSE_LH_STRLEN", {1} }
 			, { "strnlen_s", "mse::lh::strnlen_s", "MSE_LH_STRNLEN_S", {2} }
+			, { "fread", "mse::lh::fread", "MSE_LH_FREAD", {4} }
+			, { "fwrite", "mse::lh::fwrite", "MSE_LH_FWRITE", {4} }
 
+			, { "std::memset", "mse::lh::memset", "MSE_LH_MEMSET", {3} }
 			, { "std::memcpy", "mse::lh::memcpy", "MSE_LH_MEMCPY", {3} }
 			, { "std::memcmp", "mse::lh::memcmp", "MSE_LH_MEMCMP", {3} }
 			, { "std::strcpy", "mse::lh::strcpy", "MSE_LH_STRCPY", {2} }
@@ -10842,6 +10896,8 @@ namespace convm1 {
 			, { "std::strncmp", "mse::lh::strncmp", "MSE_LH_STRNCMP", {3} }
 			, { "std::strlen", "mse::lh::strlen", "MSE_LH_STRLEN", {1} }
 			, { "std::strnlen_s", "mse::lh::strnlen_s", "MSE_LH_STRNLEN_S", {2} }
+			, { "std::fread", "mse::lh::fread", "MSE_LH_FREAD", {4} }
+			, { "std::fwrite", "mse::lh::fwrite", "MSE_LH_FWRITE", {4} }
 		};
 		return sl_function_conversion_infos;
 	}
@@ -15620,6 +15676,7 @@ namespace convm1 {
 							anything()
 					)).bind("mcsssparameterpassing1"), &HandlerForSSSArgToReferenceParameterPassing);
 
+			/*
 			Matcher.addMatcher(
 					callExpr(allOf(
 							hasAnyArgument(
@@ -15645,6 +15702,7 @@ namespace convm1 {
 								argumentCountIs(4),
 								hasAnyArgument(hasType(pointerType()))
 					)).bind("mcsssfwrite1"), &HandlerForSSSFWrite);
+					*/
 
 			Matcher.addMatcher(expr(allOf(
 					hasParent(expr(
