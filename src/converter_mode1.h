@@ -3929,18 +3929,31 @@ namespace convm1 {
 									is_essentially_the_whole_macro = true;
 								}
 
+								bool return_the_macro_invocation_rather_than_the_definition = false;
 								if (is_essentially_the_whole_macro) {
 									/* It looks like the macro expansion is essentially just the given source 
 									range. So we're going to presume that it's likely that any given 
-									transformation could be appropriately applied to the instantiation of the 
+									transformation could be appropriately applied to the invocation of the 
 									macro, rather than needing to be applied to the definition of the macro. We 
 									would prefer not to modify the definition of a macro if it's not necessary. */
+
+									if (filtered_out_by_location<options_t<converter_mode_t> >(SM, found_macro_iter->second.definition_SR().getBegin())) {
+										/* Unless the macro definition is not elegible for conversion. In this case we probably don't 
+										want to return the invocation range that might be elegible for conversion. The macro might be 
+										a system or installed 3rd party library macro whose definition might be platform dependent. */
+#ifndef NDEBUG
+										if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+											int q = 5;
+										}
+#endif /*!NDEBUG*/
+									} else {
+										return_the_macro_invocation_rather_than_the_definition = true;
+									}
+								}
+								if (return_the_macro_invocation_rather_than_the_definition) {
 									retval = adjusted_macro_SPSR;
 									source_text_as_if_expanded = Rewrite.getRewrittenText(adjusted_macro_SPSR);
 								} else {
-									/* The macro seems like it might consist of additional expressions and/or statements other than the
-									outside of the source range we were given. */
-
 									auto& macro_params = found_macro_iter->second.m_parameter_names;
 									if (macro_params.size() <= macro_args.size()) {
 										if (macro_params.size() != macro_args.size()) {
@@ -8688,7 +8701,7 @@ namespace convm1 {
 		std::string m_new_cast_suffix;
 		std::string m_whole_cast_expression_replacement_text;
 	};
-	inline CCStyleCastReplacementCodeItem generate_c_style_cast_replacement_code(Rewriter &Rewrite, const clang::CStyleCastExpr* CSCE, std::optional<std::string> maybe_replacement_qtype_str = {}) {
+	inline CCStyleCastReplacementCodeItem generate_c_style_cast_replacement_code(Rewriter &Rewrite, CTUState& state1, const clang::CStyleCastExpr* CSCE, std::optional<std::string> maybe_replacement_qtype_str = {}) {
 		CCStyleCastReplacementCodeItem retval;
 		if (CSCE) {
 			auto spelling_source_range = [&Rewrite](const clang::SourceRange& sr) {
@@ -8787,7 +8800,7 @@ namespace convm1 {
 				IF_DEBUG(auto whole_cast_expression_text = Rewrite.getRewrittenText(whole_cast_expression_SR);)
 				auto replacement_qtype_str = res1.m_replacement_type_str;
 
-				auto res = generate_c_style_cast_replacement_code(Rewrite, m_c_style_cast_expr_cptr, replacement_qtype_str);
+				auto res = generate_c_style_cast_replacement_code(Rewrite, state1, m_c_style_cast_expr_cptr, replacement_qtype_str);
 
 				CExprTextReplacementAction(Rewrite, m_c_style_cast_expr_cptr, res.m_whole_cast_expression_replacement_text).do_replacement(state1);
 			}
@@ -10786,6 +10799,12 @@ namespace convm1 {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
 				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(BO, Rewrite, *(MR.Context));
 				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
 				if (suppress_check_flag) {
@@ -11834,8 +11853,12 @@ namespace convm1 {
 			auto precasted_expr_SR = cm1_adj_nice_source_range(precasted_expr_ptr->getSourceRange(), state1, Rewrite);
 			auto CSCESR = write_once_source_range(cm1_adj_nice_source_range(CSCE->getSourceRange(), state1, Rewrite));
 			auto cast_operation_SR = cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite);
+			auto SR = CSCESR;
+			bool precasted_expr_is_function_type = precasted_expr_QT->isFunctionType();
 
+			RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, CSCESR, Rewrite);
+			RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 			DEBUG_SOURCE_TEXT_STR(debug_source_text1, CSCESR, Rewrite);
 
 #ifndef NDEBUG
@@ -11844,9 +11867,9 @@ namespace convm1 {
 			}
 #endif /*!NDEBUG*/
 
-			if ((csce_QT->isPointerType() || csce_QT->isArrayType())
-				&& (precasted_expr_QT->isPointerType() || precasted_expr_QT->isArrayType())
-				&& cast_operation_SR.isValid()) {
+			if ((csce_QT->isPointerType() || csce_QT->isArrayType()) && (!precasted_expr_is_function_type)
+				/*&& (precasted_expr_QT->isPointerType() || precasted_expr_QT->isArrayType())
+				&& cast_operation_SR.isValid()*/) {
 
 				auto CE = NonParenNoopCastParentOfType<clang::CallExpr>(CSCE, *(MR.Context));
 				if (CE) {
@@ -11872,7 +11895,7 @@ namespace convm1 {
 				if (ConvertToSCPP) {
 					std::string og_cast_operation_str = Rewrite.getRewrittenText(cast_operation_SR);
 					std::string expression_replacement_code;
-					if ("void *" == csce_QT.getAsString()) {
+					if (csce_QT->isPointerType() /*"void *" == csce_QT.getAsString()*/) {
 						auto IL = dyn_cast<const clang::IntegerLiteral>(precasted_expr_ptr);
 						if (IL) {
 							if (0 == IL->getValue().getLimitedValue()) {
@@ -11885,6 +11908,25 @@ namespace convm1 {
 								}
 								state1.add_pending_straight_text_replacement_expression_update(*CSCE, Rewrite, null_value_str);
 								//CExprTextReplacementAction(Rewrite, MR, CSCE, null_value_str).do_replacement(state1);
+								return;
+							} else {
+								/* Uhh, this seems to be a cast from an integer literal other than zero to a pointer. */
+								std::string og_precasted_expr_str = Rewrite.getRewrittenText(precasted_expr_SR);
+								if (("" != og_precasted_expr_str) && (3 <= og_cast_operation_str.size()) && ('(' == og_cast_operation_str.front()) && (')' == og_cast_operation_str.back())) {
+									auto og_cast_operation_wo_parens_str = og_cast_operation_str.substr(1, int(og_cast_operation_str.size()) - 2);
+									std::string new_cast_prefix;
+									if ("Dual" == ConvertMode) {
+										new_cast_prefix = "MSE_LH_UNSAFE_CAST("
+											+ og_cast_operation_wo_parens_str + ", ";
+									} else {
+										new_cast_prefix = "mse::us::lh::unsafe_cast<"
+											+ og_cast_operation_wo_parens_str + ">(";
+									}
+									std::string replacement_str = new_cast_prefix + og_precasted_expr_str + ")";
+									state1.add_pending_straight_text_replacement_expression_update(*CSCE, Rewrite, replacement_str);
+								} else {
+									int q = 5;
+								}
 								return;
 							}
 						}
@@ -11915,7 +11957,7 @@ namespace convm1 {
 					auto b1 = contains_explicit_pointer_cast_subexpression(*precasted_expr_ptr);
 
 					if (true || (!b1) || ("char" == non_const_csce_pointee_QT.getAsString())) {
-						auto res = generate_c_style_cast_replacement_code(Rewrite, CSCE);
+						auto res = generate_c_style_cast_replacement_code(Rewrite, state1, CSCE);
 
 						auto adjusted_new_cast_prefix = res.m_new_cast_prefix;
 						if (true) {
@@ -11973,6 +12015,12 @@ namespace convm1 {
 			auto CXXSCESR = write_once_source_range(cm1_adj_nice_source_range(CXXSCE->getSourceRange(), state1, Rewrite));
 			auto angle_brackets_SR = write_once_source_range(cm1_adj_nice_source_range(CXXSCE->getAngleBrackets(), state1, Rewrite));
 			auto cast_operation_SR = cm1_adj_nice_source_range({ CXXSCESR.getBegin(), angle_brackets_SR.getEnd() }, state1, Rewrite);
+			auto SR = CXXSCESR;
+
+			RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, CXXSCESR, Rewrite);
+			RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+			DEBUG_SOURCE_TEXT_STR(debug_source_text1, CXXSCESR, Rewrite);
 
 			if ((csce_QT->isPointerType() || csce_QT->isArrayType())
 				&& (precasted_expr_QT->isPointerType() || precasted_expr_QT->isArrayType())
@@ -12024,6 +12072,12 @@ namespace convm1 {
 			auto CXXSCESR = write_once_source_range(cm1_adj_nice_source_range(CXXSCE->getSourceRange(), state1, Rewrite));
 			auto angle_brackets_SR = write_once_source_range(cm1_adj_nice_source_range(CXXSCE->getAngleBrackets(), state1, Rewrite));
 			auto cast_operation_SR = cm1_adj_nice_source_range({ CXXSCESR.getBegin(), angle_brackets_SR.getEnd() }, state1, Rewrite);
+			auto SR = CXXSCESR;
+
+			RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, CXXSCESR, Rewrite);
+			RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+			DEBUG_SOURCE_TEXT_STR(debug_source_text1, CXXSCESR, Rewrite);
 
 			if ((csce_QT->isPointerType() || csce_QT->isArrayType())
 				&& (precasted_expr_QT->isPointerType() || precasted_expr_QT->isArrayType())
@@ -12781,7 +12835,7 @@ namespace convm1 {
 							if (SL) {
 								continue;
 							}
-							auto is_unmodifiable_raw_pointer_type = [&MR, &Rewrite, &state1](clang::Expr const& arg_EX_ii_cref) {
+							auto is_unmodifiable_raw_pointer_type = [&MR, &Rewrite, &state1](clang::Expr const& arg_EX_ii_cref, std::optional<clang::SourceRange> maybe_arg_EX_ii_SR = {}) {
 									auto arg_EX_ii_qtype = arg_EX_ii_cref.getType();
 									if (arg_EX_ii_qtype->isPointerType()) {
 										auto arg_CE = dyn_cast<const clang::CallExpr>(&arg_EX_ii_cref);
@@ -12799,11 +12853,20 @@ namespace convm1 {
 												}
 											}
 										}
+										clang::SourceRange l_arg_EX_ii_SR;
+										if (maybe_arg_EX_ii_SR.has_value()) {
+											l_arg_EX_ii_SR = maybe_arg_EX_ii_SR.value();
+										} else {
+											l_arg_EX_ii_SR = cm1_adj_nice_source_range(arg_EX_ii_cref.getSourceRange(), state1, Rewrite);
+										}
+										if (filtered_out_by_location<options_t<converter_mode_t> >(Rewrite.getSourceMgr(), l_arg_EX_ii_SR.getBegin())) {
+											return true;
+										}
 									}
 									return false;
 								};
 
-							if (is_unmodifiable_raw_pointer_type(*arg_EX_ii)) {
+							if (is_unmodifiable_raw_pointer_type(*arg_EX_ii, arg_EX_ii_SR)) {
 								/* This argument corresponding to a pointer parameter that cannot be converted to a safe pointer, 
 								seems to be the direct return value of a function that also cannot be converted to return a safe 
 								pointer. So we'll just leave this passing of a raw pointer as is. */

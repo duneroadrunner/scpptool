@@ -352,6 +352,18 @@ inline CFilteringResultByLocation evaluate_filtering_by_location(const clang::So
 			retval.m_suppress_errors = res1.m_suppress_errors;
 		}
 	}
+	if constexpr (std::is_base_of<converter_mode_t, TOptions>::value) {
+		if (!(retval.m_suppress_errors) && SL.isMacroID()) {
+			/* This may be an invocation of a macro. In converter mode, even if the invocation occurs in a 
+			location that would otherwise be elegible for conversion, if the macro is a "system" or 3rd 
+			party installed library macro, then we'd probably want to preserve the macro invocation as the 
+			code in its definition may be platform specific. */
+			auto SPSL = SM.getSpellingLoc(SL);
+			if (SPSL.isValid() && (!SPSL.isMacroID())) {
+				retval = evaluate_filtering_by_location<TOptions>(SM, SPSL);
+			}
+		}
+	}
 	tl_maybe_cached_result = retval;
 	return retval;
 }
