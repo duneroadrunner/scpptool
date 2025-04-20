@@ -4560,12 +4560,18 @@ namespace convm1 {
 		}
 		std::string direct_type_original_type_source_text = direct_type_state_ref.original_type_source_text();
 
+		bool has_external_storage = false;
 		bool is_dependent_type = false;
 		std::optional<clang::NamedDecl const *> maybe_contained_tparam;
 		std::optional<clang::NamedDecl const *> maybe_tparam;
 		if (indirection_state_stack.m_maybe_DD.has_value()) {
 			auto DD = indirection_state_stack.m_maybe_DD.value();
 			if (DD) {
+				auto VD = dyn_cast<const clang::VarDecl>(DD);
+				 if (VD) {
+					has_external_storage = VD->hasExternalStorage();
+				 }
+
 				maybe_contained_tparam = seems_to_contain_an_instantiation_of_a_template_parameter(*DD, Rewrite, state1_ptr);
 
 				if ("" == direct_type_original_qtype_str) {
@@ -4812,7 +4818,7 @@ namespace convm1 {
 							retval.m_action_species = "other_untranslatable_indirect_type";
 						} else {
 							l_changed_from_original = true;
-							if (is_a_function_parameter || ("native array" != indirection_state_ref.original_species())) {
+							if (is_a_function_parameter || (("native array" != indirection_state_ref.original_species()) && (!has_external_storage))) {
 								if ("FasterAndStricter" == ConvertMode) {
 									prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
 									suffix_str = "> ";
@@ -7973,6 +7979,9 @@ namespace convm1 {
 			}
 			if (src_indirection_state.is_known_to_have_non_malloc_target() && (!trgt_indirection_state.is_known_to_have_non_malloc_target())) {
 				trgt_indirection_state.set_is_known_to_have_non_malloc_target(true);
+				trgt_indirection_state.m_array_size_expr = src_indirection_state.m_array_size_expr;
+				trgt_indirection_state.m_array_size_expr_read_from_source_text = src_indirection_state.m_array_size_expr_read_from_source_text;
+
 				trgt_update_declaration_flag |= true;
 				state1.m_conversion_state_change_action_map.execute_matching_actions(state1, trgt_indirection);
 				if (trgt_indirection_state.is_known_to_be_used_as_array_iterator()) {
@@ -10510,7 +10519,7 @@ namespace convm1 {
 									}
 
 									if (ConvertToSCPP) {
-										if (true) {
+										if (false) {
 											std::vector<const clang::Expr *> arg_expr_cptrs;
 
 											auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_E_ii);
@@ -10519,10 +10528,9 @@ namespace convm1 {
 												assert(precasted_expr_ptr);
 												auto precasted_expr_QT = precasted_expr_ptr->getType();
 												IF_DEBUG(std::string precasted_expr_QT_str = precasted_expr_QT.getAsString();)
-												arg_expr_cptrs.push_back(precasted_expr_ptr);
-											} else {
-												arg_expr_cptrs.push_back(arg_E_ii);
+												arg_E_ic = precasted_expr_ptr->IgnoreParenCasts();
 											}
+											arg_expr_cptrs.push_back(arg_E_ic);
 
 											auto& ecs = state1.get_expr_conversion_state_ref<CCallExprConversionState>(*CE, Rewrite, arg_expr_cptrs, callee_name_replacement_text);
 											ecs.update_current_text();
