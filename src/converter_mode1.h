@@ -10457,62 +10457,82 @@ namespace convm1 {
 				if (function_decl && (1 == num_args)) {
 					auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
 					if (alloc_function_info1.m_seems_to_be_some_kind_of_free) {
-						{
-							auto arg_iter = CE->arg_begin();
-							assert((*arg_iter)->getType().getTypePtrOrNull());
-							auto arg_source_range = cm1_adj_nice_source_range((*arg_iter)->getSourceRange(), state1, Rewrite);
-							std::string arg_source_text;
-							if (arg_source_range.isValid()) {
-								arg_source_text = Rewrite.getRewrittenText(arg_source_range);
-								//auto arg_source_text_sans_ws = with_whitespace_removed(arg_source_text);
+						auto arg_iter = CE->arg_begin();
+						assert((*arg_iter)->getType().getTypePtrOrNull());
+						auto arg_source_range = cm1_adj_nice_source_range((*arg_iter)->getSourceRange(), state1, Rewrite);
+						std::string arg_source_text;
+						if (arg_source_range.isValid()) {
+							arg_source_text = Rewrite.getRewrittenText(arg_source_range);
+							//auto arg_source_text_sans_ws = with_whitespace_removed(arg_source_text);
 
-								auto arg_E = (*(arg_iter));
-								auto arg_E_ic = (*(arg_iter))->IgnoreParenCasts();
-								auto arg_res2 = infer_array_type_info_from_stmt(*arg_E_ic, "malloc target", state1);
-								bool arg_is_an_indirect_type = is_an_indirect_type(arg_E_ic->getType());
+							auto arg_E = (*(arg_iter));
+							auto arg_E_ii = IgnoreParenImpCasts(*(arg_iter));
+							auto arg_E_ic = (*(arg_iter))->IgnoreParenCasts();
+							auto arg_res2 = infer_array_type_info_from_stmt(*arg_E_ic, "malloc target", state1);
+							bool arg_is_an_indirect_type = is_an_indirect_type(arg_E_ic->getType());
 
-								if (arg_res2.ddecl_cptr) {
-									if (arg_res2.update_declaration_flag) {
-										update_declaration_if_not_suppressed(*(arg_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
-									}
-
-									auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(arg_res2.ddecl_cptr), &Rewrite);
-
-									ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
-									for (auto& indirection_state : ddcs_ref.m_indirection_state_stack) {
-										indirection_state.set_xscope_eligibility(false);
-									}
-									update_declaration_flag |= true;
-
-									if (update_declaration_flag) {
-										update_declaration_if_not_suppressed(*(arg_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
-									}
-
+							if (arg_res2.ddecl_cptr) {
+								if (arg_res2.update_declaration_flag) {
+									update_declaration_if_not_suppressed(*(arg_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 								}
 
-								auto arg_QT = arg_E_ic->getType();
-								const clang::Type* arg_TP = arg_QT.getTypePtr();
-								auto arg_type_str = arg_QT.getAsString();
-								if (arg_QT->isPointerType()) {
-									auto callee_SR = write_once_source_range(cm1_adj_nice_source_range(CE->getCallee()->getSourceRange(), state1, Rewrite));
-									auto callee_raw_SR = CE->getCallee()->getSourceRange();
-									if (callee_SR.isValid()) {
-										IF_DEBUG(auto callee_text = Rewrite.getRewrittenText(callee_SR);)
-										IF_DEBUG(auto callee_text1 = Rewrite.getRewrittenText(callee_raw_SR);)
+								auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(arg_res2.ddecl_cptr), &Rewrite);
 
-										std::string callee_replacement_code;
-										if ("Dual" == ConvertMode) {
-											callee_replacement_code = "MSE_LH_FREE";
-										} else if ("FasterAndStricter" == ConvertMode) {
-											callee_replacement_code = "mse::lh::free";
+								ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
+								for (auto& indirection_state : ddcs_ref.m_indirection_state_stack) {
+									indirection_state.set_xscope_eligibility(false);
+								}
+								update_declaration_flag |= true;
+
+								if (update_declaration_flag) {
+									update_declaration_if_not_suppressed(*(arg_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+								}
+
+							}
+
+							auto arg_QT = arg_E_ic->getType();
+							const clang::Type* arg_TP = arg_QT.getTypePtr();
+							auto arg_type_str = arg_QT.getAsString();
+							if (arg_QT->isPointerType()) {
+								auto callee_SR = write_once_source_range(cm1_adj_nice_source_range(CE->getCallee()->getSourceRange(), state1, Rewrite));
+								auto callee_raw_SR = CE->getCallee()->getSourceRange();
+								if (callee_SR.isValid()) {
+									IF_DEBUG(auto callee_text = Rewrite.getRewrittenText(callee_SR);)
+									IF_DEBUG(auto callee_text1 = Rewrite.getRewrittenText(callee_raw_SR);)
+
+									std::string callee_name_replacement_text;
+									if ("Dual" == ConvertMode) {
+										callee_name_replacement_text = "MSE_LH_FREE";
+									} else if ("FasterAndStricter" == ConvertMode) {
+										callee_name_replacement_text = "mse::lh::free";
+									} else {
+										callee_name_replacement_text = "mse::lh::free";
+									}
+
+									if (ConvertToSCPP) {
+										if (true) {
+											std::vector<const clang::Expr *> arg_expr_cptrs;
+
+											auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_E_ii);
+											if (CSCE) {
+												auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
+												assert(precasted_expr_ptr);
+												auto precasted_expr_QT = precasted_expr_ptr->getType();
+												IF_DEBUG(std::string precasted_expr_QT_str = precasted_expr_QT.getAsString();)
+												arg_expr_cptrs.push_back(precasted_expr_ptr);
+											} else {
+												arg_expr_cptrs.push_back(arg_E_ii);
+											}
+
+											auto& ecs = state1.get_expr_conversion_state_ref<CCallExprConversionState>(*CE, Rewrite, arg_expr_cptrs, callee_name_replacement_text);
+											ecs.update_current_text();
+
+											state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, SR, state1, CE);
+
 										} else {
-											callee_replacement_code = "mse::lh::free";
-										}
+											state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, callee_SR, callee_name_replacement_text);
 
-										if (ConvertToSCPP) {
-											state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, callee_SR, callee_replacement_code);
-
-											auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_E);
+											auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_E_ii);
 											if (CSCE) {
 												auto cast_operation_SR = cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite);
 												std::string cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);
@@ -10525,73 +10545,73 @@ namespace convm1 {
 												state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, blank_text);
 											}
 										}
+									}
+								} else {
+									int q = 5;
+								}
+							}
+
+							if (false) {
+								std::string arg_element_type_str;
+								if (arg_TP->isArrayType()) {
+									if (llvm::isa<const clang::ArrayType>(arg_TP)) {
+										auto ATP = llvm::cast<const clang::ArrayType>(arg_TP);
+										assert(nullptr != ATP);
+										auto element_type = ATP->getElementType();
+										auto type_str = generate_qtype_replacement_code(element_type, Rewrite);
+										if (true || (("char" != type_str) && ("const char" != type_str))) {
+											arg_element_type_str = type_str;
+										}
+										auto element_type2 = arg_TP->getArrayElementTypeNoTypeQual();
+										if (element_type.getTypePtr() != element_type2) {
+											int q = 5;
+										}
 									} else {
 										int q = 5;
 									}
-								}
-
-								if (false) {
-									std::string arg_element_type_str;
-									if (arg_TP->isArrayType()) {
-										if (llvm::isa<const clang::ArrayType>(arg_TP)) {
-											auto ATP = llvm::cast<const clang::ArrayType>(arg_TP);
-											assert(nullptr != ATP);
-											auto element_type = ATP->getElementType();
-											auto type_str = generate_qtype_replacement_code(element_type, Rewrite);
-											if (true || (("char" != type_str) && ("const char" != type_str))) {
-												arg_element_type_str = type_str;
-											}
-											auto element_type2 = arg_TP->getArrayElementTypeNoTypeQual();
-											if (element_type.getTypePtr() != element_type2) {
-												int q = 5;
-											}
-										} else {
-											int q = 5;
-										}
-									} else if (arg_TP->isPointerType()) {
-										if (llvm::isa<const clang::PointerType>(arg_TP)) {
-											auto TPP = llvm::cast<const clang::PointerType>(arg_TP);
-											assert(nullptr != TPP);
-										} else {
-											int q = 5;
-										}
-										auto target_type = arg_TP->getPointeeType();
-										auto type_str = generate_qtype_replacement_code(target_type, Rewrite);
-										if (true || (("char" != type_str) && ("const char" != type_str)) || (!llvm::isa<const clang::PointerType>(arg_TP))) {
-											arg_element_type_str = type_str;
-										}
+								} else if (arg_TP->isPointerType()) {
+									if (llvm::isa<const clang::PointerType>(arg_TP)) {
+										auto TPP = llvm::cast<const clang::PointerType>(arg_TP);
+										assert(nullptr != TPP);
+									} else {
+										int q = 5;
 									}
-
-									if ("" != arg_element_type_str) {
-										if (ConvertToSCPP && (arg_res2.ddecl_conversion_state_ptr) && arg_is_an_indirect_type) {
-											auto arg_source_text = Rewrite.getRewrittenText(arg_source_range);
-											//std::string ce_replacement_code = "(" + arg_source_text + ").resize(0)";
-											std::string ce_replacement_code;
-
-											if ("Dual" == ConvertMode) {
-												ce_replacement_code = "MSE_LH_FREE(" + arg_source_text + ")";
-											} else if ("FasterAndStricter" == ConvertMode) {
-												ce_replacement_code = "mse::lh::free(" + arg_source_text + ")";
-											} else {
-												ce_replacement_code = "mse::lh::free(" + arg_source_text + ")";
-											}
-
-											auto cr_shptr = std::make_shared<CFreeDynamicArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(arg_res2.ddecl_cptr), arg_res2.indirection_level), CE, ce_replacement_code);
-
-											if (true || ((*(arg_res2.ddecl_conversion_state_ptr)).has_been_determined_to_point_to_an_array(arg_res2.indirection_level))) {
-												(*cr_shptr).do_replacement(state1);
-											} else {
-												//state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
-											}
-											state1.m_conversion_state_change_action_map.insert(cr_shptr);
-										}
+									auto target_type = arg_TP->getPointeeType();
+									auto type_str = generate_qtype_replacement_code(target_type, Rewrite);
+									if (true || (("char" != type_str) && ("const char" != type_str)) || (!llvm::isa<const clang::PointerType>(arg_TP))) {
+										arg_element_type_str = type_str;
 									}
 								}
-							} else {
-								int q = 5;
+
+								if ("" != arg_element_type_str) {
+									if (ConvertToSCPP && (arg_res2.ddecl_conversion_state_ptr) && arg_is_an_indirect_type) {
+										auto arg_source_text = Rewrite.getRewrittenText(arg_source_range);
+										//std::string ce_replacement_code = "(" + arg_source_text + ").resize(0)";
+										std::string ce_replacement_code;
+
+										if ("Dual" == ConvertMode) {
+											ce_replacement_code = "MSE_LH_FREE(" + arg_source_text + ")";
+										} else if ("FasterAndStricter" == ConvertMode) {
+											ce_replacement_code = "mse::lh::free(" + arg_source_text + ")";
+										} else {
+											ce_replacement_code = "mse::lh::free(" + arg_source_text + ")";
+										}
+
+										auto cr_shptr = std::make_shared<CFreeDynamicArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(arg_res2.ddecl_cptr), arg_res2.indirection_level), CE, ce_replacement_code);
+
+										if (true || ((*(arg_res2.ddecl_conversion_state_ptr)).has_been_determined_to_point_to_an_array(arg_res2.indirection_level))) {
+											(*cr_shptr).do_replacement(state1);
+										} else {
+											//state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+										}
+										state1.m_conversion_state_change_action_map.insert(cr_shptr);
+									}
+								}
 							}
+						} else {
 							int q = 5;
 						}
+						int q = 5;
 					}
 
 				}
@@ -11021,7 +11041,7 @@ namespace convm1 {
 								if (fc_info.OriginalFunctionQName == callee_spelling_text) {
 									callee_SR = callee_spelling_SR;
 								} else {
-									/* The "memset" function call seems to be part of a macro we aren't (currently) able to handle. */
+									/* The function call seems to be part of a macro we aren't (currently) able to handle. */
 									return;
 								}
 							}
@@ -11732,70 +11752,9 @@ namespace convm1 {
 				break;
 			}
 			{
-				auto& SM = Rewrite.getSourceMgr();
-				auto get_full_path_name = [&SM](clang::SourceLocation const& SL, bool* filename_is_invalid_ptr) {
-					auto full_path_name = std::string(SM.getBufferName(SL, filename_is_invalid_ptr));
-					if ("" == full_path_name) {
-						full_path_name = std::string(SL.printToString(SM));
-
-						/*
-						static const std::string spelling_prefix("<Spelling=");
-						auto last_spelling_pos = full_path_name.rfind(spelling_prefix);
-						if (last_spelling_pos + spelling_prefix.length() + 1 < full_path_name.size()) {
-							full_path_name = full_path_name.substr(last_spelling_pos + spelling_prefix.length());
-						}
-						*/
-
-						auto last_colon_pos = full_path_name.find_first_of(':');
-						if (last_colon_pos + 1 < full_path_name.size()) {
-							full_path_name = full_path_name.substr(0, last_colon_pos);
-						} else {
-							int q = 7;
-						}
-					}
-					return full_path_name;
-				};
-				auto get_filename = [](std::string const& full_path_name) {
-					std::string filename = full_path_name;
-					const auto last_slash_pos = full_path_name.find_last_of('/');
-					if (std::string::npos != last_slash_pos) {
-						if (last_slash_pos + 1 < full_path_name.size()) {
-							filename = full_path_name.substr(last_slash_pos+1);
-						} else {
-							filename = "";
-						}
-					}
-					return filename;
-				};
 				auto SR = decl.getSourceRange();
 				if (!(SR.isValid())) {
 					return true;
-				}
-				auto SL = SR.getBegin();
-				bool filename_is_invalid = false;
-				auto full_path_name = get_full_path_name(SL, &filename_is_invalid);
-
-				if (false) {
-					/* This case should now be addressed by the filtered_out_by_location<>() function. */
-
-					static const std::string invalid_buffer_str = "<invalid buffer>";
-					if (filename_is_invalid /* invalid_buffer_str == full_path_name */) {
-						auto SPSL = SM.getSpellingLoc(SL);
-						if (!(SPSL.isValid())) {
-							non_modifiable_flag = true;
-							break;
-						}
-						bool SP_filename_is_invalid = false;
-						auto SP_full_path_name = get_full_path_name(SPSL, &SP_filename_is_invalid);
-
-						auto res1 = evaluate_filtering_by_full_path_name<options_t<converter_mode_t> >(SP_full_path_name);
-						if (res1.m_do_not_process) {
-							/* We've observed that arriving here can indicate a situation where the given decl refers to an 
-							element in the body of an instantiated "system" macro. */
-							non_modifiable_flag = true;
-							break;
-						}
-					}
 				}
 			}
 		} while (false);
@@ -11833,6 +11792,11 @@ namespace convm1 {
 					} else {
 						return false;
 					}
+				}
+				auto res1 = analyze_malloc_resemblance(*FND, state1, Rewrite);
+				if (res1.m_seems_to_be_some_kind_of_malloc_or_realloc || res1.m_seems_to_be_some_kind_of_free) {
+					/* malloc() and free() calls will presumably be converted. */
+					return false;
 				}
 			}
 		}
@@ -12748,16 +12712,10 @@ namespace convm1 {
 					bool function_is_variadic = function_decl1->isVariadic();
 
 					do {
-						static const std::string free_str = "free";
-						bool ends_with_free = ((lc_function_name.size() >= free_str.size())
-								&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
-						if (ends_with_free) {
-							return;
-						}
-
 						auto res1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
-						bool seems_to_be_some_kind_of_malloc_or_realloc = res1.m_seems_to_be_some_kind_of_malloc_or_realloc;
-						if (seems_to_be_some_kind_of_malloc_or_realloc) {
+						if (res1.m_seems_to_be_some_kind_of_malloc_or_realloc || res1.m_seems_to_be_some_kind_of_free) {
+							/* malloc()/realloc() calls, including the passed arguments, are expected to be entirely replaced 
+							in another part of the code, so presumably there's no point in trying to address them here. */
 							return;
 						}
 
