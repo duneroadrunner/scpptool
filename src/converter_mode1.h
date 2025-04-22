@@ -652,6 +652,8 @@ namespace convm1 {
 		//CSourceRangePlus& operator=(base_class const& src) { base_class::operator=(src); return *this; }
 		
 		std::string m_source_text_as_if_expanded;
+		bool m_range_is_essentially_the_entire_body_of_a_macro = false;
+		bool m_macro_definition_range_substituted_with_macro_invocation_range = false;
 	};
 	static CSourceRangePlus cm1_adjusted_source_range(const clang::SourceRange& sr, CTUState& state1, clang::Rewriter &Rewrite, bool may_be_a_gnu_attr = false);
 
@@ -1445,35 +1447,7 @@ namespace convm1 {
 
 	class CExprTextInfo {
 	public:
-		CExprTextInfo(const clang::Expr * expr_ptr, Rewriter &Rewrite, CTUState& state1) : m_expr_cptr(expr_ptr), m_state1(state1) {
-			if (expr_ptr) {
-				auto expr_SR = cm1_adjusted_source_range((*expr_ptr).getSourceRange(), state1, Rewrite);
-				if (expr_SR.isValid()) {
-					//m_original_source_text_str = Rewrite.getRewrittenText(cm1_adj_nice_source_range(expr.getSourceRange(), state1, Rewrite));
-					if ((*expr_ptr).getSourceRange().getBegin().isMacroID() && ("" != expr_SR.m_source_text_as_if_expanded)) {
-						m_original_source_text_str = expr_SR.m_source_text_as_if_expanded;
-					} else {
-						m_original_source_text_str = Rewrite.getRewrittenText(expr_SR);
-						if ("" == m_original_source_text_str) {
-							auto nice_SR = cm1_adj_nice_source_range((*expr_ptr).getSourceRange(), state1, Rewrite);
-							if (nice_SR.isValid()) {
-								m_original_source_text_str = Rewrite.getRewrittenText(nice_SR);
-							}
-						}
-					}
-
-				/*
-				auto SR = cm1_adj_nice_source_range(expr_ptr->getSourceRange(), state1, Rewrite);
-				if (SR.isValid()) {
-					m_original_source_text_str = Rewrite.getRewrittenText(SR);
-				*/
-				} else {
-					int q = 3;
-				}
-			} else {
-				int q = 3;
-			}
-		}
+		CExprTextInfo(const clang::Expr * expr_ptr, Rewriter &Rewrite, CTUState& state1);
 		std::string const& current_text() const;
 		const Expr* m_expr_cptr = nullptr;
 		std::string m_original_source_text_str;
@@ -1982,7 +1956,24 @@ namespace convm1 {
 		CExprConversionState(do_not_set_up_child_dependencies_t, const clang::Expr& expr, Rewriter &Rewrite, CTUState& state1) : m_expr_cptr(&expr), Rewrite(Rewrite), m_state1(state1) {
 			auto expr_SR = cm1_adjusted_source_range(expr.getSourceRange(), state1, Rewrite);
 			if (expr_SR.isValid()) {
-				if (expr.getSourceRange().getBegin().isMacroID() && ("" != expr_SR.m_source_text_as_if_expanded)) {
+				bool use_source_text_as_if_expanded = false;
+				auto rawSR = expr.getSourceRange();
+				if (rawSR.isValid()) {
+					auto SL = rawSR.getBegin();
+					if (SL.isMacroID()) {
+						if ("" != expr_SR.m_source_text_as_if_expanded) {
+							auto& SM = Rewrite.getSourceMgr();
+							auto b10 = SM.isMacroArgExpansion(SL);
+							auto b13 = SM.isMacroBodyExpansion(SL);
+							if (true == expr_SR.m_macro_definition_range_substituted_with_macro_invocation_range) {
+								/* The source range was adjusted to refer to the invocation site of the macro rather than the definition site. So the text we
+								want is what the text at the definition site would look like after it has been expanded at the invocation site. */
+								use_source_text_as_if_expanded = true;
+							}
+						}
+					}
+				}
+				if (use_source_text_as_if_expanded) {
 					m_original_source_text_str = expr_SR.m_source_text_as_if_expanded;
 				} else {
 					m_original_source_text_str = Rewrite.getRewrittenText(expr_SR);
@@ -3026,6 +3017,103 @@ namespace convm1 {
 		return m_state1.m_ast_context_ptr;
 	}
 
+	CExprTextInfo::CExprTextInfo(const clang::Expr * expr_ptr, Rewriter &Rewrite, CTUState& state1) : m_expr_cptr(expr_ptr), m_state1(state1) {
+		if (expr_ptr) {
+			auto expr_SR = cm1_adjusted_source_range((*expr_ptr).getSourceRange(), state1, Rewrite);
+			if (expr_SR.isValid()) {
+#ifndef NDEBUG
+				if (std::string::npos != expr_SR.m_source_text_as_if_expanded.find("download_time")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+				//m_original_source_text_str = Rewrite.getRewrittenText(cm1_adj_nice_source_range(expr.getSourceRange(), state1, Rewrite));
+				bool use_source_text_as_if_expanded = false;
+				auto rawSR = (*expr_ptr).getSourceRange();
+				if (rawSR.isValid()) {
+					auto SL = rawSR.getBegin();
+					auto SLE = rawSR.getEnd();
+					if (SL.isMacroID()) {
+						auto& SM = Rewrite.getSourceMgr();
+						auto b10 = SM.isMacroArgExpansion(SL);
+						auto b13 = SM.isMacroBodyExpansion(SL);
+
+						if (state1.m_ast_context_ptr && b10) {
+							//auto parent_E = Tget_immediately_containing_element_of_type<clang::Expr>(expr_ptr, *(state1.m_ast_context_ptr));
+							auto parent_E = NonParenImpCastParentOfType<clang::Expr>(expr_ptr, *(state1.m_ast_context_ptr));
+							if (parent_E) {
+								auto parent_rawSR = parent_E->getSourceRange();
+								if (parent_rawSR.isValid()) {
+									auto parent_SL = parent_rawSR.getBegin();
+									auto parent_SLE = parent_rawSR.getEnd();
+									if (parent_SL.isMacroID()) {
+										auto parent_b10 = SM.isMacroArgExpansion(parent_SL);
+										auto parent_b13 = SM.isMacroBodyExpansion(parent_SL);
+										if (parent_b13) {
+											auto parent_expr_SR = cm1_adjusted_source_range((*parent_E).getSourceRange(), state1, Rewrite);
+											if (parent_expr_SR.isValid() && (false == parent_expr_SR.m_macro_definition_range_substituted_with_macro_invocation_range)) {
+
+												auto SR2 = SM.getImmediateExpansionRange(SL).getAsRange();
+												auto SPSR2 = clang::SourceRange{ SM.getSpellingLoc(SR2.getBegin()), SM.getSpellingLoc(SR2.getEnd()) };
+												auto SR3 = SM.getExpansionRange(SL).getAsRange();
+
+												if (SPSR2.isValid() && SM.isPointWithin(SPSR2.getBegin(), expr_SR.getBegin(), expr_SR.getEnd())
+													&& SM.isPointWithin(SPSR2.getEnd(), expr_SR.getBegin(), expr_SR.getEnd())) {
+
+													//auto text2 = Rewrite.getRewrittenText(SR2);
+													auto text_sp2 = Rewrite.getRewrittenText(SPSR2);
+													//auto text3 = Rewrite.getRewrittenText(SR3);
+													if ("" != text_sp2) {
+														/* This was some code to substitute the expression source range, presumably at the site of the macro invocation, with the 
+														corresponding one in the macro definition body in the case that the expression is a function macro argument, and the 
+														expression's parent expression is part of the macro definition body. The problem is that which source range location is 
+														more appropriate depends on what it's being used for, and we can't really know that here. */
+														//clang::SourceRange& expr_SR_base_ref = expr_SR;
+														//expr_SR_base_ref = SPSR2;
+														//expr_SR.m_source_text_as_if_expanded = text_sp2;
+														int q = 5;
+													}
+												}
+											} else {
+												int q = 5;
+											}
+										}
+										int q = 5;
+									}
+								}
+							}
+						}
+
+						if ("" != expr_SR.m_source_text_as_if_expanded) {
+							use_source_text_as_if_expanded = true;
+
+						}
+					}
+				}
+				if (use_source_text_as_if_expanded) {
+					m_original_source_text_str = expr_SR.m_source_text_as_if_expanded;
+				} else {
+					m_original_source_text_str = Rewrite.getRewrittenText(expr_SR);
+					if ("" == m_original_source_text_str) {
+						auto nice_SR = cm1_adj_nice_source_range((*expr_ptr).getSourceRange(), state1, Rewrite);
+						if (nice_SR.isValid()) {
+							m_original_source_text_str = Rewrite.getRewrittenText(nice_SR);
+						}
+					}
+				}
+
+			/*
+			auto SR = cm1_adj_nice_source_range(expr_ptr->getSourceRange(), state1, Rewrite);
+			if (SR.isValid()) {
+				m_original_source_text_str = Rewrite.getRewrittenText(SR);
+			*/
+			} else {
+				int q = 3;
+			}
+		} else {
+			int q = 3;
+		}
+	}
+
 	std::string const& CExprTextInfo::current_text() const {
 		auto iter = m_state1.m_expr_conversion_state_map.find(m_expr_cptr);
 		if (m_state1.m_expr_conversion_state_map.end() != iter) {
@@ -3936,6 +4024,7 @@ namespace convm1 {
 									transformation could be appropriately applied to the invocation of the 
 									macro, rather than needing to be applied to the definition of the macro. We 
 									would prefer not to modify the definition of a macro if it's not necessary. */
+									retval.m_range_is_essentially_the_entire_body_of_a_macro = true;
 
 									if (filtered_out_by_location<options_t<converter_mode_t> >(SM, found_macro_iter->second.definition_SR().getBegin())) {
 										/* Unless the macro definition is not elegible for conversion. In this case we probably don't 
@@ -3948,6 +4037,7 @@ namespace convm1 {
 #endif /*!NDEBUG*/
 									} else {
 										return_the_macro_invocation_rather_than_the_definition = true;
+										retval.m_macro_definition_range_substituted_with_macro_invocation_range = true;
 									}
 								}
 								if (return_the_macro_invocation_rather_than_the_definition) {
@@ -10519,13 +10609,34 @@ namespace convm1 {
 									}
 
 									if (ConvertToSCPP) {
-										if (false) {
+										bool use_the_more_surgical_replacement_method = false;
+										auto rawSR = CE->getSourceRange();
+										if (rawSR.isValid() && rawSR.getBegin().isMacroID()) {
+											auto adj_SR = cm1_adjusted_source_range(rawSR, state1, Rewrite);
+											if (!(adj_SR.m_macro_definition_range_substituted_with_macro_invocation_range)) {
+												/* The `free()` call expression may be part of (but not the whole of) the definition body of a macro. The macro may be a macro 
+												function and the argument of the `free()` call expression may be passed as an argument to the macro function. In such cases, 
+												the source range of the argument will be reported, by default, as the one at the site of instantiation of the function macro, 
+												while in order to replace the entire `free()` call expression, the source range of the argument in the definition body of the 
+												macro would need to be used instead. For that we'd need to create and use a custom version of CCallExprConversionState that 
+												uses the desired argument source range. Because it's easier, for now we're just going to avoid overwriting the argument (in 
+												the definition body) and just overwrite the function name. */
+												use_the_more_surgical_replacement_method = true;
+											}
+										}
+										if (!use_the_more_surgical_replacement_method) {
 											std::vector<const clang::Expr *> arg_expr_cptrs;
 
 											auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_E_ii);
 											if (CSCE) {
-												auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
+												auto precasted_expr_as_written_ptr = CSCE->getSubExprAsWritten();
+												auto precasted_expr_ptr = CSCE->getSubExpr();
 												assert(precasted_expr_ptr);
+												if (precasted_expr_as_written_ptr != precasted_expr_ptr) {
+													int q = 5;
+												} else {
+													int q = 5;
+												}
 												auto precasted_expr_QT = precasted_expr_ptr->getType();
 												IF_DEBUG(std::string precasted_expr_QT_str = precasted_expr_QT.getAsString();)
 												arg_E_ic = precasted_expr_ptr->IgnoreParenCasts();
