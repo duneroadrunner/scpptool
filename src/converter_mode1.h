@@ -6478,7 +6478,18 @@ namespace convm1 {
 								}
 								if (state1_ptr) {
 									auto& state1 = *state1_ptr;
-									state1.add_pending_straight_text_replacement_expression_update(*init_EX, Rewrite, new_init_expr_str);
+									ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(init_EX, Rewrite, state1));
+
+									auto& ecs = state1.get_expr_conversion_state_ref<CExprConversionState>(*init_EX, Rewrite);
+									std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(new_init_expr_str);
+									ecs.m_expr_text_modifier_stack.push_back(shptr1);
+									ecs.update_current_text();
+
+									/* We shouldn't need to add an "expression_update_replacement_action" here as the updated expression 
+									text should be rendered when the parent declaration text gets rendered. */
+									//state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, init_EX_SR, state1, init_EX);
+
+									//state1.add_pending_straight_text_replacement_expression_update(*init_EX, Rewrite, new_init_expr_str);
 								}
 								ddcs_ref.m_fallback_current_initialization_expr_str = new_init_expr_str;
 
@@ -7153,8 +7164,6 @@ namespace convm1 {
 
 					{
 						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
-						//auto ddcs_map_iter = res1.first;
-						//auto& ddcs_ref = (*ddcs_map_iter).second;
 						/* In this case we're overwriting the whole declaration and including any
 						initializers, so we want to remove any direction to append the initializer to
 						the end of the declaration. */
@@ -8510,8 +8519,6 @@ namespace convm1 {
 			auto decl_source_range = cm1_adj_nice_source_range(DD->getSourceRange(), state1, Rewrite);
 
 			auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &m_Rewrite);
-			//auto ddcs_map_iter = res1.first;
-			//auto& ddcs_ref = (*ddcs_map_iter).second;
 
 			std::string current_direct_qtype_str = ddcs_ref.current_direct_qtype_str();
 			std::string initializer_info_str = m_current_initialization_expr_str;
@@ -8524,6 +8531,15 @@ namespace convm1 {
 			clang::Expr const* pInitExpr = get_init_expr_if_any(DD);
 			if (pInitExpr) {
 				ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(pInitExpr, Rewrite, state1));
+
+				auto& ecs = state1.get_expr_conversion_state_ref<CExprConversionState>(*pInitExpr, Rewrite);
+				std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(initializer_info_str);
+				ecs.m_expr_text_modifier_stack.push_back(shptr1);
+				ecs.update_current_text();
+
+				/* We shouldn't need to add an "expression_update_replacement_action" here as the updated expression 
+				text should be rendered when the parent declaration text gets rendered. */
+				//state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, SR, state1, CE);
 			}
 			ddcs_ref.m_fallback_current_initialization_expr_str = initializer_info_str;
 
@@ -8697,7 +8713,6 @@ namespace convm1 {
 		const clang::CallExpr* CE = m_CE;
 		if (CE) {
 			auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*((*this).m_indirect_function_DD), &m_Rewrite);
-			//ddcs_ref.current_direct_qtype_ref();
 
 			auto SR = cm1_adj_nice_source_range(CE->getSourceRange(), state1, Rewrite);
 			RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
@@ -8771,9 +8786,6 @@ namespace convm1 {
 
 		if (DD) {
 			auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &m_Rewrite);
-			//auto ddcs_map_iter = res1.first;
-			//auto& ddcs_ref = (*ddcs_map_iter).second;
-			//ddcs_ref.current_direct_qtype_ref();
 
 			auto SR = cm1_adj_nice_source_range(DD->getSourceRange(), state1, Rewrite);
 			RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
@@ -9861,9 +9873,6 @@ namespace convm1 {
 					auto res2 = infer_array_type_info_from_stmt(*E, "pointer arithmetic", state1, DD);
 
 					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
-					//auto ddcs_map_iter = res1.first;
-					//auto& ddcs_ref = (*ddcs_map_iter).second;
-					//bool update_declaration_flag = res1.second;
 					if (ddcs_ref.m_indirection_state_stack.size() > res2.indirection_level) {
 
 						/* If a declaration for the pointer arithmetic expression is available, then
@@ -10106,9 +10115,6 @@ namespace convm1 {
 					}
 
 					auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
-					//auto ddcs_map_iter = res1.first;
-					//auto& ddcs_ref = (*ddcs_map_iter).second;
-					//bool update_declaration_flag = res1.second;
 
 					size_t target_indirection_index = CDDeclIndirection::no_indirection;
 					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
@@ -10499,8 +10505,6 @@ namespace convm1 {
 						}
 						if (!is_extern_var) {
 							auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
-							//auto ddcs_map_iter = res1.first;
-							//auto& ddcs_ref = (*ddcs_map_iter).second;
 
 							if (!ddcs_ref.m_original_initialization_has_been_noted) {
 								int q = 5;
@@ -11317,8 +11321,6 @@ namespace convm1 {
 					bool var_has_been_determined_to_point_to_an_array = false;
 
 					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
-					//auto ddcs_map_iter = res1.first;
-					//auto& ddcs_ref = (*ddcs_map_iter).second;
 					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 						var_current_state_str = ddcs_ref.indirection_current(0);
 						var_has_been_determined_to_point_to_an_array = ddcs_ref.has_been_determined_to_point_to_an_array(0);
@@ -11593,8 +11595,6 @@ namespace convm1 {
 				bool var_has_been_determined_to_point_to_an_array = false;
 
 				auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
-				//auto ddcs_map_iter = res1.first;
-				//auto& ddcs_ref = (*ddcs_map_iter).second;
 				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 					var_current_state_str = ddcs_ref.indirection_current(0);
 					var_has_been_determined_to_point_to_an_array = ddcs_ref.has_been_determined_to_point_to_an_array(0);
@@ -12436,9 +12436,6 @@ namespace convm1 {
 					if (cast_qtype->isPointerType() || (cast_qtype->isReferenceType())) {
 						if (DD && (DD->getType()->isPointerType() || (DD->getType()->isReferenceType()))) {
 							auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
-							//auto ddcs_map_iter = res1.first;
-							//auto& ddcs_ref = (*ddcs_map_iter).second;
-							//bool update_declaration_flag = res1.second;
 
 							auto cast_pointee_qtype = definition_qtype(cast_qtype->getPointeeType());
 							auto DD_pointee_qtype = definition_qtype(DD->getType()->getPointeeType());
@@ -13131,9 +13128,6 @@ namespace convm1 {
 											non-trivial copy constructors, we need to cast them back to their original scalar
 											type before passing them to a *printf() function. */
 											auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
-											//auto ddcs_map_iter = res1.first;
-											//auto& ddcs_ref = (*ddcs_map_iter).second;
-											//bool update_declaration_flag = res1.second;
 
 											auto arg_iter = state1.m_expr_conversion_state_map.find(arg_EX);
 											if (state1.m_expr_conversion_state_map.end() == arg_iter) {
@@ -13501,30 +13495,9 @@ namespace convm1 {
 						}
 
 						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
-						//auto ddcs_map_iter = res1.first;
-						//auto& ddcs_ref = (*ddcs_map_iter).second;
-						//bool update_declaration_flag = res1.second;
 
-						bool lhs_has_been_determined_to_point_to_an_array = false;
-						if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
-							ddcs_ref.set_indirection_current(0, "malloc target");
-						} else if ("non-malloc target" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
-							ddcs_ref.set_indirection_current(0, "variously malloc and non-malloc target");
-						} else if ("inferred array" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
-							ddcs_ref.set_indirection_current(0, "dynamic array");
-							lhs_has_been_determined_to_point_to_an_array = true;
-							//update_declaration_flag = true;
-							state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*DD, 0));
-						} else if ("dynamic array" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
-							lhs_has_been_determined_to_point_to_an_array = true;
-						} else if ("native array" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
-							ddcs_ref.set_indirection_current(0, "variously native and dynamic array");
-							lhs_has_been_determined_to_point_to_an_array = true;
-						} else if ("variously native and dynamic array" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
-							lhs_has_been_determined_to_point_to_an_array = true;
-						} else {
-							int q = 5;
-						}
+						ddcs_ref.m_indirection_state_stack.at(0).set_is_known_to_have_malloc_target(true);
+						bool lhs_has_been_determined_to_point_to_an_array = ddcs_ref.m_indirection_state_stack.at(0).is_known_to_be_used_as_array_iterator();
 
 						const clang::Type* TP = QT.getTypePtr();
 						auto lhs_type_str = QT.getAsString();
@@ -13606,7 +13579,7 @@ namespace convm1 {
 									//array_initializer_info_str = "mse::lh::allocate_dyn_array1<mse::lh::TLHNullableAnyRandomAccessIterator<" + element_type_str + "> >(";
 									array_initializer_info_str += adjusted_num_bytes_str + ")";
 
-									pointer_initializer_info_str = "mse::lh::allocate<mse::TNullableAnyPointer<" + element_type_str + "> >()";
+									pointer_initializer_info_str = "mse::lh::allocate<mse::lh::TLHNullableAnyPointer<" + element_type_str + "> >()";
 								}
 							}
 
@@ -14272,9 +14245,6 @@ namespace convm1 {
 					const std::string qtype_str = DD->getType().getAsString();
 
 					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
-					//auto ddcs_map_iter = res1.first;
-					//auto& ddcs_ref = (*ddcs_map_iter).second;
-					//bool update_declaration_flag = res1.second;
 
 					auto VD = dyn_cast<const clang::VarDecl>(D);
 					auto FD = dyn_cast<const clang::FieldDecl>(D);
@@ -15263,8 +15233,6 @@ namespace convm1 {
 									{
 										auto l_DD = field;
 										auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*l_DD, &Rewrite);
-										//auto ddcs_map_iter = res1.first;
-										//auto& ddcs_ref = (*ddcs_map_iter).second;
 
 										update_declaration_if_not_suppressed(*l_DD, Rewrite, *(MR.Context), m_state1);
 									}
