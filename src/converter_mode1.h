@@ -438,10 +438,20 @@ namespace convm1 {
 	};
 
 	inline std::string adjusted_qtype_str(std::string qtype_str, std::optional<clang::QualType> const maybe_qtype = {}) {
-		if ("_Bool" == qtype_str) {
-			qtype_str = "bool";
-		} else if ("const _Bool" == qtype_str) {
-			qtype_str = "const bool";
+		static const std::string clang_system_bool_str = "_Bool";
+		static const std::string const_clang_system_bool_str = "const " + clang_system_bool_str;
+		if (std::string::npos != qtype_str.find(clang_system_bool_str)) {
+			if (clang_system_bool_str == qtype_str) {
+				qtype_str = "bool";
+			} else if (const_clang_system_bool_str == qtype_str) {
+				qtype_str = "const bool";
+			} else {
+				auto found_range = Parse::find_uncommented_token(clang_system_bool_str, qtype_str);
+				while (found_range.begin < qtype_str.length()) {
+					qtype_str.replace(found_range.begin, found_range.end - found_range.begin, "bool");
+					found_range = Parse::find_uncommented_token(clang_system_bool_str, qtype_str);
+				}
+			}
 		}
 		return qtype_str;
 	}
@@ -610,6 +620,20 @@ namespace convm1 {
 				return false;
 			}
 			if (!(CFunctionTypeState() == m_function_type_state)) {
+				return true;
+			}
+			return false;
+		}
+		bool is_enum_type() const {
+			if (m_maybe_current_qtype.has_value()) {
+				return m_maybe_current_qtype.value()->isEnumeralType();
+			}
+			if (m_maybe_original_qtype.has_value()) {
+				return m_maybe_original_qtype.value()->isEnumeralType();
+			}
+			static const std::string enum_space_str = "enum ";
+			auto const l_current_qtype_str = current_qtype_str();
+			if (string_begins_with(l_current_qtype_str, enum_space_str)) {
 				return true;
 			}
 			return false;
@@ -8732,7 +8756,7 @@ namespace convm1 {
 			assert(ddcs_ref.direct_type_state_ref().current_qtype_if_any().has_value());
 			if (llvm::isa<const clang::FunctionType>(ddcs_ref.direct_type_state_ref().current_qtype_if_any().value())) {
 				auto FNT = llvm::cast<const clang::FunctionType>(ddcs_ref.direct_type_state_ref().current_qtype_if_any().value());
-				std::string new_return_type_code = FNT->getReturnType().getAsString();
+				std::string new_return_type_code = adjusted_qtype_str(FNT->getReturnType().getAsString(), FNT->getReturnType());
 				std::string new_params_code = "(";
 
 				for (size_t i = 0; (i < CE->getNumArgs()); i += 1) {
@@ -8757,7 +8781,7 @@ namespace convm1 {
 
 						new_params_code += new_param_type_str;
 					} else {
-						new_params_code += arg->getType().getAsString();
+						new_params_code += adjusted_qtype_str(arg->getType().getAsString(), arg->getType());
 						int q = 7;
 					}
 				}
@@ -11032,9 +11056,9 @@ namespace convm1 {
 	};
 
 	struct CFConversionInfo {
-		std::string OriginalFunctionQName = "memset";
-		std::string NewFunctionQName = "mse::lh::memset";
-		std::string NewDualModeFunctionQName = "MSE_LH_MEMSET";
+		std::string OriginalFunctionQName;
+		std::string NewFunctionQName;
+		std::string NewDualModeFunctionQName;
 		std::optional<size_t> m_maybe_num_parameters;
 	};
 	static std::vector<CFConversionInfo> const& s_function_conversion_infos() {
@@ -11049,6 +11073,7 @@ namespace convm1 {
 			, { "strnlen_s", "mse::lh::strnlen_s", "MSE_LH_STRNLEN_S", {2} }
 			, { "fread", "mse::lh::fread", "MSE_LH_FREAD", {4} }
 			, { "fwrite", "mse::lh::fwrite", "MSE_LH_FWRITE", {4} }
+			, { "getline", "mse::lh::getline", "MSE_LH_GETLINE", {3} }
 
 			, { "std::memset", "mse::lh::memset", "MSE_LH_MEMSET", {3} }
 			, { "std::memcpy", "mse::lh::memcpy", "MSE_LH_MEMCPY", {3} }
