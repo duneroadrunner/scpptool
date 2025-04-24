@@ -16552,120 +16552,33 @@ namespace convm1 {
 	std::map<std::string, CFileConversionRecord> MyFrontendActionPass1::s_file_conversion_record_map;
 
 
+	int number_of_instances_of_given_strings(const std::string& str1, const std::vector<std::string>& waldos) {
+		int count = 0;
+		for (auto& waldo : waldos) {
+			auto search_start_index = str1.find(waldo, 0);
+			while (std::string::npos != search_start_index) {
+				count += 1;
+				search_start_index = str1.find(waldo, search_start_index + waldo.size());
+			}
+		}
+		return count;
+	}
 	int number_of_instances_of_mse(const std::string& str1) {
-		int mse_count = 0;
-		{
-			static const std::string mse_str = "mse::";
-			auto search_start_index = str1.find(mse_str, 0);
-			while (std::string::npos != search_start_index) {
-				mse_count += 1;
-				search_start_index = str1.find(mse_str, search_start_index + mse_str.size());
-			}
-		}
-		{
-			static const std::string mse_str = "MSE_";
-			auto search_start_index = str1.find(mse_str, 0);
-			while (std::string::npos != search_start_index) {
-				mse_count += 1;
-				search_start_index = str1.find(mse_str, search_start_index + mse_str.size());
-			}
-		}
-		return mse_count;
+		return number_of_instances_of_given_strings(str1, { "mse::", "MSE_" });
 	}
-
 	int number_of_instances_of_iterator(const std::string& str1) {
-		int iterator_count = 0;
-		{
-			static const std::string iterator_str = "Iterator";
-			auto search_start_index = str1.find(iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				iterator_count += 1;
-				search_start_index = str1.find(iterator_str, search_start_index + iterator_str.size());
-			}
-		}
-		{
-			static const std::string iterator_str = "_ITERATOR";
-			auto search_start_index = str1.find(iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				iterator_count += 1;
-				search_start_index = str1.find(iterator_str, search_start_index + iterator_str.size());
-			}
-		}
-		return iterator_count;
+		return number_of_instances_of_given_strings(str1, { "Iterator", "_ITERATOR" });
 	}
-
 	int number_of_instances_of_TXScopeLHNullableAny_Pointer_and_Iterator(const std::string& str1) {
-		int TXScopeLHNullableAny_Pointer_and_Iterator_count = 0;
-		{
-			static const std::string TXScopeLHNullableAny_Pointer_and_Iterator_str = "::lh::TXScopeLHNullableAnyRandomAccessIterator";
-			auto search_start_index = str1.find(TXScopeLHNullableAny_Pointer_and_Iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				TXScopeLHNullableAny_Pointer_and_Iterator_count += 1;
-				search_start_index = str1.find(TXScopeLHNullableAny_Pointer_and_Iterator_str, search_start_index + TXScopeLHNullableAny_Pointer_and_Iterator_str.size());
-			}
-		}
-		{
-			static const std::string TXScopeLHNullableAny_Pointer_and_Iterator_str = "_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE";
-			auto search_start_index = str1.find(TXScopeLHNullableAny_Pointer_and_Iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				TXScopeLHNullableAny_Pointer_and_Iterator_count += 1;
-				search_start_index = str1.find(TXScopeLHNullableAny_Pointer_and_Iterator_str, search_start_index + TXScopeLHNullableAny_Pointer_and_Iterator_str.size());
-			}
-		}
-		{
-			static const std::string TXScopeLHNullableAny_Pointer_and_Iterator_str = "::lh::TXScopeLHNullableAnyPointer";
-			auto search_start_index = str1.find(TXScopeLHNullableAny_Pointer_and_Iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				TXScopeLHNullableAny_Pointer_and_Iterator_count += 1;
-				search_start_index = str1.find(TXScopeLHNullableAny_Pointer_and_Iterator_str, search_start_index + TXScopeLHNullableAny_Pointer_and_Iterator_str.size());
-			}
-		}
-		{
-			static const std::string TXScopeLHNullableAny_Pointer_and_Iterator_str = "_LH_LOCAL_VAR_ONLY_POINTER_TYPE";
-			auto search_start_index = str1.find(TXScopeLHNullableAny_Pointer_and_Iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				TXScopeLHNullableAny_Pointer_and_Iterator_count += 1;
-				search_start_index = str1.find(TXScopeLHNullableAny_Pointer_and_Iterator_str, search_start_index + TXScopeLHNullableAny_Pointer_and_Iterator_str.size());
-			}
-		}
-		return TXScopeLHNullableAny_Pointer_and_Iterator_count;
+		return number_of_instances_of_given_strings(str1, { "::lh::TXScopeLHNullableAnyRandomAccessIterator", "_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE"
+			, "::lh::TXScopeLHNullableAnyPointer", "_LH_LOCAL_VAR_ONLY_POINTER_TYPE" });
 	}
-
 	int number_of_instances_of_TLHNullableAny_Pointer_and_Iterator(const std::string& str1) {
-		int TLHNullableAny_Pointer_and_Iterator_count = 0;
-		{
-			static const std::string TLHNullableAny_Pointer_and_Iterator_str = "::lh::TLHNullableAnyRandomAccessIterator";
-			auto search_start_index = str1.find(TLHNullableAny_Pointer_and_Iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				TLHNullableAny_Pointer_and_Iterator_count += 1;
-				search_start_index = str1.find(TLHNullableAny_Pointer_and_Iterator_str, search_start_index + TLHNullableAny_Pointer_and_Iterator_str.size());
-			}
-		}
-		{
-			static const std::string TLHNullableAny_Pointer_and_Iterator_str = "_LH_ARRAY_ITERATOR_TYPE";
-			auto search_start_index = str1.find(TLHNullableAny_Pointer_and_Iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				TLHNullableAny_Pointer_and_Iterator_count += 1;
-				search_start_index = str1.find(TLHNullableAny_Pointer_and_Iterator_str, search_start_index + TLHNullableAny_Pointer_and_Iterator_str.size());
-			}
-		}
-		{
-			static const std::string TLHNullableAny_Pointer_and_Iterator_str = "::lh::TLHNullableAnyPointer";
-			auto search_start_index = str1.find(TLHNullableAny_Pointer_and_Iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				TLHNullableAny_Pointer_and_Iterator_count += 1;
-				search_start_index = str1.find(TLHNullableAny_Pointer_and_Iterator_str, search_start_index + TLHNullableAny_Pointer_and_Iterator_str.size());
-			}
-		}
-		{
-			static const std::string TLHNullableAny_Pointer_and_Iterator_str = "_LH_POINTER_TYPE";
-			auto search_start_index = str1.find(TLHNullableAny_Pointer_and_Iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				TLHNullableAny_Pointer_and_Iterator_count += 1;
-				search_start_index = str1.find(TLHNullableAny_Pointer_and_Iterator_str, search_start_index + TLHNullableAny_Pointer_and_Iterator_str.size());
-			}
-		}
-		return TLHNullableAny_Pointer_and_Iterator_count;
+		return number_of_instances_of_given_strings(str1, { "::lh::TLHNullableAnyRandomAccessIterator", "_LH_ARRAY_ITERATOR_TYPE"
+			, "::lh::TLHNullableAnyPointer", "_LH_POINTER_TYPE" });
+	}
+	int number_of_instances_of_TNativeArrayReplacement(const std::string& str1) {
+		return number_of_instances_of_given_strings(str1, { "::lh::TNativeArrayReplacement", "MSE_LH_FIXED_ARRAY_TYPE_PREFIX" });
 	}
 
 	auto& chosen_merge_option_ref(const std::string& first_option, const std::string& second_option) {
@@ -16689,7 +16602,20 @@ namespace convm1 {
 				auto TXScopeLHNullableAny_count2 = number_of_instances_of_TXScopeLHNullableAny_Pointer_and_Iterator(second_option);
 				auto TLHNullableAny_count1 = number_of_instances_of_TLHNullableAny_Pointer_and_Iterator(first_option);
 				auto TLHNullableAny_count2 = number_of_instances_of_TLHNullableAny_Pointer_and_Iterator(second_option);
-				if (1 <= (TXScopeLHNullableAny_count1 + TXScopeLHNullableAny_count2 + TLHNullableAny_count1 + TLHNullableAny_count2)) {
+				auto TNativeArrayReplacement_count1 = number_of_instances_of_TNativeArrayReplacement(first_option);
+				auto TNativeArrayReplacement_count2 = number_of_instances_of_TNativeArrayReplacement(second_option);
+				if (1 <= (TXScopeLHNullableAny_count1 + TXScopeLHNullableAny_count2 + TLHNullableAny_count1 + TLHNullableAny_count2 
+					+ TNativeArrayReplacement_count1 + TNativeArrayReplacement_count2)) {
+
+					/* If a header file has an `extern` declaration of a pointer, only the translation unit with the 
+					corresponding (one-and-only) non-`extern` declaration (+definition) will be able to determine that 
+					the pointer actually refers to a native array, and if so, what its size is. */
+					if (TNativeArrayReplacement_count1 > TNativeArrayReplacement_count2) {
+						return first_option;
+					} else if (TNativeArrayReplacement_count2 > TNativeArrayReplacement_count1) {
+						return second_option;
+					}
+
 					/* By default, legacy iterators and pointers are converted to (restricted) "xscope"
 					types. But in some transation units, there is enough information to determine that
 					(less restrictive) non-"xscope" versions are required in places. So when there is a
