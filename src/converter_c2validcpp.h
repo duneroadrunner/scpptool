@@ -63,6 +63,21 @@ namespace convc2validcpp {
     using namespace clang::driver;
     using namespace clang::tooling;
 
+	static std::string s_target_debug_location_init_val() {
+		std::string retval = "test1_1proj.cpp:539:";
+		static const std::string src_pathname = "target_debug_location.txt";
+		std::ifstream src;
+		src.open(src_pathname, std::ios::binary);
+		if (((src.rdstate() & std::ifstream::failbit ) != 0)) {
+		} else {
+			src >> retval;
+			src.close();
+		}
+		return retval;
+	}
+
+	static const std::string g_target_debug_source_location_str1 = s_target_debug_location_init_val();
+
     bool CheckSystemHeader = false;
     bool MainFileOnly = false;
     bool ConvertC2ValidCpp = true;
@@ -970,7 +985,26 @@ namespace convc2validcpp {
 	/* CTUState holds any "per translation unit" state information we might need to store. */
 	class CTUState;
 
-	static clang::SourceRange cm1_adjusted_source_range(const clang::SourceRange& sr, CTUState& state1, clang::Rewriter &Rewrite);
+
+	class CSourceRangePlus : public clang::SourceRange {
+		public:
+		typedef clang::SourceRange base_class;
+		using base_class::base_class;
+		CSourceRangePlus() = default;
+		CSourceRangePlus(CSourceRangePlus&& src) = default;
+		CSourceRangePlus(CSourceRangePlus const& src) = default;
+		CSourceRangePlus(base_class&& src) : base_class(std::forward<decltype(src)>(src)) {}
+		CSourceRangePlus(base_class const& src) : base_class(src) {}
+		CSourceRangePlus& operator=(CSourceRangePlus&& src) = default;
+		CSourceRangePlus& operator=(CSourceRangePlus const& src) = default;
+		//CSourceRangePlus& operator=(base_class&& src) { base_class::operator=(std::forward<decltype(src)>(src)); return *this; }
+		//CSourceRangePlus& operator=(base_class const& src) { base_class::operator=(src); return *this; }
+		
+		std::string m_source_text_as_if_expanded;
+		bool m_range_is_essentially_the_entire_body_of_a_macro = false;
+		bool m_macro_definition_range_substituted_with_macro_invocation_range = false;
+	};
+	static CSourceRangePlus cm1_adjusted_source_range(const clang::SourceRange& sr, CTUState& state1, clang::Rewriter &Rewrite, bool may_be_a_gnu_attr = false);
 
 	/* This function generally returns the "File" source range and, in cases where the range partially
 	covers a macro, extends the range to cover the entire macro (function) instantiation/call. */
@@ -2229,7 +2263,7 @@ namespace convc2validcpp {
 			DEBUG_SOURCE_TEXT_STR(debug_source_text1, OSR, Rewrite);
 
 #ifndef NDEBUG
-			if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/
@@ -2240,7 +2274,7 @@ namespace convc2validcpp {
 						DEBUG_SOURCE_TEXT_STR(debug_source_text1, OSR, Rewrite);
 
 #ifndef NDEBUG
-						if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+						if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 							int q = 5;
 						}
 #endif /*!NDEBUG*/
@@ -2269,7 +2303,7 @@ namespace convc2validcpp {
 						DEBUG_SOURCE_TEXT_STR(debug_source_text2, debug_SR2, Rewrite);
 
 #ifndef NDEBUG
-						if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+						if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 							int q = 5;
 						}
 #endif /*!NDEBUG*/
@@ -2296,7 +2330,7 @@ namespace convc2validcpp {
 						DEBUG_SOURCE_TEXT_STR(debug_source_text2, debug_SR2, Rewrite);
 
 #ifndef NDEBUG
-						if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+						if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 							int q = 5;
 						}
 #endif /*!NDEBUG*/
@@ -2371,13 +2405,17 @@ namespace convc2validcpp {
 	/* A definition of a preprocessor macro. */
 	class CPPMacroDefinitionInfo {
 	public:
-		CPPMacroDefinitionInfo(const Token &MacroNameTok, const MacroDirective& MD, bool is_function_macro = false)
-			: m_MacroNameTok(MacroNameTok), m_MD_ptr(&MD), m_is_function_macro(is_function_macro) {}
+		CPPMacroDefinitionInfo(const Token &MacroNameTok, const MacroDirective& MD, bool is_function_macro = false
+			, std::string_view macro_def_body_str = {}, std::vector<std::string> parameter_names = {})
+			: m_MacroNameTok(MacroNameTok), m_MD_ptr(&MD), m_is_function_macro(is_function_macro)
+				, m_macro_def_body_str(macro_def_body_str), m_parameter_names(std::move(parameter_names)) {}
 
 		Token m_MacroNameTok;
 		const MacroDirective *m_MD_ptr;
 		bool m_is_function_macro = false;
 		SourceRange definition_SR() const { return SourceRange{ (*m_MD_ptr).getMacroInfo()->getDefinitionLoc(), (*m_MD_ptr).getMacroInfo()->getDefinitionEndLoc() }; }
+		std::string m_macro_def_body_str;
+		std::vector<std::string> m_parameter_names;
 	};
 	/* This container holds information about definitions of preprocessor macros. */
 	class CPPMacroDefinitions : public std::map<std::string, CPPMacroDefinitionInfo> {
@@ -2450,30 +2488,307 @@ namespace convc2validcpp {
 	};
 
 
-	std::optional<clang::SourceLocation> matching_close_parentheses_if_any(Rewriter& Rewrite, clang::SourceLocation one_past_open_paren_SL, std::optional<clang::SourceLocation> maybe_inclusive_bounding_SL = {}) {
+	std::optional<clang::SourceLocation> matching_close_parentheses_if_any(Rewriter& Rewrite, clang::SourceLocation open_paren_SL, std::optional<clang::SourceLocation> maybe_inclusive_bounding_SL = {}) {
 		/* Current implementation is a naive hack that generally works for our purposes. */
 		std::optional<clang::SourceLocation> retval;
+		if (!open_paren_SL.isValid()) {
+			return retval;
+		}
+		const auto default_bounding_offset = 500/*arbitrary*/;
+
+		auto& SM = Rewrite.getSourceMgr();
+		auto char_data = SM.getCharacterData(open_paren_SL);
+		if (!char_data) {
+			return retval;
+		}
+
 		int nested_depth = 0;
-		auto SL = one_past_open_paren_SL;
+		int offset = 1;
+		auto SL = open_paren_SL.getLocWithOffset(offset);
 		std::string text1 = Rewrite.getRewrittenText({ SL, SL });
 		while (true) {
-			if ((!SL.isValid())
-				|| (maybe_inclusive_bounding_SL.has_value() && (maybe_inclusive_bounding_SL.value() < SL))) {
-				return retval;
+			if (maybe_inclusive_bounding_SL.has_value()) {
+				if (maybe_inclusive_bounding_SL.value() < SL) {
+					return retval;
+				}
+			} else {
+				if (default_bounding_offset < offset) {
+					static bool note_given = false;
+					if (!note_given) {
+						llvm::errs() << "\nnote: matching_close_parentheses_if_any() search cut off due to exceeding the (preset) limit. \n";
+						note_given = true;
+					}
+					return retval;
+				}
 			}
+			DEBUG_SOURCE_LOCATION_STR(SL_debug_source_location_str, clang::SourceRange(SL, SL), Rewrite);
 
-			if ("(" == text1) {
+			if (string_begins_with(text1, "(") /* "(" == text1 */) {
 				nested_depth -= 1;
-			} else if (")" == text1) {
+			} else if (string_begins_with(text1, ")") /* ")" == text1 */) {
 				nested_depth += 1;
 			}
 			if (1 <= nested_depth) {
 				return SL;
 			}
 
-			SL = SL.getLocWithOffset(+1);
+			++offset;
+			SL = open_paren_SL.getLocWithOffset(offset);
+			if (!SL.isValid()) {
+				return retval;
+			}
 			text1 = Rewrite.getRewrittenText({ SL, SL });
+
+			std::string text_from_the_open_paren = Rewrite.getRewrittenText({ open_paren_SL, SL });
+			std::string char_data_text_from_the_open_paren;
+			char_data_text_from_the_open_paren.reserve(text_from_the_open_paren.length());
+			for (size_t i = 0; i < text_from_the_open_paren.length(); ++i) {
+				char_data_text_from_the_open_paren.push_back(char_data[i]);
+			}
+			if (text_from_the_open_paren != char_data_text_from_the_open_paren) {
+				/* The text read from the current source location no longer matches the text in the char_data starting 
+				from open_paren_SL. This might indicate that the source text was changed so that the source locations 
+				no longer properly correspond to their original source text. So can't we be sure that the return value 
+				we would have produced would have been correct. So we'll just bail here. */
+				return retval;
+			}
 		};
+		return retval;
+	}
+
+	static clang::SourceRange extended_to_include_all_directly_enclosing_parens(clang::SourceRange const& SR, CTUState& state1, clang::Rewriter &Rewrite) {
+
+		auto extended_to_include_one_level_of_enclosing_parens_if_present = [](clang::SourceRange const& SR, CTUState& state1, clang::Rewriter &Rewrite) {
+			auto retval = SR;
+			auto SL1 = SR.getBegin();
+			std::string text1 = Rewrite.getRewrittenText({ SL1, SL1 });
+			auto left_SL1 = SL1.getLocWithOffset(-1);
+			auto right_SL1 = SL1.getLocWithOffset(+text1.length());
+
+			std::string text3;
+			if (left_SL1.isValid()) {
+				text3 = Rewrite.getRewrittenText({ left_SL1, left_SL1 });
+				while ("" == text3) {
+					left_SL1 = left_SL1.getLocWithOffset(-1);
+					if (!(left_SL1.isValid())) {
+						break;
+					}
+					text3 = Rewrite.getRewrittenText({ left_SL1, left_SL1 });
+				}
+			}
+			if ("(" == text3) {
+				auto maybe_close_paren_SL = matching_close_parentheses_if_any(Rewrite, left_SL1);
+				if (maybe_close_paren_SL.has_value()) {
+					retval = clang::SourceRange{ left_SL1, maybe_close_paren_SL.value() };
+				}
+			}
+			return retval;
+		};
+
+		auto last_SR = SR;
+		auto SR2 = extended_to_include_one_level_of_enclosing_parens_if_present(SR, state1, Rewrite);
+		while (SR2 != last_SR) {
+			last_SR = SR2;
+			SR2 = extended_to_include_one_level_of_enclosing_parens_if_present(SR2, state1, Rewrite);
+		}
+
+		return SR2;
+	}
+
+	static std::optional<clang::SourceRange> extended_to_include_prefix_if_present(std::string_view prefix, clang::SourceRange const& SR, CTUState& state1, clang::Rewriter &Rewrite) {
+		auto retval = SR;
+
+		auto location_of_first_preceding_non_whitespace_if_any = [](clang::SourceLocation const& SL, CTUState& state1, clang::Rewriter &Rewrite) -> std::optional<clang::SourceLocation> {
+			auto SL2 = SL.getLocWithOffset(-1);
+			if (SL2.isValid()) {
+				auto text1 = Rewrite.getRewrittenText({ SL2, SL2 });
+				while (!(("" == text1) || ((1 == text1.length()) && (std::isspace(text1.at(0)))))) {
+					SL2 = SL2.getLocWithOffset(-1);
+					if (SL2.isValid()) {
+						text1 = Rewrite.getRewrittenText({ SL2, SL2 });
+						int q = 5;
+					} else {
+						return {};
+					}
+				}
+			} else {
+				return {};
+			}
+			return SL2;
+		};
+		auto maybe_location_of_first_preceding_non_whitespace = location_of_first_preceding_non_whitespace_if_any(SR.getBegin(), state1, Rewrite);
+		if (maybe_location_of_first_preceding_non_whitespace.has_value()) {
+			auto SL2 = maybe_location_of_first_preceding_non_whitespace.value();
+			auto SL1 = SL2.getLocWithOffset( -(prefix.length()) );
+			if (SL1.isValid()) {
+				auto SR2 = clang::SourceRange{ SL1, SL2 };
+				if ((SR2).isValid() && (((SR2).getBegin() < (SR2).getEnd()) || ((SR2).getBegin() == (SR2).getEnd()))) {
+					auto SR2_source_text = Rewrite.getRewrittenText(SR2);
+					if (prefix == SR2_source_text) {
+						auto SR3 = clang::SourceRange{ SR2.getBegin(), SR.getEnd() };
+						if (SR3.isValid()) {
+							retval = SR3;
+						}
+					}
+				}
+			}
+		}
+
+		return retval;
+	}
+
+	/* The problem is that, while we can obtain the source range of a gnu attribute argument, often we
+	want the whole "expression" including the `__attribute__` part, but that entity doesn't seem to 
+	have a corresponding node in the AST tree, so it's not clear how one would properly obtain the 
+	source range. So when the may_be_a_gnu_attr parameter indicates it, (in kind of a hacky way) we'll 
+	check here if the given source range seems to be a gnu attribute argument, and if so, try to 
+	instead return an extended range that covers the entire gnu attribute specifier. */
+	static std::optional<clang::SourceRange> extended_to_include_entire_gnu_attribute_if_any(clang::SourceRange const& SR, CTUState& state1, clang::Rewriter &Rewrite) {
+		auto SR2 = extended_to_include_all_directly_enclosing_parens(SR, state1, Rewrite);
+		return extended_to_include_prefix_if_present("__attribute__", SR2, state1, Rewrite);
+	}
+
+	/* You may be given a SourceRange in which the the Begin and End points are at different levels 
+	of macro nesting. Given such a SourceRange, this function will try to return the most deeply
+	nested corresponding SourceRange in which the Begin and End points are at the same macro nesting
+	level. */
+	static clang::SourceRange source_range_with_both_ends_in_the_same_macro_body(clang::SourceRange sr, clang::Rewriter &Rewrite) {
+		auto& SM = Rewrite.getSourceMgr();
+		clang::SourceRange retval = sr;
+		auto SL = sr.getBegin();
+		auto SLE = sr.getEnd();
+
+		auto SL_function_macro_start = SL;
+		bool SL_isMacroArgExpansion_flag = SM.isMacroArgExpansion(SL, &SL_function_macro_start);
+		auto SLE_function_macro_start = SLE;
+		bool SLE_isMacroArgExpansion_flag = SM.isMacroArgExpansion(SLE, &SLE_function_macro_start);
+		if (SL_isMacroArgExpansion_flag && !SLE_isMacroArgExpansion_flag) {
+			sr = { SL_function_macro_start, SLE };
+		} else if ((!SL_isMacroArgExpansion_flag) && SLE_isMacroArgExpansion_flag) {
+			sr = { SL, SLE_function_macro_start };
+		}
+		auto adj_SPSL = SM.getSpellingLoc(sr.getBegin());
+		auto adj_SPSLE = SM.getSpellingLoc(sr.getEnd());
+		auto adj_SPSR = clang::SourceRange{ adj_SPSL, adj_SPSLE };
+		DEBUG_SOURCE_TEXT_STR(debug_adj_SPSR_source_text, adj_SPSR, Rewrite);
+
+		/* Returns a list of ranges corresponding to nested macros (if any) that contain the given source location. */
+		auto nested_macro_ranges = [&SM, &Rewrite](clang::SourceLocation SL, bool is_end_point = false) {
+				std::vector<std::pair<clang::SourceLocation, clang::SourceRange> > retval;
+				auto last_macro1_SL = SL;
+				auto last_macro1_SR = clang::SourceRange{ SL, SL };
+				auto macro1_SR = SM.getExpansionRange(SL).getAsRange();
+				DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, macro1_SR, Rewrite);
+				retval.push_back(std::pair{ SL, macro1_SR });
+				auto macro1_SL = SM.getImmediateMacroCallerLoc(SL);
+				last_macro1_SR = macro1_SR;
+				macro1_SR = SM.getExpansionRange(macro1_SL).getAsRange();
+				DEBUG_SOURCE_TEXT_STR(debug_expansion2_source_text, macro1_SR, Rewrite);
+
+				while (macro1_SL != last_macro1_SL) {
+					retval.push_back({ macro1_SL, macro1_SR });
+
+					last_macro1_SL = macro1_SL;
+					macro1_SL = SM.getImmediateMacroCallerLoc(macro1_SL);
+
+					macro1_SR = SM.getExpansionRange(macro1_SL).getAsRange();
+					DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, macro1_SR, Rewrite);
+
+					auto b16 = SM.isMacroArgExpansion(macro1_SL);
+					auto b18 = SM.isMacroBodyExpansion(macro1_SL);
+					int q = 5;
+				}
+
+				return retval;
+			};
+
+		auto nested_macro_ranges_of_begin = nested_macro_ranges(sr.getBegin());
+		auto nested_macro_ranges_of_end = nested_macro_ranges(sr.getEnd(), true/* is_end_point */);
+
+		/* So we're searching for the most deeply nested macro that contains both the begin and end 
+		points of the given range. */
+		bool found_flag = false;
+		{
+			auto ranges_of_begin_iter = nested_macro_ranges_of_begin.begin();
+			auto ranges_of_end_iter = nested_macro_ranges_of_end.end();
+			for (; nested_macro_ranges_of_begin.end() != ranges_of_begin_iter; ++ranges_of_begin_iter) {
+				auto const& current_macro_range_of_begin = ranges_of_begin_iter->second;
+
+				/* For some reason there may be multiple entries of the same range, each with a different corresponding 
+				source location. I don't really get why. But presumably we want the least deeply nested one where the
+				corresponding source location is distinct from either the begin or end of the range. */
+				auto ranges_of_begin_iter2 = ranges_of_begin_iter;
+				++ranges_of_begin_iter2;
+				while (nested_macro_ranges_of_begin.end() != ranges_of_begin_iter2) {
+					if (current_macro_range_of_begin != ranges_of_begin_iter2->second) {
+						break;
+					};
+					if ((ranges_of_begin_iter2->first == current_macro_range_of_begin.getBegin()) && (ranges_of_begin_iter2->first == current_macro_range_of_begin.getEnd())) {
+						break;
+					}
+					ranges_of_begin_iter = ranges_of_begin_iter2;
+					++ranges_of_begin_iter2;
+				}
+
+				auto l_ranges_of_end_iter = nested_macro_ranges_of_end.begin();
+				for (; nested_macro_ranges_of_end.end() != l_ranges_of_end_iter; ++l_ranges_of_end_iter) {
+					if (current_macro_range_of_begin == l_ranges_of_end_iter->second) {
+
+						/* For some reason there may be multiple entries of the same range, each with a different corresponding 
+						source location. I don't really get why. But presumably we want the least deeply nested one where the
+						corresponding source location is distinct from either the begin or end of the range. */
+						auto ranges_of_end_iter2 = l_ranges_of_end_iter;
+						++ranges_of_end_iter2;
+						while (nested_macro_ranges_of_end.end() != ranges_of_end_iter2) {
+							if (current_macro_range_of_begin != ranges_of_end_iter2->second) {
+								break;
+							};
+							if ((ranges_of_end_iter2->first == current_macro_range_of_begin.getBegin()) && (ranges_of_end_iter2->first == current_macro_range_of_begin.getEnd())) {
+								break;
+							}
+							l_ranges_of_end_iter = ranges_of_end_iter2;
+							++ranges_of_end_iter2;
+						}
+
+						/* Ok, so now we have a Begin and End point with an ostensibly common immediate parent macro invocation. But for some reason the 
+						immediate parent macro invocation reported (by clang) is not always actually the immediate parent macro invocation. Sometimes it 
+						seems to ignore some macros. So for extra verification we'll check to make sure that all ancestor macro invocations also match. */
+
+						if ((nested_macro_ranges_of_begin.end() - ranges_of_begin_iter2) == (nested_macro_ranges_of_end.end() - ranges_of_end_iter2)) {
+							bool all_further_ancestor_ranges_match = true;
+							while (nested_macro_ranges_of_begin.end() != ranges_of_begin_iter2) {
+								if (!(ranges_of_begin_iter2->second == ranges_of_end_iter2->second)) {
+									all_further_ancestor_ranges_match = false;
+									break;
+								}
+								++ranges_of_begin_iter2;
+								++ranges_of_end_iter2;
+							}
+
+							if (all_further_ancestor_ranges_match) {
+								/* Ok, we seem to have found a Begin and End point with an seemingly common immediate parent macro invocation. */
+								ranges_of_end_iter = l_ranges_of_end_iter;
+								found_flag = true;
+								retval = { ranges_of_begin_iter->first, l_ranges_of_end_iter->first };
+								break;
+							}
+						}
+					}
+				}
+				if (found_flag) {
+					break;
+				}
+			}
+		}
+		if (true && (!found_flag)) {
+			if (2 <= nested_macro_ranges_of_begin.size()) {
+				retval.setBegin(nested_macro_ranges_of_begin.back().first);
+			};
+			if (2 <= nested_macro_ranges_of_end.size()) {
+				retval.setEnd(nested_macro_ranges_of_end.back().first);
+			};
+			DEBUG_SOURCE_TEXT_STR(debug_retval_source_text, retval, Rewrite);
+		}
 		return retval;
 	}
 
@@ -2482,9 +2797,17 @@ namespace convc2validcpp {
 	is just a single expression (as opposed to, for example, a declaration, or a compound statement,
 	or whatever). If so, then it will return the (macro) instantiation source range, otherwise it will
 	return the (macro) definition source range. */
-	static clang::SourceRange cm1_adjusted_source_range(const clang::SourceRange& sr, CTUState& state1, clang::Rewriter &Rewrite) {
+	static CSourceRangePlus cm1_adjusted_source_range(const clang::SourceRange& sr, CTUState& state1, clang::Rewriter &Rewrite, bool may_be_a_gnu_attr/* = false*/) {
 
-		auto returnSR = sr;
+		/* The may_be_a_gnu_attr parameter is indicates that the given source range may refer to a gnu 
+		attribute argument. That is, the argument of `__attribute__(...)`. The problem is that often we
+		want the whole "expression" including the `__attribute__` part, but that entity doesn't seem to 
+		have a corresponding node in the AST tree, so it's not clear how one would properly obtain the 
+		source range. So when the may_be_a_gnu_attr parameter indicates it, (in kind of a hacky way) 
+		we'll  check here if the given source range seems to be a gnu attribute argument, and if so, 
+		try to instead return an extended range that covers the entire gnu attribute specifier. */
+
+		CSourceRangePlus retval = sr;
 
 		auto rawSR = sr;
 		auto SL = rawSR.getBegin();
@@ -2497,46 +2820,144 @@ namespace convc2validcpp {
 		auto FLSLE = SM.getFileLoc(SLE);
 		auto b5 = FLSL.isMacroID();
 		auto b6 = FLSLE.isMacroID();
+		auto b6b = FLSL.isFileID();
 		auto FLSR = clang::SourceRange{ FLSL, FLSLE };
 
 		auto SPSL = SM.getSpellingLoc(SL);
 		auto SPSLE = SM.getSpellingLoc(SLE);
 		auto b7 = SPSL.isMacroID();
 		auto b8 = SPSLE.isMacroID();
+		auto b8b = SPSL.isFileID();
+		auto b8c = SPSLE.isFileID();
 		auto SPSR = clang::SourceRange{ SPSL, SPSLE };
 
 		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, sr, Rewrite);
 
+		std::string SPSR_source_text;
+		if ((SPSR).isValid() && (((SPSR).getBegin() < (SPSR).getEnd()) || ((SPSR).getBegin() == (SPSR).getEnd()))) {
+			SPSR_source_text = Rewrite.getRewrittenText(SPSR);
+			if ("" != SPSR_source_text) {
+				retval.m_source_text_as_if_expanded = SPSR_source_text;
+			}
+		}
+
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, sr, Rewrite);
 		DEBUG_SOURCE_TEXT_STR(debug_fl_source_text, FLSR.isValid() ? FLSR : sr, Rewrite);
 		DEBUG_SOURCE_TEXT_STR(debug_sp_source_text, SPSR.isValid() ? SPSR : sr, Rewrite);
+		DEBUG_SOURCE_TEXT_STR(debug_sl_source_text, SL.isValid() ? clang::SourceRange({ SPSL, SPSL }) : sr, Rewrite);
+		DEBUG_SOURCE_TEXT_STR(debug_sle_source_text, SLE.isValid() ? clang::SourceRange({ SPSLE, SPSLE }) : sr, Rewrite);
 
 #ifndef NDEBUG
-			if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/
 
-		if (b3) {
+		if (b3 || b4) {
 			/* The element is part of a macro instance. */
 			auto& SM = Rewrite.getSourceMgr();
 
 			auto b10 = SM.isMacroArgExpansion(SL);
+			auto b10b = SM.isMacroArgExpansion(SLE);
 			auto b11 = SM.isMacroArgExpansion(FLSL);
 			auto b12 = SM.isMacroArgExpansion(SPSL);
+			auto b12b = SM.isMacroArgExpansion(SPSLE);
 			auto b13 = SM.isMacroBodyExpansion(SL);
 			auto b14 = SM.isMacroBodyExpansion(FLSL);
 			auto b15 = SM.isMacroBodyExpansion(SPSL);
+			auto b15b = SM.isMacroBodyExpansion(SPSLE);
+			if (b10) {
+				if (!b10b) {
+					/* It seems that beginning of the source range is a macro function argument, but the end isn't. 
+					(Presumably the end is at another part of the macro body.) Rewrite.getRewrittenText() doesn't 
+					seem to work on such mismatched source ranges. After some experimentation, it's still unclear 
+					how or if one can obtain the beginning corresponding source location in the macro body. */
+					int q = 5;
+				} else {
+					int q = 5;
+				}
+			}
+			if (true && ((b3 && (!b4)) || ((!b3) && b4))) {
+				int q = 5;
+				/* Note that we specifically omit the (defulted) CTUState pointer parameter as not omitting it 
+				risks infinite recursion with this function. */
+				return cm1_nice_source_range(sr, Rewrite);
+			}
+
+			auto sr2_sl = SL;
+			auto sr2_sle = SLE;
+			auto sr2 = sr;
+			if (true || ("" == SPSR_source_text)) {
+				/* The fact that we're not getting any source text from the "spelling" range may be due to the 
+				Begin and End points of the range being at different levels of macro nesting. So we'll attempt 
+				to get a corresponding range with the Begin and End points at the same macro nesting level. */
+				sr2 = source_range_with_both_ends_in_the_same_macro_body(sr, Rewrite);
+			}
+			if (sr2.isValid() && (!(sr2 == sr))) {
+				retval = sr2;
+				sr2_sl = sr2.getBegin();
+				sr2_sle = sr2.getEnd();
+
+				auto SP2SL = SM.getSpellingLoc(sr2.getBegin());
+				auto SP2SLE = SM.getSpellingLoc(sr2.getEnd());
+				auto b17 = SP2SL.isMacroID();
+				auto b18 = SP2SLE.isMacroID();
+				auto b18b = SP2SL.isFileID();
+				auto b18c = SP2SLE.isFileID();
+				auto SP2SR = clang::SourceRange{ SP2SL, SP2SLE };
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, sr2, Rewrite);
+
+				std::string SP2SR_source_text;
+				if ((SP2SR).isValid() && (((SP2SR).getBegin() < (SP2SR).getEnd()) || ((SP2SR).getBegin() == (SP2SR).getEnd()))) {
+					SP2SR_source_text = Rewrite.getRewrittenText(SP2SR);
+					if ("" != SP2SR_source_text) {
+						SPSR = SP2SR;
+						SPSR_source_text = SP2SR_source_text;
+						retval.m_source_text_as_if_expanded = SPSR_source_text;
+					} else {
+						std::string FLSR_source_text;
+						if ((FLSR).isValid() && (((FLSR).getBegin() < (FLSR).getEnd()) || ((FLSR).getBegin() == (FLSR).getEnd()))) {
+							FLSR_source_text = Rewrite.getRewrittenText(FLSR);
+							if ("" != FLSR_source_text) {
+								SPSR = FLSR;
+								SPSR_source_text = FLSR_source_text;
+								retval.m_source_text_as_if_expanded = SPSR_source_text;
+							}
+						}
+					}
+				}
+			}
+
+			if (may_be_a_gnu_attr) {
+				auto maybe_SR2 = extended_to_include_entire_gnu_attribute_if_any(SPSR, state1, Rewrite);
+				if (maybe_SR2.has_value()) {
+					auto SPSR2 = maybe_SR2.value();
+					auto text2 = Rewrite.getRewrittenText(SPSR2);
+					if ("" != text2) {
+						SPSR = SPSR2;
+						SPSR_source_text = text2;
+						retval.m_source_text_as_if_expanded = SPSR_source_text;
+					} else {
+						int q = 3;
+					}
+				}
+			}
 
 			{
 				/* The element could be nested within multiple macro instances. We are going to obtain
 				and store a list of (the source ranges of) all the (nested) macro instances which contain
 				the element. */
 				auto nested_macro_ranges = std::vector<clang::SourceRange>{};
-				auto macro1_SL = SM.getImmediateMacroCallerLoc(SL);
-				auto macro1_SLE = SM.getImmediateMacroCallerLoc(SLE);
-				auto last_macro1_SL = SL;
-				auto last_macro1_SLE = SLE;
+
+				auto last_macro1_SL = sr2_sl;
+				auto last_macro1_SLE = sr2_sle;
+				auto macro1_SL = SM.getImmediateMacroCallerLoc(sr2_sl);
+				auto macro1_SLE = SM.getImmediateMacroCallerLoc(sr2_sle);
+
+				const auto expansion_SR = SM.getExpansionRange(macro1_SL).getAsRange();
+				DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, expansion_SR, Rewrite);
+
 				while (macro1_SL != last_macro1_SL) {
 					nested_macro_ranges.push_back({ macro1_SL, macro1_SLE });
 
@@ -2550,11 +2971,22 @@ namespace convc2validcpp {
 					auto adjusted_macro_SPSR = clang::SourceRange{ SM.getSpellingLoc(new_macro1_SR.getBegin()), SM.getSpellingLoc(new_macro1_SR.getEnd()) };
 					DEBUG_SOURCE_TEXT_STR(debug_adjusted_macro_source_text, adjusted_macro_SPSR, Rewrite);
 
+					const auto expansion_SR = SM.getExpansionRange(macro1_SL).getAsRange();
+					DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, expansion_SR, Rewrite);
+
 					auto b16 = SM.isMacroArgExpansion(macro1_SL);
 					auto b17 = SM.isMacroArgExpansion(adjusted_macro_SPSR.getBegin());
 					auto b18 = SM.isMacroBodyExpansion(macro1_SL);
 					auto b19 = SM.isMacroBodyExpansion(adjusted_macro_SPSR.getBegin());
 					int q = 5;
+				}
+
+				std::string source_text_as_if_expanded = SPSR_source_text;
+				if (1 <= nested_macro_ranges.size()) {
+					retval = SPSR;
+					retval.m_source_text_as_if_expanded = source_text_as_if_expanded;
+				} else {
+					int q = 3;
 				}
 
 				int nesting_level = 0;
@@ -2568,7 +3000,15 @@ namespace convc2validcpp {
 						std::string macro_name;
 						if (adjusted_macro_SPSR.isValid() && ((adjusted_macro_SPSR.getBegin() < adjusted_macro_SPSR.getEnd()) || (adjusted_macro_SPSR.getBegin() == adjusted_macro_SPSR.getEnd()))) {
 							macro_name = Rewrite.getRewrittenText(adjusted_macro_SPSR);
+							auto l_paren_index = macro_name.find("(");
+							if (std::string::npos != l_paren_index) {
+								macro_name = macro_name.substr(0, l_paren_index);
+								rtrim(macro_name);
+							}
 						}
+						DEBUG_SOURCE_LOCATION_STR(adjusted_macro_SPSR1_debug_source_location_str, adjusted_macro_SPSR, Rewrite);
+
+						std::vector<std::string> macro_args;
 
 						/* If the macro is a function macro, then adjusted_macro_SPSR would not
 						currently include the arguments. Here we attempt to extend
@@ -2580,22 +3020,50 @@ namespace convc2validcpp {
 							adjusted_macro_SPSR = expansion_SR;
 						} else {
 							auto SL1 = adjusted_macro_SPSR.getBegin();
-							std::string text1 = Rewrite.getRewrittenText({ SL1, SL1 });
-							SL1 = SL1.getLocWithOffset(+text1.length());
-							text1 = Rewrite.getRewrittenText({ SL1, SL1 });
-							while ("" == text1) {
-								SL1 = SL1.getLocWithOffset(+1);
-								if (!(SL1.isValid())) {
-									break;
-								}
+							std::string text2 = Rewrite.getRewrittenText({ SL1, SL1 });
+							SL1 = SL1.getLocWithOffset(+text2.length());
+							std::string text1;
+							if (SL1.isValid()) {
 								text1 = Rewrite.getRewrittenText({ SL1, SL1 });
+								while ("" == text1) {
+									SL1 = SL1.getLocWithOffset(+1);
+									if (!(SL1.isValid())) {
+										break;
+									}
+									text1 = Rewrite.getRewrittenText({ SL1, SL1 });
+								}
 							}
+							DEBUG_SOURCE_LOCATION_STR(SL1_debug_source_location_str, clang::SourceRange(SL1, SL1), Rewrite);
 							if ("(" == text1) {
-								auto maybe_close_paren_SL = matching_close_parentheses_if_any(Rewrite, SL1.getLocWithOffset(+1));
-								if (maybe_close_paren_SL.has_value()) {
-									adjusted_macro_SPSR = clang::SourceRange{ adjusted_macro_SPSR.getBegin(), maybe_close_paren_SL.value() };
-								} else {
-									int q = 3;
+								{
+									auto maybe_close_paren_SL = matching_close_parentheses_if_any(Rewrite, SL1);
+									if (maybe_close_paren_SL.has_value()) {
+										adjusted_macro_SPSR = clang::SourceRange{ adjusted_macro_SPSR.getBegin(), maybe_close_paren_SL.value() };
+										DEBUG_SOURCE_LOCATION_STR(adjusted_macro_SPSR2_debug_source_location_str, adjusted_macro_SPSR, Rewrite);
+
+										auto args_SR = clang::SourceRange{ SL1.getLocWithOffset(+1), maybe_close_paren_SL.value().getLocWithOffset(-1) };
+										std::string args_text1 = Rewrite.getRewrittenText(args_SR);
+										std::string remaining_args_text1 = args_text1;
+										auto found_comma_range = Parse::find_token_at_same_nesting_depth1(",", remaining_args_text1);
+										while (found_comma_range.end < remaining_args_text1.length()) {
+											auto sv1 = Parse::substring_view(remaining_args_text1, Parse::range_t{ 0, found_comma_range.begin });
+											auto arg_str = std::string(sv1);
+											ltrim(arg_str);
+											rtrim(arg_str);
+											macro_args.push_back(arg_str);
+											remaining_args_text1 = remaining_args_text1.substr(found_comma_range.end);
+											found_comma_range = Parse::find_token_at_same_nesting_depth1(",", remaining_args_text1);
+										}
+										if ("" != remaining_args_text1) {
+											auto arg_str = std::string(remaining_args_text1);
+											ltrim(arg_str);
+											rtrim(arg_str);
+											macro_args.push_back(arg_str);
+										}
+										int q = 5;
+									} else {
+										int q = 3;
+									}
 								}
 							}
 						}
@@ -2604,16 +3072,62 @@ namespace convc2validcpp {
 						if (true) {
 							auto found_macro_iter = state1.m_pp_macro_definitions.find(macro_name);
 							if (state1.m_pp_macro_definitions.end() != found_macro_iter) {
-								std::string macro_decl_text = Rewrite.getRewrittenText(found_macro_iter->second.definition_SR());
-								auto found_iter2 = macro_decl_text.find_first_of(";=");
-								if (std::string::npos == found_iter2) {
-									/* Here we're going to assume that the macro definition is just a single
-									expression. (Todo: improve the criteria for making such an assumption.) So
-									we're going to presume that it's likely that any given  transformation
-									could be appropriately applied to the instantiation of the macro, rather
-									than needing to be applied to the definition of the macro. We would prefer
-									not to modify the definition of a macro if it's not necessary. */
-									returnSR = adjusted_macro_SPSR;
+								std::string macro_def_text = Rewrite.getRewrittenText(found_macro_iter->second.definition_SR());
+
+								bool is_essentially_the_whole_macro = false;
+								if (found_macro_iter->second.m_macro_def_body_str == source_text_as_if_expanded) {
+									is_essentially_the_whole_macro = true;
+								} else if (found_macro_iter->second.m_macro_def_body_str == ("(" + source_text_as_if_expanded + ")")) {
+									is_essentially_the_whole_macro = true;
+								}
+
+								bool return_the_macro_invocation_rather_than_the_definition = false;
+								if (is_essentially_the_whole_macro) {
+									/* It looks like the macro expansion is essentially just the given source 
+									range. So we're going to presume that it's likely that any given 
+									transformation could be appropriately applied to the invocation of the 
+									macro, rather than needing to be applied to the definition of the macro. We 
+									would prefer not to modify the definition of a macro if it's not necessary. */
+									retval.m_range_is_essentially_the_entire_body_of_a_macro = true;
+
+									if (filtered_out_by_location<options_t<converter_mode_t> >(SM, found_macro_iter->second.definition_SR().getBegin())) {
+										/* Unless the macro definition is not elegible for conversion. In this case we probably don't 
+										want to return the invocation range that might be elegible for conversion. The macro might be 
+										a system or installed 3rd party library macro whose definition might be platform dependent. */
+#ifndef NDEBUG
+										if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+											int q = 5;
+										}
+#endif /*!NDEBUG*/
+									} else {
+										return_the_macro_invocation_rather_than_the_definition = true;
+										retval.m_macro_definition_range_substituted_with_macro_invocation_range = true;
+									}
+								}
+								if (return_the_macro_invocation_rather_than_the_definition) {
+									retval = adjusted_macro_SPSR;
+									source_text_as_if_expanded = Rewrite.getRewrittenText(adjusted_macro_SPSR);
+								} else {
+									auto& macro_params = found_macro_iter->second.m_parameter_names;
+									if (macro_params.size() <= macro_args.size()) {
+										if (macro_params.size() != macro_args.size()) {
+											int q = 5;
+										}
+										auto arg_citer = macro_args.cbegin();
+										for (auto& macro_param : macro_params) {
+											auto found_range = Parse::find_uncommented_token(macro_param, source_text_as_if_expanded);
+											while (found_range.begin < source_text_as_if_expanded.length()) {
+												source_text_as_if_expanded.replace(found_range.begin, (found_range.end - found_range.begin), *arg_citer);
+												retval.m_source_text_as_if_expanded = source_text_as_if_expanded;
+
+												found_range = Parse::find_uncommented_token(macro_param, source_text_as_if_expanded, found_range.begin + (*arg_citer).length());
+											}
+											++arg_citer;
+										}
+									} else {
+										int q = 3;
+									}
+									//break;
 								}
 							} else {
 								int q = 5;
@@ -2623,11 +3137,16 @@ namespace convc2validcpp {
 
 					++nesting_level;
 				}
-				DEBUG_SOURCE_TEXT_STR(debug_macro_source_text, returnSR, Rewrite);
-				return SPSR;
+				DEBUG_SOURCE_TEXT_STR(debug_macro_source_text, retval, Rewrite);
+				return retval;
+			}
+		} else if (may_be_a_gnu_attr) {
+			auto maybe_SR2 = extended_to_include_entire_gnu_attribute_if_any(retval, state1, Rewrite);
+			if (maybe_SR2.has_value()) {
+				retval = maybe_SR2.value();
 			}
 		}
-		return returnSR;
+		return retval;
 	}
 
 	static clang::SourceLocation get_previous_non_whitespace_SL(clang::SourceLocation SL, Rewriter &Rewrite) {
@@ -2811,7 +3330,7 @@ namespace convc2validcpp {
 
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, parens_SR, Rewrite);
 
-					if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+					if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 						int q = 5;
 					}
 				}
@@ -2862,7 +3381,7 @@ namespace convc2validcpp {
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-			if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 				int q = 5;
 			}
 		}
@@ -3417,7 +3936,7 @@ namespace convc2validcpp {
 
 						//DEBUG_SOURCE_TEXT_STR(debug_source_text, definition_SR, Rewrite);
 
-						if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+						if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 							int q = 5;
 						}
 					}
@@ -4954,7 +5473,7 @@ namespace convc2validcpp {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+		if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -4995,7 +5514,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(l_debug_source_text, return_type_source_range, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != l_debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != l_debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -5268,7 +5787,7 @@ namespace convc2validcpp {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+		if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5332,7 +5851,7 @@ namespace convc2validcpp {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+		if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5461,7 +5980,7 @@ namespace convc2validcpp {
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-		if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+		if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5862,7 +6381,7 @@ namespace convc2validcpp {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+		if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -5894,7 +6413,7 @@ namespace convc2validcpp {
 			if (lhs_is_ineligible_for_xscope_status) {
 				if (!rhs_is_ineligible_for_xscope_status) {
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+					if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -6031,7 +6550,7 @@ namespace convc2validcpp {
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
-		if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+		if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -6059,7 +6578,7 @@ namespace convc2validcpp {
 
 			if (lhs_is_ineligible_for_xscope_status != rhs_is_ineligible_for_xscope_status) {
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -6844,7 +7363,7 @@ namespace convc2validcpp {
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-			if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/
@@ -6946,7 +7465,7 @@ namespace convc2validcpp {
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-			if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/
@@ -7513,7 +8032,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7770,7 +8289,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7885,7 +8404,7 @@ namespace convc2validcpp {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -7944,7 +8463,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8009,7 +8528,7 @@ namespace convc2validcpp {
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 #ifndef NDEBUG
-					if (std::string::npos != decl_debug_source_location_str.find("connect.c:942:")) {
+					if (std::string::npos != decl_debug_source_location_str.find(g_target_debug_source_location_str1)) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
@@ -8128,7 +8647,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8350,7 +8869,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8496,7 +9015,7 @@ namespace convc2validcpp {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8740,7 +9259,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -8952,7 +9471,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -9695,7 +10214,7 @@ namespace convc2validcpp {
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-			if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/
@@ -9705,7 +10224,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10166,7 +10685,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10211,7 +10730,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10561,7 +11080,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10697,7 +11216,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -10940,7 +11459,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -11031,7 +11550,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -11078,7 +11597,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -11415,7 +11934,7 @@ namespace convc2validcpp {
 				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -11476,7 +11995,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -11953,7 +12472,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -12006,7 +12525,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 				if (std::string::npos != debug_source_text.find("png_malloc")) {
@@ -12384,7 +12903,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -12430,7 +12949,7 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
 #ifndef NDEBUG
-				if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -13332,7 +13851,7 @@ namespace convc2validcpp {
 		}
 
 #ifndef NDEBUG
-		if (string_begins_with(macro_nametok_text, "MACRO")) {
+		if (string_begins_with(macro_nametok_text, "YY_CURRENT_BUFFER")) {
 			int q = 5;
 		}
 #endif /*!NDEBUG*/
@@ -13356,12 +13875,38 @@ namespace convc2validcpp {
 			return;
 		}
 
-#ifndef NDEBUG
 		auto macro_def = MD->getDefinition();
 		auto MDSL = macro_def.getMacroInfo()->getDefinitionLoc();
 		auto MDSLE = macro_def.getMacroInfo()->getDefinitionEndLoc();
-		std::string macro_decl_text = m_Rewriter_ref.getRewrittenText({ MDSL, MDSLE });
-#endif /*!NDEBUG*/
+		std::string macro_def_text = m_Rewriter_ref.getRewrittenText({ MDSL, MDSLE });
+		std::string_view macro_def_body_sv;
+		{
+			std::string::size_type search_start_pos = 0;
+			if (is_function_macro) {
+				auto rparen_pos = macro_def_text.find(")");
+				if (std::string::npos == rparen_pos) {
+					int q = 3;
+				} else {
+					search_start_pos = rparen_pos;
+				}
+			}
+			auto wh_pos = Parse::find_whitespace(macro_def_text, search_start_pos);
+			auto nwh_pos = Parse::find_non_whitespace(macro_def_text, wh_pos);
+			std::string_view macro_def_text_sv = macro_def_text;
+			if (macro_def_text_sv.size() > nwh_pos) {
+				macro_def_body_sv = macro_def_text_sv.substr(nwh_pos);
+			}
+		}
+
+		std::vector<std::string> parameter_names;
+		for (auto identifier_info_ptr : macro_def.getMacroInfo()->params()) {
+			if (identifier_info_ptr) {
+				auto param_name = identifier_info_ptr->getName();
+				parameter_names.push_back(std::string(param_name));
+			} else {
+				int q = 3;
+			}
+		}
 
 		if (current_fii_shptr()) {
 			if (!(current_fii_shptr()->m_first_macro_directive_ptr_is_valid)) {
@@ -13370,7 +13915,7 @@ namespace convc2validcpp {
 			}
 		}
 
-		auto ppmdi = CPPMacroDefinitionInfo(MacroNameTok, *MD);
+		auto ppmdi = CPPMacroDefinitionInfo(MacroNameTok, *MD, is_function_macro, macro_def_body_sv, std::move(parameter_names));
 		auto iter1 = (*this).m_tu_state_ptr->m_pp_macro_definitions.find(macro_name);
 		if ((*this).m_tu_state_ptr->m_pp_macro_definitions.end() != iter1) {
 			IF_DEBUG(std::string found_macro_text = m_Rewriter_ref.getRewrittenText(iter1->second.definition_SR());)
@@ -13398,7 +13943,7 @@ namespace convc2validcpp {
 		auto& SM = (*this).m_Rewriter_ref.getSourceMgr();
 		IF_DEBUG(std::string debug_source_location_str = Range.getBegin().printToString(SM);)
 
-		if (filtered_out_by_location(SM, Range.getBegin())) {
+		if (filtered_out_by_location<options_t<converter_mode_t> >(SM, Range.getBegin())) {
 			return;
 		}
 
@@ -13425,7 +13970,7 @@ namespace convc2validcpp {
 		auto MacroDefSR = COrderedSourceRange(MDSL, MDSLE);
 
 #ifndef NDEBUG
-		std::string macro_decl_text = m_Rewriter_ref.getRewrittenText({ MDSL, MDSLE });
+		std::string macro_def_text = m_Rewriter_ref.getRewrittenText({ MDSL, MDSLE });
 
 		if (string_begins_with(macro_nametok_text, "MACRO")) {
 			int q = 5;
@@ -13590,7 +14135,7 @@ namespace convc2validcpp {
 					IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str.find("connect.c:942:")) {
+					if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 						int q = 5;
 					}
 #endif /*!NDEBUG*/
