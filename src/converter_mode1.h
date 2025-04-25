@@ -13152,43 +13152,59 @@ namespace convm1 {
 											objects that are pointer targets (aka "addressable" ojects) to C++ objects with
 											non-trivial copy constructors, we need to cast them back to their original scalar
 											type before passing them to a *printf() function. */
-											auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
-											auto arg_iter = state1.m_expr_conversion_state_map.find(arg_EX);
-											if (state1.m_expr_conversion_state_map.end() == arg_iter) {
-												std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX, Rewrite, state1);
-												arg_iter = state1.m_expr_conversion_state_map.insert(shptr1);
-											}
-											auto& arg_shptr_ref = (*arg_iter).second;
-
-											auto arg_source_text = Rewrite.getRewrittenText(arg_source_range);
-
-											std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();
-											std::string prefix;
-											std::string suffix = ")";
-											if ("Dual" == ConvertMode) {
-												prefix = "MSE_LH_CAST(" + arg_EX_qtype_str + ", ";
+											auto CSCE = clang::dyn_cast<clang::CStyleCastExpr>(IgnoreParenImpCasts(arg_EX));
+											if (CSCE) {
+												/* There seems to already be a cast operation. At the moment we seem to be leaving non-pointer 
+												casts alone. So presumably adding another cast would be redundant. */;
 											} else {
-												prefix = arg_EX_qtype_str + "(";
-											}
+												auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
-											auto shptr1 = std::make_shared<CWrapExprTextModifier>(prefix, suffix);
-											if (1 <= (*arg_shptr_ref).m_expr_text_modifier_stack.size()) {
-												if ("wrap" == (*arg_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
-													/* already applied */
-													return;
+												auto arg_iter = state1.m_expr_conversion_state_map.find(arg_EX);
+												if (state1.m_expr_conversion_state_map.end() == arg_iter) {
+													std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX, Rewrite, state1);
+													arg_iter = state1.m_expr_conversion_state_map.insert(shptr1);
 												}
-											}
-											(*arg_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
-											(*arg_shptr_ref).update_current_text();
+												auto& arg_shptr_ref = (*arg_iter).second;
 
-											if (ConvertToSCPP) {
-												std::shared_ptr<CDDeclIndirectionReplacementAction> cr_shptr = std::make_shared<CExprTextDDIReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, CDDeclIndirection::no_indirection), arg_EX, (*arg_shptr_ref).current_text());
+												auto arg_source_text = Rewrite.getRewrittenText(arg_source_range);
 
-												if (ddcs_ref.has_been_determined_to_be_a_pointer_target()) {
-													(*cr_shptr).do_replacement(state1);
+												std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();
+												std::string prefix;
+												std::string suffix = ")";
+												if ("Dual" == ConvertMode) {
+													prefix = "MSE_LH_CAST(" + arg_EX_qtype_str + ", ";
 												} else {
-													state1.m_pointer_target_contingent_replacement_map.insert(cr_shptr);
+													auto arg_EX_qtype_str_wwsr = with_whitespace_removed(arg_EX_qtype_str);
+													bool has_space = (arg_EX_qtype_str_wwsr != arg_EX_qtype_str);
+													if (has_space) {
+														prefix = "(";
+													}
+													prefix += arg_EX_qtype_str;
+													if (has_space) {
+														prefix += ")";
+													}
+													prefix += "(";
+												}
+
+												auto shptr1 = std::make_shared<CWrapExprTextModifier>(prefix, suffix);
+												if (1 <= (*arg_shptr_ref).m_expr_text_modifier_stack.size()) {
+													if ("wrap" == (*arg_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
+														/* already applied */
+														return;
+													}
+												}
+												(*arg_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
+												(*arg_shptr_ref).update_current_text();
+
+												if (ConvertToSCPP) {
+													std::shared_ptr<CDDeclIndirectionReplacementAction> cr_shptr = std::make_shared<CExprTextDDIReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, CDDeclIndirection::no_indirection), arg_EX, (*arg_shptr_ref).current_text());
+
+													if (ddcs_ref.has_been_determined_to_be_a_pointer_target()) {
+														(*cr_shptr).do_replacement(state1);
+													} else {
+														state1.m_pointer_target_contingent_replacement_map.insert(cr_shptr);
+													}
 												}
 											}
 
