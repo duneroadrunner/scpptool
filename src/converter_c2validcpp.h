@@ -10261,7 +10261,7 @@ namespace convc2validcpp {
 			auto LHS_qtype = LHS ? LHS->getType() : VLD->getType();
 			auto RHS_ii_qtype = RHS_ii->getType();
 			if ((!LHS_qtype->isPointerType()) || (!RHS_ii_qtype->isPointerType())) {
-				return;
+				//return;
 			}
 
 			if ((("void *" == RHS_ii_qtype_str) || ("const void *" == RHS_ii_qtype_str))
@@ -10285,6 +10285,10 @@ namespace convc2validcpp {
 					RHS_ii_text = "(" + LHS_qtype_str + ")(" + RHS_ii_text + ")";
 					CExprTextYieldingReplacementAction(Rewrite, MR, RHS_ii, RHS_ii_text).do_replacement(state1);
 				}
+			} else if ((!RHS_ii_qtype->isEnumeralType()) && (LHS_qtype->isEnumeralType())) {
+				std::string RHS_ii_text = Rewrite.getRewrittenText(SR);
+				RHS_ii_text = "(" + LHS_qtype_str + ")(" + RHS_ii_text + ")";
+				CExprTextYieldingReplacementAction(Rewrite, MR, RHS_ii, RHS_ii_text).do_replacement(state1);
 			}
 
 			if (false) {
