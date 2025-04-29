@@ -8900,7 +8900,7 @@ namespace convm1 {
 								+ replacement_qtype_str + ", ";
 						} else {
 							new_cast_prefix = "("
-								+ replacement_qtype_str + " const &)(";
+								+ replacement_qtype_str + ")(";
 						}
 					} else {
 						if ("Dual" == ConvertMode) {
@@ -12341,7 +12341,7 @@ namespace convm1 {
 				auto LHSDD_SR = cm1_adj_nice_source_range(lhs_res2.ddecl_cptr->getSourceRange(), state1, Rewrite);
 				bool LHS_decl_is_non_modifiable = is_non_modifiable(*(lhs_res2.ddecl_cptr), MR, Rewrite, state1);
 				if (LHS_decl_is_non_modifiable && (LHS || VLD) && RHS) {
-					/* LHS will, for whatever reason, not be converted to a safe pointer. But presumably the RHS wiil 
+					/* LHS will, for whatever reason, not be converted to a safe pointer. But presumably the RHS will 
 					(or at least could) be. So we may need to add an unsafe cast from the RHS safe pointer to the LHS
 					raw pointer. */
 					auto LHS_qtype = LHS ? LHS->getType() : VLD->getType();
