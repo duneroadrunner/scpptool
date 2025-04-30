@@ -1906,6 +1906,21 @@ namespace convm1 {
 		clang::QualType m_qtype;
 	};
 
+	class CCastExprTextModifier : public CWrapExprTextModifier {
+	public:
+		CCastExprTextModifier(std::string_view qtype_sv) :
+			CWrapExprTextModifier(("Dual" == ConvertMode)
+				? "MSE_LH_CAST(" + std::string(qtype_sv) + ", "
+				: "(" + std::string(qtype_sv) + ")(", ")")
+				, m_qtype_str(qtype_sv) {}
+		virtual ~CCastExprTextModifier() {}
+		virtual std::string species_str() const {
+			return "cast";
+		}
+
+		std::string m_qtype_str;
+	};
+
 	class CUnsafeMakeRawPointerFromExprTextModifier : public CWrapExprTextModifier {
 	public:
 		CUnsafeMakeRawPointerFromExprTextModifier() :
@@ -1929,6 +1944,19 @@ namespace convm1 {
 		virtual ~CUnsafeMakeTemporaryArrayOfRawPointersFromExprTextModifier() {}
 		virtual std::string species_str() const {
 			return "unsafe make temporary array of raw pointers from";
+		}
+	};
+
+	class CUnsafeMakeLHNullableAnyRandomAccessIteratorFromExprTextModifier : public CWrapExprTextModifier {
+	public:
+		CUnsafeMakeLHNullableAnyRandomAccessIteratorFromExprTextModifier() :
+			CWrapExprTextModifier(("Dual" == ConvertMode)
+				? "MSE_LH_UNSAFE_MAKE_ARRAY_ITERATOR_FROM("
+				: "mse::us::lh::unsafe_make_lh_nullable_any_random_access_iterator_from("
+				, ")") {}
+		virtual ~CUnsafeMakeLHNullableAnyRandomAccessIteratorFromExprTextModifier() {}
+		virtual std::string species_str() const {
+			return "unsafe make lh_nullable_any_random_access_iterator from";
 		}
 	};
 
@@ -12337,10 +12365,18 @@ namespace convm1 {
 				int q = 5;
 			}
 
+			bool LHS_decl_is_non_modifiable = false;
+			bool RHS_decl_is_non_modifiable = false;
+			if (lhs_res2.ddecl_cptr) {
+				LHS_decl_is_non_modifiable = is_non_modifiable(*(lhs_res2.ddecl_cptr), MR, Rewrite, state1);
+			}
+			if (rhs_res2.ddecl_cptr) {
+				RHS_decl_is_non_modifiable = is_non_modifiable(*(rhs_res2.ddecl_cptr), MR, Rewrite, state1);
+			}
+
 			if (lhs_res2.ddecl_cptr) {
 				auto LHSDD_SR = cm1_adj_nice_source_range(lhs_res2.ddecl_cptr->getSourceRange(), state1, Rewrite);
-				bool LHS_decl_is_non_modifiable = is_non_modifiable(*(lhs_res2.ddecl_cptr), MR, Rewrite, state1);
-				if (LHS_decl_is_non_modifiable && (LHS || VLD) && RHS) {
+				if ((LHS_decl_is_non_modifiable /*&& (!RHS_decl_is_non_modifiable)*/) && (LHS || VLD) && RHS) {
 					/* LHS will, for whatever reason, not be converted to a safe pointer. But presumably the RHS will 
 					(or at least could) be. So we may need to add an unsafe cast from the RHS safe pointer to the LHS
 					raw pointer. */
@@ -12377,25 +12413,12 @@ namespace convm1 {
 
 							std::shared_ptr<CExprTextModifier> shptr1;
 							auto RHS_qtype_str = RHS_qtype.getAsString();
-							if (true || (("void *" != RHS_qtype_str) && ("const void *" != RHS_qtype_str))) {
-								if (!string_begins_with(rhs_function_qname_if_any, "mse::")) {
-									shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
-									if (1 <= rhs_ecs_ref.m_expr_text_modifier_stack.size()) {
-										if ("unsafe make raw pointer from" == rhs_ecs_ref.m_expr_text_modifier_stack.back()->species_str()) {
-											/* already applied */
-											return;
-										}
-									}
-								}
-							} else {
-								auto LHS_qtype_str = LHS_qtype.getAsString();
-								if (("void *" != LHS_qtype_str) && ("const void *" != LHS_qtype_str)) {
-									shptr1 = std::make_shared<CUnsafeCastExprTextModifier>(LHS_qtype);
-									if (1 <= rhs_ecs_ref.m_expr_text_modifier_stack.size()) {
-										if ("unsafe cast" == rhs_ecs_ref.m_expr_text_modifier_stack.back()->species_str()) {
-											/* already applied */
-											return;
-										}
+							if (!string_begins_with(rhs_function_qname_if_any, "mse::")) {
+								shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
+								if (1 <= rhs_ecs_ref.m_expr_text_modifier_stack.size()) {
+									if ("unsafe make raw pointer from" == rhs_ecs_ref.m_expr_text_modifier_stack.back()->species_str()) {
+										/* already applied */
+										return;
 									}
 								}
 							}
@@ -12524,6 +12547,102 @@ namespace convm1 {
 					/* This seems to be some kind of malloc/realloc function. These case should not be
 					* handled here. They are handled elsewhere. */
 					return;
+				}
+			}
+
+			if (rhs_is_an_indirect_type && rhs_res2.ddecl_cptr) {
+				auto RHSDD_SR = cm1_adj_nice_source_range(rhs_res2.ddecl_cptr->getSourceRange(), state1, Rewrite);
+				if ((RHS_decl_is_non_modifiable && (!LHS_decl_is_non_modifiable)) && (LHS || VLD) && RHS) {
+					/* RHS will, for whatever reason, not be converted to a safe pointer. But presumably the LHS will 
+					(or at least could) be. So we may need to add an unsafe cast from the RHS raw pointer to the LHS 
+					safe pointer. */
+					auto LHS_qtype = LHS ? LHS->getType() : VLD->getType();
+					auto RHS_qtype = RHS->getType();
+
+					assert(RHS->getType().getTypePtrOrNull());
+					auto rhs_source_range = write_once_source_range(cm1_adj_nice_source_range(RHS->getSourceRange(), state1, Rewrite));
+					std::string rhs_source_text;
+					if (rhs_source_range.isValid()) {
+						IF_DEBUG(rhs_source_text = Rewrite.getRewrittenText(rhs_source_range);)
+					}
+
+					auto RHS_ii = IgnoreParenImpNoopCasts(RHS, *(MR.Context));
+
+					auto DRE = given_or_descendant_DeclRefExpr(RHS_ii, *(MR.Context));
+
+					if ((nullptr != DRE) && rhs_source_range.isValid()
+						&& LHS_qtype->isPointerType() && (!LHS_qtype->isFunctionPointerType())) {
+
+						assert(nullptr != RHS_ii);
+						auto& rhs_ecs_ref = state1.get_expr_conversion_state_ref(*RHS_ii, Rewrite);
+
+						if (ConvertToSCPP) {
+
+							std::string rhs_function_qname_if_any;
+							auto rhs_CE = dyn_cast<const clang::CallExpr>(RHS_ii);
+							if (rhs_CE) {
+								auto rhs_function_decl1 = rhs_CE->getDirectCallee();
+								if (rhs_function_decl1) {
+									rhs_function_qname_if_any = rhs_function_decl1->getQualifiedNameAsString();
+								}
+							}
+
+							auto RHS_qtype_str = RHS_qtype.getAsString();
+							if (("void *" == RHS_qtype_str) || ("const void *" == RHS_qtype_str)) {
+								std::string new_cast_prefix;
+								std::string new_cast_suffix;
+								if ("Dual" == ConvertMode) {
+									new_cast_prefix = "MSE_LH_CAST("
+										+ LHS_qtype_str + ", ";
+								} else {
+									new_cast_prefix = "("
+										+ LHS_qtype_str + ")(";
+								}
+								new_cast_suffix = ")";
+
+								bool seems_to_be_already_applied = false;
+								for (auto& expr_text_modifier_shptr : rhs_ecs_ref.m_expr_text_modifier_stack) {
+									if ("cast" == expr_text_modifier_shptr->species_str()) {
+										seems_to_be_already_applied = true;
+										break;
+									}
+								}
+								if (!seems_to_be_already_applied) {
+									auto shptr2 = std::make_shared<CCastExprTextModifier>(LHS_qtype_str);
+									rhs_ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+								}
+							}
+							std::shared_ptr<CExprTextModifier> shptr1;
+							if (!string_begins_with(rhs_function_qname_if_any, "mse::")) {
+								bool seems_to_be_already_applied = false;
+								for (auto& expr_text_modifier_shptr : rhs_ecs_ref.m_expr_text_modifier_stack) {
+									if ("unsafe make lh_nullable_any_random_access_iterator from" == expr_text_modifier_shptr->species_str()) {
+										seems_to_be_already_applied = true;
+										break;
+									}
+								}
+								if (!seems_to_be_already_applied) {
+									shptr1 = std::make_shared<CUnsafeMakeLHNullableAnyRandomAccessIteratorFromExprTextModifier>();
+								}
+							}
+							if (shptr1) {
+								rhs_ecs_ref.m_expr_text_modifier_stack.push_back(shptr1);
+								rhs_ecs_ref.update_current_text();
+
+								state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, rhs_source_range, state1, RHS);
+								//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, rhs_source_range, (*rhs_shptr_ref).current_text());
+								//(*this).Rewrite.ReplaceText(rhs_source_range, (*rhs_shptr_ref).current_text());
+								//return;
+							}
+						} else {
+							int q = 5;
+						}
+					} else {
+						int q = 5;
+					}
+					int q = 5;
+		
+					//return;
 				}
 			}
 
