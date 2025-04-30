@@ -11923,9 +11923,14 @@ namespace convm1 {
 				non_modifiable_flag = true;
 				break;
 			}
-			{
-				auto SR = decl.getSourceRange();
-				if (!(SR.isValid())) {
+			auto SR = decl.getSourceRange();
+			if (!(SR.isValid())) {
+				return true;
+			}
+			auto DD = dyn_cast<const clang::VarDecl>(&decl);
+			if (DD) {
+				std::string qtype_str = DD->getType().getAsString();
+				if ("FILE *" == qtype_str) {
 					return true;
 				}
 			}
@@ -12612,27 +12617,29 @@ namespace convm1 {
 									rhs_ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
 								}
 							}
-							std::shared_ptr<CExprTextModifier> shptr1;
-							if (!string_begins_with(rhs_function_qname_if_any, "mse::")) {
-								bool seems_to_be_already_applied = false;
-								for (auto& expr_text_modifier_shptr : rhs_ecs_ref.m_expr_text_modifier_stack) {
-									if ("unsafe make lh_nullable_any_random_access_iterator from" == expr_text_modifier_shptr->species_str()) {
-										seems_to_be_already_applied = true;
-										break;
+							if (("FILE *" != RHS_qtype_str)) {
+								std::shared_ptr<CExprTextModifier> shptr1;
+								if (!string_begins_with(rhs_function_qname_if_any, "mse::")) {
+									bool seems_to_be_already_applied = false;
+									for (auto& expr_text_modifier_shptr : rhs_ecs_ref.m_expr_text_modifier_stack) {
+										if ("unsafe make lh_nullable_any_random_access_iterator from" == expr_text_modifier_shptr->species_str()) {
+											seems_to_be_already_applied = true;
+											break;
+										}
+									}
+									if (!seems_to_be_already_applied) {
+										shptr1 = std::make_shared<CUnsafeMakeLHNullableAnyRandomAccessIteratorFromExprTextModifier>();
 									}
 								}
-								if (!seems_to_be_already_applied) {
-									shptr1 = std::make_shared<CUnsafeMakeLHNullableAnyRandomAccessIteratorFromExprTextModifier>();
-								}
-							}
-							if (shptr1) {
-								rhs_ecs_ref.m_expr_text_modifier_stack.push_back(shptr1);
-								rhs_ecs_ref.update_current_text();
+								if (shptr1) {
+									rhs_ecs_ref.m_expr_text_modifier_stack.push_back(shptr1);
+									rhs_ecs_ref.update_current_text();
 
-								state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, rhs_source_range, state1, RHS);
-								//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, rhs_source_range, (*rhs_shptr_ref).current_text());
-								//(*this).Rewrite.ReplaceText(rhs_source_range, (*rhs_shptr_ref).current_text());
-								//return;
+									state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, rhs_source_range, state1, RHS);
+									//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, rhs_source_range, (*rhs_shptr_ref).current_text());
+									//(*this).Rewrite.ReplaceText(rhs_source_range, (*rhs_shptr_ref).current_text());
+									//return;
+								}
 							}
 						} else {
 							int q = 5;
