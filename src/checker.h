@@ -1214,7 +1214,13 @@ namespace checker {
 			tl_names.push_back("std::basic_string_view");
 			tl_names.push_back("std::string_view");
 			tl_names.push_back("std::span");
+		}
+		return tl_names;
+	}
 
+	inline std::vector<std::string> known_dynamic_nonowning_pointer_or_iterator_names() {
+		thread_local std::vector<std::string> tl_names;
+		if (0 == tl_names.size()) {
 			tl_names.push_back("__gnu_cxx::__normal_iterator");
 			//__gnu_cxx::__normal_iterator<int *, std::vector<int>>
 			//std::vector<int>::iterator
@@ -1240,6 +1246,45 @@ namespace checker {
 			tl_names.push_back(mse_namespace_str() + "::TNoradConstPointer");
 			tl_names.push_back(mse_namespace_str() + "::TNoradNotNullConstPointer");
 			//tl_names.push_back(mse_namespace_str() + "::TNoradFixedConstPointer");
+		}
+		return tl_names;
+	}
+
+	inline std::vector<std::string> known_pointer_derived_iterator_names() {
+		thread_local std::vector<std::string> tl_names;
+		if (0 == tl_names.size()) {
+			tl_names.push_back(mse_namespace_str() + "::TRAIterator");
+			tl_names.push_back(mse_namespace_str() + "::TRAConstIterator");
+			tl_names.push_back(mse_namespace_str() + "::TXScopeRAIterator");
+			tl_names.push_back(mse_namespace_str() + "::TXScopeRAConstIterator");
+			tl_names.push_back(mse_namespace_str() + "::us::impl::ns_ra_iter::TRAIteratorBase");
+			tl_names.push_back(mse_namespace_str() + "::us::impl::ns_ra_iter::TRAConstIteratorBase");
+		}
+		return tl_names;
+	}
+
+	inline std::vector<std::string> known_iterator_derived_container_names() {
+		thread_local std::vector<std::string> tl_names;
+		if (0 == tl_names.size()) {
+			tl_names.push_back(mse_namespace_str() + "::TRandomAccessSection");
+			tl_names.push_back(mse_namespace_str() + "::TRandomAccessConstSection");
+			tl_names.push_back(mse_namespace_str() + "::TXScopeRandomAccessSection");
+			tl_names.push_back(mse_namespace_str() + "::TXScopeRandomAccessConstSection");
+			tl_names.push_back(mse_namespace_str() + "::us::impl::ns_ra_section::TRandomAccessSectionBase");
+			tl_names.push_back(mse_namespace_str() + "::us::impl::ns_ra_section::TRandomAccessConstSectionBase");
+		}
+		return tl_names;
+	}
+
+	inline std::vector<std::string> known_iterator_derived_iterator_names() {
+		thread_local std::vector<std::string> tl_names;
+		if (0 == tl_names.size()) {
+			tl_names.push_back(mse_namespace_str() + "::TRASectionIterator");
+			tl_names.push_back(mse_namespace_str() + "::TRAConstSectionIterator");
+			tl_names.push_back(mse_namespace_str() + "::TXScopeRASectionIterator");
+			tl_names.push_back(mse_namespace_str() + "::TXScopeRAConstSectionIterator");
+			tl_names.push_back(mse_namespace_str() + "::us::impl::TRASectionIteratorBase");
+			tl_names.push_back(mse_namespace_str() + "::us::impl::TRAConstSectionIteratorBase");
 		}
 		return tl_names;
 	}
@@ -1311,10 +1356,158 @@ namespace checker {
 		thread_local known_containers_state_t known_containers_state;
 		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
 				known_dynamic_nonowning_container_names
+				, known_dynamic_nonowning_pointer_or_iterator_names
 				, known_fixed_nonowning_container_names
+				, known_pointer_derived_iterator_names
+				, known_iterator_derived_iterator_names
+				, known_iterator_derived_container_names
 			});
 
 		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
+	}
+
+	inline bool is_recognized_unprotected_dynamic_owning_container(clang::QualType const& qtype) {
+		thread_local known_containers_state_t known_containers_state;
+		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
+				known_unprotected_dynamic_owning_container_names
+			});
+
+		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
+	}
+
+	inline bool is_recognized_unprotected_dynamic_owning_pointer(clang::QualType const& qtype) {
+		thread_local known_containers_state_t known_containers_state;
+		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
+				known_unprotected_dynamic_owning_pointer_names
+			});
+
+		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
+	}
+
+	inline bool is_recognized_dynamic_nonowning_pointer_or_iterator_pointer(clang::QualType const& qtype) {
+		thread_local known_containers_state_t known_containers_state;
+		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
+				known_dynamic_nonowning_pointer_or_iterator_names
+			});
+
+		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
+	}
+
+	inline bool is_recognized_unprotected_dynamic_container(clang::QualType const& qtype);
+
+	inline bool is_recognized_pointer_derived_iterator(clang::QualType const& qtype) {
+		thread_local known_containers_state_t known_containers_state;
+		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
+				known_pointer_derived_iterator_names
+			});
+
+		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
+	}
+
+	inline bool is_recognized_unprotected_dynamic_pointer_derived_iterator(clang::QualType const& qtype) {
+		if (!is_recognized_pointer_derived_iterator(qtype)) {
+			return false;
+		}
+		/* So apparently it's a "pointer-derived iterator". Now we have to determine if the target of the 
+		pointer is an unprotected dynamic container. */
+		bool retval = false;
+		auto const peeled_qtype = remove_mse_transparent_wrappers(qtype);
+		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(peeled_qtype, retval);
+
+		auto maybe_tparam = get_first_template_parameter_if_any(peeled_qtype);
+		if (maybe_tparam.has_value()) {
+			auto tparam_qtype = maybe_tparam.value();
+			/* tparam_qtype is presumably some kind of (possibly custom smart) pointer type */
+
+			if (is_recognized_unprotected_dynamic_owning_pointer(tparam_qtype)
+				|| is_recognized_dynamic_nonowning_pointer_or_iterator_pointer(tparam_qtype)) {
+
+				return true;
+			}
+
+			auto maybe_tparam2 = get_first_template_parameter_if_any(tparam_qtype);
+			if (maybe_tparam2.has_value()) {
+				auto tparam2_qtype = maybe_tparam2.value();
+				if (is_recognized_unprotected_dynamic_container(tparam2_qtype)) {
+					return true;
+				}
+			} else if (tparam_qtype->isPointerType()) {			
+				auto pointee_qtype = tparam_qtype->getPointeeType();
+				if (is_recognized_unprotected_dynamic_container(pointee_qtype)) {
+					return true;
+				}
+			}
+		}
+		return retval;
+	}
+
+	inline bool is_iterator_derived_iterator(clang::QualType const& qtype) {
+		thread_local known_containers_state_t known_containers_state;
+		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
+				known_iterator_derived_iterator_names
+			});
+
+		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
+	}
+
+	inline bool is_recognized_unprotected_dynamic_iterator_derived_iterator(clang::QualType const& qtype) {
+		if (!is_iterator_derived_iterator(qtype)) {
+			return false;
+		}
+		/* So apparently it's an "iterator-derived iterator". Now we have to determine if the derived-from 
+		iterator is associated with an unprotected dynamic container. */
+
+		bool retval = false;
+		auto const peeled_qtype = remove_mse_transparent_wrappers(qtype);
+		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(peeled_qtype, retval);
+
+		auto maybe_tparam = get_first_template_parameter_if_any(peeled_qtype);
+		if (maybe_tparam.has_value()) {
+			auto tparam_qtype = maybe_tparam.value();
+			/* tparam_qtype is presumably some kind of iterator */
+
+			if (is_recognized_unprotected_dynamic_pointer_derived_iterator(tparam_qtype)) {
+				return true;
+			}
+			return is_recognized_unprotected_dynamic_iterator_derived_iterator(tparam_qtype);
+		}
+		return retval;
+	}
+
+	inline bool is_iterator_derived_container(clang::QualType const& qtype) {
+		thread_local known_containers_state_t known_containers_state;
+		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
+				known_iterator_derived_container_names
+			});
+
+		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
+	}
+
+	inline bool is_recognized_unprotected_dynamic_iterator_derived_container(clang::QualType const& qtype) {
+		if (!is_iterator_derived_container(qtype)) {
+			return false;
+		}
+		/* So apparently it's an "iterator-derived container". Now we have to determine if the iterator 
+		is associated with an unprotected dynamic container. */
+
+		bool retval = false;
+		auto const peeled_qtype = remove_mse_transparent_wrappers(qtype);
+		IF_DEBUG(auto peeled_qtype_str = peeled_qtype.getAsString();)
+		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(peeled_qtype, retval);
+
+		auto maybe_tparam = get_first_template_parameter_if_any(peeled_qtype);
+		if (maybe_tparam.has_value()) {
+			auto tparam_qtype = maybe_tparam.value();
+			/* tparam_qtype is presumably some kind of iterator */
+
+			if (is_recognized_unprotected_dynamic_pointer_derived_iterator(tparam_qtype)) {
+				return true;
+			}
+			return is_recognized_unprotected_dynamic_iterator_derived_iterator(tparam_qtype);
+		}
+		return retval;
 	}
 
 	inline bool is_recognized_unprotected_dynamic_container(clang::QualType const& qtype) {
@@ -1322,9 +1515,21 @@ namespace checker {
 		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
 				known_unprotected_dynamic_owning_container_names
 				, known_dynamic_nonowning_container_names
+				, known_dynamic_nonowning_pointer_or_iterator_names
 			});
 
-		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
+		bool retval = is_container_recognized_from_given_set_state(qtype, known_containers_state);
+		if (!retval) {
+			retval |= is_recognized_unprotected_dynamic_iterator_derived_container(qtype);
+		}
+		if (!retval) {
+			retval |= is_recognized_unprotected_dynamic_pointer_derived_iterator(qtype);
+		}
+		if (!retval) {
+			retval |= is_recognized_unprotected_dynamic_iterator_derived_iterator(qtype);
+		}
+
+		return retval;
 	}
 
 	inline bool is_recognized_protected_dynamic_owning_container(clang::QualType const& qtype) {
