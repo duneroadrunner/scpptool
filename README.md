@@ -632,7 +632,7 @@ Also note that (though we don't use them in the example) some (provisional) shor
 `xl_bf_vector<>` is an alias for `xslta_borrowing_fixed_vector<>`  
 `make_xl_bf_vector()` is an alias for `make_xslta_borrowing_fixed_vector()`
 
-usage example: ([link to interactive version](https://godbolt.org/z/G6za7q5ox))
+usage example: ([link to interactive version](https://godbolt.org/z/43aPqMMd1))
 
 ```cpp
     #include "mseslta.h"
@@ -694,10 +694,10 @@ usage example: ([link to interactive version](https://godbolt.org/z/G6za7q5ox))
         /* While not the preferred method, rsv::xslta_vector<> does (currently) have limited support for accessing 
         its elements (pseudo-)directly. */
 
-        /* non-const mse::rsv::xslta_vector<> element access operators and methods (like front()) do not return a
-        raw reference. They return a "proxy reference" object that (while it exists, prevents the vector from 
-        being resized, etc. and) behaves like a (raw) reference in some situations. For example, like a reference, 
-        it can be cast to the element type. */
+        /* mse::rsv::xslta_vector<> element access operators and methods (like front()) do not return a raw 
+        reference. They return a "proxy reference" object that (while it exists, prevents the vector from being 
+        resized, etc. and) behaves like a (raw) reference in some situations. For example, like a reference, it 
+        can be cast to the element type. */
         typename decltype(vec2)::value_type ilaptr3 = vec2.front();
         ilaptr3 = &i1;
         //ilaptr3 = &i3; // scpptool would complain (because i3 does not live long enough)
@@ -709,14 +709,9 @@ usage example: ([link to interactive version](https://godbolt.org/z/G6za7q5ox))
         /* Note that these returned "proxy reference" objects are designed to be used as temporary (rvalue) objects, 
         not as (lvalue) declared variables or stored objects. */
 
-        /* Note again that we've been using a non-const rsv::xslta_vector<>. Perhaps unintuitively, the contents of
-        an rsv::xslta_vector<> cannot be safely accessed via const reference to the vector. */
-        auto const& vec2_cref1 = vec2;
-        //typename decltype(vec2)::value_type ilaptr3b = vec2_cref1.front();    // scpptool would complain
-
         {
-            /* Like the (non-const) element access operators and methods, dereferencing operations of rsv::xslta_vector<>'s 
-            (non-const) iterators return "proxy reference" objects rather than raw references. */
+            /* Like the element access operators and methods, dereferencing operations of rsv::xslta_vector<>'s 
+            iterators return "proxy reference" objects rather than raw references. */
             auto xslta_iter1 = std::begin(vec2);
             auto xslta_iter2 = mse::rsv::make_xslta_end_iterator(&vec2);
             *xslta_iter1 = &i1;
