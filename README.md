@@ -632,7 +632,7 @@ Also note that (though we don't use them in the example) some (provisional) shor
 `xl_bf_vector<>` is an alias for `xslta_borrowing_fixed_vector<>`  
 `make_xl_bf_vector()` is an alias for `make_xslta_borrowing_fixed_vector()`
 
-usage example: ([link to interactive version](https://godbolt.org/z/YhKocPndq))
+usage example: ([link to interactive version](https://godbolt.org/z/G6za7q5ox))
 
 ```cpp
     #include "mseslta.h"
@@ -657,7 +657,7 @@ usage example: ([link to interactive version](https://godbolt.org/z/YhKocPndq))
         vec2.swap(vec3);
 
         auto vec4 = mse::rsv::xslta_vector<mse::rsv::TXSLTAPointer<int> >{ &i3, &i1 };
-        /* Since the (lower bound) lifetime values of arr2 and arr4 are not the same, their values
+        /* Since the (lower bound) lifetime values of vec2 and vec4 are not the same, their values
         cannot be safely swapped.*/
         //std::swap(vec2, vec4);    // scpptool would complain
         //vec2.swap(vec4);    // scpptool would complain
