@@ -11,9 +11,11 @@
 #include "utils1.h"
 
 /*Standard headers*/
+#include <cstddef>
 #include <string>
 #include <iostream>
 #include <string>
+#include <utility>
 #include <vector>
 #include <map>
 #include <unordered_map>
@@ -1022,271 +1024,302 @@ namespace checker {
 		return retval;
 	}
 
-	inline std::vector<std::string> known_fixed_owning_container_names() {
-		thread_local std::vector<std::string> tl_names;
-		if (0 == tl_names.size()) {
-			tl_names.push_back("const std::unique_ptr");
-			tl_names.push_back("std::tuple");
-			tl_names.push_back("std::pair");
-			tl_names.push_back("std::array");
+	class CLibraryElementInfo {
+		public:
+		enum class EBoolPropertyID {
+			/* IIRC, "protected" means that for dynamic containers/pointers/iterators, either there is no way 
+			to obtain a raw reference to the contents/target, or that such a raw reference (of scope lifetime) 
+			is guaranteed by some other means (generallly, via the type system) to remain valid through any 
+			operation. An operation that is often useful to consider might be, for example, a copy or move 
+			assignment in which the "mischievous" copy/move assignment operator makes every effort to 
+			deallocate the source and/or target object during the operation. (For example, by clear()ing a 
+			parent vector of the source and/or target.) */
+			is_known_to_be_protected_or_non_dynamic,
+			is_known_to_be_dynamic,
+			dynamism_is_inherited_from_first_tparam,
+			is_owning,
+			is_a_container,
+			is_a_pointer,
+			is_an_iterator,
+			first_tparam_is_a_pointer,
+			first_tparam_is_an_iterator,
+			has_benign_move,
+			is_a_string_container,
+			ENUM_END_MARKER_VALUE
+		};
 
-			tl_names.push_back(mse_namespace_str() + "::TXScopeOwnerPointer");
-			tl_names.push_back(mse_namespace_str() + "::mstd::tuple");
-			tl_names.push_back(mse_namespace_str() + "::xscope_tuple");
-
-			tl_names.push_back(mse_namespace_str() + "::rsv::xslta_fixed_optional");
-			tl_names.push_back(mse_namespace_str() + "::xscope_fixed_optional");
-			tl_names.push_back(mse_namespace_str() + "::fixed_optional");
-
-			tl_names.push_back(mse_namespace_str() + "::rsv::xslta_array");
-			tl_names.push_back(mse_namespace_str() + "::xscope_nii_array");
-			tl_names.push_back(mse_namespace_str() + "::nii_array");
-			tl_names.push_back(mse_namespace_str() + "::mstd::array");
-
-			tl_names.push_back(mse_namespace_str() + "::rsv::xslta_fixed_vector");
-			tl_names.push_back(mse_namespace_str() + "::xscope_fixed_nii_vector");
-			tl_names.push_back(mse_namespace_str() + "::fixed_nii_vector");
-			tl_names.push_back(mse_namespace_str() + "::us::impl::fixed_nii_vector_base");
-
-			tl_names.push_back(mse_namespace_str() + "::xscope_fixed_nii_basic_string");
-			tl_names.push_back(mse_namespace_str() + "::fixed_nii_basic_string");
-			tl_names.push_back(mse_namespace_str() + "::us::impl::fixed_nii_basic_string_base");
-
-			tl_names.push_back(mse_namespace_str() + "::xscope_fixed_any");
-			tl_names.push_back(mse_namespace_str() + "::fixed_any");
-		}
-		return tl_names;
-	}
-
-	inline std::vector<std::string> known_fixed_nonowning_container_names() {
-		thread_local std::vector<std::string> tl_names;
-		if (0 == tl_names.size()) {
-			tl_names.push_back(mse_namespace_str() + "::xscope_borrowing_fixed_nii_vector");
-			tl_names.push_back(mse_namespace_str() + "::xscope_borrowing_fixed_nii_basic_string");
-			tl_names.push_back(mse_namespace_str() + "::xscope_borrowing_fixed_optional");
-			tl_names.push_back(mse_namespace_str() + "::xscope_borrowing_fixed_any");
-			tl_names.push_back(mse_namespace_str() + "::rsv::xslta_borrowing_fixed_vector");
-
-			tl_names.push_back(mse_namespace_str() + "::xscope_accessing_fixed_nii_vector");
-			tl_names.push_back(mse_namespace_str() + "::xscope_accessing_fixed_nii_basic_string");
-			tl_names.push_back(mse_namespace_str() + "::xscope_accessing_fixed_optional");
-			tl_names.push_back(mse_namespace_str() + "::xscope_accessing_fixed_any");
-			tl_names.push_back(mse_namespace_str() + "::rsv::xslta_accessing_fixed_vector");
-		}
-		return tl_names;
-	}
-	inline std::vector<std::string> known_unprotected_dynamic_owning_pointer_names() {
-		thread_local std::vector<std::string> tl_names;
-		if (0 == tl_names.size()) {
-			tl_names.push_back("std::unique_ptr");
-			tl_names.push_back("std::shared_ptr");
-
-			tl_names.push_back(mse_namespace_str() + "::TRefCountingPointer");
-			tl_names.push_back(mse_namespace_str() + "::TRefCountingNotNullPointer");
-			tl_names.push_back(mse_namespace_str() + "::TRefCountingFixedPointer");
-			tl_names.push_back(mse_namespace_str() + "::TRefCountingConstPointer");
-			tl_names.push_back(mse_namespace_str() + "::TRefCountingNotNullConstPointer");
-			tl_names.push_back(mse_namespace_str() + "::TRefCountingFixedConstPointer");
-
-			tl_names.push_back(mse_namespace_str() + "::TAnyPointer");
-			tl_names.push_back(mse_namespace_str() + "::TAnyNotNullPointer");
-			tl_names.push_back(mse_namespace_str() + "::TAnyFixedPointer");
-			tl_names.push_back(mse_namespace_str() + "::TAnyConstPointer");
-			tl_names.push_back(mse_namespace_str() + "::TAnyNotNullConstPointer");
-			tl_names.push_back(mse_namespace_str() + "::TAnyFixedConstPointer");
-			tl_names.push_back(mse_namespace_str() + "::TXScopeAnyPointer");
-			tl_names.push_back(mse_namespace_str() + "::TXScopeAnyNotNullPointer");
-			tl_names.push_back(mse_namespace_str() + "::TXScopeAnyFixedPointer");
-			tl_names.push_back(mse_namespace_str() + "::TXScopeAnyConstPointer");
-			tl_names.push_back(mse_namespace_str() + "::TXScopeAnyNotNullConstPointer");
-			tl_names.push_back(mse_namespace_str() + "::TXScopeAnyFixedConstPointer");
-
-			tl_names.push_back(mse_namespace_str() + "::TPolyPointer");
-			tl_names.push_back(mse_namespace_str() + "::TPolyNotNullPointer");
-			tl_names.push_back(mse_namespace_str() + "::TPolyFixedPointer");
-			tl_names.push_back(mse_namespace_str() + "::TPolyConstPointer");
-			tl_names.push_back(mse_namespace_str() + "::TPolyNotNullConstPointer");
-			tl_names.push_back(mse_namespace_str() + "::TPolyFixedConstPointer");
-			tl_names.push_back(mse_namespace_str() + "::TXScopePolyPointer");
-			tl_names.push_back(mse_namespace_str() + "::TXScopePolyNotNullPointer");
-			tl_names.push_back(mse_namespace_str() + "::TXScopePolyFixedPointer");
-			tl_names.push_back(mse_namespace_str() + "::TXScopePolyConstPointer");
-			tl_names.push_back(mse_namespace_str() + "::TXScopePolyNotNullConstPointer");
-			tl_names.push_back(mse_namespace_str() + "::TXScopePolyFixedConstPointer");
-
-			tl_names.push_back(mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadWritePointerBase");
-			tl_names.push_back(mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadWriteConstPointerBase");
-			tl_names.push_back(mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadOnlyPointerBase");
-			tl_names.push_back(mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadOnlyConstPointerBase");
-		}
-		return tl_names;
-	}
-
-	inline std::vector<std::string> known_string_container_names() {
-		thread_local std::vector<std::string> tl_names;
-		if (0 == tl_names.size()) {
-			tl_names.push_back("std::basic_string");
-			tl_names.push_back("std::string");
-
-			tl_names.push_back(mse_namespace_str() + "::us::impl::gnii_basic_string");
-			tl_names.push_back(mse_namespace_str() + "::nii_basic_string");
-			tl_names.push_back(mse_namespace_str() + "::stnii_basic_string");
-			tl_names.push_back(mse_namespace_str() + "::mtnii_basic_string");
-			tl_names.push_back(mse_namespace_str() + "::mstd::basic_string");
-			tl_names.push_back(mse_namespace_str() + "::impl::ns_gnii_basic_string::Tgnii_basic_string_ss_iterator_type");
-			tl_names.push_back(mse_namespace_str() + "::impl::ns_gnii_basic_string::Tgnii_basic_string_ss_const_iterator_type");
-		}
-		return tl_names;
-	}
-
-	inline std::vector<std::string> known_benign_move_unprotected_dynamic_owning_container_names() {
-		thread_local std::vector<std::string> tl_names;
-		if (0 == tl_names.size()) {
-			tl_names = known_unprotected_dynamic_owning_pointer_names();
-			{
-				auto tmp_container_names = known_string_container_names();
-				tl_names.insert(tl_names.end(), tmp_container_names.begin(), tmp_container_names.end());
+		CLibraryElementInfo() = default;
+		CLibraryElementInfo(std::string_view qualified_name_sv, std::vector<EBoolPropertyID> const& bool_property_ids)
+			: m_qualified_name(qualified_name_sv) {
+			for (auto& bool_property_ref : m_bool_properties) {
+				bool_property_ref = false;
 			}
-
-			tl_names.push_back("std::vector");
-			tl_names.push_back("std::list");
-			tl_names.push_back("std::map");
-			tl_names.push_back("std::set");
-			tl_names.push_back("std::multimap");
-			tl_names.push_back("std::multiset");
-
-			tl_names.push_back(mse_namespace_str() + "::us::impl::gnii_vector");
-			tl_names.push_back(mse_namespace_str() + "::nii_vector");
-			tl_names.push_back(mse_namespace_str() + "::stnii_vector");
-			tl_names.push_back(mse_namespace_str() + "::mtnii_vector");
-			tl_names.push_back(mse_namespace_str() + "::mstd::vector");
-			tl_names.push_back(mse_namespace_str() + "::impl::ns_gnii_vector::Tgnii_vector_ss_iterator_type");
-			tl_names.push_back(mse_namespace_str() + "::impl::ns_gnii_vector::Tgnii_vector_ss_const_iterator_type");
+			for (auto& bool_property_id : bool_property_ids) {
+				m_bool_properties.at(size_t(bool_property_id)) = true;
+			}
 		}
-		return tl_names;
-	}
-
-	inline std::vector<std::string> known_unprotected_dynamic_owning_container_names() {
-		thread_local std::vector<std::string> tl_names;
-		if (0 == tl_names.size()) {
-			tl_names = known_benign_move_unprotected_dynamic_owning_container_names();
-
-			tl_names.push_back("std::optional");
-			tl_names.push_back("std::unordered_map");
-			tl_names.push_back("std::unordered_set");
-			tl_names.push_back("std::unordered_multimap");
-			tl_names.push_back("std::unordered_multiset");
-			tl_names.push_back("std::dequeue");
-
-			tl_names.push_back(mse_namespace_str() + "::us::impl::ns_optional::optional_base2");
-			tl_names.push_back(mse_namespace_str() + "::xscope_optional");
-			tl_names.push_back(mse_namespace_str() + "::optional");
-			tl_names.push_back(mse_namespace_str() + "::mstd::optional");
-			tl_names.push_back(mse_namespace_str() + "::st_optional");
-			tl_names.push_back(mse_namespace_str() + "::mt_optional");
-			tl_names.push_back(mse_namespace_str() + "::TOptionalElementFixedPointer");
-			tl_names.push_back(mse_namespace_str() + "::TOptionalElementFixedConstPointer");
+		std::string_view qualified_name() const {
+			return m_qualified_name;
 		}
-		return tl_names;
-	}
 
-	inline std::vector<std::string> known_benign_move_protected_dynamic_owning_container_names() {
-		thread_local std::vector<std::string> tl_names;
-		if (0 == tl_names.size()) {
-			tl_names.push_back(mse_namespace_str() + "::rsv::xslta_vector");
+		bool has_property(EBoolPropertyID bool_property_id) const {
+			return m_bool_properties.at(size_t(bool_property_id));
 		}
-		return tl_names;
-	}
-
-	inline std::vector<std::string> known_protected_dynamic_owning_container_names() {
-		thread_local std::vector<std::string> tl_names;
-		if (0 == tl_names.size()) {
-			tl_names = known_benign_move_protected_dynamic_owning_container_names();
-
-			tl_names.push_back(mse_namespace_str() + "::rsv::xslta_optional");
+		void set_property(EBoolPropertyID bool_property_id, bool val = false) {
+			m_bool_properties.at(size_t(bool_property_id)) = val;
 		}
-		return tl_names;
-	}
 
-	inline std::vector<std::string> known_dynamic_nonowning_container_names() {
-		thread_local std::vector<std::string> tl_names;
-		if (0 == tl_names.size()) {
-			tl_names.push_back("std::basic_string_view");
-			tl_names.push_back("std::string_view");
-			tl_names.push_back("std::span");
-		}
-		return tl_names;
-	}
+		typedef std::array<bool, (int)EBoolPropertyID::ENUM_END_MARKER_VALUE> property_array_t;
+		property_array_t const& property_array_ref() const { return m_bool_properties; }
 
-	inline std::vector<std::string> known_dynamic_nonowning_pointer_or_iterator_names() {
-		thread_local std::vector<std::string> tl_names;
-		if (0 == tl_names.size()) {
-			tl_names.push_back("__gnu_cxx::__normal_iterator");
+		private:
+		std::string m_qualified_name;
+		property_array_t m_bool_properties;
+	};
+
+	std::vector<CLibraryElementInfo>& s_library_element_infos() {
+		static std::vector<CLibraryElementInfo> s_leis;
+
+		if (0 == s_leis.size()) {
+			typedef CLibraryElementInfo::EBoolPropertyID E;
+
+			/* While the "library_element_infos" is currently generated from static data, the data 
+			could be loaded at start-up time in the future. */
+
+			/* <fixed_owning_containers> */
+			s_leis.push_back({ "const std::unique_ptr", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_pointer, E::has_benign_move } });
+
+			s_leis.push_back({ "std::tuple", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+			s_leis.push_back({ "std::pair", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+			s_leis.push_back({ "std::array", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+
+			s_leis.push_back({ mse_namespace_str() + "::mstd::tuple", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::xscope_tuple", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+
+			s_leis.push_back({ mse_namespace_str() + "::rsv::xslta_fixed_optional", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::xscope_fixed_optional", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::fixed_optional", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+
+			s_leis.push_back({ mse_namespace_str() + "::rsv::xslta_array", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::xscope_nii_array", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::nii_array", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::mstd::array", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+
+			s_leis.push_back({ mse_namespace_str() + "::rsv::xslta_fixed_vector", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::xscope_fixed_nii_vector", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::fixed_nii_vector", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::us::impl::fixed_nii_vector_base", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+
+			s_leis.push_back({ mse_namespace_str() + "::xscope_fixed_nii_basic_string", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::fixed_nii_basic_string", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::us::impl::fixed_nii_basic_string_base", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+
+			s_leis.push_back({ mse_namespace_str() + "::xscope_fixed_any", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::fixed_any", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_container } });
+			/* </fixed_owning_containers> */
+
+			/* <non_dynamic_owning_pointers> */
+			s_leis.push_back({ mse_namespace_str() + "::TXScopeOwnerPointer", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TRefCountingFixedPointer", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TRefCountingFixedConstPointer", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TSingleOwnerFixedPointer", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TSingleOwnerFixedConstPointer", { E::is_known_to_be_protected_or_non_dynamic, E::is_owning, E::is_a_pointer, E::has_benign_move } });
+			/* </non_dynamic_owning_pointers> */
+
+			/* <fixed_nonowning_containers> */
+			s_leis.push_back({ mse_namespace_str() + "::xscope_borrowing_fixed_nii_vector", { E::is_known_to_be_protected_or_non_dynamic, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::xscope_borrowing_fixed_nii_basic_string", { E::is_known_to_be_protected_or_non_dynamic, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::xscope_borrowing_fixed_optional", { E::is_known_to_be_protected_or_non_dynamic, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::xscope_borrowing_fixed_any", { E::is_known_to_be_protected_or_non_dynamic, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::rsv::xslta_borrowing_fixed_vector", { E::is_known_to_be_protected_or_non_dynamic, E::is_a_container } });
+
+			s_leis.push_back({ mse_namespace_str() + "::xscope_accessing_fixed_nii_vector", { E::is_known_to_be_protected_or_non_dynamic, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::xscope_accessing_fixed_nii_basic_string", { E::is_known_to_be_protected_or_non_dynamic, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::xscope_accessing_fixed_optional", { E::is_known_to_be_protected_or_non_dynamic, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::xscope_accessing_fixed_any", { E::is_known_to_be_protected_or_non_dynamic, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::rsv::xslta_accessing_fixed_vector", { E::is_known_to_be_protected_or_non_dynamic, E::is_a_container } });
+			/* </fixed_nonowning_containers> */
+
+			/* <unprotected_dynamic_owning_pointers> */
+			s_leis.push_back({ "std::unique_ptr", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ "std::shared_ptr", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+
+			s_leis.push_back({ mse_namespace_str() + "::TRefCountingPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TRefCountingNotNullPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TRefCountingConstPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TRefCountingNotNullConstPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+
+			s_leis.push_back({ mse_namespace_str() + "::TSingleOwnerPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TSingleOwnerNotNullPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TSingleOwnerConstPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TSingleOwnerNotNullConstPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+
+			/* Is it appropriate for any/poly pointers to be labelled with E::has_benign_move? */
+			s_leis.push_back({ mse_namespace_str() + "::TAnyPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TAnyNotNullPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TAnyFixedPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TAnyConstPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TAnyNotNullConstPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TAnyFixedConstPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopeAnyPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopeAnyNotNullPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopeAnyFixedPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopeAnyConstPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopeAnyNotNullConstPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopeAnyFixedConstPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+
+			s_leis.push_back({ mse_namespace_str() + "::TPolyPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TPolyNotNullPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TPolyFixedPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TPolyConstPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TPolyNotNullConstPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TPolyFixedConstPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopePolyPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopePolyNotNullPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopePolyFixedPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopePolyConstPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopePolyNotNullConstPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopePolyFixedConstPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+
+			s_leis.push_back({ mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadWritePointerBase", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadWriteConstPointerBase", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadOnlyPointerBase", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::us::impl::TAsyncSharedV2ReadOnlyConstPointerBase", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			/* </unprotected_dynamic_owning_pointers> */
+
+			/* <string_containers> */
+			/* The E::has_benign_move is premised on the element type having a trivial move constructor. Is this 
+			a valid assumption for strings? */
+			s_leis.push_back({ "std::basic_string", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move, E::is_a_string_container } });
+			s_leis.push_back({ "std::string", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move, E::is_a_string_container } });
+
+			s_leis.push_back({ mse_namespace_str() + "::us::impl::gnii_basic_string", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move, E::is_a_string_container } });
+			s_leis.push_back({ mse_namespace_str() + "::nii_basic_string", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move, E::is_a_string_container } });
+			s_leis.push_back({ mse_namespace_str() + "::stnii_basic_string", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move, E::is_a_string_container } });
+			s_leis.push_back({ mse_namespace_str() + "::mtnii_basic_string", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move, E::is_a_string_container } });
+			s_leis.push_back({ mse_namespace_str() + "::mstd::basic_string", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move, E::is_a_string_container } });
+			s_leis.push_back({ mse_namespace_str() + "::impl::ns_gnii_basic_string::Tgnii_basic_string_ss_iterator_type", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move, E::is_a_string_container } });
+			s_leis.push_back({ mse_namespace_str() + "::impl::ns_gnii_basic_string::Tgnii_basic_string_ss_const_iterator_type", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move, E::is_a_string_container } });
+			/* </string_containers> */
+
+			/* <benign_move_unprotected_dynamic_owning_containers> */
+			s_leis.push_back({ "std::vector", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move } });
+			s_leis.push_back({ "std::list", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move } });
+			s_leis.push_back({ "std::map", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move } });
+			s_leis.push_back({ "std::set", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move } });
+			s_leis.push_back({ "std::multimap", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move } });
+			s_leis.push_back({ "std::multiset", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move } });
+
+			s_leis.push_back({ mse_namespace_str() + "::us::impl::gnii_vector", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::nii_vector", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::stnii_vector", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::mtnii_vector", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::mstd::vector", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::impl::ns_gnii_vector::Tgnii_vector_ss_iterator_type", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::impl::ns_gnii_vector::Tgnii_vector_ss_const_iterator_type", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move } });
+			/* </benign_move_unprotected_dynamic_owning_containers> */
+
+			/* <unprotected_dynamic_owning_containers> */
+			s_leis.push_back({ "std::optional", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container } });
+			s_leis.push_back({ "std::unordered_map", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container } });
+			s_leis.push_back({ "std::unordered_set", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container } });
+			s_leis.push_back({ "std::unordered_multimap", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container } });
+			s_leis.push_back({ "std::unordered_multiset", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container } });
+			s_leis.push_back({ "std::dequeue", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container } });
+
+			s_leis.push_back({ mse_namespace_str() + "::us::impl::ns_optional::optional_base2", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::xscope_optional", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::optional", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::mstd::optional", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::st_optional", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::mt_optional", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::TOptionalElementFixedPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container } });
+			s_leis.push_back({ mse_namespace_str() + "::TOptionalElementFixedConstPointer", { E::is_owning, E::is_known_to_be_dynamic, E::is_a_container } });
+			/* </unprotected_dynamic_owning_containers> */
+
+			/* </benign_move_protected_dynamic_owning_containers> */
+			s_leis.push_back({ mse_namespace_str() + "::rsv::xslta_vector", { E::is_owning, E::is_known_to_be_dynamic, E::is_known_to_be_protected_or_non_dynamic, E::is_a_container, E::has_benign_move } });
+			/* </benign_move_protected_dynamic_owning_containers> */
+
+			/* <protected_dynamic_owning_containers> */
+			s_leis.push_back({ mse_namespace_str() + "::rsv::xslta_optional", { E::is_owning, E::is_known_to_be_dynamic, E::is_known_to_be_protected_or_non_dynamic, E::is_a_container } });
+			/* </protected_dynamic_owning_containers> */
+
+			/* <dynamic_nonowning_containers> */
+			s_leis.push_back({ "std::basic_string_view", { E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move } });
+			s_leis.push_back({ "std::string_view", { E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move } });
+			s_leis.push_back({ "std::span", { E::is_known_to_be_dynamic, E::is_a_container, E::has_benign_move } });
+			/* </dynamic_nonowning_containers> */
+
+			/* <dynamic_nonowning_pointer_or_iterators> */
+			s_leis.push_back({ "__gnu_cxx::__normal_iterator", { E::is_known_to_be_dynamic, E::is_an_iterator, E::has_benign_move } });
 			//__gnu_cxx::__normal_iterator<int *, std::vector<int>>
 			//std::vector<int>::iterator
-			//tl_names.push_back("const char *");
+			//s_leis.push_back({ "const char *", { E::is_known_to_be_dynamic, E::is_an_iterator, E::has_benign_move } });
 
-			tl_names.push_back(mse_namespace_str() + "::TNDRegisteredPointer");
-			tl_names.push_back(mse_namespace_str() + "::TNDRegisteredNotNullPointer");
-			tl_names.push_back(mse_namespace_str() + "::TNDRegisteredFixedPointer");
-			tl_names.push_back(mse_namespace_str() + "::TNDRegisteredConstPointer");
-			tl_names.push_back(mse_namespace_str() + "::TNDRegisteredNotNullConstPointer");
-			tl_names.push_back(mse_namespace_str() + "::TNDRegisteredFixedConstPointer");
+			s_leis.push_back({ mse_namespace_str() + "::TNDRegisteredPointer", { E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TNDRegisteredNotNullPointer", { E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TNDRegisteredFixedPointer", { E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TNDRegisteredConstPointer", { E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TNDRegisteredNotNullConstPointer", { E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TNDRegisteredFixedConstPointer", { E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
 
-			tl_names.push_back(mse_namespace_str() + "::TNDCRegisteredPointer");
-			tl_names.push_back(mse_namespace_str() + "::TNDCRegisteredNotNullPointer");
-			tl_names.push_back(mse_namespace_str() + "::TNDCRegisteredFixedPointer");
-			tl_names.push_back(mse_namespace_str() + "::TNDCRegisteredConstPointer");
-			tl_names.push_back(mse_namespace_str() + "::TNDCRegisteredNotNullConstPointer");
-			tl_names.push_back(mse_namespace_str() + "::TNDCRegisteredFixedConstPointer");
+			s_leis.push_back({ mse_namespace_str() + "::TNDCRegisteredPointer", { E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TNDCRegisteredNotNullPointer", { E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TNDCRegisteredFixedPointer", { E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TNDCRegisteredConstPointer", { E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TNDCRegisteredNotNullConstPointer", { E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TNDCRegisteredFixedConstPointer", { E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
 
-			tl_names.push_back(mse_namespace_str() + "::TNoradPointer");
-			tl_names.push_back(mse_namespace_str() + "::TNoradNotNullPointer");
-			//tl_names.push_back(mse_namespace_str() + "::TNoradFixedPointer");
-			tl_names.push_back(mse_namespace_str() + "::TNoradConstPointer");
-			tl_names.push_back(mse_namespace_str() + "::TNoradNotNullConstPointer");
-			//tl_names.push_back(mse_namespace_str() + "::TNoradFixedConstPointer");
+			/* TNoradPointer<> is technically "dynamic" because it can be arbitrarily retargeted? So it wouldn't 
+			be safe to obtain and hold a raw reference to the object resulting from the dereferencing of a 
+			TNoradPointer<>, because in the event the TNoradPointer<> is subsequently retargeted, the raw 
+			reference would lose its protection. That's what we're using "dynamic" to refer to, right? */
+			s_leis.push_back({ mse_namespace_str() + "::TNoradPointer", { E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TNoradNotNullPointer", { E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TNoradConstPointer", { E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TNoradNotNullConstPointer", { E::is_known_to_be_dynamic, E::is_a_pointer, E::has_benign_move } });
+			/* </dynamic_nonowning_pointer_or_iterators> */
+
+			/* <non_dynamic_nonowning_pointer_or_iterators> */
+			s_leis.push_back({ mse_namespace_str() + "::TNoradFixedPointer", { E::is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TNoradFixedConstPointer", { E::is_a_pointer, E::has_benign_move } });
+			/* </non_dynamic_nonowning_pointer_or_iterators> */
+
+			/* <pointer_derived_iterators> */
+			/* Ok, unlike their non-owning pointer counterparts, "pointer-derived" iterators aren't necessarily 
+			considered "dynamic". Non-owning pointer types, like TNoradPointer<>, don't carry enough information 
+			to establish that the target object's lifetime is not "dynamic" (as opposed to "scope"), whereas 
+			pointer-derived iterator types might (via their pointer template parameter). */
+			/* The E::has_benign_move property might be a little presumptive. */
+			s_leis.push_back({ mse_namespace_str() + "::TRAIterator", { E::dynamism_is_inherited_from_first_tparam, E::is_an_iterator, E::first_tparam_is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TRAConstIterator", { E::dynamism_is_inherited_from_first_tparam, E::is_an_iterator, E::first_tparam_is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopeRAIterator", { E::dynamism_is_inherited_from_first_tparam, E::is_an_iterator, E::first_tparam_is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopeRAConstIterator", { E::dynamism_is_inherited_from_first_tparam, E::is_an_iterator, E::first_tparam_is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::us::impl::ns_ra_iter::TRAIteratorBase", { E::dynamism_is_inherited_from_first_tparam, E::is_an_iterator, E::first_tparam_is_a_pointer, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::us::impl::ns_ra_iter::TRAConstIteratorBase", { E::dynamism_is_inherited_from_first_tparam, E::is_an_iterator, E::first_tparam_is_a_pointer, E::has_benign_move } });
+			/* </pointer_derived_iterators> */
+
+			/* <iterator_derived_containers> */
+			s_leis.push_back({ mse_namespace_str() + "::TRandomAccessSection", { E::dynamism_is_inherited_from_first_tparam, E::is_a_container, E::first_tparam_is_an_iterator, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TRandomAccessConstSection", { E::dynamism_is_inherited_from_first_tparam, E::is_a_container, E::first_tparam_is_an_iterator, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopeRandomAccessSection", { E::dynamism_is_inherited_from_first_tparam, E::is_a_container, E::first_tparam_is_an_iterator, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopeRandomAccessConstSection", { E::dynamism_is_inherited_from_first_tparam, E::is_a_container, E::first_tparam_is_an_iterator, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::us::impl::ns_ra_section::TRandomAccessSectionBase", { E::dynamism_is_inherited_from_first_tparam, E::is_a_container, E::first_tparam_is_an_iterator, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::us::impl::ns_ra_section::TRandomAccessConstSectionBase", { E::dynamism_is_inherited_from_first_tparam, E::is_a_container, E::first_tparam_is_an_iterator, E::has_benign_move } });
+			/* </iterator_derived_containers> */
+
+			/* <iterator_derived_iterators> */
+			s_leis.push_back({ mse_namespace_str() + "::TRASectionIterator", { E::dynamism_is_inherited_from_first_tparam, E::is_an_iterator, E::first_tparam_is_an_iterator, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TRAConstSectionIterator", { E::dynamism_is_inherited_from_first_tparam, E::is_an_iterator, E::first_tparam_is_an_iterator, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopeRASectionIterator", { E::dynamism_is_inherited_from_first_tparam, E::is_an_iterator, E::first_tparam_is_an_iterator, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::TXScopeRAConstSectionIterator", { E::dynamism_is_inherited_from_first_tparam, E::is_an_iterator, E::first_tparam_is_an_iterator, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::us::impl::TRASectionIteratorBase", { E::dynamism_is_inherited_from_first_tparam, E::is_an_iterator, E::first_tparam_is_an_iterator, E::has_benign_move } });
+			s_leis.push_back({ mse_namespace_str() + "::us::impl::TRAConstSectionIteratorBase", { E::dynamism_is_inherited_from_first_tparam, E::is_an_iterator, E::first_tparam_is_an_iterator, E::has_benign_move } });
+			/* </iterator_derived_iterators> */
 		}
-		return tl_names;
-	}
 
-	inline std::vector<std::string> known_pointer_derived_iterator_names() {
-		thread_local std::vector<std::string> tl_names;
-		if (0 == tl_names.size()) {
-			tl_names.push_back(mse_namespace_str() + "::TRAIterator");
-			tl_names.push_back(mse_namespace_str() + "::TRAConstIterator");
-			tl_names.push_back(mse_namespace_str() + "::TXScopeRAIterator");
-			tl_names.push_back(mse_namespace_str() + "::TXScopeRAConstIterator");
-			tl_names.push_back(mse_namespace_str() + "::us::impl::ns_ra_iter::TRAIteratorBase");
-			tl_names.push_back(mse_namespace_str() + "::us::impl::ns_ra_iter::TRAConstIteratorBase");
-		}
-		return tl_names;
-	}
-
-	inline std::vector<std::string> known_iterator_derived_container_names() {
-		thread_local std::vector<std::string> tl_names;
-		if (0 == tl_names.size()) {
-			tl_names.push_back(mse_namespace_str() + "::TRandomAccessSection");
-			tl_names.push_back(mse_namespace_str() + "::TRandomAccessConstSection");
-			tl_names.push_back(mse_namespace_str() + "::TXScopeRandomAccessSection");
-			tl_names.push_back(mse_namespace_str() + "::TXScopeRandomAccessConstSection");
-			tl_names.push_back(mse_namespace_str() + "::us::impl::ns_ra_section::TRandomAccessSectionBase");
-			tl_names.push_back(mse_namespace_str() + "::us::impl::ns_ra_section::TRandomAccessConstSectionBase");
-		}
-		return tl_names;
-	}
-
-	inline std::vector<std::string> known_iterator_derived_iterator_names() {
-		thread_local std::vector<std::string> tl_names;
-		if (0 == tl_names.size()) {
-			tl_names.push_back(mse_namespace_str() + "::TRASectionIterator");
-			tl_names.push_back(mse_namespace_str() + "::TRAConstSectionIterator");
-			tl_names.push_back(mse_namespace_str() + "::TXScopeRASectionIterator");
-			tl_names.push_back(mse_namespace_str() + "::TXScopeRAConstSectionIterator");
-			tl_names.push_back(mse_namespace_str() + "::us::impl::TRASectionIteratorBase");
-			tl_names.push_back(mse_namespace_str() + "::us::impl::TRAConstSectionIteratorBase");
-		}
-		return tl_names;
+		return s_leis;
 	}
 
 	struct known_containers_state_t {
@@ -1312,11 +1345,20 @@ namespace checker {
 		}
 	}
 
-	inline void set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state_t& known_containers_state_ref, std::vector<std::function<std::vector<std::string>()> > const& nameset_generating_functions) {
+	inline void set_up_known_containers_state_with_given_properties_if_necessary(known_containers_state_t& known_containers_state_ref, std::vector<std::pair<CLibraryElementInfo::EBoolPropertyID, bool> > const& property_criterias) {
 		if (0 == known_containers_state_ref.known_container_name_svs.size()) {
-			for (auto const& nameset_generating_function : nameset_generating_functions) {
-				auto tmp_container_names = nameset_generating_function();
-				known_containers_state_ref.tl_known_container_names.insert(known_containers_state_ref.tl_known_container_names.end(), tmp_container_names.begin(), tmp_container_names.end());
+			auto const library_element_infos_cref = s_library_element_infos();
+			for (auto& library_element_info : library_element_infos_cref) {
+				bool satisfies_criterias = true;
+				for (auto& property_criteria : property_criterias) {
+					if (property_criteria.second != library_element_info.has_property(property_criteria.first)) {
+						satisfies_criterias = false;
+						break;
+					}
+				}
+				if (satisfies_criterias) {
+					known_containers_state_ref.tl_known_container_names.push_back(std::string(library_element_info.qualified_name()));
+				}
 			}
 
 			set_up_known_containers_state(known_containers_state_ref);
@@ -1352,53 +1394,53 @@ namespace checker {
 		return retval;
 	}
 
-	inline bool is_recognized_nonowning_container(clang::QualType const& qtype) {
+	inline bool is_recognized_nonowning_element(clang::QualType const& qtype) {
 		thread_local known_containers_state_t known_containers_state;
-		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
-				known_dynamic_nonowning_container_names
-				, known_dynamic_nonowning_pointer_or_iterator_names
-				, known_fixed_nonowning_container_names
-				, known_pointer_derived_iterator_names
-				, known_iterator_derived_iterator_names
-				, known_iterator_derived_container_names
-			});
+		set_up_known_containers_state_with_given_properties_if_necessary(known_containers_state
+			, { { CLibraryElementInfo::EBoolPropertyID::is_owning, false } });
 
 		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
 	}
 
-	inline bool is_recognized_unprotected_dynamic_owning_container(clang::QualType const& qtype) {
+	inline bool is_recognized_element_with_benign_move(clang::QualType const& qtype) {
 		thread_local known_containers_state_t known_containers_state;
-		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
-				known_unprotected_dynamic_owning_container_names
-			});
+		set_up_known_containers_state_with_given_properties_if_necessary(known_containers_state
+			, { { CLibraryElementInfo::EBoolPropertyID::has_benign_move, true } });
 
 		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
 	}
 
 	inline bool is_recognized_unprotected_dynamic_owning_pointer(clang::QualType const& qtype) {
 		thread_local known_containers_state_t known_containers_state;
-		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
-				known_unprotected_dynamic_owning_pointer_names
+		set_up_known_containers_state_with_given_properties_if_necessary(known_containers_state, { 
+			{ CLibraryElementInfo::EBoolPropertyID::is_owning, true }
+			, { CLibraryElementInfo::EBoolPropertyID::is_known_to_be_protected_or_non_dynamic, false }
+			, { CLibraryElementInfo::EBoolPropertyID::is_known_to_be_dynamic, true }
+			, { CLibraryElementInfo::EBoolPropertyID::is_a_pointer, true }
 			});
 
 		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
 	}
 
-	inline bool is_recognized_dynamic_nonowning_pointer_or_iterator_pointer(clang::QualType const& qtype) {
+	inline bool is_recognized_dynamic_nonowning_pointer_or_iterator(clang::QualType const& qtype) {
 		thread_local known_containers_state_t known_containers_state;
-		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
-				known_dynamic_nonowning_pointer_or_iterator_names
+		set_up_known_containers_state_with_given_properties_if_necessary(known_containers_state, { 
+			{ CLibraryElementInfo::EBoolPropertyID::is_owning, false }
+			, { CLibraryElementInfo::EBoolPropertyID::is_known_to_be_dynamic, true }
+			, { CLibraryElementInfo::EBoolPropertyID::is_a_container, false }
 			});
 
 		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
 	}
 
-	inline bool is_recognized_unprotected_dynamic_container(clang::QualType const& qtype);
+	inline bool is_recognized_unprotected_dynamic_element(clang::QualType const& qtype);
 
 	inline bool is_recognized_pointer_derived_iterator(clang::QualType const& qtype) {
 		thread_local known_containers_state_t known_containers_state;
-		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
-				known_pointer_derived_iterator_names
+		set_up_known_containers_state_with_given_properties_if_necessary(known_containers_state, { 
+			{ CLibraryElementInfo::EBoolPropertyID::dynamism_is_inherited_from_first_tparam, true }
+			, { CLibraryElementInfo::EBoolPropertyID::is_an_iterator, true }
+			, { CLibraryElementInfo::EBoolPropertyID::first_tparam_is_a_pointer, true }
 			});
 
 		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
@@ -1421,7 +1463,7 @@ namespace checker {
 			/* tparam_qtype is presumably some kind of (possibly custom smart) pointer type */
 
 			if (is_recognized_unprotected_dynamic_owning_pointer(tparam_qtype)
-				|| is_recognized_dynamic_nonowning_pointer_or_iterator_pointer(tparam_qtype)) {
+				|| is_recognized_dynamic_nonowning_pointer_or_iterator(tparam_qtype)) {
 
 				return true;
 			}
@@ -1429,12 +1471,12 @@ namespace checker {
 			auto maybe_tparam2 = get_first_template_parameter_if_any(tparam_qtype);
 			if (maybe_tparam2.has_value()) {
 				auto tparam2_qtype = maybe_tparam2.value();
-				if (is_recognized_unprotected_dynamic_container(tparam2_qtype)) {
+				if (is_recognized_unprotected_dynamic_element(tparam2_qtype)) {
 					return true;
 				}
 			} else if (tparam_qtype->isPointerType()) {			
 				auto pointee_qtype = tparam_qtype->getPointeeType();
-				if (is_recognized_unprotected_dynamic_container(pointee_qtype)) {
+				if (is_recognized_unprotected_dynamic_element(pointee_qtype)) {
 					return true;
 				}
 			}
@@ -1444,8 +1486,10 @@ namespace checker {
 
 	inline bool is_iterator_derived_iterator(clang::QualType const& qtype) {
 		thread_local known_containers_state_t known_containers_state;
-		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
-				known_iterator_derived_iterator_names
+		set_up_known_containers_state_with_given_properties_if_necessary(known_containers_state, { 
+			{ CLibraryElementInfo::EBoolPropertyID::dynamism_is_inherited_from_first_tparam, true }
+			, { CLibraryElementInfo::EBoolPropertyID::is_an_iterator, true }
+			, { CLibraryElementInfo::EBoolPropertyID::first_tparam_is_an_iterator, true }
 			});
 
 		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
@@ -1478,8 +1522,10 @@ namespace checker {
 
 	inline bool is_iterator_derived_container(clang::QualType const& qtype) {
 		thread_local known_containers_state_t known_containers_state;
-		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
-				known_iterator_derived_container_names
+		set_up_known_containers_state_with_given_properties_if_necessary(known_containers_state, { 
+			{ CLibraryElementInfo::EBoolPropertyID::dynamism_is_inherited_from_first_tparam, true }
+			, { CLibraryElementInfo::EBoolPropertyID::is_a_container, true }
+			, { CLibraryElementInfo::EBoolPropertyID::first_tparam_is_an_iterator, true }
 			});
 
 		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
@@ -1510,12 +1556,11 @@ namespace checker {
 		return retval;
 	}
 
-	inline bool is_recognized_unprotected_dynamic_container(clang::QualType const& qtype) {
+	inline bool is_recognized_unprotected_dynamic_element(clang::QualType const& qtype) {
 		thread_local known_containers_state_t known_containers_state;
-		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
-				known_unprotected_dynamic_owning_container_names
-				, known_dynamic_nonowning_container_names
-				, known_dynamic_nonowning_pointer_or_iterator_names
+		set_up_known_containers_state_with_given_properties_if_necessary(known_containers_state, { 
+			{ CLibraryElementInfo::EBoolPropertyID::is_known_to_be_protected_or_non_dynamic, false }
+			, { CLibraryElementInfo::EBoolPropertyID::is_known_to_be_dynamic, true }
 			});
 
 		bool retval = is_container_recognized_from_given_set_state(qtype, known_containers_state);
@@ -1532,10 +1577,12 @@ namespace checker {
 		return retval;
 	}
 
-	inline bool is_recognized_protected_dynamic_owning_container(clang::QualType const& qtype) {
+	inline bool is_recognized_protected_dynamic_owning_element(clang::QualType const& qtype) {
 		thread_local known_containers_state_t known_containers_state;
-		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
-				known_protected_dynamic_owning_container_names
+		set_up_known_containers_state_with_given_properties_if_necessary(known_containers_state, { 
+			{ CLibraryElementInfo::EBoolPropertyID::is_known_to_be_protected_or_non_dynamic, true }
+			, { CLibraryElementInfo::EBoolPropertyID::is_known_to_be_dynamic, true }
+			, { CLibraryElementInfo::EBoolPropertyID::is_owning, true }
 			});
 
 		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
@@ -1543,20 +1590,9 @@ namespace checker {
 
 	inline bool is_recognized_owning_container(clang::QualType const& qtype) {
 		thread_local known_containers_state_t known_containers_state;
-		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
-				known_unprotected_dynamic_owning_container_names
-				, known_protected_dynamic_owning_container_names
-				, known_fixed_owning_container_names
-			});
-
-		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
-	}
-
-	inline bool is_recognized_benign_move_dynamic_owning_container(clang::QualType const& qtype) {
-		thread_local known_containers_state_t known_containers_state;
-		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
-				known_benign_move_unprotected_dynamic_owning_container_names
-				, known_benign_move_protected_dynamic_owning_container_names
+		set_up_known_containers_state_with_given_properties_if_necessary(known_containers_state, { 
+			{ CLibraryElementInfo::EBoolPropertyID::is_owning, true }
+			, { CLibraryElementInfo::EBoolPropertyID::is_a_container, true }
 			});
 
 		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
@@ -1564,8 +1600,10 @@ namespace checker {
 
 	inline bool is_recognized_dynamic_owning_pointer(clang::QualType const& qtype) {
 		thread_local known_containers_state_t known_containers_state;
-		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
-				known_unprotected_dynamic_owning_pointer_names
+		set_up_known_containers_state_with_given_properties_if_necessary(known_containers_state, { 
+			{ CLibraryElementInfo::EBoolPropertyID::is_known_to_be_dynamic, true }
+			, { CLibraryElementInfo::EBoolPropertyID::is_owning, true }
+			, { CLibraryElementInfo::EBoolPropertyID::is_a_pointer, true }
 			});
 
 		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
@@ -1573,9 +1611,7 @@ namespace checker {
 
 	inline bool is_recognized_string_container(clang::QualType const& qtype) {
 		thread_local known_containers_state_t known_containers_state;
-		set_up_known_containers_state_from_given_nameset_generating_functions_if_necessary(known_containers_state, {
-				known_string_container_names
-			});
+		set_up_known_containers_state_with_given_properties_if_necessary(known_containers_state, { { CLibraryElementInfo::EBoolPropertyID::is_a_string_container, true } });
 
 		return is_container_recognized_from_given_set_state(qtype, known_containers_state);
 	}
@@ -4689,7 +4725,7 @@ namespace checker {
 				IF_DEBUG(const std::string this_qtype_str = this_qtype.getAsString();)
 				if (!(this_qtype.isNull())) {
 					auto this_pointee_qtype = this_qtype->getPointeeType();
-					could_be_a_dynamic_container_accessor |= is_recognized_unprotected_dynamic_container(this_pointee_qtype);
+					could_be_a_dynamic_container_accessor |= is_recognized_unprotected_dynamic_element(this_pointee_qtype);
 				}
 			}
 			if (!could_be_a_dynamic_container_accessor) {
@@ -9972,7 +10008,7 @@ namespace checker {
 					bool retval = false;
 					if (qtype.isTrivialType(Ctx)) {
 						return true;
-					} else if (is_recognized_nonowning_container(qtype)) {
+					} else if (is_recognized_nonowning_element(qtype)) {
 						return true;
 					} else {
 						auto b2 = is_recognized_owning_container(qtype);
@@ -9997,9 +10033,7 @@ namespace checker {
 					assignment operators, and the destructor. Apparently. */
 					if (qtype.isTriviallyCopyableType(Ctx)) {
 						return true;
-					} else if (is_recognized_benign_move_dynamic_owning_container(qtype)) {
-						return true;
-					} else if (is_recognized_nonowning_container(qtype)) {
+					} else if (is_recognized_element_with_benign_move(qtype)) {
 						return true;
 					} else {
 						auto b2 = is_recognized_owning_container(qtype);
@@ -10026,7 +10060,7 @@ namespace checker {
 						return true;
 					} else if (is_recognized_dynamic_owning_pointer(qtype)) {
 						return true;
-					} else if (is_recognized_nonowning_container(qtype)) {
+					} else if (is_recognized_nonowning_element(qtype)) {
 						return true;
 					} else {
 						auto b2 = is_recognized_owning_container(qtype);
@@ -11001,7 +11035,7 @@ namespace checker {
 						}
 						IF_DEBUG(const std::string adjusted_IOA_E_qtype_str = adjusted_IOA_E_qtype.getAsString();)
 						if (!is_known_to_be_const_declared_variable(IOA_E)) {
-							could_be_a_dynamic_container_accessor |= is_recognized_unprotected_dynamic_container(adjusted_IOA_E_qtype);
+							could_be_a_dynamic_container_accessor |= is_recognized_unprotected_dynamic_element(adjusted_IOA_E_qtype);
 						}
 					}
 				}
@@ -12128,7 +12162,7 @@ namespace checker {
 						IF_DEBUG(const auto arg_EX_qtype_str = arg_EX_qtype.getAsString();)
 						//MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(arg_EX_qtype, retval);
 
-						bool could_be_a_dynamic_container_accessor = is_recognized_unprotected_dynamic_container(arg_EX_qtype);
+						bool could_be_a_dynamic_container_accessor = is_recognized_unprotected_dynamic_element(arg_EX_qtype);
 						if (could_be_a_dynamic_container_accessor) {
 							auto expr_scope_lifetime_info = CScopeLifetimeInfo1{};
 							expr_scope_lifetime_info.m_category = CScopeLifetimeInfo1::ECategory::ContainedDynamic;
@@ -13835,7 +13869,7 @@ namespace checker {
 				tl_already_processed_set.insert(qtype.getTypePtr());
 			}
 
-			if (is_recognized_protected_dynamic_owning_container(qtype)) {
+			if (is_recognized_protected_dynamic_owning_element(qtype)) {
 				auto& maybe_dynamic_owning_container_D = maybe_D;
 
 				auto check_for_unannotated_reference_shallow = 
@@ -13941,7 +13975,7 @@ namespace checker {
 								const std::string base_class_str = is_base_class ? " base class" : "";
 
 								const std::string error_desc = std::string("Unannotated reference object") + field_str + base_class_str + " (of type " + get_as_quoted_string_for_errmsg(qtype)
-									+ ") contained in dynamic container" + of_container_type_str + " is not supported.";
+									+ ") contained in dynamic owning container (or pointer)" + of_container_type_str + " is not supported.";
 								state1.register_error(*(MR_ptr->SourceManager), dynamic_owning_container_SR, error_desc);
 							}
 						}
