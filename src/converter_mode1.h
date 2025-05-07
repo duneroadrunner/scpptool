@@ -7982,6 +7982,19 @@ namespace convm1 {
 		}
 #endif /*!NDEBUG*/
 
+		auto is_void_star = [](clang::QualType const& qtype) {
+			std::string qtype_str = qtype.getAsString();
+			if (("void *" == qtype_str) || ("const void *" == qtype_str)) {
+				return true;
+			}
+			return false;
+		};
+		if (is_void_star(trgt_indirection.m_ddecl_cptr->getType()) || is_void_star(src_indirection.m_ddecl_cptr->getType())) {
+			/* `void *` elements do not provide the reliable information needed to infer constraints on other 
+			elements that interact with them. */
+			return;
+		}
+
 		{
 			auto& lhs_ddcs_ref = trgt_ddcs_ref;
 			auto& rhs_ddcs_ref = src_ddcs_ref;
@@ -8083,6 +8096,19 @@ namespace convm1 {
 		auto& src_indirection = m_ddecl_indirection;
 		auto [src_ddcs_ref, src_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(src_indirection.m_ddecl_cptr), &m_Rewrite);
 		auto src_indirection_level = src_indirection.m_indirection_level;
+
+		auto is_void_star = [](clang::QualType const& qtype) {
+			std::string qtype_str = qtype.getAsString();
+			if (("void *" == qtype_str) || ("const void *" == qtype_str)) {
+				return true;
+			}
+			return false;
+		};
+		if (is_void_star(trgt_indirection.m_ddecl_cptr->getType()) || is_void_star(src_indirection.m_ddecl_cptr->getType())) {
+			/* `void *` elements do not provide the reliable information needed to infer constraints on other 
+			elements that interact with them. */
+			return;
+		}
 
 		{
 			auto& lhs_ddcs_ref = trgt_ddcs_ref;
@@ -8211,6 +8237,19 @@ namespace convm1 {
 					lhs_update_declaration_flag |= true;
 					state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_indirection);
 				}
+			}
+
+			auto is_void_star = [](clang::QualType const& qtype) {
+				std::string qtype_str = qtype.getAsString();
+				if (("void *" == qtype_str) || ("const void *" == qtype_str)) {
+					return true;
+				}
+				return false;
+			};
+			if (is_void_star(lhs_indirection.m_ddecl_cptr->getType()) || is_void_star(rhs_indirection.m_ddecl_cptr->getType())) {
+				/* `void *` elements do not provide the reliable information needed to infer constraints on other 
+				elements that interact with them. */
+				return;
 			}
 
 			auto& lhs_function_state_ref = (CDDeclIndirection::no_indirection == lhs_indirection.m_indirection_level) ? lhs_ddcs_ref.direct_type_state_ref().m_function_type_state : lhs_ddcs_ref.m_indirection_state_stack.at(lhs_indirection.m_indirection_level).m_function_type_state;
@@ -8955,6 +8994,16 @@ namespace convm1 {
 
 		assert((*this).m_ddecl_indirection.m_ddecl_cptr);
 		assert((*this).m_c_style_cast_expr_cptr);
+
+#ifndef NDEBUG
+		auto SR = cm1_adj_nice_source_range((*this).m_ddecl_indirection.m_ddecl_cptr->getSourceRange(), state1, Rewrite);
+		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+		if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+			int q = 5;
+		}
+#endif /*!NDEBUG*/
+
 		auto res1 = generate_declaration_replacement_code((*this).m_ddecl_indirection.m_ddecl_cptr, Rewrite, &state1, state1.m_ddecl_conversion_state_map);
 
 		if (ConvertToSCPP && (true || res1.m_changed_from_original)) {
@@ -11099,6 +11148,10 @@ namespace convm1 {
 			, { "strncmp", "mse::lh::strncmp", "MSE_LH_STRNCMP", {3} }
 			, { "strlen", "mse::lh::strlen", "MSE_LH_STRLEN", {1} }
 			, { "strnlen_s", "mse::lh::strnlen_s", "MSE_LH_STRNLEN_S", {2} }
+			, { "strtol", "mse::lh::strtol", "MSE_LH_STRTOL", {3} }
+			, { "strtoll", "mse::lh::strtoll", "MSE_LH_STRTOLL", {3} }
+			, { "strtoul", "mse::lh::strtoul", "MSE_LH_STRTOUL", {3} }
+			, { "strtoull", "mse::lh::strtoull", "MSE_LH_STRTOULL", {3} }
 			, { "fread", "mse::lh::fread", "MSE_LH_FREAD", {4} }
 			, { "fwrite", "mse::lh::fwrite", "MSE_LH_FWRITE", {4} }
 			, { "getline", "mse::lh::getline", "MSE_LH_GETLINE", {3} }
@@ -12358,8 +12411,11 @@ namespace convm1 {
 			auto DD = lhs_res2.ddecl_cptr;
 			MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(RHS->getType());
 
+			auto RHS_ii = IgnoreParenImpNoopCasts(RHS, *(MR.Context));
+
 			IF_DEBUG(std::string LHS_qtype_str = LHS ? LHS->getType().getAsString() : (VLD ? VLD->getType().getAsString() : "");)
 			IF_DEBUG(std::string RHS_qtype_str = RHS->getType().getAsString();)
+			IF_DEBUG(std::string RHS_ii_qtype_str = RHS_ii->getType().getAsString();)
 
 			//auto lhs_res2 = infer_array_type_info_from_stmt(*LHS, "", state1);
 			auto rhs_res2 = infer_array_type_info_from_stmt(*RHS, "", state1);
@@ -12394,8 +12450,6 @@ namespace convm1 {
 					if (rhs_source_range.isValid()) {
 						IF_DEBUG(rhs_source_text = Rewrite.getRewrittenText(rhs_source_range);)
 					}
-
-					auto RHS_ii = IgnoreParenImpNoopCasts(RHS, *(MR.Context));
 
 					auto DRE = given_or_descendant_DeclRefExpr(RHS_ii, *(MR.Context));
 
@@ -12785,6 +12839,43 @@ namespace convm1 {
 							state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
 							state1.m_native_array2_contingent_replacement_map.insert(cr_shptr);
 						}
+					}
+				}
+			} else if (true && (!LHS_decl_is_non_modifiable) && (!(rhs_res2.ddecl_cptr))) {
+				auto rhs_STL = dyn_cast<const clang::StringLiteral>(RHS_ii);
+				if (rhs_STL) {
+					if (ConvertToSCPP && (lhs_res2.ddecl_conversion_state_ptr) && lhs_is_an_indirect_type && lhs_res2.ddecl_cptr && (LHS || VLD)) {
+						auto& lhs_ddecl_ref = *(lhs_res2.ddecl_cptr);
+						auto& lhs_indirection_state_ref = lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.at(lhs_res2.indirection_level);
+						auto lhs_ddecl_indirection = CDDeclIndirection(lhs_ddecl_ref, lhs_res2.indirection_level);
+
+						auto LHS_qtype = LHS ? LHS->getType() : VLD->getType();
+						auto LHS_qtype_str = LHS_qtype.getAsString();
+						if (!(("void *" == LHS_qtype_str) || ("const void *" == LHS_qtype_str))) {
+							/* Here we're establishing and "enforcing" the constraint that the lhs value must
+							* be of an (array) type that can be assigned the rhs string literal. */
+							if (!lhs_indirection_state_ref.is_known_to_be_used_as_array_iterator()) {
+								lhs_indirection_state_ref.set_is_known_to_be_used_as_array_iterator(true);
+								state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_ddecl_indirection);
+								state1.m_array2_contingent_replacement_map.execute_matching_actions(state1, lhs_ddecl_indirection);
+							}
+							if (!lhs_indirection_state_ref.is_known_to_have_malloc_target()) {
+								lhs_indirection_state_ref.set_is_known_to_have_malloc_target(true);
+								state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_ddecl_indirection);
+								if (lhs_indirection_state_ref.is_known_to_be_used_as_array_iterator()) {
+									state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_ddecl_indirection);
+								}
+							}
+							if (!lhs_indirection_state_ref.is_known_to_have_non_malloc_target()) {
+								lhs_indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
+								state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_ddecl_indirection);
+								if (lhs_indirection_state_ref.is_known_to_be_used_as_array_iterator()) {
+									state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_ddecl_indirection);
+								}
+							}
+							update_declaration_if_not_suppressed(lhs_ddecl_ref, Rewrite, *(MR.Context), state1);
+						}
+
 					}
 				}
 			}
