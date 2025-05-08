@@ -368,6 +368,16 @@ namespace convm1 {
 		const std::string& original_pointer_target_state() const {
 			return m_original_pointer_target_state;
 		}
+		bool is_known_to_be_a_pointer_target() const {
+			return "pointer target" == m_current_pointer_target_state;
+		}
+		void set_is_known_to_be_a_pointer_target(bool val = true) {
+			if (val) {
+				m_current_pointer_target_state = "pointer target";
+			} else {
+				m_current_pointer_target_state = "";
+			}
+		}
 		void set_xscope_eligibility(bool eligibility) {
 			m_is_ineligible_for_xscope_status = (!eligibility);
 		}
@@ -585,6 +595,16 @@ namespace convm1 {
 		}
 		const std::string& current_pointer_target_state() const {
 			return m_current_pointer_target_state;
+		}
+		bool is_known_to_be_a_pointer_target() const {
+			return "pointer target" == m_current_pointer_target_state;
+		}
+		void set_is_known_to_be_a_pointer_target(bool val = true) {
+			if (val) {
+				m_current_pointer_target_state = "pointer target";
+			} else {
+				m_current_pointer_target_state = "";
+			}
 		}
 		void set_xscope_eligibility(bool eligibility) {
 			m_is_ineligible_for_xscope_status = (!eligibility);
@@ -9032,6 +9052,17 @@ namespace convm1 {
 		const DeclaratorDecl* lhs_DD = m_lhs_DD;
 		const DeclaratorDecl* rhs_DD = m_rhs_DD;
 		if ((COND != nullptr) && (LHS != nullptr) && (RHS != nullptr)) {
+			auto& Rewrite = m_Rewrite;
+
+#ifndef NDEBUG
+			auto SR = cm1_adj_nice_source_range(COND->getSourceRange(), state1, Rewrite);
+			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
+
 			auto COSR = write_once_source_range(cm1_adj_nice_source_range(CO->getSourceRange(), state1, (*this).m_Rewrite));
 			auto cond_SR = write_once_source_range(cm1_adj_nice_source_range(COND->getSourceRange(), state1, (*this).m_Rewrite));
 			auto lhs_SR = write_once_source_range(cm1_adj_nice_source_range(LHS->getSourceRange(), state1, (*this).m_Rewrite));
@@ -9042,6 +9073,7 @@ namespace convm1 {
 				bool lhs_is_native_array = false;
 				bool lhs_is_variously_native_and_dynamic_array = false;
 				bool lhs_update_flag = false;
+				bool lhs_is_known_to_be_a_pointer_target = false;
 				if (lhs_DD != nullptr) {
 					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &m_Rewrite);
 					/* At the moment we only support the case where the value option expressions are
@@ -9075,8 +9107,14 @@ namespace convm1 {
 						} else if ("inferred array" == indirection_state_ref.current_species()) {
 							lhs_is_known_to_be_an_array = true;
 						}
+						if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
+							lhs_is_known_to_be_a_pointer_target = true;
+						}
 					} else {
-						int q = 3;
+						auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state;
+						if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
+							lhs_is_known_to_be_a_pointer_target = true;
+						}
 					}
 					if (lhs_update_flag) {
 						update_declaration(*lhs_DD, (*this).m_Rewrite, state1);
@@ -9088,6 +9126,7 @@ namespace convm1 {
 				bool rhs_is_native_array = false;
 				bool rhs_is_variously_native_and_dynamic_array = false;
 				bool rhs_update_flag = false;
+				bool rhs_is_known_to_be_a_pointer_target = false;
 				if (rhs_DD != nullptr) {
 					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &m_Rewrite);
 
@@ -9119,31 +9158,41 @@ namespace convm1 {
 						} else if ("inferred array" == indirection_state_ref.current_species()) {
 							rhs_is_known_to_be_an_array = true;
 						}
+						if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
+							rhs_is_known_to_be_a_pointer_target = true;
+						}
 					} else {
-						int q = 3;
+						auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state;
+						if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
+							rhs_is_known_to_be_a_pointer_target = true;
+						}
 					}
 					if (rhs_update_flag) {
 						update_declaration(*rhs_DD, (*this).m_Rewrite, state1);
 					}
 				}
+
+				auto& ecs_ref = state1.get_expr_conversion_state_ref<CConditionalOperatorExprConversionState>(*CO, m_Rewrite);
+				/*  Even though ecs_ref should be referencing an object of type CConditionalOperatorExprConversionState, 
+				ecs_ref's type is actually a reference to its base class. So we'll up(/down?) cast it to (a reference to) 
+				the object's actual type. As rtti is disabled, we can't use dynamic_cast<>(). */
+				assert("conditional operator" == ecs_ref.species());
+				auto& cocs_ref = static_cast<CConditionalOperatorExprConversionState&>(ecs_ref);
+
+				bool array_needed_to_be_wrapped = false;
 				if (lhs_is_known_to_be_an_array || rhs_is_known_to_be_an_array) {
 					bool lhs_needs_to_be_wrapped = false;
 					if ((lhs_is_dynamic_array && (!rhs_is_dynamic_array)) || (lhs_is_native_array && (!rhs_is_native_array))
 						|| ((!lhs_is_known_to_be_an_array) && rhs_is_known_to_be_an_array)) {
 						lhs_needs_to_be_wrapped = true;
+						array_needed_to_be_wrapped = true;
 					}
 					bool rhs_needs_to_be_wrapped = false;
 					if ((rhs_is_dynamic_array && (!lhs_is_dynamic_array)) || (rhs_is_native_array && (!lhs_is_native_array))
 						|| ((!rhs_is_known_to_be_an_array) && lhs_is_known_to_be_an_array)) {
 						rhs_needs_to_be_wrapped = true;
+						array_needed_to_be_wrapped = true;
 					}
-
-					auto& ecs_ref = state1.get_expr_conversion_state_ref<CConditionalOperatorExprConversionState>(*CO, m_Rewrite);
-					/*  Even though ecs_ref should be referencing an object of type CConditionalOperatorExprConversionState, 
-					ecs_ref's type is actually a reference to its base class. So we'll up(/down?) cast it to (a reference to) 
-					the object's actual type. As rtti is disabled, we can't use dynamic_cast<>(). */
-					assert("conditional operator" == ecs_ref.species());
-					auto& cocs_ref = static_cast<CConditionalOperatorExprConversionState&>(ecs_ref);
 
 					if (lhs_needs_to_be_wrapped || rhs_needs_to_be_wrapped) {
 						auto xscope_eligibility = EXScopeEligibility::No;
@@ -9174,28 +9223,44 @@ namespace convm1 {
 							cocs_ref.m_rhs_needs_to_be_cast = true;
 						}
 					}
+				} else if (lhs_is_known_to_be_a_pointer_target || rhs_is_known_to_be_a_pointer_target) {
+					auto arg_qtype = LHS->getType();
+					std::string arg_prefix_str;
+					if ("Dual" == ConvertMode) {
+						arg_prefix_str = "MSE_LH_CAST(" + arg_qtype.getAsString() + ", ";
+					} else {
+						arg_prefix_str = "(" + arg_qtype.getAsString() + ")(";
+					}
+					cocs_ref.m_arg_prefix_str = arg_prefix_str;
 
-					state1.m_pending_code_modification_actions.add_expression_update_replacement_action(m_Rewrite, COSR, state1, CO);
+					if (lhs_is_known_to_be_a_pointer_target) {
+						cocs_ref.m_lhs_needs_to_be_cast = true;
+					}
+					if (rhs_is_known_to_be_a_pointer_target) {
+						cocs_ref.m_rhs_needs_to_be_cast = true;
+					}
+				}
 
-					if (m_var_DD && (true)) {
-						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*m_var_DD, &m_Rewrite);
+				state1.m_pending_code_modification_actions.add_expression_update_replacement_action(m_Rewrite, COSR, state1, CO);
 
-						clang::Expr const* pInitExpr = get_init_expr_if_any(m_var_DD);
-						if (pInitExpr && (!ddcs_ref.m_maybe_initialization_expr_text_info.has_value())) {
-							ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(pInitExpr, m_Rewrite, state1));
-						}
-						ddcs_ref.m_fallback_current_initialization_expr_str = cocs_ref.current_text();
+				if (m_var_DD && (true)) {
+					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*m_var_DD, &m_Rewrite);
 
-						update_declaration(*m_var_DD, m_Rewrite, state1);
-						if (lhs_needs_to_be_wrapped || rhs_needs_to_be_wrapped) {
-							if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-								ddcs_ref.set_indirection_current(0, "variously native and dynamic array");
+					clang::Expr const* pInitExpr = get_init_expr_if_any(m_var_DD);
+					if (pInitExpr && (!ddcs_ref.m_maybe_initialization_expr_text_info.has_value())) {
+						ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(pInitExpr, m_Rewrite, state1));
+					}
+					ddcs_ref.m_fallback_current_initialization_expr_str = cocs_ref.current_text();
 
-								update_declaration(*m_var_DD, m_Rewrite, state1);
-							} else {
-								/* unexpected? */
-								int q = 3;
-							}
+					update_declaration(*m_var_DD, m_Rewrite, state1);
+					if (array_needed_to_be_wrapped) {
+						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+							ddcs_ref.set_indirection_current(0, "variously native and dynamic array");
+
+							update_declaration(*m_var_DD, m_Rewrite, state1);
+						} else {
+							/* unexpected? */
+							int q = 3;
 						}
 					}
 				}
@@ -11363,8 +11428,7 @@ namespace convm1 {
 				RHS = CO->getRHS();
 			}
 
-			if (/*(DS != nullptr) && */(LHS != nullptr) && (RHS != nullptr)
-				&& LHS->getType()->isPointerType() && RHS->getType()->isPointerType())
+			if (/*(DS != nullptr) && */(LHS != nullptr) && (RHS != nullptr))
 			{
 				auto SR = cm1_adj_nice_source_range(CO->getSourceRange(), state1, Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
@@ -11401,7 +11465,7 @@ namespace convm1 {
 
 				const DeclaratorDecl* possibly_null_DD = nullptr;
 
-				if (maybe_DD.has_value()) {
+				if (maybe_DD.has_value() && LHS->getType()->isPointerType() && RHS->getType()->isPointerType()) {
 					assert(nullptr != maybe_DD.value());
 					auto DD = maybe_DD.value();
 					possibly_null_DD == DD;
@@ -11589,6 +11653,13 @@ namespace convm1 {
 							}
 							state1.m_conversion_state_change_action_map.insert(cr_shptr);
 						}
+
+						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(lhs_res2.ddecl_cptr), &Rewrite);
+						if (ddcs_ref.has_been_determined_to_be_a_pointer_target()) {
+							(*cr_shptr).do_replacement(state1);
+						} else {
+							state1.m_pointer_target_contingent_replacement_map.insert(cr_shptr);
+						}
 					} else {
 						int q = 5;
 					}
@@ -11607,6 +11678,13 @@ namespace convm1 {
 								(*cr_shptr).do_replacement(state1);
 							}
 							state1.m_conversion_state_change_action_map.insert(cr_shptr);
+						}
+
+						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(rhs_res2.ddecl_cptr), &Rewrite);
+						if (ddcs_ref.has_been_determined_to_be_a_pointer_target()) {
+							(*cr_shptr).do_replacement(state1);
+						} else {
+							state1.m_pointer_target_contingent_replacement_map.insert(cr_shptr);
 						}
 					} else {
 						int q = 5;
