@@ -9224,12 +9224,32 @@ namespace convm1 {
 						}
 					}
 				} else if (lhs_is_known_to_be_a_pointer_target || rhs_is_known_to_be_a_pointer_target) {
-					auto arg_qtype = LHS->getType();
+					std::string adj_arg_qtype_str;
+
+					if (LHS->getType()->isPointerType()) {
+						CDDeclConversionState* ddcs_ptr = nullptr;
+						if (lhs_DD != nullptr) {
+							auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &m_Rewrite);
+							ddcs_ptr = &ddcs_ref;
+						} else if (rhs_DD != nullptr) {
+							auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &m_Rewrite);
+							ddcs_ptr = &ddcs_ref;
+						}
+						if (ddcs_ptr) {
+							auto& ddcs_ref = *ddcs_ptr;
+							auto res3 = generate_type_indirection_prefix_and_suffix(ddcs_ref.m_indirection_state_stack, (*this).m_Rewrite, EIsFunctionParam::No);
+							auto direct_qtype_str = ddcs_ref.current_direct_qtype_str();
+							adj_arg_qtype_str = res3.m_prefix_str + direct_qtype_str + res3.m_suffix_str;
+						}
+					}
+					if ("" == adj_arg_qtype_str) {
+						adj_arg_qtype_str = LHS->getType().getAsString();
+					}
 					std::string arg_prefix_str;
 					if ("Dual" == ConvertMode) {
-						arg_prefix_str = "MSE_LH_CAST(" + arg_qtype.getAsString() + ", ";
+						arg_prefix_str = "MSE_LH_CAST(" + adj_arg_qtype_str + ", ";
 					} else {
-						arg_prefix_str = "(" + arg_qtype.getAsString() + ")(";
+						arg_prefix_str = "(" + adj_arg_qtype_str + ")(";
 					}
 					cocs_ref.m_arg_prefix_str = arg_prefix_str;
 
