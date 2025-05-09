@@ -9095,20 +9095,15 @@ namespace convm1 {
 
 					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 						auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(0);
-						if ("dynamic array" == indirection_state_ref.current_species()) {
-							lhs_is_dynamic_array = true;
+						if (indirection_state_ref.is_known_to_be_used_as_array_iterator()) {
 							lhs_is_known_to_be_an_array = true;
-						} else if ("native array" == indirection_state_ref.current_species()) {
-							lhs_is_native_array = true;
-							lhs_is_known_to_be_an_array = true;
-						} else if ("variously native and dynamic array" == indirection_state_ref.current_species()) {
-							lhs_is_variously_native_and_dynamic_array = true;
-							lhs_is_known_to_be_an_array = true;
-						} else if ("inferred array" == indirection_state_ref.current_species()) {
-							lhs_is_known_to_be_an_array = true;
-						}
-						if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
-							lhs_is_known_to_be_a_pointer_target = true;
+							if (indirection_state_ref.is_known_to_have_malloc_target() && indirection_state_ref.is_known_to_have_non_malloc_target()) {
+								lhs_is_variously_native_and_dynamic_array = true;
+							} else if (indirection_state_ref.is_known_to_have_malloc_target()) {
+								lhs_is_dynamic_array = true;
+							} else if (indirection_state_ref.is_known_to_have_non_malloc_target()) {
+								lhs_is_native_array = true;
+							} 
 						}
 					} else {
 						auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state;
@@ -9146,17 +9141,15 @@ namespace convm1 {
 
 					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 						auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(0);
-						if ("dynamic array" == indirection_state_ref.current_species()) {
-							rhs_is_dynamic_array = true;
+						if (indirection_state_ref.is_known_to_be_used_as_array_iterator()) {
 							rhs_is_known_to_be_an_array = true;
-						} else if ("native array" == indirection_state_ref.current_species()) {
-							rhs_is_native_array = true;
-							rhs_is_known_to_be_an_array = true;
-						} else if ("variously native and dynamic array" == indirection_state_ref.current_species()) {
-							rhs_is_variously_native_and_dynamic_array = true;
-							rhs_is_known_to_be_an_array = true;
-						} else if ("inferred array" == indirection_state_ref.current_species()) {
-							rhs_is_known_to_be_an_array = true;
+							if (indirection_state_ref.is_known_to_have_malloc_target() && indirection_state_ref.is_known_to_have_non_malloc_target()) {
+								rhs_is_variously_native_and_dynamic_array = true;
+							} else if (indirection_state_ref.is_known_to_have_malloc_target()) {
+								rhs_is_dynamic_array = true;
+							} else if (indirection_state_ref.is_known_to_have_non_malloc_target()) {
+								rhs_is_native_array = true;
+							} 
 						}
 						if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
 							rhs_is_known_to_be_a_pointer_target = true;
@@ -9180,7 +9173,7 @@ namespace convm1 {
 				auto& cocs_ref = static_cast<CConditionalOperatorExprConversionState&>(ecs_ref);
 
 				bool array_needed_to_be_wrapped = false;
-				if (lhs_is_known_to_be_an_array || rhs_is_known_to_be_an_array) {
+				if ((lhs_is_known_to_be_an_array || rhs_is_known_to_be_an_array) && LHS->getType()->isPointerType()) {
 					bool lhs_needs_to_be_wrapped = false;
 					if ((lhs_is_dynamic_array && (!rhs_is_dynamic_array)) || (lhs_is_native_array && (!rhs_is_native_array))
 						|| ((!lhs_is_known_to_be_an_array) && rhs_is_known_to_be_an_array)) {
@@ -9195,22 +9188,73 @@ namespace convm1 {
 					}
 
 					if (lhs_needs_to_be_wrapped || rhs_needs_to_be_wrapped) {
+						IF_DEBUG(std::string LHS_qtype_str = LHS->getType().getAsString();)
+						IF_DEBUG(std::string LHS_pointee_qtype_str = LHS->getType()->getPointeeType().getAsString();)
+
+						std::string arg_pointee_qtype_str;
+
+						CDDeclConversionState* ddcs_ptr = nullptr;
+						CArrayInferenceInfo inference_info;
+						if (lhs_DD != nullptr) {
+							auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &m_Rewrite);
+							ddcs_ptr = &ddcs_ref;
+							inference_info = infer_array_type_info_from_stmt(*LHS, "", state1, lhs_DD);
+						} else if (rhs_DD != nullptr) {
+							auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &m_Rewrite);
+							ddcs_ptr = &ddcs_ref;
+							inference_info = infer_array_type_info_from_stmt(*RHS, "", state1, rhs_DD);
+						}
+						if (ddcs_ptr) {
+							auto& ddcs_ref = *ddcs_ptr;
+							if ((inference_info.indirection_level + 1) <= ddcs_ref.m_indirection_state_stack.size()) {
+								auto indirection_state_stack_of_pointee = ddcs_ref.m_indirection_state_stack;
+								indirection_state_stack_of_pointee.clear();
+								for (size_t i = size_t(inference_info.indirection_level + 1); ddcs_ref.m_indirection_state_stack.size() > i; ++i) {
+									indirection_state_stack_of_pointee.push_back(ddcs_ref.m_indirection_state_stack.at(i));
+								}
+
+								auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_pointee, (*this).m_Rewrite, EIsFunctionParam::No);
+								auto direct_qtype_str = ddcs_ref.current_direct_qtype_str();
+
+								if (0 == indirection_state_stack_of_pointee.size()) {
+									/* The type of the conditional operator argument(/alternative/option/branch) expressions seems to have
+									(only) one level of indirection. (I.e. It may be a pointer, but not a pointer to a pointer.) So the
+									"pointee" type is the "direct" type. */
+									if (LHS->getType()->getPointeeType().isConstQualified()) {
+										if (!(ddcs_ref.direct_type_state_ref().is_const())) {
+											/* Ok, so the pointee/"direct" type derived from the DDecl seems to be non-const, while the 
+											pointee/"direct" type of the actual type of the conditional operator argument(/alternative/option/branch) 
+											expressions is const. So we'll just add a const qualifier to the "direct" type. */
+											direct_qtype_str = "const " + direct_qtype_str;
+										}
+									}
+								}
+
+								arg_pointee_qtype_str = res3.m_prefix_str + direct_qtype_str + res3.m_suffix_str;
+							} else {
+								/* unexpected */
+								int q = 3;
+							}
+						}
+						if ("" == arg_pointee_qtype_str) {
+							arg_pointee_qtype_str = LHS->getType()->getPointeeType().getAsString();
+						}
+
 						auto xscope_eligibility = EXScopeEligibility::No;
-						auto arg_qtype = LHS->getType()->getPointeeType();
 						std::string arg_prefix_str;
 						if ("Dual" == ConvertMode) {
 							arg_prefix_str = "MSE_LH_CAST(";
 							if (false && (EXScopeEligibility::Yes == xscope_eligibility)) {
-								arg_prefix_str += "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(" + arg_qtype.getAsString() + ")";
+								arg_prefix_str += "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(" + arg_pointee_qtype_str + ")";
 							} else {
-								arg_prefix_str += "MSE_LH_ARRAY_ITERATOR_TYPE(" + arg_qtype.getAsString() + ")";
+								arg_prefix_str += "MSE_LH_ARRAY_ITERATOR_TYPE(" + arg_pointee_qtype_str + ")";
 							}
 							arg_prefix_str += ", ";
 						} else {
 							if (false && EXScopeEligibility::Yes == xscope_eligibility) {
-								arg_prefix_str += "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<" + arg_qtype.getAsString() + " >";
+								arg_prefix_str += "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<" + arg_pointee_qtype_str + " >";
 							} else {
-								arg_prefix_str += "mse::lh::TLHNullableAnyRandomAccessIterator<" + arg_qtype.getAsString() + " >";
+								arg_prefix_str += "mse::lh::TLHNullableAnyRandomAccessIterator<" + arg_pointee_qtype_str + " >";
 							}
 							arg_prefix_str += "(";
 						}
