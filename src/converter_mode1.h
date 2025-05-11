@@ -4925,7 +4925,7 @@ namespace convm1 {
 							retval.m_action_species = "void*";
 						} else {
 							if (is_innermost_indirection) {
-								retval.m_direct_type_must_be_non_const = true;
+								//retval.m_direct_type_must_be_non_const = true;
 							}
 							if ("Dual" == ConvertMode) {
 								prefix_str = "MSE_LH_DYNAMIC_ARRAY_ITERATOR_TYPE(";
@@ -13606,6 +13606,71 @@ namespace convm1 {
 							}
 
 							if ((nullptr != param_VD) && (nullptr != arg_EX) && arg_source_range.isValid()) {
+								bool arg_is_an_indirect_type = is_an_indirect_type(arg_EX->getType());
+								if (arg_is_an_indirect_type) {
+									static const std::array strtox_function_names = { "strtol", "strtoul", "strtoll", "strtoull", "strtoimax", "strtoumax", "strtof", "strtod", "strtold" };
+									static const std::string strtox_common_prefix = "strto";
+									if (string_begins_with(function_qname, strtox_common_prefix)) {
+										bool is_strtox = false;
+										for (auto const& strtox_function_name : strtox_function_names) {
+											if (strtox_function_name == function_qname) {
+												is_strtox = true;
+												break;
+											}
+										}
+										if (is_strtox) {
+											auto argii_EX = arg_EX->IgnoreParenImpCasts();
+											auto CSCE = dyn_cast<const clang::CStyleCastExpr>(argii_EX);
+											if (CSCE) {
+												auto csce_QT = definition_qtype(CSCE->getType());
+												std::string csce_QT_str = csce_QT.getAsString();
+												MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(csce_QT);
+												auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
+												assert(precasted_expr_ptr);
+												auto precasted_expr_QT = precasted_expr_ptr->getType();
+												IF_DEBUG(std::string precasted_expr_QT_str = precasted_expr_QT.getAsString();)
+												auto precasted_expr_SR = cm1_adj_nice_source_range(precasted_expr_ptr->getSourceRange(), state1, Rewrite);
+												auto CSCESR = write_once_source_range(cm1_adj_nice_source_range(CSCE->getSourceRange(), state1, Rewrite));
+												auto cast_operation_SR = cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite);
+												auto SR = CSCESR;
+												bool precasted_expr_is_function_type = precasted_expr_QT->isFunctionType();
+
+												RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+												DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, CSCESR, Rewrite);
+												RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+												DEBUG_SOURCE_TEXT_STR(debug_source_text1, CSCESR, Rewrite);
+
+									#ifndef NDEBUG
+												if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+													int q = 5;
+												}
+									#endif /*!NDEBUG*/
+
+												if ("char **" == csce_QT_str) {
+													if (ConvertToSCPP) {
+														std::string new_cast_prefix;
+														if ("Dual" == ConvertMode) {
+															new_cast_prefix = "MSE_LH_CHAR_STAR_STAR_CAST_FOR_STRTOX(";
+														} else if ("FasterAndStricter" == ConvertMode) {
+															new_cast_prefix = "(";
+														} else {
+															new_cast_prefix = "(";
+														}
+														std::string new_cast_suffix = ")";
+													
+														auto& ecs_ref = state1.get_expr_conversion_state_ref<CCastExprConversionState>(*CSCE, Rewrite, *precasted_expr_ptr, new_cast_prefix, new_cast_suffix);
+														ecs_ref.update_current_text();
+
+														if (CSCESR.isValid()) {
+															state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CSCESR, state1, CSCE);
+														}
+														return;
+													}
+												}
+											}
+										}
+									}
+								}
 								MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, arg_EX/*RHS*/, param_VD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
 							} else {
 								int q = 5;
