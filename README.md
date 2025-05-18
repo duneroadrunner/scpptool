@@ -1182,4 +1182,5 @@ So we've made an argument for non-"flow (or path) sensitive" analysis being the 
 
 
 ### Questions and comments
-If you have questions or comments you can create a post in the [discussion section](https://github.com/duneroadrunner/scpptool/discussions). 
+If you have questions or comments you can create a post in the [discussion section](https://github.com/duneroadrunner/scpptool/discussions). email: scpptool1@f-m.fm 
+
