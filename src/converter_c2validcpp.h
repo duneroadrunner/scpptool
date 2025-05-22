@@ -14802,7 +14802,7 @@ namespace convc2validcpp {
 
 		auto retval = Tool.run(newFrontendActionFactory<MyFrontendActionPass1>().get());
 
-		std::cout << "\nThe specified and dependent source files will be replaced/modified (including any directly or indirectly `#include`d files, which may include headers from 3rd party libraries). Make sure you have appropriate backup copies before proceeding. \n";
+		std::cout << "\nThe specified and dependent source files will be replaced/modified (including any directly or indirectly `#include`d files, which may include headers from 3rd party libraries if the program has write access to them). Make sure you have appropriate backup copies and that this program is running with appropriate write permissions before proceeding. \n";
 		std::cout << "Continue [y/n]? \n";
 		int ich = 0;
 		if (SuppressPrompts) {
