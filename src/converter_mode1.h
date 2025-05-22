@@ -1962,10 +1962,10 @@ namespace convm1 {
 			}
 			return adjusted_qtype_str(non_const_direct_return_qtype_str);
 		}
-		std::string const& current_initialization_expr_str() const {
+		std::string const& current_initialization_expr_str(std::optional<CExprTextInfoContext> maybe_context = {}) const {
 			if (m_maybe_initialization_expr_text_info.has_value()) {
 				auto& initialization_expr_text_info = m_maybe_initialization_expr_text_info.value();
-				return initialization_expr_text_info.current_text();
+				return initialization_expr_text_info.current_text(maybe_context);
 			}
 			return m_fallback_current_initialization_expr_str;
 		}
