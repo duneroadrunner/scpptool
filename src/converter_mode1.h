@@ -7207,7 +7207,7 @@ namespace convm1 {
 				if (SR.getBegin() < return_type_source_range.getBegin()) {
 					/* FunctionDecl::getReturnTypeSourceRange() seems to not include prefix qualifiers, like
 					* "const". */
-					return_type_source_range = extended_to_include_west_const_if_any(Rewrite, return_type_source_range);
+					return_type_source_range = write_once_source_range(extended_to_include_west_const_if_any(Rewrite, return_type_source_range));
 				}
 
 				auto res = generate_declaration_replacement_code(&ddecl, Rewrite, &state1, state1.m_ddecl_conversion_state_map, options_str);
