@@ -4680,7 +4680,15 @@ namespace convc2validcpp {
 		const std::string qtype_str = qtype.getAsString();
 		if (qtype.getTypePtr()->isScalarType()) {
 			std::string initializer_info_str;
+			bool is_named_enumeral_type = false;
 			if (qtype.getTypePtr()->isEnumeralType()) {
+				if (std::string::npos == qtype_str.find("unnamed enum at")) {
+					is_named_enumeral_type = true;
+				} else {
+					int q = 5;
+				}
+			}
+			if (is_named_enumeral_type) {
 				if ("Dual" == ConvertMode) {
 					initializer_info_str += "MSE_LH_CAST(";
 					initializer_info_str += qtype_str;
@@ -4969,10 +4977,19 @@ namespace convc2validcpp {
 										{
 											/* Here we're adding a missing initialization value to the field declaration. */
 											auto l_DD = FD;
-
+											const auto qtype_str = qtype.getAsString();
 											std::string initializer_info_str;
+
+											bool is_named_enumeral_type = false;
 											if (qtype.getTypePtr()->isEnumeralType()) {
-												initializer_info_str += qtype.getAsString();
+												if (std::string::npos == qtype_str.find("unnamed enum at")) {
+													is_named_enumeral_type = true;
+												} else {
+													int q = 5;
+												}
+											}
+											if (is_named_enumeral_type) {
+												initializer_info_str += qtype_str;
 												initializer_info_str += "(0)/*auto-generated init val*/";
 											} else if (qtype.getTypePtr()->isPointerType()) {
 												if ("Dual" == ConvertMode) {
@@ -10286,9 +10303,19 @@ namespace convc2validcpp {
 					CExprTextYieldingReplacementAction(Rewrite, MR, RHS_ii, RHS_ii_text).do_replacement(state1);
 				}
 			} else if ((!RHS_ii_qtype->isEnumeralType()) && (LHS_qtype->isEnumeralType())) {
-				std::string RHS_ii_text = Rewrite.getRewrittenText(SR);
-				RHS_ii_text = "(" + LHS_qtype_str + ")(" + RHS_ii_text + ")";
-				CExprTextYieldingReplacementAction(Rewrite, MR, RHS_ii, RHS_ii_text).do_replacement(state1);
+				bool is_named_enumeral_type = false;
+				{
+					if (std::string::npos == LHS_qtype_str.find("unnamed enum at")) {
+						is_named_enumeral_type = true;
+					} else {
+						int q = 5;
+					}
+				}
+				if (is_named_enumeral_type) {
+					std::string RHS_ii_text = Rewrite.getRewrittenText(SR);
+					RHS_ii_text = "(" + LHS_qtype_str + ")(" + RHS_ii_text + ")";
+					CExprTextYieldingReplacementAction(Rewrite, MR, RHS_ii, RHS_ii_text).do_replacement(state1);
+				}
 			}
 
 			if (false) {
@@ -12259,9 +12286,18 @@ namespace convc2validcpp {
 										{
 											/* Here we're adding a missing initialization value to the field declaration. */
 											auto l_DD = FD;
-
+											const std::string qtype_str = qtype.getAsString();
 											std::string initializer_info_str;
+
+											bool is_named_enumeral_type = false;
 											if (qtype.getTypePtr()->isEnumeralType()) {
+												if (std::string::npos == qtype_str.find("unnamed enum at")) {
+													is_named_enumeral_type = true;
+												} else {
+													int q = 5;
+												}
+											}
+											if (is_named_enumeral_type) {
 												initializer_info_str += qtype.getAsString();
 												initializer_info_str += "(0)/*auto-generated init val*/";
 											} else if (qtype.getTypePtr()->isPointerType()) {
@@ -14766,7 +14802,7 @@ namespace convc2validcpp {
 
 		auto retval = Tool.run(newFrontendActionFactory<MyFrontendActionPass1>().get());
 
-		std::cout << "\nThe specified and dependent source files will be replaced/modified. Make sure you have appropriate backup copies before proceeding. \n";
+		std::cout << "\nThe specified and dependent source files will be replaced/modified (including any directly or indirectly `#include`d files, which may include headers from 3rd party libraries). Make sure you have appropriate backup copies before proceeding. \n";
 		std::cout << "Continue [y/n]? \n";
 		int ich = 0;
 		if (SuppressPrompts) {
