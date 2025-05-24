@@ -10807,7 +10807,7 @@ namespace convc2validcpp {
 					if (ends_with_free || seems_to_be_some_kind_of_malloc_or_realloc
 						|| is_memcpy || is_memcmp || is_memset || begins_with__builtin_) {
 						return;
-					} else if (FD_is_non_modifiable) {
+					} else if (false && FD_is_non_modifiable) {
 						const auto num_args = CE->getNumArgs();
 						const auto num_params = function_decl1->getNumParams();
 						size_t arg_index = 0;
@@ -11036,7 +11036,7 @@ namespace convc2validcpp {
 								auto rhs_res2 = infer_array_type_info_from_stmt(*arg, "", state1);
 								bool rhs_is_an_indirect_type = is_an_indirect_type(arg->getType());
 
-								if (rhs_res2.ddecl_cptr && rhs_res2.ddecl_conversion_state_ptr) {
+								if (false && rhs_res2.ddecl_cptr && rhs_res2.ddecl_conversion_state_ptr) {
 									int int_max_indirection_level = int((*(rhs_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack.size()) - int(rhs_res2.indirection_level);
 									size_t szt_max_indirection_level = 0;
 									if (0 <= int_max_indirection_level) {
@@ -12824,12 +12824,14 @@ namespace convc2validcpp {
 					handle_cxx_const_cast_without_context(MR, Rewrite, state1, CXXCCE);
 					return;
 				}
+#endif /*0*/
+
 				auto CE = dyn_cast<const clang::CallExpr>(E);
 				if (CE) {
 					MCSSSArgToParameterPassingArray2::s_handler1(MR, Rewrite, state1, CE);
-					MCSSSArgToReferenceParameterPassing::s_handler1(MR, Rewrite, state1, CE);
+					//MCSSSArgToReferenceParameterPassing::s_handler1(MR, Rewrite, state1, CE);
 
-					if ((1 == CE->getNumArgs()) && (CE->getArg(0)->getType()->isPointerType())) {
+					if (false && (1 == CE->getNumArgs()) && (CE->getArg(0)->getType()->isPointerType())) {
 						auto arg_EX = CE->getArg(0);
 						auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
 
@@ -12839,8 +12841,9 @@ namespace convc2validcpp {
 							MCSSSFree2::s_handler1(MR, Rewrite, state1, CE, DRE);
 						}
 					}
-
 				}
+
+#if 0
 				auto parent_ST_ii = NonParenNoopCastParentStmt(E, *MR.Context);
 				if (parent_ST_ii) {
 					auto RS = dyn_cast<const clang::ReturnStmt>(parent_ST_ii);
