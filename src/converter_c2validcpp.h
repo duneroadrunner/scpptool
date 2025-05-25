@@ -10316,6 +10316,18 @@ namespace convc2validcpp {
 					RHS_ii_text = "(" + LHS_qtype_str + ")(" + RHS_ii_text + ")";
 					CExprTextYieldingReplacementAction(Rewrite, MR, RHS_ii, RHS_ii_text).do_replacement(state1);
 				}
+			} else if ((RHS_ii_qtype->isPointerType()) && (LHS_qtype->isPointerType())) {
+				const auto RHS_ii_pointee_qtype = RHS_ii_qtype->getPointeeType();
+				const auto LHS_pointee_qtype = LHS_qtype->getPointeeType();
+				if (RHS_ii_pointee_qtype->isIntegerType() && LHS_pointee_qtype->isIntegerType()) {
+					bool b1 = RHS_ii_pointee_qtype->isUnsignedIntegerType();
+					bool b2 = LHS_pointee_qtype->isUnsignedIntegerType();
+					if (b1 != b2) {
+						std::string RHS_ii_text = Rewrite.getRewrittenText(SR);
+						RHS_ii_text = "(" + LHS_qtype_str + ")(" + RHS_ii_text + ")";
+						CExprTextYieldingReplacementAction(Rewrite, MR, RHS_ii, RHS_ii_text).do_replacement(state1);
+					}
+				}
 			}
 
 			if (false) {
