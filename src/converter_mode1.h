@@ -11557,6 +11557,13 @@ namespace convm1 {
 			, { "strtoll", "mse::lh::strtoll", "MSE_LH_STRTOLL", {3} }
 			, { "strtoul", "mse::lh::strtoul", "MSE_LH_STRTOUL", {3} }
 			, { "strtoull", "mse::lh::strtoull", "MSE_LH_STRTOULL", {3} }
+			, { "strtoimax", "mse::lh::strtoimax", "MSE_LH_STRTOIMAX", {3} }
+			, { "strtoumax", "mse::lh::strtoumax", "MSE_LH_STRTOUMAX", {3} }
+			, { "strtof", "mse::lh::strtof", "MSE_LH_STRTOF", {2} }
+			, { "strtod", "mse::lh::strtod", "MSE_LH_STRTOD", {2} }
+			, { "strtold", "mse::lh::strtold", "MSE_LH_STRTOLD", {2} }
+			, { "strtok", "mse::lh::strtok", "MSE_LH_STRTOK", {2} }
+			, { "strtok_r", "mse::lh::strtok_r", "MSE_LH_STRTOK_R", {3} }
 			, { "fread", "mse::lh::fread", "MSE_LH_FREAD", {4} }
 			, { "fwrite", "mse::lh::fwrite", "MSE_LH_FWRITE", {4} }
 			, { "getline", "mse::lh::getline", "MSE_LH_GETLINE", {3} }
@@ -11569,6 +11576,16 @@ namespace convm1 {
 			, { "std::strncmp", "mse::lh::strncmp", "MSE_LH_STRNCMP", {3} }
 			, { "std::strlen", "mse::lh::strlen", "MSE_LH_STRLEN", {1} }
 			, { "std::strnlen_s", "mse::lh::strnlen_s", "MSE_LH_STRNLEN_S", {2} }
+			, { "std::strtol", "mse::lh::strtol", "MSE_LH_STRTOL", {3} }
+			, { "std::strtoll", "mse::lh::strtoll", "MSE_LH_STRTOLL", {3} }
+			, { "std::strtoul", "mse::lh::strtoul", "MSE_LH_STRTOUL", {3} }
+			, { "std::strtoull", "mse::lh::strtoull", "MSE_LH_STRTOULL", {3} }
+			, { "std::strtoimax", "mse::lh::strtoimax", "MSE_LH_STRTOIMAX", {3} }
+			, { "std::strtoumax", "mse::lh::strtoumax", "MSE_LH_STRTOUMAX", {3} }
+			, { "std::strtof", "mse::lh::strtof", "MSE_LH_STRTOF", {2} }
+			, { "std::strtod", "mse::lh::strtod", "MSE_LH_STRTOD", {2} }
+			, { "std::strtold", "mse::lh::strtold", "MSE_LH_STRTOLD", {2} }
+			, { "std::strtok", "mse::lh::strtok", "MSE_LH_STRTOK", {2} }
 			, { "std::fread", "mse::lh::fread", "MSE_LH_FREAD", {4} }
 			, { "std::fwrite", "mse::lh::fwrite", "MSE_LH_FWRITE", {4} }
 		};
@@ -13016,13 +13033,52 @@ namespace convm1 {
 				}
 			}
 
-			if (llvm::isa<const clang::CallExpr>(RHS->IgnoreParenCasts())) {
+			if (llvm::isa<const clang::CallExpr>(RHS->IgnoreParenCasts()) && rhs_is_an_indirect_type) {
 				auto CE = llvm::cast<const clang::CallExpr>(RHS->IgnoreParenCasts());
 				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
 				if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
 					/* This seems to be some kind of malloc/realloc function. These case should not be
 					* handled here. They are handled elsewhere. */
 					return;
+				}
+				if (lhs_res2.ddecl_cptr && lhs_res2.ddecl_conversion_state_ptr) {
+					auto& lhs_ddecl_ref = *(lhs_res2.ddecl_cptr);
+					auto& lhs_ddcs_ref = *(lhs_res2.ddecl_conversion_state_ptr);
+					if (lhs_ddcs_ref.m_indirection_state_stack.size() > lhs_res2.indirection_level) {
+						auto& indirection_state_ref = lhs_ddcs_ref.m_indirection_state_stack.at(lhs_res2.indirection_level);
+						auto lhs_ddecl_indirection = CDDeclIndirection(lhs_ddecl_ref, lhs_res2.indirection_level);
+
+						auto function_decl = CE->getDirectCallee();
+						auto num_args = CE->getNumArgs();
+						if (function_decl) {
+							std::string function_name = function_decl->getNameAsString();
+							std::string function_qname = function_decl->getQualifiedNameAsString();
+							auto maybe_function_index = s_function_conversion_index_if_any(function_qname);
+							if (maybe_function_index.has_value()) {
+								auto& fc_info = s_function_conversion_infos().at(maybe_function_index.value());
+								if (fc_info.m_maybe_num_parameters.has_value()) {
+									if (num_args == fc_info.m_maybe_num_parameters.value()) {
+
+										/* We're not necessarily in a position to deduce much about a pointer returned from a presumably 
+										opaque (standard library or system) function that is slated to be converted to a safe counterpart 
+										implementation. So we'll treat it as if it could be potentially point to malloc() or non-malloc() 
+										targets. */
+										if (!(indirection_state_ref.is_known_to_have_non_malloc_target())) {
+											indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
+											state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_ddecl_indirection);
+										}
+										if (!(indirection_state_ref.is_known_to_have_malloc_target())) {
+											indirection_state_ref.set_is_known_to_have_malloc_target(true);
+											state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_ddecl_indirection);
+										}
+									}
+								}
+
+							}
+						}
+					} else {
+						int q = 3;
+					}
 				}
 			}
 
