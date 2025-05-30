@@ -1991,6 +1991,8 @@ namespace convm1 {
 		std::optional<clang::StorageDuration> m_maybe_original_storage_duration;
 		std::optional<clang::StorageDuration> m_maybe_current_storage_duration;
 		bool m_has_been_replaced_as_a_whole = false;
+
+		std::optional<std::string> m_maybe_updated_name;
 	};
 
 	class CDDeclConversionStateMap : public std::unordered_map<const clang::DeclaratorDecl*, CDDeclConversionState> {
@@ -5543,7 +5545,6 @@ namespace convm1 {
 					if (needs_processing && SR.isValid()) {
 						std::string old_definition_text = Rewrite.getRewrittenText(definition_SR);
 
-						std::optional<clang::SourceLocation> maybe_name_SL;
 						if (indirection_state_stack.m_maybe_DD.has_value()) {
 							std::optional<clang::SourceLocation> maybe_name_SL;
 							if (is_typedef) {
@@ -6330,7 +6331,12 @@ namespace convm1 {
 			}
 		}
 
+		bool changed_from_original = false;
 		std::string variable_name = DD->getNameAsString();
+		if (ddcs_ref.m_maybe_updated_name.has_value()) {
+			variable_name = ddcs_ref.m_maybe_updated_name.value();
+			changed_from_original = true;
+		}
 		std::string identifier_name_str;
 		auto pIdentifier = DD->getIdentifier();
 		if (pIdentifier) {
@@ -6593,7 +6599,6 @@ namespace convm1 {
 		}
 		ddcs_ref.m_original_initialization_has_been_noted = true;
 
-		bool changed_from_original = false;
 		std::string replacement_code;
 		std::string replacement_type_str;
 		std::string replacement_return_type_str;
