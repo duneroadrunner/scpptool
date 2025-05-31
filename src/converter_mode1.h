@@ -7600,8 +7600,7 @@ namespace convm1 {
 			auto DC = PVD->getDeclContext();
 			const clang::FunctionDecl* function_decl1 = DC ? dyn_cast<const clang::FunctionDecl>(DC) : nullptr;
 			if (function_decl1) {
-				std::string function_name = function_decl1->getNameAsString();
-				auto lc_function_name = tolowerstr(function_name);
+				const std::string function_name = function_decl1->getNameAsString();
 
 				std::vector<const clang::ParmVarDecl*> param_decls_of_first_function_decl;
 				for (auto param_PVD : function_decl1->parameters()) {
@@ -9711,10 +9710,10 @@ namespace convm1 {
 			std::string return_type_str = definition_qtype(function_decl->getReturnType()).getAsString();
 			bool return_type_is_void_star = ("void *" == return_type_str);
 
-			std::string function_name = function_decl->getNameAsString();
+			const std::string function_name = function_decl->getNameAsString();
 			static const std::string alloc_str = "alloc";
 			static const std::string realloc_str = "realloc";
-			auto lc_function_name = tolowerstr(function_name);
+			const auto lc_function_name = tolowerstr(function_name);
 
 			bool ends_with_alloc = ((lc_function_name.size() >= alloc_str.size())
 					&& (0 == lc_function_name.compare(lc_function_name.size() - alloc_str.size(), alloc_str.size(), alloc_str)));
@@ -11278,9 +11277,9 @@ namespace convm1 {
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (1 == num_args)) {
 					{
-						std::string function_name = function_decl->getNameAsString();
+						const std::string function_name = function_decl->getNameAsString();
 						static const std::string free_str = "free";
-						auto lc_function_name = tolowerstr(function_name);
+						const auto lc_function_name = tolowerstr(function_name);
 						bool ends_with_free = ((lc_function_name.size() >= free_str.size())
 								&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
 						if (ends_with_free) {
@@ -11643,8 +11642,8 @@ namespace convm1 {
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl) {
-					std::string function_name = function_decl->getNameAsString();
-					std::string function_qname = function_decl->getQualifiedNameAsString();
+					const std::string function_name = function_decl->getNameAsString();
+					const std::string function_qname = function_decl->getQualifiedNameAsString();
 					auto maybe_function_index = s_function_conversion_index_if_any(function_qname);
 					if (maybe_function_index.has_value()) {
 						auto& fc_info = s_function_conversion_infos().at(maybe_function_index.value());
@@ -11742,8 +11741,8 @@ namespace convm1 {
 				const auto function_decl = CE->getDirectCallee();
 				const auto num_args = CE->getNumArgs();
 				if (function_decl) {
-					std::string function_name = function_decl->getNameAsString();
-					std::string function_qname = function_decl->getQualifiedNameAsString();
+					const std::string function_name = function_decl->getNameAsString();
+					const std::string function_qname = function_decl->getQualifiedNameAsString();
 					auto maybe_function_index = s_function_conversion_index_if_any(function_qname);
 					if (maybe_function_index.has_value()) {
 						auto& fc_info = s_function_conversion_infos().at(maybe_function_index.value());
@@ -12437,7 +12436,7 @@ namespace convm1 {
 			}
 			if (FND) {
 				auto num_params = FND->getNumParams();
-				std::string function_qname = FND->getQualifiedNameAsString();
+				const std::string function_qname = FND->getQualifiedNameAsString();
 				if (std::string::npos != function_qname.find("main")) {
 					if ("main" == function_qname) {
 						int q = 5;
@@ -12509,8 +12508,7 @@ namespace convm1 {
 					auto function_decl1 = CE->getDirectCallee();
 					auto num_args = CE->getNumArgs();
 					if (function_decl1) {
-						std::string function_name = function_decl1->getNameAsString();
-						auto lc_function_name = tolowerstr(function_name);
+						const std::string function_name = function_decl1->getNameAsString();
 
 						auto res1 = analyze_malloc_resemblance(*function_decl1, state1, Rewrite);
 						if (res1.m_seems_to_be_some_kind_of_malloc_or_realloc || res1.m_seems_to_be_some_kind_of_free) {
@@ -13056,8 +13054,8 @@ namespace convm1 {
 						auto function_decl = CE->getDirectCallee();
 						auto num_args = CE->getNumArgs();
 						if (function_decl) {
-							std::string function_name = function_decl->getNameAsString();
-							std::string function_qname = function_decl->getQualifiedNameAsString();
+							const std::string function_name = function_decl->getNameAsString();
+							const std::string function_qname = function_decl->getQualifiedNameAsString();
 							auto maybe_function_index = s_function_conversion_index_if_any(function_qname);
 							if (maybe_function_index.has_value()) {
 								auto& fc_info = s_function_conversion_infos().at(maybe_function_index.value());
@@ -13539,9 +13537,8 @@ namespace convm1 {
 				auto function_decl1 = CE->getDirectCallee();
 				const auto num_args = CE->getNumArgs();
 				if (function_decl1) {
-					std::string function_name = function_decl1->getNameAsString();
-					auto lc_function_name = tolowerstr(function_name);
-					std::string function_qname = function_decl1->getQualifiedNameAsString();
+					const std::string function_name = function_decl1->getNameAsString();
+					const std::string function_qname = function_decl1->getQualifiedNameAsString();
 
 					auto function_decl1_SR = cm1_adj_nice_source_range(function_decl1->getSourceRange(), state1, Rewrite);
 					bool FD_is_non_modifiable = is_non_modifiable(*function_decl1, MR, Rewrite, state1);
@@ -14135,8 +14132,7 @@ namespace convm1 {
 				auto function_decl1 = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl1) {
-					std::string function_name = function_decl1->getNameAsString();
-					auto lc_function_name = tolowerstr(function_name);
+					const std::string function_name = function_decl1->getNameAsString();
 
 					std::vector<const clang::ParmVarDecl*> param_decls_of_first_function_decl;
 					for (auto param_VD : function_decl1->parameters()) {
@@ -14510,8 +14506,8 @@ namespace convm1 {
 				auto function_decl1 = FND;
 				auto num_params = FND->getNumParams();
 				if (function_decl1) {
-					std::string function_name = function_decl1->getNameAsString();
-					auto lc_function_name = tolowerstr(function_name);
+					const std::string function_name = function_decl1->getNameAsString();
+					const auto lc_function_name = tolowerstr(function_name);
 
 					static const std::string free_str = "free";
 					bool ends_with_free = ((lc_function_name.size() >= free_str.size())
@@ -14643,7 +14639,7 @@ namespace convm1 {
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (4 == num_args)) {
-					std::string function_name = function_decl->getNameAsString();
+					const std::string function_name = function_decl->getNameAsString();
 					static const std::string fread_str = "fread";
 					if (fread_str == function_name) {
 						auto arg0_SR1 = CE->getArg(0)->getSourceRange();
@@ -14781,7 +14777,7 @@ namespace convm1 {
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (4 == num_args)) {
-					std::string function_name = function_decl->getNameAsString();
+					const std::string function_name = function_decl->getNameAsString();
 					static const std::string fread_str = "fread";
 					if (fread_str == function_name) {
 						if (ConvertToSCPP && SR.isValid()) {
@@ -14838,7 +14834,7 @@ namespace convm1 {
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (4 == num_args)) {
-					std::string function_name = function_decl->getNameAsString();
+					const std::string function_name = function_decl->getNameAsString();
 					static const std::string fwrite_str = "fwrite";
 					if (fwrite_str == function_name) {
 						auto arg0_SR1 = CE->getArg(0)->getSourceRange();
@@ -14983,7 +14979,7 @@ namespace convm1 {
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (4 == num_args)) {
-					std::string function_name = function_decl->getNameAsString();
+					const std::string function_name = function_decl->getNameAsString();
 					static const std::string fwrite_str = "fwrite";
 					if (fwrite_str == function_name) {
 						if (ConvertToSCPP && SR.isValid()) {
@@ -16348,7 +16344,7 @@ namespace convm1 {
 						if (nullptr == Importer.GetAlreadyImportedOrNull(D)) {
 							auto FD = D->getAsFunction();
 							if (FD) {
-								std::string function_name = FD->getNameAsString();
+								const std::string function_name = FD->getNameAsString();
 							} else if (llvm::isa<clang::NamespaceDecl>(D)) {
 								auto NSD = llvm::cast<clang::NamespaceDecl>(D);
 								assert(NSD);

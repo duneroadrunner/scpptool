@@ -12,6 +12,7 @@
 #include "checker.h"
 
 /*Standard headers*/
+#include <cstddef>
 #include <string>
 #include <iostream>
 #include <string>
@@ -7068,8 +7069,7 @@ namespace convc2validcpp {
 			auto DC = PVD->getDeclContext();
 			const clang::FunctionDecl* function_decl1 = DC ? dyn_cast<const clang::FunctionDecl>(DC) : nullptr;
 			if (function_decl1) {
-				std::string function_name = function_decl1->getNameAsString();
-				auto lc_function_name = tolowerstr(function_name);
+				const std::string function_name = function_decl1->getNameAsString();
 
 				std::vector<const clang::ParmVarDecl*> param_decls_of_first_function_decl;
 				for (auto param_PVD : function_decl1->parameters()) {
@@ -8923,10 +8923,10 @@ namespace convc2validcpp {
 			std::string return_type_str = definition_qtype(function_decl->getReturnType()).getAsString();
 			bool return_type_is_void_star = ("void *" == return_type_str);
 
-			std::string function_name = function_decl->getNameAsString();
+			const std::string function_name = function_decl->getNameAsString();
 			static const std::string alloc_str = "alloc";
 			static const std::string realloc_str = "realloc";
-			auto lc_function_name = tolowerstr(function_name);
+			const auto lc_function_name = tolowerstr(function_name);
 
 			bool ends_with_alloc = ((lc_function_name.size() >= alloc_str.size())
 					&& (0 == lc_function_name.compare(lc_function_name.size() - alloc_str.size(), alloc_str.size(), alloc_str)));
@@ -10071,9 +10071,9 @@ namespace convc2validcpp {
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (1 == num_args)) {
 					{
-						std::string function_name = function_decl->getNameAsString();
+						const std::string function_name = function_decl->getNameAsString();
 						static const std::string free_str = "free";
-						auto lc_function_name = tolowerstr(function_name);
+						const auto lc_function_name = tolowerstr(function_name);
 						bool ends_with_free = ((lc_function_name.size() >= free_str.size())
 								&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
 						if (ends_with_free) {
@@ -10103,7 +10103,7 @@ namespace convc2validcpp {
 										auto& SM = Rewrite.getSourceMgr();
 										auto callee_spelling_SR = clang::SourceRange{ SM.getSpellingLoc(callee_raw_SR.getBegin()), Rewrite.getSourceMgr().getSpellingLoc(callee_raw_SR.getEnd()) };
 										std::string callee_spelling_text = Rewrite.getRewrittenText(callee_spelling_SR);
-										auto lc_function_name = tolowerstr(callee_spelling_text);
+										const auto lc_function_name = tolowerstr(callee_spelling_text);
 										bool ends_with_free = ((lc_function_name.size() >= free_str.size())
 												&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
 										if (ends_with_free) {
@@ -10228,9 +10228,9 @@ namespace convc2validcpp {
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (1 == num_args)) {
 					{
-						std::string function_name = function_decl->getNameAsString();
+						const std::string function_name = function_decl->getNameAsString();
 						static const std::string free_str = "free";
-						auto lc_function_name = tolowerstr(function_name);
+						const auto lc_function_name = tolowerstr(function_name);
 						bool ends_with_free = ((lc_function_name.size() >= free_str.size())
 								&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
 						if (ends_with_free) {
@@ -10524,7 +10524,7 @@ namespace convc2validcpp {
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (3 == num_args)) {
-					std::string function_name = function_decl->getNameAsString();
+					const std::string function_name = function_decl->getNameAsString();
 					static const std::string memset_str = "memset";
 					if (memset_str == function_name) {
 						auto callee_SR = write_once_source_range(cm1_adj_nice_source_range(CE->getCallee()->getSourceRange(), state1, Rewrite));
@@ -10591,7 +10591,7 @@ namespace convc2validcpp {
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (3 == num_args)) {
-					std::string function_name = function_decl->getNameAsString();
+					const std::string function_name = function_decl->getNameAsString();
 					static const std::string memset_str = "memset";
 					if (memset_str == function_name) {
 						if (ConvertC2ValidCpp && SR.isValid()) {
@@ -10646,7 +10646,7 @@ namespace convc2validcpp {
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (3 == num_args)) {
-					std::string function_name = function_decl->getNameAsString();
+					const std::string function_name = function_decl->getNameAsString();
 					static const std::string memcpy_str = "memcpy";
 					bool memcpy_flag = (memcpy_str == function_name);
 					static const std::string memcmp_str = "memcmp";
@@ -10716,7 +10716,7 @@ namespace convc2validcpp {
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (3 == num_args)) {
-					std::string function_name = function_decl->getNameAsString();
+					const std::string function_name = function_decl->getNameAsString();
 					static const std::string memcpy_str = "memcpy";
 					bool memcpy_flag = (memcpy_str == function_name);
 					static const std::string memcmp_str = "memcmp";
@@ -11303,6 +11303,8 @@ namespace convc2validcpp {
 				//return;
 			}
 
+			bool rhs_needs_hard_cast_to_lhs = false;
+
 			if ((("void *" == RHS_ii_qtype_str) || ("const void *" == RHS_ii_qtype_str))
 				&& ("void *" != LHS_qtype_str) && ("const void *" != LHS_qtype_str)) {
 
@@ -11318,12 +11320,8 @@ namespace convc2validcpp {
 						return;
 					}
 				}
+				rhs_needs_hard_cast_to_lhs = true;
 
-				{
-					std::string RHS_ii_text = Rewrite.getRewrittenText(SR);
-					RHS_ii_text = "(" + LHS_qtype_str + ")(" + RHS_ii_text + ")";
-					CExprTextYieldingReplacementAction(Rewrite, MR, RHS_ii, RHS_ii_text).do_replacement(state1);
-				}
 			} else if ((!RHS_ii_qtype->isEnumeralType()) && (LHS_qtype->isEnumeralType())) {
 				bool is_named_enumeral_type = false;
 				{
@@ -11334,22 +11332,85 @@ namespace convc2validcpp {
 					}
 				}
 				if (is_named_enumeral_type) {
-					std::string RHS_ii_text = Rewrite.getRewrittenText(SR);
-					RHS_ii_text = "(" + LHS_qtype_str + ")(" + RHS_ii_text + ")";
-					CExprTextYieldingReplacementAction(Rewrite, MR, RHS_ii, RHS_ii_text).do_replacement(state1);
+					rhs_needs_hard_cast_to_lhs = true;
 				}
 			} else if ((RHS_ii_qtype->isPointerType()) && (LHS_qtype->isPointerType())) {
 				const auto RHS_ii_pointee_qtype = RHS_ii_qtype->getPointeeType();
 				const auto LHS_pointee_qtype = LHS_qtype->getPointeeType();
-				if (RHS_ii_pointee_qtype->isIntegerType() && LHS_pointee_qtype->isIntegerType()) {
+				bool b3 = RHS_ii_pointee_qtype.isConstQualified();
+				bool b4 = LHS_pointee_qtype.isConstQualified();
+
+				if ((RHS_ii_pointee_qtype->isIntegerType() && LHS_pointee_qtype->isIntegerType())
+					|| (b3 && !b4)) {
+
 					bool b1 = RHS_ii_pointee_qtype->isUnsignedIntegerType();
 					bool b2 = LHS_pointee_qtype->isUnsignedIntegerType();
-					if (b1 != b2) {
-						std::string RHS_ii_text = Rewrite.getRewrittenText(SR);
-						RHS_ii_text = "(" + LHS_qtype_str + ")(" + RHS_ii_text + ")";
-						CExprTextYieldingReplacementAction(Rewrite, MR, RHS_ii, RHS_ii_text).do_replacement(state1);
+					if ((b1 != b2) || (b3 && !b4)) {
+						rhs_needs_hard_cast_to_lhs = true;
+					} else if (!b4) {
+						auto CE = llvm::dyn_cast<const clang::CallExpr>(RHS_ii);
+						if (CE) {
+							const auto function_decl1 = CE->getDirectCallee();
+							const auto num_args = CE->getNumArgs();
+							if (function_decl1) {
+								const std::string function_name = function_decl1->getNameAsString();
+
+								//auto function_decl1_SR = cm1_adj_nice_source_range(function_decl1->getSourceRange(), state1, Rewrite);
+								//bool FD_is_non_modifiable = filtered_out_by_location(MR, function_decl1_SR.getBegin());
+
+								struct CFunctionInfo {
+									std::string m_fname;
+									size_t m_num_params = 0;
+									size_t m_zb_index_of_param_of_interest = 0;
+								};
+								/* These are just the ones we ran into. There may be others. */
+								static const std::vector<CFunctionInfo> s_const_violating_c_function_infos1 = {
+									{ "strchr", 2, 0 }, 
+									{ "strrchr", 2, 0 }, 
+									{ "memchr", 3, 0 }, 
+									{ "strpbrk", 2, 0 }, 
+									{ "strstr", 2, 0 }
+								};
+								bool is_const_violating_c_function = false;
+								size_t index_of_param_of_interest = 0;
+								for (auto& info : s_const_violating_c_function_infos1) {
+									if ((function_name == info.m_fname) && (num_args == info.m_num_params)) {
+										is_const_violating_c_function = true;
+										index_of_param_of_interest = info.m_zb_index_of_param_of_interest;
+										break;
+									}
+								}
+								if (is_const_violating_c_function) {
+									auto arg_EX = CE->getArg(index_of_param_of_interest);
+
+									assert(arg_EX->getType().getTypePtrOrNull());
+									auto arg_source_range = write_once_source_range(cm1_adj_nice_source_range(arg_EX->getSourceRange(), state1, Rewrite));
+									std::string arg_source_text;
+									if (arg_source_range.isValid()) {
+										IF_DEBUG(arg_source_text = Rewrite.getRewrittenText(arg_source_range);)
+									}
+
+									const auto arg_EX_qtype = arg_EX->getType();
+									IF_DEBUG(std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();)
+									if (arg_EX_qtype->isPointerType()) {
+										const auto arg_EX_pointee_qtype = arg_EX_qtype->getPointeeType();
+										if (arg_EX_pointee_qtype.isConstQualified()) {
+											/* The argument pointee is const qualified which means in C++ the pointee of the return value will 
+											also be const qualified, which is not the case in C. */
+
+											rhs_needs_hard_cast_to_lhs = true;
+										}
+									}
+								}
+							}
+						}
 					}
 				}
+			}
+			if (rhs_needs_hard_cast_to_lhs) {
+				std::string RHS_ii_text = Rewrite.getRewrittenText(SR);
+				RHS_ii_text = "(" + LHS_qtype_str + ")(" + RHS_ii_text + ")";
+				CExprTextYieldingReplacementAction(Rewrite, MR, RHS_ii, RHS_ii_text).do_replacement(state1);
 			}
 
 			if (false) {
@@ -11809,8 +11870,8 @@ namespace convc2validcpp {
 				auto function_decl1 = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl1) {
-					std::string function_name = function_decl1->getNameAsString();
-					auto lc_function_name = tolowerstr(function_name);
+					const std::string function_name = function_decl1->getNameAsString();
+					const auto lc_function_name = tolowerstr(function_name);
 
 					auto function_decl1_SR = cm1_adj_nice_source_range(function_decl1->getSourceRange(), state1, Rewrite);
 					bool FD_is_non_modifiable = filtered_out_by_location(MR, function_decl1_SR.getBegin());
@@ -12159,8 +12220,7 @@ namespace convc2validcpp {
 				auto function_decl1 = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl1) {
-					std::string function_name = function_decl1->getNameAsString();
-					auto lc_function_name = tolowerstr(function_name);
+					const std::string function_name = function_decl1->getNameAsString();
 
 					std::vector<const clang::ParmVarDecl*> param_decls_of_first_function_decl;
 					for (auto param_VD : function_decl1->parameters()) {
@@ -12538,8 +12598,8 @@ namespace convc2validcpp {
 				auto function_decl1 = FND;
 				auto num_params = FND->getNumParams();
 				if (function_decl1) {
-					std::string function_name = function_decl1->getNameAsString();
-					auto lc_function_name = tolowerstr(function_name);
+					const std::string function_name = function_decl1->getNameAsString();
+					const auto lc_function_name = tolowerstr(function_name);
 
 					static const std::string free_str = "free";
 					bool ends_with_free = ((lc_function_name.size() >= free_str.size())
@@ -12676,7 +12736,7 @@ namespace convc2validcpp {
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (4 == num_args)) {
-					std::string function_name = function_decl->getNameAsString();
+					const std::string function_name = function_decl->getNameAsString();
 					static const std::string fread_str = "fread";
 					if (fread_str == function_name) {
 						auto arg0_SR1 = CE->getArg(0)->getSourceRange();
@@ -12815,7 +12875,7 @@ namespace convc2validcpp {
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (4 == num_args)) {
-					std::string function_name = function_decl->getNameAsString();
+					const std::string function_name = function_decl->getNameAsString();
 					static const std::string fread_str = "fread";
 					if (fread_str == function_name) {
 						if (ConvertC2ValidCpp && SR.isValid()) {
@@ -12869,7 +12929,7 @@ namespace convc2validcpp {
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (4 == num_args)) {
-					std::string function_name = function_decl->getNameAsString();
+					const std::string function_name = function_decl->getNameAsString();
 					static const std::string fwrite_str = "fwrite";
 					if (fwrite_str == function_name) {
 						auto arg0_SR1 = CE->getArg(0)->getSourceRange();
@@ -13015,7 +13075,7 @@ namespace convc2validcpp {
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (4 == num_args)) {
-					std::string function_name = function_decl->getNameAsString();
+					const std::string function_name = function_decl->getNameAsString();
 					static const std::string fwrite_str = "fwrite";
 					if (fwrite_str == function_name) {
 						if (ConvertC2ValidCpp && SR.isValid()) {
@@ -13039,7 +13099,7 @@ namespace convc2validcpp {
 	};
 
 	static inline std::vector<std::string> const& s_cpp_specific_keywords() {
-		static std::vector<std::string> s_keywords = { "template", "and", "and_eq", /*"asm", "atomic_cancel"
+		static std::vector<std::string> s_keywords = { "and", "and_eq", /*"asm", "atomic_cancel"
 		, "atomic_commit", "atomic_noexcept",*/ "bitand", "bitor", /*"bool",*/ "catch"
 		, /*"char8_t", "char16_t", "char32_t",*/ "class", "compl", "concept", /*"consteval", "constexpr"
 		, "constinit", "const_cast", "contract_assert", "co_await", "co_return", "co_yield", "decltype"
@@ -14501,7 +14561,7 @@ namespace convc2validcpp {
 						if (nullptr == Importer.GetAlreadyImportedOrNull(D)) {
 							auto FD = D->getAsFunction();
 							if (FD) {
-								std::string function_name = FD->getNameAsString();
+								const std::string function_name = FD->getNameAsString();
 							} else if (llvm::isa<clang::NamespaceDecl>(D)) {
 								auto NSD = llvm::cast<clang::NamespaceDecl>(D);
 								assert(NSD);
