@@ -9700,7 +9700,15 @@ namespace convm1 {
 		std::string m_realloc_or_free_pointer_arg_source_text;
 		std::string m_realloc_or_free_pointer_arg_adjusted_source_text;
 		clang::ValueDecl const * m_realloc_or_free_pointer_arg_DD = nullptr;
+		std::string m_function_name;
+		size_t m_num_params = 0;
 	};
+
+	static std::vector<CAllocFunctionInfo>& s_encountered_alloc_infos_ref() {
+		thread_local std::vector<CAllocFunctionInfo> tl_list;
+		return tl_list;
+	}
+
 	CAllocFunctionInfo analyze_malloc_resemblance(const clang::FunctionDecl& function_decl_ref, CTUState& state1, Rewriter &Rewrite) {
 		CAllocFunctionInfo retval;
 
@@ -9709,8 +9717,19 @@ namespace convm1 {
 		if (function_decl && (1 <= num_params)) {
 			std::string return_type_str = definition_qtype(function_decl->getReturnType()).getAsString();
 			bool return_type_is_void_star = ("void *" == return_type_str);
-
 			const std::string function_name = function_decl->getNameAsString();
+
+			/* Preliminary observations seem to confirm the net benefits of this one-element cache. But 
+			further testing would be warranted. */
+			thread_local CAllocFunctionInfo last_retval;
+			if ((function_name == last_retval.m_function_name) && (num_params == last_retval.m_num_params)) {
+				return last_retval;
+			} else {
+				int q = 5;
+			}
+
+			retval.m_function_name = function_name;
+			retval.m_num_params = num_params;
 			static const std::string alloc_str = "alloc";
 			static const std::string realloc_str = "realloc";
 			const auto lc_function_name = tolowerstr(function_name);
@@ -9726,6 +9745,13 @@ namespace convm1 {
 			bool not_yet_ruled_out1 = (contains_alloc && (1 <= num_params)) || (contains_realloc && (2 <= num_params));
 			not_yet_ruled_out1 = (not_yet_ruled_out1 && return_type_is_void_star);
 			if (not_yet_ruled_out1) {
+				for (auto const& info : s_encountered_alloc_infos_ref()) {
+					if ((function_name == info.m_function_name) && (num_params == info.m_num_params)) {
+						last_retval = info;
+						return info;
+					}
+				}
+
 				std::string realloc_pointer_param_source_text;
 				clang::ValueDecl const * realloc_pointer_param_DD = nullptr;
 				std::string num_bytes_param_source_text;
@@ -9761,6 +9787,7 @@ namespace convm1 {
 						retval.m_realloc_or_free_pointer_arg_adjusted_source_text = realloc_pointer_param_source_text;
 						retval.m_realloc_or_free_pointer_arg_DD = realloc_pointer_param_DD;
 					}
+					s_encountered_alloc_infos_ref().push_back(retval);
 				}
 			}
 
@@ -9777,6 +9804,13 @@ namespace convm1 {
 				bool not_yet_ruled_out1 = (contains_free && (1 <= num_params));
 				not_yet_ruled_out1 = (not_yet_ruled_out1 && return_type_is_void);
 				if (not_yet_ruled_out1) {
+					for (auto const& info : s_encountered_alloc_infos_ref()) {
+						if ((function_name == info.m_function_name) && (num_params == info.m_num_params)) {
+							last_retval = info;
+							return info;
+						}
+					}
+
 					std::string free_pointer_param_source_text;
 					clang::ValueDecl const * free_pointer_param_DD = nullptr;
 					for (auto param : function_decl->parameters()) {
@@ -9800,14 +9834,33 @@ namespace convm1 {
 					}
 
 					if (!free_pointer_param_source_text.empty()) {
-						retval.m_seems_to_be_some_kind_of_free = true;
+						/* We don't want to mess with a "free" function unless we've encountered a corrsponding "alloc" 
+						function. But how do we know if a previously encountered "alloc" function corresponds to this 
+						"free" function? I don't know if there's a good answer to that, but for now we're going to 
+						require that the names at least start with the same letter. */
+						bool prefix_match = ("free" == function_name);
+						if (!prefix_match) {
+							const auto first_letter = function_name.at(0);
+							for (auto const& info : s_encountered_alloc_infos_ref()) {
+								if (first_letter == info.m_function_name.at(0)) {
+									prefix_match = true;
+									break;
+								}
+							}
+						}
+						if (prefix_match) {
+							retval.m_seems_to_be_some_kind_of_free = true;
 
-						retval.m_realloc_or_free_pointer_arg_source_text = free_pointer_param_source_text;
-						retval.m_realloc_or_free_pointer_arg_adjusted_source_text = free_pointer_param_source_text;
-						retval.m_realloc_or_free_pointer_arg_DD = free_pointer_param_DD;
+							retval.m_realloc_or_free_pointer_arg_source_text = free_pointer_param_source_text;
+							retval.m_realloc_or_free_pointer_arg_adjusted_source_text = free_pointer_param_source_text;
+							retval.m_realloc_or_free_pointer_arg_DD = free_pointer_param_DD;
+						} else {
+							int q = 5;
+						}
 					}
 				}
 			}
+			last_retval = retval;
 		}
 		return retval;
 	}
@@ -11163,6 +11216,10 @@ namespace convm1 {
 											state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, SR, state1, CE);
 
 										} else {
+											if ((!callee_SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, callee_SR.getBegin())) {
+												int q = 5;
+												return void();
+											}
 											state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, callee_SR, callee_name_replacement_text);
 
 											auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_E_ii);
