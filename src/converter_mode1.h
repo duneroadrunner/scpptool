@@ -418,6 +418,15 @@ namespace convm1 {
 			}
 			return retval;
 		}
+		std::string original_source_text() const {
+			return m_original_source_text;
+		}
+		std::string return_type_original_source_text() const {
+			if ("" != m_return_type_original_source_text) {
+				return m_return_type_original_source_text;
+			}
+			return m_original_source_text;
+		}
 
 	private:
 		std::string m_original_species;
@@ -444,6 +453,7 @@ namespace convm1 {
 		std::optional<clang::SourceRange> m_maybe_prefix_source_range;
 		std::optional<clang::SourceRange> m_maybe_suffix_source_range;
 		std::string m_original_source_text;
+		std::string m_return_type_original_source_text;
 
 		std::string m_original_pointer_target_state;
 		std::string m_current_pointer_target_state;
@@ -491,6 +501,9 @@ namespace convm1 {
 #endif /*!NDEBUG*/
 			m_original_source_text = std::move(str);
 		}
+		void set_return_type_original_source_text(std::string str) {
+			m_return_type_original_source_text = std::move(str);
+		}
 		void set_current_non_function_qtype_str(const std::string& qtype_str) {
 			m_current_qtype_or_return_qtype_str = adjusted_qtype_str(qtype_str);
 			m_current_qtype_is_current = false;
@@ -523,6 +536,12 @@ namespace convm1 {
 			return retval;
 		}
 		std::string original_source_text() const {
+			return m_original_source_text;
+		}
+		std::string return_type_original_source_text() const {
+			if ("" != m_return_type_original_source_text) {
+				return m_return_type_original_source_text;
+			}
 			return m_original_source_text;
 		}
 		std::string current_qtype_str() const {
@@ -680,6 +699,7 @@ namespace convm1 {
 		std::optional<clang::QualType> m_maybe_current_qtype;
 		std::string m_current_qtype_or_return_qtype_str;
 		std::string m_original_source_text;
+		std::string m_return_type_original_source_text;
 	};
 
 	/* CTUState holds any "per translation unit" state information we might need to store. */
@@ -1117,6 +1137,7 @@ namespace convm1 {
 		auto type_class = l_qtype->getTypeClass();
 
 		std::string original_source_text;
+		std::string return_type_original_source_text;
 		if (Rewrite_ptr && l_maybe_typeLoc.has_value()) {
 			auto typeLoc = l_maybe_typeLoc.value();
 			auto& Rewrite = *Rewrite_ptr;
@@ -1126,6 +1147,7 @@ namespace convm1 {
 			if ((l_SR).isValid() && (((l_SR).getBegin() < (l_SR).getEnd()) || ((l_SR).getBegin() == (l_SR).getEnd()))) {
 				DEBUG_SOURCE_LOCATION_STR(l_debug_source_location_str, l_SR, Rewrite);
 				original_source_text = (Rewrite).getRewrittenText(l_SR);
+				return_type_original_source_text = original_source_text;
 			}
 		}
 
@@ -1205,6 +1227,18 @@ namespace convm1 {
 					auto FunLoc = definition_TypeLoc(maybe_typeLoc.value()).getAsAdjusted<clang::FunctionTypeLoc>();
 					if (FunLoc) {
 						l_maybe_typeLoc = FunLoc.getReturnLoc();
+
+						if (Rewrite_ptr && l_maybe_typeLoc.has_value()) {
+							auto typeLoc = l_maybe_typeLoc.value();
+							auto& Rewrite = *Rewrite_ptr;
+							const auto l_SR = state1_ptr
+								? cm1_adj_nice_source_range(typeLoc.getSourceRange(), *state1_ptr, Rewrite)
+								: cm1_nice_source_range(typeLoc.getSourceRange(), Rewrite);
+							if ((l_SR).isValid() && (((l_SR).getBegin() < (l_SR).getEnd()) || ((l_SR).getBegin() == (l_SR).getEnd()))) {
+								DEBUG_SOURCE_LOCATION_STR(l_debug_source_location_str, l_SR, Rewrite);
+								return_type_original_source_text = (Rewrite).getRewrittenText(l_SR);
+							}
+						}
 					}
 				}
 			} else {
@@ -1298,6 +1332,7 @@ namespace convm1 {
 					: CIndirectionState(l_maybe_typeLoc, "native array", "native array", size_text);
 				indirection_state.m_maybe_original_qtype = l_qtype;
 				indirection_state.m_original_source_text = original_source_text;
+				indirection_state.m_return_type_original_source_text = return_type_original_source_text;
 				if (is_function_type) {
 					indirection_state.m_is_ineligible_for_xscope_status = true;
 				}
@@ -1363,6 +1398,7 @@ namespace convm1 {
 			auto indirection_state = CIndirectionState(l_maybe_typeLoc, "native pointer", "native pointer", is_function_type, param_qtypes, new_maybe_functionProtoTypeLoc);
 			indirection_state.m_maybe_original_qtype = l_qtype;
 			indirection_state.m_original_source_text = original_source_text;
+			indirection_state.m_return_type_original_source_text = return_type_original_source_text;
 			if (is_function_type) {
 				indirection_state.m_is_ineligible_for_xscope_status = true;
 			}
@@ -1409,6 +1445,7 @@ namespace convm1 {
 			auto indirection_state = CIndirectionState(l_maybe_typeLoc, "native reference", "native reference", is_function_type, param_qtypes, new_maybe_functionProtoTypeLoc);
 			indirection_state.m_maybe_original_qtype = l_qtype;
 			indirection_state.m_original_source_text = original_source_text;
+			indirection_state.m_return_type_original_source_text = return_type_original_source_text;
 			if (is_function_type) {
 				indirection_state.m_is_ineligible_for_xscope_status = true;
 			}
@@ -1431,6 +1468,7 @@ namespace convm1 {
 					DEBUG_SOURCE_LOCATION_STR(l_debug_source_location_str, l_SR, Rewrite);
 					auto source_text2 = (Rewrite).getRewrittenText(l_SR);
 					stack.m_direct_type_state.set_original_source_text(source_text2);
+					stack.m_direct_type_state.set_return_type_original_source_text(return_type_original_source_text);
 				}
 			} else {
 				int q = 5;
@@ -5036,7 +5074,8 @@ namespace convm1 {
 		if (maybe_tparam_usage_info.has_value()) {
 			auto& tparam_usage_info = maybe_tparam_usage_info.value();
 			const std::string tparam_name = tparam_usage_info.first_used_param_as_string();
-			if (with_whitespace_removed(tparam_name) == with_whitespace_removed(direct_type_state_ref.original_source_text())) {
+			std::string original_source_text = direct_type_state_ref.return_type_original_source_text();
+			if (with_whitespace_removed(tparam_name) == with_whitespace_removed(original_source_text)) {
 				/* So this declaration seems to involve a template parameter that corresponds to the direct 
 				type. We presumably want to leave template parameters intact, so we'll indicate that the template
 				parameter should be used in place of the direct type when rendering a text representation of 
@@ -5102,7 +5141,8 @@ namespace convm1 {
 				if (maybe_tparam_usage_info.has_value()) {
 					auto& tparam_usage_info = maybe_tparam_usage_info.value();
 					const std::string tparam_name = tparam_usage_info.first_used_param_as_string();
-					if (with_whitespace_removed(tparam_name) == with_whitespace_removed(indirection_state_ref.m_original_source_text)) {
+					std::string original_source_text = indirection_state_ref.return_type_original_source_text();
+					if (with_whitespace_removed(tparam_name) == with_whitespace_removed(original_source_text)) {
 						/* So this declaration seems to involve a template parameter that corresponds to the current 
 						indirection. We presumably want to leave template parameters intact, so we don't want to include 
 						this indirection (or nested ones) in any prefix or suffix as they would already be represented 
@@ -6970,7 +7010,15 @@ namespace convm1 {
 		if (FND) {
 			assert(type_is_function_type);
 			if (changed_from_original || individual_from_compound_declaration || ddcs_ref.m_function_return_type_original_source_text_str.empty()) {
-				replacement_return_type_str += prefix_str + ddcs_ref.current_direct_return_qtype_str() + suffix_str;
+				std::string effective_current_direct_return_qtype_str = ddcs_ref.current_direct_return_qtype_str();
+
+				if (res4.m_seems_to_involve_a_template_param_originally) {
+					/* In this case the direct type should have already been set to refer to the (effective direct 
+					type of the) return type. */
+					effective_current_direct_return_qtype_str = direct_qtype_str;
+				}
+
+				replacement_return_type_str += prefix_str + effective_current_direct_return_qtype_str + suffix_str;
 				replacement_return_type_post_params_suffix_str = post_name_suffix_str;
 			} else {
 				replacement_return_type_str = ddcs_ref.m_function_return_type_original_source_text_str;
