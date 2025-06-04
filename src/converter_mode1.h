@@ -1103,6 +1103,10 @@ namespace convm1 {
 	class CIndirectionStateStack : public std::vector<CIndirectionState> {
 	public:
 		std::optional<const clang::DeclaratorDecl*> m_maybe_DD;
+		/* If the (indirect) type being represented is not the type of a DeclaratorDecl (for example, if 
+		it's the type specifier of a cast expression) then a "containing" Decl may be provided which, for 
+		example, can be used to determine if the type uses, or is represented by, a template parameter. */
+		std::optional<const clang::Decl*> m_maybe_containing_D;
 		CTypeState1 m_direct_type_state;
 		void set_xscope_eligibility(bool eligibility, size_t indirection_level) {
 			assert((*this).size() > indirection_level);
@@ -1718,18 +1722,18 @@ namespace convm1 {
 
 	enum class EXScopeEligibility { Yes, No };
 
-	static auto typeLoc_if_available(const clang::DeclaratorDecl& ddecl) {
-		QualType QT = ddecl.getType();
+	static auto typeLoc_if_available(const clang::TypeSourceInfo& tsi) {
+		auto tsi_ptr = &tsi;
+		QualType QT = tsi.getType();
 		auto typeClass = QT->getTypeClass();
 		IF_DEBUG(std::string qtype_str = QT.getAsString();)
 		std::optional<clang::TypeLoc> maybe_typeLoc;
-		auto tsi = ddecl.getTypeSourceInfo();
-		if (tsi) {
-			IF_DEBUG(auto typeLocClass = tsi->getTypeLoc().getTypeLocClass();)
-			auto typeLocTypeClass = tsi->getTypeLoc().getType()->getTypeClass();
-			IF_DEBUG(std::string tl_qtype_str = tsi->getTypeLoc().getType().getAsString();)
+		{
+			IF_DEBUG(auto typeLocClass = tsi_ptr->getTypeLoc().getTypeLocClass();)
+			auto typeLocTypeClass = tsi_ptr->getTypeLoc().getType()->getTypeClass();
+			IF_DEBUG(std::string tl_qtype_str = tsi_ptr->getTypeLoc().getType().getAsString();)
 			bool inconsistent_types_flag = false;
-			while (tsi->getTypeLoc().getType() != QT) {
+			while (tsi_ptr->getTypeLoc().getType() != QT) {
 				if (llvm::isa<const clang::ParenType>(QT)) {
 					auto PN = llvm::cast<const clang::ParenType>(QT);
 					assert(PN);
@@ -1738,8 +1742,8 @@ namespace convm1 {
 					break;
 				}
 			}
-			if (tsi->getTypeLoc().getType() != QT) {
-				if (tsi->getTypeLoc().getType().getAsString() != QT.getAsString()) {
+			if (tsi_ptr->getTypeLoc().getType() != QT) {
+				if (tsi_ptr->getTypeLoc().getType().getAsString() != QT.getAsString()) {
 					if ((clang::Type::ConstantArray == typeLocTypeClass) && (clang::Type::Decayed == typeClass)) {
 						/* This is probably a case of an array function parameter decaying to a pointer. */
 						int q = 5;
@@ -1752,8 +1756,20 @@ namespace convm1 {
 				}
 			}
 			if (!inconsistent_types_flag) {
-				maybe_typeLoc = tsi->getTypeLoc();
+				maybe_typeLoc = tsi_ptr->getTypeLoc();
 			}
+		}
+		return maybe_typeLoc;
+	}
+
+	static auto typeLoc_if_available(const clang::DeclaratorDecl& ddecl) {
+		QualType QT = ddecl.getType();
+		auto typeClass = QT->getTypeClass();
+		IF_DEBUG(std::string qtype_str = QT.getAsString();)
+		std::optional<clang::TypeLoc> maybe_typeLoc;
+		auto tsi_ptr = ddecl.getTypeSourceInfo();
+		if (tsi_ptr) {
+			return typeLoc_if_available(*tsi_ptr);
 		}
 		return maybe_typeLoc;
 	}
@@ -3775,8 +3791,8 @@ namespace convm1 {
 
 	class CCastExprConversionState : public CExprConversionState {
 	public:
-		CCastExprConversionState(const clang::Expr& call_expr_cref, Rewriter &Rewrite, CTUState& state1, const clang::Expr& arg_expr_cref, std::string_view prefix, std::string_view suffix)
-			: CExprConversionState(call_expr_cref, Rewrite, state1), m_arg_text_info(IgnoreParenImpCasts(&arg_expr_cref), Rewrite, state1), m_arg_expr_cptr(&arg_expr_cref), m_prefix(prefix), m_suffix(suffix) {}
+		CCastExprConversionState(const clang::Expr& cast_expr_cref, Rewriter &Rewrite, CTUState& state1, const clang::Expr& arg_expr_cref, std::string_view prefix, std::string_view suffix)
+			: CExprConversionState(cast_expr_cref, Rewrite, state1), m_arg_text_info(IgnoreParenImpCasts(&arg_expr_cref), Rewrite, state1), m_arg_expr_cptr(&arg_expr_cref), m_prefix(prefix), m_suffix(suffix) {}
 
 		virtual void update_current_text(std::optional<CExprTextInfoContext> maybe_context = {}) override {
 			CExprTextInfoContext context = maybe_context.has_value() ? maybe_context.value() : CExprTextInfoContext{ m_SR_plus } ;
@@ -4754,24 +4770,24 @@ namespace convm1 {
 		clang::TemplateArgumentList  const * TAL = nullptr;
 	};
 
-	std::optional<CTParamUsageInfo> seems_to_contain_an_instantiation_of_a_template_parameter(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState* state1_ptr = nullptr) {
+	std::optional<CTParamUsageInfo> seems_to_contain_an_instantiation_of_a_template_parameter(const clang::Decl& containing_decl, std::string_view source_text_sv, Rewriter &Rewrite, CTUState* state1_ptr = nullptr) {
 		/* The current implementation is just kind of a placeholder hack where we're just 
 		looking at the (current) source text of the declaration and seeing if it contains
 		any instances of the name of any of the template parameters (if any). */
-		auto DD = &ddecl;
+		auto containing_D = &containing_decl;
 
 		bool is_template_instantiation = false;
 		clang::TemplateParameterList const * TPL = nullptr;
 		clang::TemplateArgumentList  const * TAL = nullptr;
 		clang::ASTTemplateArgumentListInfo const * ast_targ_list_info_ptr = nullptr;
 		const clang::Decl* template_D = nullptr;
-		/* first check if the DD itself is a function template. */
-		template_D = dyn_cast<const clang::FunctionTemplateDecl>(DD);
+		/* first check if the containing_D itself is a function template. */
+		template_D = dyn_cast<const clang::FunctionTemplateDecl>(containing_D);
 		if (!template_D) {
 			if (state1_ptr && state1_ptr->m_ast_context_ptr) {
-				template_D = Tget_containing_template_decl_if_any(DD, *(state1_ptr->m_ast_context_ptr));
+				template_D = Tget_containing_template_decl_if_any(containing_D, *(state1_ptr->m_ast_context_ptr));
 			} else {
-				auto DC = DD->getParentFunctionOrMethod();
+				auto DC = containing_D->getParentFunctionOrMethod();
 				if (DC) {
 					auto FTD = dyn_cast<const clang::FunctionTemplateDecl>(DC);
 					if (FTD) {
@@ -4786,13 +4802,14 @@ namespace convm1 {
 				IF_DEBUG(std::string name = FTD->getNameAsString();)
 				TPL = FTD->getTemplateParameters();
 
-				auto DC = DD->getParentFunctionOrMethod();
+				auto DC = containing_D->getParentFunctionOrMethod();
 				if (DC) {
 					auto FD = dyn_cast<const clang::FunctionDecl>(DC);
 					if (FD && FD->isTemplateInstantiation()) {
 						TAL = FD->getTemplateSpecializationArgs();
 						ast_targ_list_info_ptr = FD->getTemplateSpecializationArgsAsWritten();
 
+#ifndef NDEBUG
 						auto templated_kind = FD->getTemplatedKind();
 						//auto* FTD2 = FD->getDescribedFunctionTemplate();
 						auto b1 = FD->isFunctionTemplateSpecialization();
@@ -4809,6 +4826,7 @@ namespace convm1 {
 						auto ts_kind = FD->getTemplateSpecializationKind();
 						auto ts_kind2 = FD->getTemplateSpecializationKindForInstantiation();
 						int q = 5;
+#endif /*!NDEBUG*/
 					}
 				}
 				int q = 5;
@@ -4818,7 +4836,7 @@ namespace convm1 {
 				TPL = CTD->getTemplateParameters();
 
 				if (state1_ptr) {
-					auto CTSD = Tget_containing_element_of_type<clang::ClassTemplateSpecializationDecl>(DD, *(state1_ptr->m_ast_context_ptr));
+					auto CTSD = Tget_containing_element_of_type<clang::ClassTemplateSpecializationDecl>(containing_D, *(state1_ptr->m_ast_context_ptr));
 					if (CTSD) {
 						TAL = &(CTSD->getTemplateArgs());
 						//ast_targ_list_info_ptr = CTSD->getTemplateArgsAsWritten();
@@ -4826,22 +4844,6 @@ namespace convm1 {
 				}
 			}
 			if (TPL) {
-				auto SR = state1_ptr ? cm1_adj_nice_source_range(DD->getSourceRange(), *state1_ptr, Rewrite) : cm1_nice_source_range(DD->getSourceRange(), Rewrite);
-				std::string source_text1;
-				if ((SR).isValid() && (((SR).getBegin() < (SR).getEnd()) || ((SR).getBegin() == (SR).getEnd()))) {
-					source_text1 = (Rewrite).getRewrittenText(SR);
-				}
-				std::string source_text2;
-				auto maybe_typeLoc = typeLoc_if_available(ddecl);
-				if (maybe_typeLoc.has_value()) {
-					auto typeLoc = maybe_typeLoc.value();
-					const auto l_SR = state1_ptr
-						? cm1_adj_nice_source_range(typeLoc.getSourceRange(), *state1_ptr, Rewrite)
-						: cm1_nice_source_range(typeLoc.getSourceRange(), Rewrite);
-					if ((l_SR).isValid() && (((l_SR).getBegin() < (l_SR).getEnd()) || ((l_SR).getBegin() == (l_SR).getEnd()))) {
-						source_text2 = (Rewrite).getRewrittenText(l_SR);
-					}
-				}
 				auto contains_as_token_any_template_param = [](std::string_view source_text, clang::TemplateParameterList const * TPL) -> std::optional<size_t> {
 					std::optional<size_t> maybe_zbindex_of_contained_tparam;
 					if (!TPL) { return maybe_zbindex_of_contained_tparam; }
@@ -4860,13 +4862,37 @@ namespace convm1 {
 					}
 					return maybe_zbindex_of_contained_tparam;
 				};
-				auto maybe_zbindex_of_contained_tparam = contains_as_token_any_template_param(source_text2, TPL);
+				auto maybe_zbindex_of_contained_tparam = contains_as_token_any_template_param(source_text_sv, TPL);
 				if (maybe_zbindex_of_contained_tparam.has_value()) {
 					return CTParamUsageInfo{ maybe_zbindex_of_contained_tparam.value(), TPL, TAL };
 				}
 			}
 		}
 		return {};
+	}
+	std::optional<CTParamUsageInfo> seems_to_contain_an_instantiation_of_a_template_parameter(const clang::Decl& containing_decl, clang::SourceRange SR, Rewriter &Rewrite, CTUState* state1_ptr = nullptr) {
+		std::string source_text;
+		if ((SR).isValid() && (((SR).getBegin() < (SR).getEnd()) || ((SR).getBegin() == (SR).getEnd()))) {
+			source_text = (Rewrite).getRewrittenText(SR);
+		}
+		return seems_to_contain_an_instantiation_of_a_template_parameter(containing_decl, source_text, Rewrite, state1_ptr);
+	}
+	std::optional<CTParamUsageInfo> seems_to_contain_an_instantiation_of_a_template_parameter(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState* state1_ptr = nullptr) {
+		auto DD = &ddecl;
+		std::optional<clang::SourceRange> maybe_SR;
+		auto maybe_typeLoc = typeLoc_if_available(ddecl);
+		if (maybe_typeLoc.has_value()) {
+			auto typeLoc = maybe_typeLoc.value();
+			const auto l_SR = state1_ptr
+				? cm1_adj_nice_source_range(typeLoc.getSourceRange(), *state1_ptr, Rewrite)
+				: cm1_nice_source_range(typeLoc.getSourceRange(), Rewrite);
+			if ((l_SR).isValid() && (((l_SR).getBegin() < (l_SR).getEnd()) || ((l_SR).getBegin() == (l_SR).getEnd()))) {
+				maybe_SR = l_SR;
+			}
+		}
+		auto SR = maybe_SR.has_value() ? maybe_SR.value() : 
+			(state1_ptr ? cm1_adj_nice_source_range(DD->getSourceRange(), *state1_ptr, Rewrite) : cm1_nice_source_range(DD->getSourceRange(), Rewrite));
+		return seems_to_contain_an_instantiation_of_a_template_parameter(ddecl, SR, Rewrite, state1_ptr);
 	}
 
 	class CTypeIndirectionPrefixAndSuffixItem {
@@ -4899,8 +4925,6 @@ namespace convm1 {
 
 	enum class EIsFunctionParam { No, Yes };
 	enum class ESuppressModifications { No, Yes };
-
-	inline std::string generate_qtype_replacement_code(clang::QualType qtype, Rewriter &Rewrite, EIsFunctionParam is_a_function_parameter/* = EIsFunctionParam::No*/, std::optional<clang::StorageDuration> maybe_storage_duration/* = {}*/);
 
 	inline std::string current_params_string(Rewriter &Rewrite, CFunctionTypeState& function_type_state_ref, clang::FunctionProtoTypeLoc functionProtoTypeLoc, bool suppress_modifications = false, CTUState *state1_ptr = nullptr, bool is_declaration = false) {
 		std::string retval;
@@ -5024,18 +5048,26 @@ namespace convm1 {
 		}
 		std::string direct_type_original_source_text = direct_type_state_ref.original_source_text();
 
+		std::string type_original_source_text;
+		if (1 <= indirection_state_stack.size()) {
+			auto& indirection_state_ref = indirection_state_stack.at(0);
+			type_original_source_text = indirection_state_ref.return_type_original_source_text();
+		} else {
+			type_original_source_text = direct_type_original_source_text;
+		}
+
 		bool has_external_storage = false;
 		bool is_dependent_type = false;
 		std::optional<CTParamUsageInfo> maybe_tparam_usage_info;
 		if (indirection_state_stack.m_maybe_DD.has_value()) {
 			auto DD = indirection_state_stack.m_maybe_DD.value();
 			if (DD) {
+				maybe_tparam_usage_info = seems_to_contain_an_instantiation_of_a_template_parameter(*DD, type_original_source_text, Rewrite, state1_ptr);
+
 				auto VD = dyn_cast<const clang::VarDecl>(DD);
 				 if (VD) {
 					has_external_storage = VD->hasExternalStorage();
 				 }
-
-				maybe_tparam_usage_info = seems_to_contain_an_instantiation_of_a_template_parameter(*DD, Rewrite, state1_ptr);
 
 				if ("" == direct_type_original_qtype_str) {
 					auto maybe_typeLoc = typeLoc_if_available(*DD);
@@ -5066,7 +5098,12 @@ namespace convm1 {
 #endif /*!NDEBUG*/
 					}
 				}
-			}
+			} else { assert(false); }
+		} else if (indirection_state_stack.m_maybe_containing_D.has_value()) {
+			auto& D = indirection_state_stack.m_maybe_containing_D.value();
+			if (D) {
+				maybe_tparam_usage_info = seems_to_contain_an_instantiation_of_a_template_parameter(*D, type_original_source_text, Rewrite, state1_ptr);
+			} else { assert(false); }
 		}
 		bool seems_to_involve_a_template_param_originally = (maybe_tparam_usage_info.has_value() || is_dependent_type);
 		retval.m_seems_to_involve_a_template_param_originally = seems_to_involve_a_template_param_originally;
@@ -6296,18 +6333,19 @@ namespace convm1 {
 	}
 
 	/* This function will return an information object that can be used to construct a text string 
-	f the currently indicated replacement type. */
+	of the currently indicated replacement type. */
 	static CTypeIndirectionPrefixAndSuffixItem generate_type_indirection_prefix_and_suffix(CIndirectionStateStack& indirection_state_stack,
-			Rewriter &Rewrite, EIsFunctionParam is_a_function_parameter, std::optional<clang::StorageDuration> maybe_storage_duration = {}) {
+			Rewriter &Rewrite, EIsFunctionParam is_a_function_parameter, std::optional<clang::StorageDuration> maybe_storage_duration = {}, CTUState* state1_ptr = nullptr) {
 
-		return type_indirection_prefix_and_suffix_modifier_and_code_generator(indirection_state_stack, Rewrite, is_a_function_parameter, maybe_storage_duration, ESuppressModifications::Yes);
+		return type_indirection_prefix_and_suffix_modifier_and_code_generator(indirection_state_stack, Rewrite, is_a_function_parameter, maybe_storage_duration, ESuppressModifications::Yes, state1_ptr);
 	}
 
-	inline std::string generate_qtype_replacement_code(clang::QualType qtype, Rewriter &Rewrite, EIsFunctionParam is_a_function_parameter = EIsFunctionParam::No, std::optional<clang::StorageDuration> maybe_storage_duration = {}) {
+	inline std::string generate_qtype_replacement_code(clang::QualType qtype, Rewriter &Rewrite, CTUState* state1_ptr = nullptr, EIsFunctionParam is_a_function_parameter = EIsFunctionParam::No, std::optional<clang::StorageDuration> maybe_storage_duration = {}, std::optional<const clang::Decl*> maybe_containing_D = {}, std::optional<clang::TypeLoc> maybe_typeLoc = {}) {
 		CIndirectionStateStack indirection_state_stack;
+		indirection_state_stack.m_maybe_containing_D = maybe_containing_D;
 
 		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
-		auto direct_qtype = populateQTypeIndirectionStack(indirection_state_stack, qtype);
+		auto direct_qtype = populateQTypeIndirectionStack(indirection_state_stack, qtype, maybe_typeLoc, &Rewrite, state1_ptr);
 		indirection_state_stack.m_direct_type_state.set_original_qtype(direct_qtype);
 
 		for (auto& indirection_state_ref : indirection_state_stack) {
@@ -6315,7 +6353,7 @@ namespace convm1 {
 		}
 		indirection_state_stack.m_direct_type_state.set_xscope_eligibility(false);
 
-		auto res1 = type_indirection_prefix_and_suffix_modifier_and_code_generator(indirection_state_stack, Rewrite, is_a_function_parameter, maybe_storage_duration, ESuppressModifications::Yes);
+		auto res1 = type_indirection_prefix_and_suffix_modifier_and_code_generator(indirection_state_stack, Rewrite, is_a_function_parameter, maybe_storage_duration, ESuppressModifications::Yes, state1_ptr);
 		if (res1.m_direct_type_must_be_non_const) {
 			direct_qtype.removeLocalConst();
 			indirection_state_stack.m_direct_type_state.set_current_qtype(direct_qtype);
@@ -6328,6 +6366,28 @@ namespace convm1 {
 		auto direct_type_str = no_indirection
 			? indirection_state_stack.m_direct_type_state.current_qtype_str()
 			: indirection_state_stack.m_direct_type_state.current_return_qtype_str();
+
+		if (res1.m_seems_to_involve_a_template_param_originally) {
+			/* The original type seems to involve a template parameter (and so the 
+			declaration is presumably in the body of a template). We don't want to
+			replace the original (presumably) dependent type with direct_qtype_str 
+			which may refer to a specific specialization of the originally expressed 
+			type. */
+			if ("" != res1.m_tparam_that_encompasses_the_direct_type_str) {
+				/* The name of a template parameter that encompasses the direct type has been provided. We'll 
+				use it in place of the direct type. Note that the given template parameter may actually 
+				encompass more than just the direct type, but any given prefixes and/or suffixes are presumably 
+				adjusted to compensate. */
+				direct_type_str = res1.m_tparam_that_encompasses_the_direct_type_str;
+			} else {
+				/* For some reason, a template parameter that encompasses the direct type was not provided. So we'll 
+				use the original expression of the type in the source text, if that's available. */
+				auto l_original_source_text = indirection_state_stack.m_direct_type_state.original_source_text();
+				if ("" != l_original_source_text) {
+					direct_type_str = l_original_source_text;
+				}
+			}
+		}
 
 		std::string retval = res1.m_prefix_str + direct_type_str + res1.m_suffix_str + res1.m_post_name_suffix_str;
 		return retval;
@@ -6343,7 +6403,7 @@ namespace convm1 {
 				is_first_param = false;
 			}
 			//retval += qtype.getAsString();
-			retval += generate_qtype_replacement_code(qtype, Rewrite, EIsFunctionParam::Yes);
+			retval += generate_qtype_replacement_code(qtype, Rewrite, nullptr/*state1_ptr*/, EIsFunctionParam::Yes);
 		}
 		retval += ")";
 		return retval;
@@ -9246,7 +9306,7 @@ namespace convm1 {
 
 					if (rhs_res2.ddecl_cptr && rhs_res2.ddecl_conversion_state_ptr) {
 						auto res3 = generate_type_indirection_prefix_and_suffix((*rhs_res2.ddecl_conversion_state_ptr).m_indirection_state_stack, Rewrite, 
-							EIsFunctionParam::Yes);
+							EIsFunctionParam::Yes, {}/*maybe_storage_duration*/, &state1);
 
 						auto rhs_direct_qtype_str = (*rhs_res2.ddecl_conversion_state_ptr).current_direct_qtype_str();
 
@@ -9303,6 +9363,28 @@ namespace convm1 {
 		}
 	}
 
+	inline clang::SourceRange spelling_source_range(const clang::SourceRange& sr, Rewriter &Rewrite) {
+		if (true || sr.getBegin().isMacroID()) {
+			if (Rewrite.getSourceMgr().isMacroBodyExpansion(sr.getBegin())) {
+				auto spelling_SR = clang::SourceRange{ Rewrite.getSourceMgr().getSpellingLoc(sr.getBegin()), Rewrite.getSourceMgr().getSpellingLoc(sr.getEnd()) };
+				if (spelling_SR.isValid()) {
+					auto spelling_text = Rewrite.getRewrittenText(spelling_SR);
+					if (!spelling_text.empty()) {
+						return spelling_SR;
+					}
+				}
+			}
+		}
+		auto source_text = Rewrite.getRewrittenText(sr);
+		if (source_text.empty()) {
+			auto file_SR = clang::SourceRange{ Rewrite.getSourceMgr().getFileLoc(sr.getBegin()), Rewrite.getSourceMgr().getFileLoc(sr.getEnd()) };
+			if (file_SR.isValid()) {
+				return file_SR;
+			}
+		}
+		return sr;
+	}
+
 	class CCStyleCastReplacementCodeItem {
 	public:
 		std::string m_new_cast_prefix;
@@ -9312,31 +9394,9 @@ namespace convm1 {
 	inline CCStyleCastReplacementCodeItem generate_c_style_cast_replacement_code(Rewriter &Rewrite, CTUState& state1, const clang::CStyleCastExpr* CSCE, std::optional<std::string> maybe_replacement_qtype_str = {}) {
 		CCStyleCastReplacementCodeItem retval;
 		if (CSCE) {
-			auto spelling_source_range = [&Rewrite](const clang::SourceRange& sr) {
-				if (true || sr.getBegin().isMacroID()) {
-					if (Rewrite.getSourceMgr().isMacroBodyExpansion(sr.getBegin())) {
-						auto spelling_SR = clang::SourceRange{ Rewrite.getSourceMgr().getSpellingLoc(sr.getBegin()), Rewrite.getSourceMgr().getSpellingLoc(sr.getEnd()) };
-						if (spelling_SR.isValid()) {
-							auto spelling_text = Rewrite.getRewrittenText(spelling_SR);
-							if (!spelling_text.empty()) {
-								return spelling_SR;
-							}
-						}
-					}
-				}
-				auto source_text = Rewrite.getRewrittenText(sr);
-				if (source_text.empty()) {
-					auto file_SR = clang::SourceRange{ Rewrite.getSourceMgr().getFileLoc(sr.getBegin()), Rewrite.getSourceMgr().getFileLoc(sr.getEnd()) };
-					if (file_SR.isValid()) {
-						return file_SR;
-					}
-				}
-				return sr;
-			};
-
-			auto whole_cast_expression_SR = write_once_source_range(spelling_source_range(CSCE->getSourceRange()));
-			auto cast_operation_SR = write_once_source_range(spelling_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }));
-			auto cast_preconversion_expression_SR = write_once_source_range(spelling_source_range(CSCE->getSubExprAsWritten()->getSourceRange()));
+			auto whole_cast_expression_SR = write_once_source_range(spelling_source_range(CSCE->getSourceRange(), Rewrite));
+			auto cast_operation_SR = write_once_source_range(spelling_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, Rewrite));
+			auto cast_preconversion_expression_SR = write_once_source_range(spelling_source_range(CSCE->getSubExprAsWritten()->getSourceRange(), Rewrite));
 
 			if (whole_cast_expression_SR.isValid()) {
 				IF_DEBUG(auto cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);)
@@ -9344,7 +9404,14 @@ namespace convm1 {
 				auto cast_preconversion_expression_text = Rewrite.getRewrittenText(cast_preconversion_expression_SR);
 
 				if (!(maybe_replacement_qtype_str.has_value())) {
-					maybe_replacement_qtype_str = generate_qtype_replacement_code(CSCE->getType(), Rewrite);
+					auto containing_D = Tget_containing_element_of_type<clang::Decl>(CSCE, *(state1.m_ast_context_ptr));
+					std::optional<clang::TypeLoc> maybe_typeLoc;
+					auto* tsi_ptr = CSCE->getTypeInfoAsWritten();
+					if (tsi_ptr) {
+						maybe_typeLoc = typeLoc_if_available(*tsi_ptr);
+					}
+
+					maybe_replacement_qtype_str = generate_qtype_replacement_code(CSCE->getType(), Rewrite, &state1, EIsFunctionParam::No, {}/*maybe_storage_duration*/, containing_D, maybe_typeLoc);
 				}
 				auto replacement_qtype_str = maybe_replacement_qtype_str.value();
 				/* remove trailing whitespace */
@@ -9608,7 +9675,7 @@ namespace convm1 {
 									indirection_state_stack_of_pointee.push_back(ddcs_ref.m_indirection_state_stack.at(i));
 								}
 
-								auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_pointee, (*this).m_Rewrite, EIsFunctionParam::No);
+								auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_pointee, (*this).m_Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
 								auto direct_qtype_str = ddcs_ref.current_direct_qtype_str();
 
 								if (0 == indirection_state_stack_of_pointee.size()) {
@@ -9676,7 +9743,7 @@ namespace convm1 {
 						}
 						if (ddcs_ptr) {
 							auto& ddcs_ref = *ddcs_ptr;
-							auto res3 = generate_type_indirection_prefix_and_suffix(ddcs_ref.m_indirection_state_stack, (*this).m_Rewrite, EIsFunctionParam::No);
+							auto res3 = generate_type_indirection_prefix_and_suffix(ddcs_ref.m_indirection_state_stack, (*this).m_Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
 							auto direct_qtype_str = ddcs_ref.current_direct_qtype_str();
 							adj_arg_qtype_str = res3.m_prefix_str + direct_qtype_str + res3.m_suffix_str;
 						}
@@ -9733,7 +9800,7 @@ namespace convm1 {
 									}
 								}
 
-								auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_expression, (*this).m_Rewrite, EIsFunctionParam::No);
+								auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_expression, (*this).m_Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
 								auto direct_qtype_str = ddcs_ref.current_direct_qtype_str();
 
 								if (0 == indirection_state_stack_of_expression.size()) {
@@ -10978,7 +11045,7 @@ namespace convm1 {
 						auto ATP = llvm::cast<const clang::ArrayType>(lhs_TP);
 						assert(nullptr != ATP);
 						auto element_type = ATP->getElementType();
-						auto type_str = generate_qtype_replacement_code(element_type, Rewrite);
+						auto type_str = generate_qtype_replacement_code(element_type, Rewrite, &state1);
 						if (true || (("char" != type_str) && ("const char" != type_str))) {
 							lhs_element_type_str = type_str;
 						}
@@ -10988,7 +11055,7 @@ namespace convm1 {
 						}
 					} else if (lhs_TP->isPointerType()) {
 						auto target_type = lhs_TP->getPointeeType();
-						auto type_str = generate_qtype_replacement_code(target_type, Rewrite);
+						auto type_str = generate_qtype_replacement_code(target_type, Rewrite, &state1);
 						if (true || (("char" != type_str) && ("const char" != type_str))) {
 							lhs_element_type_str = type_str;
 						}
@@ -11443,7 +11510,7 @@ namespace convm1 {
 										auto ATP = llvm::cast<const clang::ArrayType>(arg_TP);
 										assert(nullptr != ATP);
 										auto element_type = ATP->getElementType();
-										auto type_str = generate_qtype_replacement_code(element_type, Rewrite);
+										auto type_str = generate_qtype_replacement_code(element_type, Rewrite, &state1);
 										if (true || (("char" != type_str) && ("const char" != type_str))) {
 											arg_element_type_str = type_str;
 										}
@@ -11462,7 +11529,7 @@ namespace convm1 {
 										int q = 5;
 									}
 									auto target_type = arg_TP->getPointeeType();
-									auto type_str = generate_qtype_replacement_code(target_type, Rewrite);
+									auto type_str = generate_qtype_replacement_code(target_type, Rewrite, &state1);
 									if (true || (("char" != type_str) && ("const char" != type_str)) || (!llvm::isa<const clang::PointerType>(arg_TP))) {
 										arg_element_type_str = type_str;
 									}
@@ -11634,13 +11701,13 @@ namespace convm1 {
 							auto ATP = llvm::cast<const clang::ArrayType>(lhs_TP);
 							assert(nullptr != ATP);
 							auto element_type = ATP->getElementType();
-							auto type_str = generate_qtype_replacement_code(element_type, Rewrite);
+							auto type_str = generate_qtype_replacement_code(element_type, Rewrite, &m_state1);
 							if (true || (("char" != type_str) && ("const char" != type_str))) {
 								lhs_element_type_str = type_str;
 							}
 						} else if (lhs_TP->isPointerType()) {
 							auto target_type = lhs_TP->getPointeeType();
-							auto type_str = generate_qtype_replacement_code(target_type, Rewrite);
+							auto type_str = generate_qtype_replacement_code(target_type, Rewrite, &m_state1);
 							if (true || (("char" != type_str) && ("const char" != type_str))) {
 								lhs_element_type_str = type_str;
 							}
@@ -11740,13 +11807,13 @@ namespace convm1 {
 							auto ATP = llvm::cast<const clang::ArrayType>(lhs_TP);
 							assert(nullptr != ATP);
 							auto element_type = ATP->getElementType();
-							auto type_str = generate_qtype_replacement_code(element_type, Rewrite);
+							auto type_str = generate_qtype_replacement_code(element_type, Rewrite, &m_state1);
 							if (true || (("char" != type_str) && ("const char" != type_str))) {
 								lhs_element_type_str = type_str;
 							}
 						} else if (lhs_TP->isPointerType()) {
 							auto target_type = lhs_TP->getPointeeType();
-							auto type_str = generate_qtype_replacement_code(target_type, Rewrite);
+							auto type_str = generate_qtype_replacement_code(target_type, Rewrite, &m_state1);
 							if (true || (("char" != type_str) && ("const char" != type_str))) {
 								lhs_element_type_str = type_str;
 							}
@@ -12924,15 +12991,36 @@ namespace convm1 {
 						set_xscope_elegibility_of_outermost_indirection_if_any(false, maybe_DD.value(), state1);
 					}
 
-					if (CXXSCE->getSourceRange().getBegin().isMacroID()) {
+					if (true || CXXSCE->getSourceRange().getBegin().isMacroID()) {
 						IF_DEBUG(std::string og_whole_expression_str = Rewrite.getRewrittenText(CXXSCESR);)
+
+						auto containing_D = Tget_containing_element_of_type<clang::Decl>(CXXSCE, *(state1.m_ast_context_ptr));
+						std::optional<clang::TypeLoc> maybe_typeLoc;
+						auto* tsi_ptr = CXXSCE->getTypeInfoAsWritten();
+						if (tsi_ptr) {
+							maybe_typeLoc = typeLoc_if_available(*tsi_ptr);
+						}
+
+						auto replacement_qtype_str = generate_qtype_replacement_code(CXXSCE->getType(), Rewrite, &state1, EIsFunctionParam::No, {}/*maybe_storage_duration*/, containing_D, maybe_typeLoc);
+
+						auto adjusted_new_cast_prefix = std::string(CXXSCE->getCastName()) + "<" + replacement_qtype_str + ">";
+
+						auto& ecs_ref = state1.get_expr_conversion_state_ref<CCastExprConversionState>(*CXXSCE, Rewrite, *precasted_expr_ptr, adjusted_new_cast_prefix, ")");
+						ecs_ref.update_current_text();
+
+						if (CXXSCESR.isValid()) {
+							state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CXXSCESR, state1, CXXSCE);
+						}
+
+						/*
 						std::string og_precasted_expr_str = Rewrite.getRewrittenText(precasted_expr_SR);
-						std::string new_whole_expression_str = std::string(CXXSCE->getCastName()) + "<" + generate_qtype_replacement_code(csce_QT, Rewrite) + ">("
+						std::string new_whole_expression_str = std::string(CXXSCE->getCastName()) + "<" + generate_qtype_replacement_code(csce_QT, Rewrite, &state1) + ">("
 							+ og_precasted_expr_str + ")";
 						CExprTextYieldingReplacementAction(Rewrite, MR, CXXSCE, new_whole_expression_str).do_replacement(state1);
+						*/
 					} else {
 						IF_DEBUG(std::string og_angle_brackets_str = Rewrite.getRewrittenText(angle_brackets_SR);)
-						std::string new_angle_brackets_str = "<" + generate_qtype_replacement_code(csce_QT, Rewrite) + ">";
+						std::string new_angle_brackets_str = "<" + generate_qtype_replacement_code(csce_QT, Rewrite, &state1) + ">";
 						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, angle_brackets_SR, new_angle_brackets_str);
 					}
 				}
@@ -12985,22 +13073,43 @@ namespace convm1 {
 
 					if ((!b1) || CXXSCE->getSourceRange().getBegin().isMacroID()) {
 						IF_DEBUG(std::string og_whole_expression_str = Rewrite.getRewrittenText(CXXSCESR);)
+
+						auto containing_D = Tget_containing_element_of_type<clang::Decl>(CXXSCE, *(state1.m_ast_context_ptr));
+						std::optional<clang::TypeLoc> maybe_typeLoc;
+						auto* tsi_ptr = CXXSCE->getTypeInfoAsWritten();
+						if (tsi_ptr) {
+							maybe_typeLoc = typeLoc_if_available(*tsi_ptr);
+						}
+
+						auto replacement_qtype_str = generate_qtype_replacement_code(CXXSCE->getType(), Rewrite, &state1, EIsFunctionParam::No, {}/*maybe_storage_duration*/, containing_D, maybe_typeLoc);
+
+						auto adjusted_new_cast_prefix = std::string(CXXSCE->getCastName()) + "<" + replacement_qtype_str + ">";
+
+						auto& ecs_ref = state1.get_expr_conversion_state_ref<CCastExprConversionState>(*CXXSCE, Rewrite, *precasted_expr_ptr, adjusted_new_cast_prefix, ")");
+						ecs_ref.update_current_text();
+
+						if (CXXSCESR.isValid()) {
+							state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CXXSCESR, state1, CXXSCE);
+						}
+
+						/*
 						std::string og_precasted_expr_str = Rewrite.getRewrittenText(precasted_expr_SR);
-						std::string new_whole_expression_str = std::string(CXXSCE->getCastName()) + "<" + generate_qtype_replacement_code(csce_QT, Rewrite) + ">("
+						std::string new_whole_expression_str = std::string(CXXSCE->getCastName()) + "<" + generate_qtype_replacement_code(csce_QT, Rewrite, &state1) + ">("
 							+ og_precasted_expr_str + ")";
 
 						if ("Dual" == ConvertMode) {
-							new_whole_expression_str = "MSE_LH_UNSAFE_CAST(" + generate_qtype_replacement_code(csce_QT, Rewrite) + ", "
+							new_whole_expression_str = "MSE_LH_UNSAFE_CAST(" + generate_qtype_replacement_code(csce_QT, Rewrite, &state1) + ", "
 							+ og_precasted_expr_str + ")";
 						} else {
-							new_whole_expression_str = "mse::us::lh::unsafe_cast<" + generate_qtype_replacement_code(csce_QT, Rewrite) + ">("
+							new_whole_expression_str = "mse::us::lh::unsafe_cast<" + generate_qtype_replacement_code(csce_QT, Rewrite, &state1) + ">("
 							+ og_precasted_expr_str + ")";
 						}
 
 						CExprTextYieldingReplacementAction(Rewrite, MR, CXXSCE, new_whole_expression_str).do_replacement(state1);
+						*/
 					} else {
 						IF_DEBUG(std::string og_angle_brackets_str = Rewrite.getRewrittenText(angle_brackets_SR);)
-						std::string new_angle_brackets_str = "<" + generate_qtype_replacement_code(csce_QT, Rewrite) + ">";
+						std::string new_angle_brackets_str = "<" + generate_qtype_replacement_code(csce_QT, Rewrite, &state1) + ">";
 						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, angle_brackets_SR, new_angle_brackets_str);
 					}
 				}
@@ -14557,7 +14666,7 @@ namespace convm1 {
 							auto ATP = llvm::cast<const clang::ArrayType>(TP);
 							assert(nullptr != ATP);
 							auto element_type = ATP->getElementType();
-							auto type_str = generate_qtype_replacement_code(element_type, Rewrite);
+							auto type_str = generate_qtype_replacement_code(element_type, Rewrite, &state1);
 							if (true || (("char" != type_str) && ("const char" != type_str))) {
 								element_type_str = type_str;
 							}
@@ -14567,7 +14676,7 @@ namespace convm1 {
 							}
 						} else if (TP->isPointerType()) {
 							auto target_type = TP->getPointeeType();
-							auto type_str = generate_qtype_replacement_code(target_type, Rewrite);
+							auto type_str = generate_qtype_replacement_code(target_type, Rewrite, &state1);
 							if (true || (("char" != type_str) && ("const char" != type_str))) {
 								element_type_str = type_str;
 							}
@@ -14961,13 +15070,13 @@ namespace convm1 {
 							auto ATP = llvm::cast<const clang::ArrayType>(arg1_TP);
 							assert(nullptr != ATP);
 							auto element_type = ATP->getElementType();
-							auto type_str = generate_qtype_replacement_code(element_type, Rewrite);
+							auto type_str = generate_qtype_replacement_code(element_type, Rewrite, &state1);
 							if (true || (("char" != type_str) && ("const char" != type_str))) {
 								arg1_element_type_str = type_str;
 							}
 						} else if (arg1_TP->isPointerType()) {
 							auto target_type = arg1_TP->getPointeeType();
-							auto type_str = generate_qtype_replacement_code(target_type, Rewrite);
+							auto type_str = generate_qtype_replacement_code(target_type, Rewrite, &state1);
 							if (true || (("char" != type_str) && ("const char" != type_str))) {
 								arg1_element_type_str = type_str;
 							}
@@ -15156,13 +15265,13 @@ namespace convm1 {
 							auto ATP = llvm::cast<const clang::ArrayType>(arg1_TP);
 							assert(nullptr != ATP);
 							auto element_type = ATP->getElementType();
-							auto type_str = generate_qtype_replacement_code(element_type, Rewrite);
+							auto type_str = generate_qtype_replacement_code(element_type, Rewrite, &state1);
 							if (true || (("char" != type_str) && ("const char" != type_str))) {
 								arg1_element_type_str = type_str;
 							}
 						} else if (arg1_TP->isPointerType()) {
 							auto target_type = arg1_TP->getPointeeType();
-							auto type_str = generate_qtype_replacement_code(target_type, Rewrite);
+							auto type_str = generate_qtype_replacement_code(target_type, Rewrite, &state1);
 							if (true || (("char" != type_str) && ("const char" != type_str))) {
 								arg1_element_type_str = type_str;
 							}
