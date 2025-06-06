@@ -12741,58 +12741,6 @@ namespace convm1 {
 		return false;
 	}
 
-	bool seems_to_be_a_c_style_variadic_function(clang::Decl const& decl, clang::Rewriter &Rewrite, CTUState& state1) {
-		auto FND = dyn_cast<const clang::FunctionDecl>(&decl);
-		if (!FND) {
-			return false;
-		}
-
-#ifndef NDEBUG
-		std::string fun_name = FND->getNameAsString();
-		std::string fun_qname = FND->getQualifiedNameAsString();
-		if (std::string::npos != fun_qname.find("aprint")) {
-			int q = 5;
-		}
-#endif /*!NDEBUG*/
-
-		if (FND->isVariadic()) {
-			return true;
-		}
-		/* Not sure about the reliability of that isVariadic() member function. Just in case, we'll try 
-		to parse the last declared parameter and determine if it's an ellipsis. */
-
-		auto params_SR = cm1_adjusted_source_range(FND->getParametersSourceRange(), state1, Rewrite);
-		auto& SM = Rewrite.getSourceMgr();
-
-		std::string l_params_source_text;
-		if (params_SR.isValid()) {
-			l_params_source_text = Rewrite.getRewrittenText(params_SR);
-		}
-		if ("" == l_params_source_text) {
-			l_params_source_text = params_SR.m_adjusted_source_text_as_if_expanded;
-		}
-		size_t after_last_comma_index = 0;
-		size_t search_start_index = 0;
-		while (l_params_source_text.length() > search_start_index) {
-			after_last_comma_index = search_start_index;
-			search_start_index = 1 + Parse::find_uncommented_token(",", l_params_source_text, search_start_index).begin;
-		}
-		/* At this point we think we've located the start of the last parameter. */
-		auto range1 = Parse::find_potential_noncomment_token_v1(l_params_source_text, after_last_comma_index);
-		if (l_params_source_text.length() <= range1.begin + 2) {
-			return false;
-		}
-		const auto text1 = l_params_source_text.substr(range1.begin, 3);
-		if ("..." != text1) {
-			return false; /* The text of the last parameter does not seem to be an ellipsis. */
-		}
-		auto range2 = Parse::find_potential_noncomment_token_v1(l_params_source_text, range1.begin + 3);
-		if (l_params_source_text.length() <= range2.begin) {
-			return true; /* There shouldn't be any non-comment tokens after the ellipsis, right?  */
-		}
-		return false;
-	}
-
 	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1) {
 		auto suppress_check_flag = state1.m_suppress_check_region_set.contains(&decl, Rewrite, Ctx);
 		if (suppress_check_flag) {
@@ -12814,10 +12762,6 @@ namespace convm1 {
 				if ("FILE *" == qtype_str) {
 					return true;
 				}
-			}
-			if (seems_to_be_a_c_style_variadic_function(decl, Rewrite, state1)) {
-				non_modifiable_flag = true;
-				break;
 			}
 		} while (false);
 
@@ -15986,11 +15930,6 @@ namespace convm1 {
 							}
 						}
 					} else if (FND) {
-						if (seems_to_be_a_c_style_variadic_function(*FND, Rewrite, state1)) {
-							auto l_ISR = instantiation_source_range(FND->getSourceRange(), Rewrite);
-							state1.m_suppress_check_region_set.emplace(l_ISR);
-							state1.m_suppress_check_region_set.insert(FND);
-						}
 						if (FND->hasAttrs()) {
 							auto vec = FND->getAttrs();
 							struct CAttrInfo {

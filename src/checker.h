@@ -10302,49 +10302,6 @@ namespace checker {
 		auto ebai_scope_obj = state1.make_element_being_analyzed_info_scope_obj({SR, CE});
 
 
-		if (function_decl->isVariadic()) {
-			if (Rewrite_ptr) {
-				auto& Rewrite = *Rewrite_ptr;
-				auto& SM = Rewrite.getSourceMgr();
-
-				const std::string error_desc = std::string("\"C-style\" variadic function declarations require ")
-					+ "a 'check suppression' directive.";
-				state1.register_error(SM, SR, error_desc);
-
-				/* We add the function declaration to the set of "checks suppressed" regions. Besides suppressing 
-				redundant error messages, this prevents the auto-conversion feature from (undesirably) converting 
-				the elements in the scope. */
-				auto l_ISR = instantiation_source_range(function_decl->getSourceRange(), Rewrite);
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str2, l_ISR, Rewrite);
-				DEBUG_SOURCE_TEXT_STR(debug_source_text2, l_ISR, Rewrite);
-				SourceLocation l_ISL = l_ISR.getBegin();
-				SourceLocation l_ISLE = l_ISR.getEnd();
-
-				if (filtered_out_by_location(SM, l_ISL)) {
-					return {};
-				}
-
-				std::string l_source_text;
-				if (l_ISL.isValid() && l_ISLE.isValid()) {
-					l_source_text = Rewrite.getRewrittenText(SourceRange(l_ISL, l_ISLE));
-
-					if ("" != l_source_text) {
-						int q = 5;
-					}
-
-	#ifndef NDEBUG
-					if (std::string::npos != debug_source_location_str2.find(g_target_debug_source_location_str1)) {
-						int q = 5;
-					}
-	#endif /*!NDEBUG*/
-
-					state1.m_suppress_check_region_set.emplace(l_ISR);
-					state1.m_suppress_check_region_set.insert(function_decl);
-				}
-			}
-			return {};
-		}
-
 		auto CXXMCE = dyn_cast<clang::CXXMemberCallExpr>(CE);
 		auto CXXCE = dyn_cast<clang::CXXConstructExpr>(CE);
 
@@ -14085,6 +14042,32 @@ namespace checker {
 					IF_DEBUG(auto DD_qtype_str = DD_qtype.getAsString();)
 					MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(DD_qtype);
 					const auto TST = DD_qtype->getAs<clang::TemplateSpecializationType>();
+
+					auto FND = dyn_cast<const clang::FunctionDecl>(DD);
+					if (FND) {
+#ifndef NDEBUG
+						std::string fun_name = FND->getNameAsString();
+						std::string fun_qname = FND->getQualifiedNameAsString();
+						if (std::string::npos != fun_qname.find("aprint")) {
+							int q = 5;
+						}
+#endif /*!NDEBUG*/
+
+						if (FND->isVariadic()) {
+							const std::string error_desc = std::string("\"C-style\" variadic function declarations require ")
+								+ "a 'check suppression' directive.";
+							(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
+
+							/* We add this variadic function declaration to the set of "checks suppressed" regions. Besides 
+							suppressing redundant error messages, this prevents the auto-conversion feature from (undesirably) 
+							converting the elements of the function declaration. */
+							auto l_ISR = instantiation_source_range(FND->getSourceRange(), Rewrite);
+							m_state1.m_suppress_check_region_set.emplace(l_ISR);
+							m_state1.m_suppress_check_region_set.insert(FND);
+							return;
+						}
+					}
+
 
 					check_for_unannotated_reference_objects_in_dynamic_containers(*DD, qtype, m_state1, &MR, &Rewrite);
 
