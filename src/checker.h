@@ -10301,13 +10301,56 @@ namespace checker {
 		/* Here we note/report the call expression. */
 		auto ebai_scope_obj = state1.make_element_being_analyzed_info_scope_obj({SR, CE});
 
+
+		if (function_decl->isVariadic()) {
+			if (Rewrite_ptr) {
+				auto& Rewrite = *Rewrite_ptr;
+				auto& SM = Rewrite.getSourceMgr();
+
+				const std::string error_desc = std::string("\"C-style\" variadic function declarations require ")
+					+ "a 'check suppression' directive.";
+				state1.register_error(SM, SR, error_desc);
+
+				/* We add the function declaration to the set of "checks suppressed" regions. Besides suppressing 
+				redundant error messages, this prevents the auto-conversion feature from (undesirably) converting 
+				the elements in the scope. */
+				auto l_ISR = instantiation_source_range(function_decl->getSourceRange(), Rewrite);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str2, l_ISR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text2, l_ISR, Rewrite);
+				SourceLocation l_ISL = l_ISR.getBegin();
+				SourceLocation l_ISLE = l_ISR.getEnd();
+
+				if (filtered_out_by_location(SM, l_ISL)) {
+					return {};
+				}
+
+				std::string l_source_text;
+				if (l_ISL.isValid() && l_ISLE.isValid()) {
+					l_source_text = Rewrite.getRewrittenText(SourceRange(l_ISL, l_ISLE));
+
+					if ("" != l_source_text) {
+						int q = 5;
+					}
+
+	#ifndef NDEBUG
+					if (std::string::npos != debug_source_location_str2.find(g_target_debug_source_location_str1)) {
+						int q = 5;
+					}
+	#endif /*!NDEBUG*/
+
+					state1.m_suppress_check_region_set.emplace(l_ISR);
+					state1.m_suppress_check_region_set.insert(function_decl);
+				}
+			}
+			return {};
+		}
+
 		auto CXXMCE = dyn_cast<clang::CXXMemberCallExpr>(CE);
 		auto CXXCE = dyn_cast<clang::CXXConstructExpr>(CE);
 
 		auto CXXOCE = dyn_cast<clang::CXXOperatorCallExpr>(CE);
 		auto CXXMD = dyn_cast<const clang::CXXMethodDecl>(function_decl);
 		auto CXXCD = dyn_cast<const clang::CXXConstructorDecl>(function_decl);
-
 
 		/* First some preliminary checks that don't involve annotated lifetimes. */
 
@@ -14085,7 +14128,7 @@ namespace checker {
 								+ "a 'check suppression' directive.";
 							(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
 
-							/* We add the extern "C" scope to the set of "checks suppressed" regions. Beside suppressing 
+							/* We add the extern "C" scope to the set of "checks suppressed" regions. Besides suppressing 
 							redundant error messages, this prevents the auto-conversion feature from (undesirably) converting 
 							the elements in the scope. */
 							auto l_ISR = instantiation_source_range(LSD->getSourceRange(), Rewrite);

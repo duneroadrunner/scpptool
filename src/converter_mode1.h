@@ -3288,17 +3288,20 @@ namespace convm1 {
 		* any modifications we might have made.  */
 		CExprConversionStateMap m_expr_conversion_state_map;
 
+	private:
+
 		/* Retrieves a reference to the "expression conversion state" object associated with the given 
 		expression. If no such object exists, one will be created and stored. If the existing object 
 		is an instance of the CExprConversionState base class, it will replaced by a new object of the 
-		specified subclass. */
+		specified subclass. If the `overwrite` argument value is true, any existing state will be 
+		unconditionally overwitten with a newly constructed one. */
 		template<typename TExprConversionState = CExprConversionState, typename TExpr, typename... TArgs>
-		auto& get_expr_conversion_state_ref(TExpr const& expr, Rewriter &Rewrite, TArgs&&... args) {
+		auto& get_expr_conversion_state_ref_helper1(bool overwrite, TExpr const& expr, Rewriter &Rewrite, TArgs&&... args) {
 			auto* EX = &expr;
 			auto& state1 = (*this);
 			std::shared_ptr<CExprConversionState> shptr1;
 			auto excs_iter = state1.m_expr_conversion_state_map.find(EX);
-			bool insert_or_assign = false;
+			bool insert_or_assign = overwrite;
 			std::optional<CExprTextModifierStack> maybe_modifier_stack;
 			if (state1.m_expr_conversion_state_map.end() == excs_iter) {
 				insert_or_assign = true;
@@ -3328,6 +3331,24 @@ namespace convm1 {
 				}
 			}
 			return *((*excs_iter).second);
+		}
+
+	public:
+		/* Retrieves a reference to the "expression conversion state" object associated with the given 
+		expression. If no such object exists, one will be created and stored. If the existing object 
+		is an instance of the CExprConversionState base class, it will replaced by a new object of the 
+		specified subclass. */
+		template<typename TExprConversionState = CExprConversionState, typename TExpr, typename... TArgs>
+		auto& get_expr_conversion_state_ref(TExpr const& expr, Rewriter &Rewrite, TArgs&&... args) {
+			return get_expr_conversion_state_ref_helper1<TExprConversionState>(false/*overwrite*/, expr, Rewrite, std::forward<TArgs>(args)...);
+		}
+
+		/* Constructs and stores an "expression conversion state" object associated with the given 
+		expression. Any existing stored "expression conversion state" object corresponding to the 
+		given expression will be replaced. A reference to the object is returned. */
+		template<typename TExprConversionState = CExprConversionState, typename TExpr, typename... TArgs>
+		auto& set_expr_conversion_state_ref(TExpr const& expr, Rewriter &Rewrite, TArgs&&... args) {
+			return get_expr_conversion_state_ref_helper1<TExprConversionState>(true/*overwrite*/, expr, Rewrite, std::forward<TArgs>(args)...);
 		}
 
 		/* This container holds, in sorted order, locations of original source code to be modified
@@ -9670,6 +9691,7 @@ namespace convm1 {
 							auto& ddcs_ref = *ddcs_ptr;
 							if ((inference_info.indirection_level + 1) <= ddcs_ref.m_indirection_state_stack.size()) {
 								auto indirection_state_stack_of_pointee = ddcs_ref.m_indirection_state_stack;
+								/* This clears the base vector, but leaves the other members intact. */
 								indirection_state_stack_of_pointee.clear();
 								for (size_t i = size_t(inference_info.indirection_level + 1); ddcs_ref.m_indirection_state_stack.size() > i; ++i) {
 									indirection_state_stack_of_pointee.push_back(ddcs_ref.m_indirection_state_stack.at(i));
@@ -12719,6 +12741,58 @@ namespace convm1 {
 		return false;
 	}
 
+	bool seems_to_be_a_c_style_variadic_function(clang::Decl const& decl, clang::Rewriter &Rewrite, CTUState& state1) {
+		auto FND = dyn_cast<const clang::FunctionDecl>(&decl);
+		if (!FND) {
+			return false;
+		}
+
+#ifndef NDEBUG
+		std::string fun_name = FND->getNameAsString();
+		std::string fun_qname = FND->getQualifiedNameAsString();
+		if (std::string::npos != fun_qname.find("aprint")) {
+			int q = 5;
+		}
+#endif /*!NDEBUG*/
+
+		if (FND->isVariadic()) {
+			return true;
+		}
+		/* Not sure about the reliability of that isVariadic() member function. Just in case, we'll try 
+		to parse the last declared parameter and determine if it's an ellipsis. */
+
+		auto params_SR = cm1_adjusted_source_range(FND->getParametersSourceRange(), state1, Rewrite);
+		auto& SM = Rewrite.getSourceMgr();
+
+		std::string l_params_source_text;
+		if (params_SR.isValid()) {
+			l_params_source_text = Rewrite.getRewrittenText(params_SR);
+		}
+		if ("" == l_params_source_text) {
+			l_params_source_text = params_SR.m_adjusted_source_text_as_if_expanded;
+		}
+		size_t after_last_comma_index = 0;
+		size_t search_start_index = 0;
+		while (l_params_source_text.length() > search_start_index) {
+			after_last_comma_index = search_start_index;
+			search_start_index = 1 + Parse::find_uncommented_token(",", l_params_source_text, search_start_index).begin;
+		}
+		/* At this point we think we've located the start of the last parameter. */
+		auto range1 = Parse::find_potential_noncomment_token_v1(l_params_source_text, after_last_comma_index);
+		if (l_params_source_text.length() <= range1.begin + 2) {
+			return false;
+		}
+		const auto text1 = l_params_source_text.substr(range1.begin, 3);
+		if ("..." != text1) {
+			return false; /* The text of the last parameter does not seem to be an ellipsis. */
+		}
+		auto range2 = Parse::find_potential_noncomment_token_v1(l_params_source_text, range1.begin + 3);
+		if (l_params_source_text.length() <= range2.begin) {
+			return true; /* There shouldn't be any non-comment tokens after the ellipsis, right?  */
+		}
+		return false;
+	}
+
 	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1) {
 		auto suppress_check_flag = state1.m_suppress_check_region_set.contains(&decl, Rewrite, Ctx);
 		if (suppress_check_flag) {
@@ -12740,6 +12814,10 @@ namespace convm1 {
 				if ("FILE *" == qtype_str) {
 					return true;
 				}
+			}
+			if (seems_to_be_a_c_style_variadic_function(decl, Rewrite, state1)) {
+				non_modifiable_flag = true;
+				break;
 			}
 		} while (false);
 
@@ -12818,6 +12896,20 @@ namespace convm1 {
 			}
 #endif /*!NDEBUG*/
 
+			bool there_seems_to_be_a_contending_pending_code_modification_action = false;
+			auto found_it = state1.m_pending_code_modification_actions.find(CSCESR);
+			if (state1.m_pending_code_modification_actions.end() != found_it) {
+				/* There seems to already be a pending action for this cast expression. It may have been queued 
+				by the MCSSSAssignment handler, which should be able to do a better job than we could here by 
+				virtue of having ready access to the context in which the cast expression is situated. But since 
+				expressions can generally only be modfied once, executing a modification (or scheduling one for 
+				deferred execution) may prevent the other pending modification action(s) from taking effect. So 
+				we'll note the presence of the pending action so that we can refrain from executing (or 
+				scheduling the execution of) any modifications in a way that might interfere with the already 
+				queued action. */
+				there_seems_to_be_a_contending_pending_code_modification_action = true;
+			}
+
 			if ((csce_QT->isPointerType() || csce_QT->isArrayType()) && (!precasted_expr_is_function_type)
 				/*&& (precasted_expr_QT->isPointerType() || precasted_expr_QT->isArrayType())
 				&& cast_operation_SR.isValid()*/) {
@@ -12856,8 +12948,22 @@ namespace convm1 {
 								} else {
 									null_value_str = "nullptr";
 								}
-								state1.add_pending_straight_text_replacement_expression_update(*CSCE, Rewrite, null_value_str);
-								//CExprTextReplacementAction(Rewrite, MR, CSCE, null_value_str).do_replacement(state1);
+
+								auto& ecs_ref = state1.get_expr_conversion_state_ref(*CSCE, Rewrite);
+
+								std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(null_value_str);
+								if (1 <= ecs_ref.m_expr_text_modifier_stack.size()) {
+									if ("straight replacement" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) {
+										/* already applied? */
+										//return;
+									}
+								}
+								ecs_ref.m_expr_text_modifier_stack.push_back(shptr1);
+								ecs_ref.update_current_text();
+
+								if (CSCESR.isValid() && (!there_seems_to_be_a_contending_pending_code_modification_action)) {
+									state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CSCESR, state1, CSCE);
+								}
 								return;
 							} else {
 								/* Uhh, this seems to be a cast from an integer literal other than zero to a pointer. */
@@ -12872,8 +12978,14 @@ namespace convm1 {
 										new_cast_prefix = "mse::us::lh::unsafe_cast<"
 											+ og_cast_operation_wo_parens_str + ">(";
 									}
-									std::string replacement_str = new_cast_prefix + og_precasted_expr_str + ")";
-									state1.add_pending_straight_text_replacement_expression_update(*CSCE, Rewrite, replacement_str);
+									static const std::string new_cast_suffix = ")";
+
+									auto& ecs_ref = state1.get_expr_conversion_state_ref<CCastExprConversionState>(*CSCE, Rewrite, *precasted_expr_ptr, new_cast_prefix, new_cast_suffix);
+									ecs_ref.update_current_text();
+
+									if (CSCESR.isValid() && (!there_seems_to_be_a_contending_pending_code_modification_action)) {
+										state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CSCESR, state1, CSCE);
+									}
 								} else {
 									int q = 5;
 								}
@@ -12929,7 +13041,7 @@ namespace convm1 {
 							auto& ecs_ref = state1.get_expr_conversion_state_ref<CCastExprConversionState>(*CSCE, Rewrite, *precasted_expr_ptr, adjusted_new_cast_prefix, res.m_new_cast_suffix);
 							ecs_ref.update_current_text();
 
-							if (CSCESR.isValid()) {
+							if (CSCESR.isValid() && (!there_seems_to_be_a_contending_pending_code_modification_action)) {
 								state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CSCESR, state1, CSCE);
 							}
 						}
@@ -13123,6 +13235,132 @@ namespace convm1 {
 	public:
 		MCSSSAssignment (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
+
+
+		static void s_c_style_cast_of_rhs(Rewriter &Rewrite, CTUState& state1, clang::Expr const& LHS_ref, CArrayInferenceInfo const& lhs_res2, clang::CStyleCastExpr const& CSCE_ref) {
+			auto* LHS = &LHS_ref;
+			auto* CSCE = &CSCE_ref;
+
+			auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
+			assert(precasted_expr_ptr);
+			auto CSCESR = write_once_source_range(cm1_adj_nice_source_range(CSCE->getSourceRange(), state1, Rewrite));
+
+			auto SR = CSCESR;
+			RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+#ifndef NDEBUG
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
+
+			std::string new_LHS_qtype_str;
+			auto& ddcs_ref = *(lhs_res2.ddecl_conversion_state_ptr);
+			if (lhs_res2.indirection_level <= ddcs_ref.m_indirection_state_stack.size()) {
+				auto indirection_state_stack_of_LHS = ddcs_ref.m_indirection_state_stack;
+				/* This clears the base vector, but leaves the other members intact. */
+				indirection_state_stack_of_LHS.clear();
+				for (size_t i = size_t(lhs_res2.indirection_level); ddcs_ref.m_indirection_state_stack.size() > i; ++i) {
+					indirection_state_stack_of_LHS.push_back(ddcs_ref.m_indirection_state_stack.at(i));
+				}
+
+				auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_LHS, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
+				auto direct_qtype_str = ddcs_ref.current_direct_return_qtype_str();
+
+				if (0 == indirection_state_stack_of_LHS.size()) {
+					/* The type of the LHS expression does not seem to be indirect. So the LHS type is the 
+					"direct" type. */
+					if (LHS->getType().isConstQualified()) {
+						if (!(ddcs_ref.direct_type_state_ref().is_const())) {
+							/* Ok, so the "direct" type derived from the DDecl seems to be non-const, while the 
+							LHS expressions is const. So we'll just add a const qualifier to the "direct" type. */
+							direct_qtype_str = "const " + direct_qtype_str;
+						}
+					}
+				}
+
+				if (res3.m_seems_to_involve_a_template_param_originally) {
+					/* The original type seems to involve a template parameter (and so the 
+					declaration is presumably in the body of a template). We don't want to
+					replace the original (presumably) dependent type with direct_qtype_str 
+					which may refer to a specific specialization of the originally expressed 
+					type. */
+					if ("" != res3.m_tparam_that_encompasses_the_direct_type_str) {
+						/* The name of a template parameter that encompasses the direct type has been provided. We'll 
+						use it in place of the direct type. Note that the given template parameter may actually 
+						encompass more than just the direct type, but any given prefixes and/or suffixes are presumably 
+						adjusted to compensate. */
+						direct_qtype_str = res3.m_tparam_that_encompasses_the_direct_type_str;
+					} else {
+						/* For some reason, a template parameter that encompasses the direct type was not provided. So we'll 
+						use the original expression of the type in the source text, if that's available. */
+						auto l_original_source_text = indirection_state_stack_of_LHS.m_direct_type_state.original_source_text();
+						if ("" != l_original_source_text) {
+							direct_qtype_str = l_original_source_text;
+						}
+					}
+				}
+
+				new_LHS_qtype_str = res3.m_prefix_str + direct_qtype_str + res3.m_suffix_str;
+				auto& replacement_qtype_str = new_LHS_qtype_str;
+
+				std::string new_cast_prefix;
+				std::string new_cast_suffix;
+				bool preconversion_expression_is_void_star = false;
+				bool converted_expression_is_void_star = false;
+				if (CSCE->getType()->isPointerType() && CSCE->getSubExpr()->getType()->isPointerType()) {
+					const std::string og_converted_pointee_qtype_str = CSCE->getType()->getPointeeType().getAsString();
+					const std::string og_preconversion_pointee_qtype_str = CSCE->getSubExpr()->getType()->getPointeeType().getAsString();
+					preconversion_expression_is_void_star = ("void" == og_preconversion_pointee_qtype_str) || ("const void" == og_preconversion_pointee_qtype_str);
+					converted_expression_is_void_star = ("void" == og_converted_pointee_qtype_str) || ("const void" == og_converted_pointee_qtype_str);
+				}
+				if (new_cast_prefix.empty()) {
+					if (preconversion_expression_is_void_star || converted_expression_is_void_star) {
+						if ("Dual" == ConvertMode) {
+							new_cast_prefix = "MSE_LH_CAST("
+								+ replacement_qtype_str + ", ";
+						} else {
+							new_cast_prefix = "("
+								+ replacement_qtype_str + ")(";
+						}
+					} else {
+						if ("Dual" == ConvertMode) {
+							new_cast_prefix = "MSE_LH_UNSAFE_CAST("
+								+ replacement_qtype_str + ", ";
+						} else {
+							new_cast_prefix = "mse::us::lh::unsafe_cast<"
+								+ replacement_qtype_str + ">(";
+						}
+					}
+					new_cast_suffix = ")";
+				}
+
+				auto& ecs_ref1 = state1.get_expr_conversion_state_ref<CCastExprConversionState>(*CSCE, Rewrite, *precasted_expr_ptr, new_cast_prefix, new_cast_suffix);
+				auto expr_text_modifier_stack1 = ecs_ref1.m_expr_text_modifier_stack;
+				/* Here we make sure that any existing "conversion state" associated with this cast expression 
+				is overwritten by our new one. */
+				auto& ecs_ref = state1.set_expr_conversion_state_ref<CCastExprConversionState>(*CSCE, Rewrite, *precasted_expr_ptr, new_cast_prefix, new_cast_suffix);
+				/* But we'll restore any previously present "text modifiers", as they may be associated with modifications 
+				that are (technically) distinct from the cast operation. (For example, a text modifier might wrap the 
+				expression in a make_raw_pointer_from() call.) */
+				ecs_ref.m_expr_text_modifier_stack = expr_text_modifier_stack1;
+				ecs_ref.update_current_text();
+
+				if (CSCESR.isValid()) {
+					//state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CSCESR, state1, CSCE);
+
+					auto& current_text_ref = ecs_ref.current_text();
+					if (current_text_ref != ecs_ref.m_original_source_text_str) {
+						Rewrite.ReplaceText(CSCESR, current_text_ref);
+					}
+				}
+				//finished_cast_handling_flag = true;
+			} else {
+				/* unexpected */
+				int q = 3;
+			}
+		}
 
 		enum class EIsAnInitialization { Yes, No };
 
@@ -13319,31 +13557,61 @@ namespace convm1 {
 					auto precasted_expr_SR = cm1_adj_nice_source_range(precasted_expr_ptr->getSourceRange(), state1, Rewrite);
 					auto CSCESR = write_once_source_range(cm1_adj_nice_source_range(CSCE->getSourceRange(), state1, Rewrite));
 					auto cast_operation_SR = write_once_source_range(cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite));
-
-					if ((csce_QT->isPointerType()) && precasted_expr_ptr->getType()->isPointerType() && cast_operation_SR.isValid()) {
-						std::string csce_QT_str = csce_QT.getAsString();
-						if ("void *" == csce_QT_str) {
-							/* This case is handled by the MCSSSExprUtil handler. */
-							finished_cast_handling_flag = true;
+					do {
+						if ((csce_QT->isPointerType()) && precasted_expr_ptr->getType()->isPointerType() && cast_operation_SR.isValid()) {
+							std::string csce_QT_str = csce_QT.getAsString();
+							if ("void *" == csce_QT_str) {
+								/* This case is handled by the MCSSSExprUtil handler. */
+								finished_cast_handling_flag = true;
+								break;
+							}
 						}
-					}
 
-					auto precasted_CE = llvm::dyn_cast<const clang::CallExpr>(precasted_expr_ptr->IgnoreParenCasts());
-					if (precasted_CE) {
-						auto alloc_function_info1 = analyze_malloc_resemblance(*precasted_CE, state1, Rewrite);
-						if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
-							/* This case is handled elsewhere. */
-							finished_cast_handling_flag = true;
+						auto precasted_CE = llvm::dyn_cast<const clang::CallExpr>(precasted_expr_ptr->IgnoreParenCasts());
+						if (precasted_CE) {
+							auto alloc_function_info1 = analyze_malloc_resemblance(*precasted_CE, state1, Rewrite);
+							if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+								/* This case is handled elsewhere. */
+								finished_cast_handling_flag = true;
+								break;
+							}
 						}
+
+						if (csce_QT->isPointerType() /*"void *" == csce_QT.getAsString()*/) {
+							auto IL = dyn_cast<const clang::IntegerLiteral>(precasted_expr_ptr);
+							if (IL) {
+								/* This case is handled in the handle_c_style_cast_without_context() handler. */
+								finished_cast_handling_flag = true;
+								break;
+							}
+						}
+					} while (false);
+
+					if ((!finished_cast_handling_flag) && lhs_res2.ddecl_conversion_state_ptr && ConvertToSCPP) {
+
+						auto lambda = [&Rewrite, &state1, LHS, lhs_res2, CSCE]() {
+							MCSSSAssignment::s_c_style_cast_of_rhs((Rewrite), state1, *LHS, lhs_res2, *CSCE);
+						};
+
+						state1.m_pending_code_modification_actions.add_replacement_action(CSCESR, lambda);
+						finished_cast_handling_flag = true;
 					}
 				}
 				if (!finished_cast_handling_flag) {
-					if (cast_qtype->isPointerType() || (cast_qtype->isReferenceType())) {
-						if (DD && (DD->getType()->isPointerType() || (DD->getType()->isReferenceType()))) {
+					if (DD && (cast_qtype->isPointerType() || cast_qtype->isReferenceType())) {
+						bool b1 = (DD->getType()->isPointerType() || (DD->getType()->isReferenceType()));
+						clang::FunctionDecl const * FND = nullptr;
+						if (!b1) {
+							FND = dyn_cast<const clang::FunctionDecl>(DD);
+							if (FND && (FND->getReturnType()->isPointerType() || FND->getReturnType()->isReferenceType())) {
+								b1 = true;
+							}
+						}
+						if (b1) {
 							auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
 							auto cast_pointee_qtype = definition_qtype(cast_qtype->getPointeeType());
-							auto DD_pointee_qtype = definition_qtype(DD->getType()->getPointeeType());
+							auto DD_pointee_qtype = FND ? definition_qtype(FND->getReturnType()->getPointeeType()) : definition_qtype(DD->getType()->getPointeeType());
 
 							auto const_adjusted_cast_pointee_qtype = cast_pointee_qtype;
 							auto const_cast_pointee_qtype = const_adjusted_cast_pointee_qtype;
@@ -14128,6 +14396,7 @@ namespace convm1 {
 							} else {
 								int q = 5;
 							}
+							MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, arg_EX/*RHS*/, param_VD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
 							int q = 5;
 						}
 
@@ -15717,6 +15986,11 @@ namespace convm1 {
 							}
 						}
 					} else if (FND) {
+						if (seems_to_be_a_c_style_variadic_function(*FND, Rewrite, state1)) {
+							auto l_ISR = instantiation_source_range(FND->getSourceRange(), Rewrite);
+							state1.m_suppress_check_region_set.emplace(l_ISR);
+							state1.m_suppress_check_region_set.insert(FND);
+						}
 						if (FND->hasAttrs()) {
 							auto vec = FND->getAttrs();
 							struct CAttrInfo {
