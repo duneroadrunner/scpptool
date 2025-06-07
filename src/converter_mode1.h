@@ -66,6 +66,11 @@
 					return void(); \
 				}
 
+#define RETURN_IF_DEPENDENT_TYPE_CONV1(qtype) \
+				if (qtype.isNull() || qtype->isDependentType()) { \
+					return void(); \
+				}
+
 namespace convm1 {
     using namespace llvm;
     using namespace clang;
@@ -13393,9 +13398,21 @@ namespace convm1 {
 
 			auto RHS_ii = IgnoreParenImpNoopCasts(RHS, *(MR.Context));
 
-			IF_DEBUG(std::string LHS_qtype_str = LHS ? LHS->getType().getAsString() : (VLD ? VLD->getType().getAsString() : "");)
+			std::optional<clang::QualType> maybe_VLD_effective_qtype;
+			if (VLD) {
+				auto FND = dyn_cast<const clang::FunctionDecl>(VLD);
+				if (FND) {
+					maybe_VLD_effective_qtype = FND->getReturnType();
+				} else {
+					maybe_VLD_effective_qtype = VLD->getType();
+				}
+			}
+
+			IF_DEBUG(std::string LHS_qtype_str = LHS ? LHS->getType().getAsString() : (maybe_VLD_effective_qtype.has_value() ? maybe_VLD_effective_qtype.value().getAsString() : "");)
 			IF_DEBUG(std::string RHS_qtype_str = RHS->getType().getAsString();)
 			IF_DEBUG(std::string RHS_ii_qtype_str = RHS_ii->getType().getAsString();)
+
+			RETURN_IF_DEPENDENT_TYPE_CONV1(RHS->getType());
 
 			//auto lhs_res2 = infer_array_type_info_from_stmt(*LHS, "", state1);
 			auto rhs_res2 = infer_array_type_info_from_stmt(*RHS, "", state1);
@@ -13421,8 +13438,10 @@ namespace convm1 {
 					/* LHS will, for whatever reason, not be converted to a safe pointer. But presumably the RHS will 
 					(or at least could) be. So we may need to add an unsafe cast from the RHS safe pointer to the LHS
 					raw pointer. */
-					auto LHS_qtype = LHS ? LHS->getType() : VLD->getType();
+					auto LHS_qtype = LHS ? LHS->getType() : maybe_VLD_effective_qtype.value();
 					auto RHS_qtype = RHS->getType();
+					
+					RETURN_IF_DEPENDENT_TYPE_CONV1(LHS_qtype);
 
 					assert(RHS->getType().getTypePtrOrNull());
 					auto rhs_source_range = write_once_source_range(cm1_adj_nice_source_range(RHS->getSourceRange(), state1, Rewrite));
