@@ -9992,9 +9992,22 @@ namespace convm1 {
 		std::string m_function_name;
 		size_t m_num_params = 0;
 	};
+	struct CAllocFunctionCacheItemInfo : public CAllocFunctionInfo {
+		typedef CAllocFunctionInfo base_class;
+		using base_class::base_class;
+		CAllocFunctionCacheItemInfo(const CAllocFunctionCacheItemInfo&) = default;
+		CAllocFunctionCacheItemInfo(CAllocFunctionCacheItemInfo&&) = default;
+		CAllocFunctionCacheItemInfo() = default;
+		CAllocFunctionCacheItemInfo(base_class alloc_function_info, clang::FunctionDecl const * FND) 
+			: base_class(std::move(alloc_function_info)), m_FND(FND)  {}
 
-	static std::vector<CAllocFunctionInfo>& s_encountered_alloc_infos_ref() {
-		thread_local std::vector<CAllocFunctionInfo> tl_list;
+		CAllocFunctionCacheItemInfo& operator=(const CAllocFunctionCacheItemInfo&) = default;
+
+		clang::FunctionDecl const * m_FND = nullptr;
+	};
+
+	static std::vector<CAllocFunctionCacheItemInfo>& s_encountered_alloc_infos_ref() {
+		thread_local std::vector<CAllocFunctionCacheItemInfo> tl_list;
 		return tl_list;
 	}
 
@@ -10010,9 +10023,9 @@ namespace convm1 {
 
 			/* Preliminary observations seem to confirm the net benefits of this one-element cache. But 
 			further testing would be warranted. */
-			thread_local CAllocFunctionInfo last_retval;
-			if ((function_name == last_retval.m_function_name) && (num_params == last_retval.m_num_params)) {
-				return last_retval;
+			thread_local CAllocFunctionCacheItemInfo last_item;
+			if (function_decl == last_item.m_FND) {
+				return last_item;
 			} else {
 				int q = 5;
 			}
@@ -10032,11 +10045,22 @@ namespace convm1 {
 			bool contains_realloc = (std::string::npos != lc_function_name.find(realloc_str));
 
 			bool not_yet_ruled_out1 = (contains_alloc && (1 <= num_params)) || (contains_realloc && (2 <= num_params));
-			not_yet_ruled_out1 = (not_yet_ruled_out1 && return_type_is_void_star);
+			//not_yet_ruled_out1 = (not_yet_ruled_out1 && return_type_is_void_star);
+			if (not_yet_ruled_out1 && !return_type_is_void_star) {
+				not_yet_ruled_out1 = false;
+				if (function_decl->getReturnType()->isPointerType()) {
+					/* We've encountered "realloc" function templates that return the same pointer type they were passed. */
+					auto maybe_tparam_usage_info = seems_to_contain_an_instantiation_of_a_template_parameter(*function_decl, return_type_str, Rewrite, &state1);
+					if (maybe_tparam_usage_info.has_value()) {
+						/* We're requiring that the return type text contains a template parameter. This might be too strict? */
+						not_yet_ruled_out1 = true;
+					}
+				}
+			}
 			if (not_yet_ruled_out1) {
 				for (auto const& info : s_encountered_alloc_infos_ref()) {
-					if ((function_name == info.m_function_name) && (num_params == info.m_num_params)) {
-						last_retval = info;
+					if (function_decl == info.m_FND) {
+						last_item = info;
 						return info;
 					}
 				}
@@ -10076,7 +10100,7 @@ namespace convm1 {
 						retval.m_realloc_or_free_pointer_arg_adjusted_source_text = realloc_pointer_param_source_text;
 						retval.m_realloc_or_free_pointer_arg_DD = realloc_pointer_param_DD;
 					}
-					s_encountered_alloc_infos_ref().push_back(retval);
+					s_encountered_alloc_infos_ref().push_back(CAllocFunctionCacheItemInfo{ retval, function_decl});
 				}
 			}
 
@@ -10094,8 +10118,8 @@ namespace convm1 {
 				not_yet_ruled_out1 = (not_yet_ruled_out1 && return_type_is_void);
 				if (not_yet_ruled_out1) {
 					for (auto const& info : s_encountered_alloc_infos_ref()) {
-						if ((function_name == info.m_function_name) && (num_params == info.m_num_params)) {
-							last_retval = info;
+						if (function_decl == info.m_FND) {
+							last_item = info;
 							return info;
 						}
 					}
@@ -10149,7 +10173,7 @@ namespace convm1 {
 					}
 				}
 			}
-			last_retval = retval;
+			last_item = CAllocFunctionCacheItemInfo{ retval, function_decl };
 		}
 		return retval;
 	}
