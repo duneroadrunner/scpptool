@@ -10051,7 +10051,7 @@ namespace convm1 {
 				if (function_decl->getReturnType()->isPointerType()) {
 					/* We've encountered "realloc" function templates that return the same pointer type they were passed. */
 					auto maybe_tparam_usage_info = seems_to_contain_an_instantiation_of_a_template_parameter(*function_decl, return_type_str, Rewrite, &state1);
-					if (maybe_tparam_usage_info.has_value()) {
+					if (true || maybe_tparam_usage_info.has_value()) {
 						/* We're requiring that the return type text contains a template parameter. This might be too strict? */
 						not_yet_ruled_out1 = true;
 					}
