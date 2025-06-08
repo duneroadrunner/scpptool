@@ -9880,10 +9880,14 @@ namespace convm1 {
 					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*m_var_DD, &m_Rewrite);
 
 					clang::Expr const* pInitExpr = get_init_expr_if_any(m_var_DD);
-					if (pInitExpr && (!ddcs_ref.m_maybe_initialization_expr_text_info.has_value())) {
-						ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(pInitExpr, m_Rewrite, state1));
+					const auto pInitExpr_ii = state1.m_ast_context_ptr ? IgnoreParenImpNoopCasts(pInitExpr, *(state1.m_ast_context_ptr)) : IgnoreParenImpCasts(pInitExpr);
+					if (pInitExpr_ii == CO) {
+						/* m_var_DD's initalization expression is this conditional operator. */
+						if (pInitExpr && (!ddcs_ref.m_maybe_initialization_expr_text_info.has_value())) {
+							ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(pInitExpr, m_Rewrite, state1));
+						}
+						ddcs_ref.m_fallback_current_initialization_expr_str = cocs_ref.current_text();
 					}
-					ddcs_ref.m_fallback_current_initialization_expr_str = cocs_ref.current_text();
 
 					update_declaration(*m_var_DD, m_Rewrite, state1);
 					if (array_needed_to_be_wrapped) {
@@ -10050,10 +10054,18 @@ namespace convm1 {
 				not_yet_ruled_out1 = false;
 				if (function_decl->getReturnType()->isPointerType()) {
 					/* We've encountered "realloc" function templates that return the same pointer type they were passed. */
-					auto maybe_tparam_usage_info = seems_to_contain_an_instantiation_of_a_template_parameter(*function_decl, return_type_str, Rewrite, &state1);
-					if (true || maybe_tparam_usage_info.has_value()) {
-						/* We're requiring that the return type text contains a template parameter. This might be too strict? */
+					auto return_type_source_range = cm1_adj_nice_source_range(function_decl->getReturnTypeSourceRange(), state1, Rewrite);
+					if (!(return_type_source_range.isValid())) {
 						not_yet_ruled_out1 = true;
+					} else {
+						std::string return_type_source_text_str = Rewrite.getRewrittenText(return_type_source_range);
+						auto maybe_tparam_usage_info = seems_to_contain_an_instantiation_of_a_template_parameter(*function_decl, return_type_source_text_str, Rewrite, &state1);
+						if (true || maybe_tparam_usage_info.has_value()) {
+							/* We're requiring that the return type text contains a template parameter. This might be too strict? */
+							not_yet_ruled_out1 = true;
+						} else {
+							int q = 5;
+						}
 					}
 				}
 			}
@@ -13699,6 +13711,13 @@ namespace convm1 {
 						int q = 3;
 					}
 				}
+			} else if (llvm::isa<const clang::ConditionalOperator>(RHS->IgnoreParenCasts()) && rhs_is_an_indirect_type) {
+				auto CO = llvm::cast<const clang::ConditionalOperator>(RHS->IgnoreParenCasts());
+				std::optional<const DeclaratorDecl*> maybe_DD;
+				if (lhs_res2.ddecl_cptr) {
+					maybe_DD = lhs_res2.ddecl_cptr;
+				}
+				MCSSSConditionalExpr::s_handler1(MR, Rewrite, state1, CO, maybe_DD);
 			}
 
 			if (rhs_is_an_indirect_type && rhs_res2.ddecl_cptr) {
