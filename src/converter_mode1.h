@@ -255,7 +255,7 @@ namespace convm1 {
 
 			m_indirection_properties1.m_known_to_have_malloc_target = false;
 			m_indirection_properties1.m_known_to_have_non_malloc_target = false;
-			m_indirection_properties1.m_is_known_to_be_used_as_array_iterator = false;
+			m_indirection_properties1.m_is_known_to_be_used_as_an_array_iterator = false;
 			if ("native pointer" == new_current) {
 			} else if ("malloc target" == new_current) {
 				m_indirection_properties1.m_known_to_have_malloc_target = true;
@@ -265,7 +265,7 @@ namespace convm1 {
 				m_indirection_properties1.m_known_to_have_malloc_target = true;
 				m_indirection_properties1.m_known_to_have_non_malloc_target = true;
 			} else {
-				m_indirection_properties1.m_is_known_to_be_used_as_array_iterator = true;
+				m_indirection_properties1.m_is_known_to_be_used_as_an_array_iterator = true;
 				if ("inferred array" == new_current) {
 				} else if ("dynamic array" == new_current) {
 					m_indirection_properties1.m_known_to_have_malloc_target = true;
@@ -287,7 +287,7 @@ namespace convm1 {
 				return m_current_species;
 			}
 			std::string generated_species_string;
-			if (m_indirection_properties1.m_is_known_to_be_used_as_array_iterator) {
+			if (m_indirection_properties1.m_is_known_to_be_used_as_an_array_iterator) {
 				if (m_indirection_properties1.m_known_to_have_malloc_target) {
 					if (m_indirection_properties1.m_known_to_have_non_malloc_target) {
 						generated_species_string = "variously native and dynamic array";
@@ -331,11 +331,11 @@ namespace convm1 {
 		struct CIndirectionProperties1 {
 			bool m_known_to_have_malloc_target = false;
 			bool m_known_to_have_non_malloc_target = false;
-			bool m_is_known_to_be_used_as_array_iterator = false;
+			bool m_is_known_to_be_used_as_an_array_iterator = false;
 			bool operator==(const CIndirectionProperties1& rhs) const {
 				return (m_known_to_have_malloc_target == rhs.m_known_to_have_malloc_target)
 					&& (m_known_to_have_non_malloc_target == rhs.m_known_to_have_non_malloc_target)
-					&& (m_is_known_to_be_used_as_array_iterator == rhs.m_is_known_to_be_used_as_array_iterator);
+					&& (m_is_known_to_be_used_as_an_array_iterator == rhs.m_is_known_to_be_used_as_an_array_iterator);
 			}
 			bool operator!=(const CIndirectionProperties1& rhs) const {
 				return !((*this) == rhs);
@@ -355,11 +355,11 @@ namespace convm1 {
 			m_indirection_properties1.m_known_to_have_non_malloc_target = val;
 			m_current_species = generate_current_species_string();
 		}
-		bool is_known_to_be_used_as_array_iterator() const {
-			return m_indirection_properties1.m_is_known_to_be_used_as_array_iterator;
+		bool is_known_to_be_used_as_an_array_iterator() const {
+			return m_indirection_properties1.m_is_known_to_be_used_as_an_array_iterator;
 		}
-		void set_is_known_to_be_used_as_array_iterator(bool val = true) {
-			m_indirection_properties1.m_is_known_to_be_used_as_array_iterator = val;
+		void set_is_known_to_be_used_as_an_array_iterator(bool val = true) {
+			m_indirection_properties1.m_is_known_to_be_used_as_an_array_iterator = val;
 			m_current_species = generate_current_species_string();
 		}
 		void set_current_pointer_target_state(const std::string& new_current) {
@@ -392,11 +392,11 @@ namespace convm1 {
 			return (!m_is_ineligible_for_xscope_status);
 		}
 		bool has_been_determined_to_point_to_an_array() const {
-			return is_known_to_be_used_as_array_iterator();
+			return is_known_to_be_used_as_an_array_iterator();
 		}
 		bool has_been_determined_to_point_to_a_dynamic_array() const {
 			bool retval = false;
-			if (m_indirection_properties1.m_is_known_to_be_used_as_array_iterator) {
+			if (m_indirection_properties1.m_is_known_to_be_used_as_an_array_iterator) {
 				if (m_indirection_properties1.m_known_to_have_malloc_target) {
 					if (true || (!(m_indirection_properties1.m_known_to_have_non_malloc_target))) {
 						retval = true;
@@ -407,7 +407,7 @@ namespace convm1 {
 		}
 		bool has_been_determined_to_point_to_a_native_array() const {
 			bool retval = false;
-			if (m_indirection_properties1.m_is_known_to_be_used_as_array_iterator) {
+			if (m_indirection_properties1.m_is_known_to_be_used_as_an_array_iterator) {
 				if (m_indirection_properties1.m_known_to_have_non_malloc_target) {
 					if (true || (!(m_indirection_properties1.m_known_to_have_malloc_target))) {
 						retval = true;
@@ -418,7 +418,7 @@ namespace convm1 {
 		}
 		bool is_a_pointer_that_has_not_been_determined_to_be_an_array() const {
 			bool retval = false;
-			if (!m_indirection_properties1.m_is_known_to_be_used_as_array_iterator) {
+			if (!m_indirection_properties1.m_is_known_to_be_used_as_an_array_iterator) {
 				retval = true;
 			}
 			return retval;
@@ -2858,8 +2858,8 @@ namespace convm1 {
 	class CConditionalOperatorReconciliation2ReplacementAction : public CDynamicArray2ReplacementAction {
 	public:
 		CConditionalOperatorReconciliation2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
-				const clang::ConditionalOperator* CO, const DeclaratorDecl* lhs_DD, const DeclaratorDecl* rhs_DD, const DeclaratorDecl* var_DD = nullptr) :
-					CDynamicArray2ReplacementAction(Rewrite, MR, ddecl_indirection), m_CO(CO), m_lhs_DD(lhs_DD), m_rhs_DD(rhs_DD), m_var_DD(var_DD) {}
+				const clang::ConditionalOperator* CO, const DeclaratorDecl* lhs_DD, const DeclaratorDecl* rhs_DD, const DeclaratorDecl* var_DD = nullptr, size_t var_indirection_level = 0) :
+					CDynamicArray2ReplacementAction(Rewrite, MR, ddecl_indirection), m_CO(CO), m_lhs_DD(lhs_DD), m_rhs_DD(rhs_DD), m_var_DD(var_DD), m_var_indirection_level(var_indirection_level) {}
 		virtual ~CConditionalOperatorReconciliation2ReplacementAction() {}
 
 		virtual void do_replacement(CTUState& state1) const;
@@ -2868,6 +2868,7 @@ namespace convm1 {
 		const DeclaratorDecl* m_lhs_DD = nullptr;
 		const DeclaratorDecl* m_rhs_DD = nullptr;
 		const DeclaratorDecl* m_var_DD = nullptr;
+		size_t m_var_indirection_level = 0;
 	};
 
 	class CDynamicArray2ReplacementActionMap : public CDDeclIndirectionReplacementActionMap {
@@ -5303,7 +5304,7 @@ namespace convm1 {
 					//suffix_str = indirection_state_ref.current_params_string() + suffix_str;
 				}
 
-				if (indirection_state_ref.is_known_to_be_used_as_array_iterator() || is_char_star) {
+				if (indirection_state_ref.is_known_to_be_used_as_an_array_iterator() || is_char_star) {
 					if (indirection_state_ref.is_known_to_have_malloc_target() && (!indirection_state_ref.is_known_to_have_non_malloc_target())) {
 						if (false && is_char_star) {
 							/* We're assuming this is a null terminated string. We'll just leave it as a
@@ -6059,7 +6060,7 @@ namespace convm1 {
 
 					if (definition_SR.isValid()) {
 
-						if (indirection_state_ref.is_known_to_be_used_as_array_iterator() 
+						if (indirection_state_ref.is_known_to_be_used_as_an_array_iterator() 
 							&& indirection_state_ref.is_known_to_have_non_malloc_target() 
 							&& !(indirection_state_ref.is_known_to_have_malloc_target())) {
 
@@ -8089,8 +8090,8 @@ namespace convm1 {
 
 		if (ddcs_ref.m_indirection_state_stack.size() >= ddecl_indirection.m_indirection_level) {
 			auto& indirection_state1 = ddcs_ref.m_indirection_state_stack.at(ddecl_indirection.m_indirection_level);
-			if (!(indirection_state1.is_known_to_be_used_as_array_iterator())) {
-				indirection_state1.set_is_known_to_be_used_as_array_iterator(true);
+			if (!(indirection_state1.is_known_to_be_used_as_an_array_iterator())) {
+				indirection_state1.set_is_known_to_be_used_as_an_array_iterator(true);
 				update_declaration_flag |= true;
 				state1.m_conversion_state_change_action_map.execute_matching_actions(state1, ddecl_indirection);
 				if (indirection_state1.is_known_to_have_malloc_target()) {
@@ -8237,10 +8238,10 @@ namespace convm1 {
 			if (("" == stmt_indirection_stack[i])) {
 				/* We're using the empty string as a generic state for the "terminal level of indirection"
 				* when we don't want to bother specifying a specific state. */
-			} else if (!ddcs_indirection_state.is_known_to_be_used_as_array_iterator()) {
+			} else if (!ddcs_indirection_state.is_known_to_be_used_as_an_array_iterator()) {
 				if (("ArraySubscriptExpr" == stmt_indirection_stack[i])
 						|| ("pointer arithmetic" == stmt_indirection_stack[i])) {
-					ddcs_indirection_state.set_is_known_to_be_used_as_array_iterator(true);
+					ddcs_indirection_state.set_is_known_to_be_used_as_an_array_iterator(true);
 					retval.update_declaration_flag = true;
 					retval.has_just_been_determined_to_be_an_array_flag = true;
 					state1_ref.m_conversion_state_change_action_map.execute_matching_actions(state1_ref, CDDeclIndirection(*DD, i));
@@ -8532,8 +8533,8 @@ namespace convm1 {
 			auto& src_indirection_state = src_ddcs_ref.m_indirection_state_stack.at(src_indirection_level);
 			auto& trgt_indirection_state = trgt_ddcs_ref.m_indirection_state_stack.at(trgt_indirection_level);
 
-			if (trgt_indirection_state.is_known_to_be_used_as_array_iterator() && (!src_indirection_state.is_known_to_be_used_as_array_iterator())) {
-				src_indirection_state.set_is_known_to_be_used_as_array_iterator(true);
+			if (trgt_indirection_state.is_known_to_be_used_as_an_array_iterator() && (!src_indirection_state.is_known_to_be_used_as_an_array_iterator())) {
+				src_indirection_state.set_is_known_to_be_used_as_an_array_iterator(true);
 				src_update_declaration_flag |= true;
 				state1.m_conversion_state_change_action_map.execute_matching_actions(state1, src_indirection);
 				if (src_indirection_state.is_known_to_have_malloc_target()) {
@@ -8553,7 +8554,7 @@ namespace convm1 {
 				src_indirection_state.set_is_known_to_have_malloc_target(true);
 				src_update_declaration_flag |= true;
 				state1.m_conversion_state_change_action_map.execute_matching_actions(state1, src_indirection);
-				if (src_indirection_state.is_known_to_be_used_as_array_iterator()) {
+				if (src_indirection_state.is_known_to_be_used_as_an_array_iterator()) {
 					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, src_indirection);
 				}
 			}
@@ -8627,8 +8628,8 @@ namespace convm1 {
 			auto& src_indirection_state = src_ddcs_ref.m_indirection_state_stack.at(src_indirection_level);
 			auto& trgt_indirection_state = trgt_ddcs_ref.m_indirection_state_stack.at(trgt_indirection_level);
 
-			if (src_indirection_state.is_known_to_be_used_as_array_iterator() && (!trgt_indirection_state.is_known_to_be_used_as_array_iterator())) {
-				trgt_indirection_state.set_is_known_to_be_used_as_array_iterator(true);
+			if (src_indirection_state.is_known_to_be_used_as_an_array_iterator() && (!trgt_indirection_state.is_known_to_be_used_as_an_array_iterator())) {
+				trgt_indirection_state.set_is_known_to_be_used_as_an_array_iterator(true);
 				trgt_update_declaration_flag |= true;
 				state1.m_conversion_state_change_action_map.execute_matching_actions(state1, trgt_indirection);
 				if (src_indirection_state.is_known_to_have_malloc_target() || trgt_indirection_state.is_known_to_have_malloc_target()) {
@@ -8642,7 +8643,7 @@ namespace convm1 {
 				trgt_indirection_state.set_is_known_to_have_malloc_target(true);
 				trgt_update_declaration_flag |= true;
 				state1.m_conversion_state_change_action_map.execute_matching_actions(state1, trgt_indirection);
-				if (trgt_indirection_state.is_known_to_be_used_as_array_iterator()) {
+				if (trgt_indirection_state.is_known_to_be_used_as_an_array_iterator()) {
 					state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, trgt_indirection);
 				}
 			}
@@ -8653,7 +8654,7 @@ namespace convm1 {
 
 				trgt_update_declaration_flag |= true;
 				state1.m_conversion_state_change_action_map.execute_matching_actions(state1, trgt_indirection);
-				if (trgt_indirection_state.is_known_to_be_used_as_array_iterator()) {
+				if (trgt_indirection_state.is_known_to_be_used_as_an_array_iterator()) {
 					state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, trgt_indirection);
 				}
 			}
@@ -8797,8 +8798,8 @@ namespace convm1 {
 				auto& lhs_current_cref = lhs_ddcs_ref.indirection_current(lhs_indirection_level);
 				auto& rhs_current_cref = rhs_ddcs_ref.indirection_current(rhs_indirection_level);
 
-				if (rhs_indirection_state_ref.is_known_to_be_used_as_array_iterator() && (!lhs_indirection_state_ref.is_known_to_be_used_as_array_iterator())) {
-					lhs_indirection_state_ref.set_is_known_to_be_used_as_array_iterator(true);
+				if (rhs_indirection_state_ref.is_known_to_be_used_as_an_array_iterator() && (!lhs_indirection_state_ref.is_known_to_be_used_as_an_array_iterator())) {
+					lhs_indirection_state_ref.set_is_known_to_be_used_as_an_array_iterator(true);
 					lhs_update_declaration_flag |= true;
 					state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_indirection);
 					if (rhs_indirection_state_ref.is_known_to_have_malloc_target() || lhs_indirection_state_ref.is_known_to_have_malloc_target()) {
@@ -8811,14 +8812,14 @@ namespace convm1 {
 				if (rhs_indirection_state_ref.is_known_to_have_malloc_target() && (!lhs_indirection_state_ref.is_known_to_have_malloc_target())) {
 					lhs_indirection_state_ref.set_is_known_to_have_malloc_target(true);
 					lhs_update_declaration_flag |= true;
-					if (lhs_indirection_state_ref.is_known_to_be_used_as_array_iterator()) {
+					if (lhs_indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
 						state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_indirection);
 					}
 				}
 				if (rhs_indirection_state_ref.is_known_to_have_non_malloc_target() && (!lhs_indirection_state_ref.is_known_to_have_non_malloc_target())) {
 					lhs_indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
 					lhs_update_declaration_flag |= true;
-					if (lhs_indirection_state_ref.is_known_to_be_used_as_array_iterator()) {
+					if (lhs_indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
 						state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_indirection);
 					}
 				}
@@ -9559,8 +9560,10 @@ namespace convm1 {
 				bool lhs_update_flag = false;
 				bool lhs_is_known_to_be_a_pointer_target = false;
 				std::optional<CFunctionTypeState> lhs_maybe_function_state;
+				CDDeclConversionState* lhs_ddcs_ptr = nullptr;
 				if (lhs_DD != nullptr) {
 					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &m_Rewrite);
+					lhs_ddcs_ptr = &ddcs_ref;
 					/* At the moment we only support the case where the value option expressions are
 					* just declared variables. */
 
@@ -9581,7 +9584,7 @@ namespace convm1 {
 					if (lhs_inference_info.indirection_level < ddcs_ref.m_indirection_state_stack.size()) {
 						auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(lhs_inference_info.indirection_level);
 						lhs_maybe_function_state = indirection_state_ref.m_function_type_state;
-						if (indirection_state_ref.is_known_to_be_used_as_array_iterator()) {
+						if (indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
 							lhs_is_known_to_be_an_array = true;
 							if (indirection_state_ref.is_known_to_have_malloc_target() && indirection_state_ref.is_known_to_have_non_malloc_target()) {
 								lhs_is_variously_native_and_dynamic_array = true;
@@ -9631,7 +9634,7 @@ namespace convm1 {
 					if (rhs_inference_info.indirection_level < ddcs_ref.m_indirection_state_stack.size()) {
 						auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(rhs_inference_info.indirection_level);
 						rhs_maybe_function_state = indirection_state_ref.m_function_type_state;
-						if (indirection_state_ref.is_known_to_be_used_as_array_iterator()) {
+						if (indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
 							rhs_is_known_to_be_an_array = true;
 							if (indirection_state_ref.is_known_to_have_malloc_target() && indirection_state_ref.is_known_to_have_non_malloc_target()) {
 								rhs_is_variously_native_and_dynamic_array = true;
@@ -9643,6 +9646,56 @@ namespace convm1 {
 						}
 						if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
 							rhs_is_known_to_be_a_pointer_target = true;
+						}
+
+						/* Whether or not the lhs argument(/alternative/option/branch) is known to point to malloc()ed 
+						and/or non-malloc()ed targets wouldn't necessarily constrain the rhs argument's type. But if 
+						the lhs argument is known to be used as an array/buffer iterator, then presumably the rhs 
+						argument should probably also be (constrained to be) an iterator type. And vice versa. */
+						if (lhs_is_known_to_be_an_array && !rhs_is_known_to_be_an_array) {
+							auto& rhs_ddcs_ref = ddcs_ref;
+							if (rhs_inference_info.indirection_level < rhs_ddcs_ref.m_indirection_state_stack.size()) {
+								auto rhs_indirection = CDDeclIndirection{ *rhs_DD, rhs_inference_info.indirection_level };
+								auto& rhs_indirection_state_ref = rhs_ddcs_ref.m_indirection_state_stack.at(rhs_inference_info.indirection_level);
+								rhs_indirection_state_ref.set_is_known_to_be_used_as_an_array_iterator(true);
+								rhs_update_flag |= true;
+								state1.m_conversion_state_change_action_map.execute_matching_actions(state1, rhs_indirection);
+								if (rhs_indirection_state_ref.is_known_to_have_malloc_target()) {
+									state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
+								}
+								if (rhs_indirection_state_ref.is_known_to_have_non_malloc_target()) {
+									state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
+								}
+								if (rhs_update_flag) {
+									update_declaration(*rhs_DD, (*this).m_Rewrite, state1);
+								}
+							} else {
+								int q = 5;
+							}
+						}
+
+						if (lhs_DD && lhs_ddcs_ptr) {
+							auto& lhs_ddcs_ref = *lhs_ddcs_ptr;
+							if (rhs_is_known_to_be_an_array && !lhs_is_known_to_be_an_array) {
+								if (lhs_inference_info.indirection_level < lhs_ddcs_ref.m_indirection_state_stack.size()) {
+									auto lhs_indirection = CDDeclIndirection{ *lhs_DD, lhs_inference_info.indirection_level };
+									auto& lhs_indirection_state_ref = lhs_ddcs_ref.m_indirection_state_stack.at(lhs_inference_info.indirection_level);
+									lhs_indirection_state_ref.set_is_known_to_be_used_as_an_array_iterator(true);
+									lhs_update_flag |= true;
+									state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_indirection);
+									if (lhs_indirection_state_ref.is_known_to_have_malloc_target()) {
+										state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_indirection);
+									}
+									if (lhs_indirection_state_ref.is_known_to_have_non_malloc_target()) {
+										state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_indirection);
+									}
+									if (lhs_update_flag) {
+										update_declaration(*lhs_DD, (*this).m_Rewrite, state1);
+									}
+								} else {
+									int q = 5;
+								}
+							}
 						}
 					} else {
 						auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state;
@@ -9657,7 +9710,7 @@ namespace convm1 {
 				}
 
 				auto& ecs_ref = state1.get_expr_conversion_state_ref<CConditionalOperatorExprConversionState>(*CO, m_Rewrite);
-				/*  Even though ecs_ref should be referencing an object of type CConditionalOperatorExprConversionState, 
+				/* Even though ecs_ref should be referencing an object of type CConditionalOperatorExprConversionState, 
 				ecs_ref's type is actually a reference to its base class. So we'll up(/down?) cast it to (a reference to) 
 				the object's actual type. As rtti is disabled, we can't use dynamic_cast<>(). */
 				assert("conditional operator" == ecs_ref.species());
@@ -9876,8 +9929,71 @@ namespace convm1 {
 					state1.m_pending_code_modification_actions.add_expression_update_replacement_action(m_Rewrite, COSR, state1, CO);
 				}
 
-				if (m_var_DD && (true)) {
+				CDDeclConversionState* var_ddcs_ptr = nullptr;
+				if (m_var_DD != nullptr) {
 					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*m_var_DD, &m_Rewrite);
+					var_ddcs_ptr = &ddcs_ref;
+				}
+
+				if (m_var_DD && var_ddcs_ptr) {
+					auto& ddcs_ref = *var_ddcs_ptr;
+					if (m_var_indirection_level < ddcs_ref.m_indirection_state_stack.size()) {
+						auto var_indirection = CDDeclIndirection{ *m_var_DD, m_var_indirection_level };
+						auto& var_indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(m_var_indirection_level);
+
+						bool lhs_has_DD_and_is_not_known_to_be_an_array = (lhs_DD && !lhs_is_known_to_be_an_array);
+						bool rhs_has_DD_and_is_not_known_to_be_an_array = (rhs_DD && !rhs_is_known_to_be_an_array);
+						bool both_sides_have_DD_and_are_not_known_to_be_an_array = lhs_has_DD_and_is_not_known_to_be_an_array && rhs_has_DD_and_is_not_known_to_be_an_array;
+						/* If either side is missing a DD, then we can't know the nature of its pointee, so we'll be "conservative" 
+						and assume that we have to support both malloc()ed and non-malloc()ed pointees. */
+						if ((!both_sides_have_DD_and_are_not_known_to_be_an_array) && (!var_indirection_state_ref.is_known_to_have_malloc_target())) {
+							var_indirection_state_ref.set_is_known_to_have_malloc_target(true);
+							state1.m_conversion_state_change_action_map.execute_matching_actions(state1, var_indirection);
+							if (var_indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
+								state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, var_indirection);
+							}
+						}
+						if ((!both_sides_have_DD_and_are_not_known_to_be_an_array) && (!var_indirection_state_ref.is_known_to_have_non_malloc_target())) {
+							var_indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
+							state1.m_conversion_state_change_action_map.execute_matching_actions(state1, var_indirection);
+							if (var_indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
+								state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, var_indirection);
+							}
+						}
+
+						if ((lhs_is_known_to_be_an_array || rhs_is_known_to_be_an_array)) {
+							if (!var_indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
+								var_indirection_state_ref.set_is_known_to_be_used_as_an_array_iterator(true);
+								state1.m_conversion_state_change_action_map.execute_matching_actions(state1, var_indirection);
+								if (var_indirection_state_ref.is_known_to_have_malloc_target()) {
+									state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, var_indirection);
+								}
+								if (var_indirection_state_ref.is_known_to_have_non_malloc_target()) {
+									state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, var_indirection);
+								}
+							}
+						}
+
+						/* Ok, we just handled the constraints the conditional operator (source expression) imposes on the 
+						assignee (target) object. Now we need to handle the constraints that the assignee (target) object 
+						imposes on each argument(/alternative/option/branch) of the conditional operator. */
+						if (lhs_DD && lhs_inference_info.ddecl_conversion_state_ptr && (lhs_inference_info.indirection_level < lhs_inference_info.ddecl_conversion_state_ptr->m_indirection_state_stack.size())) {
+							CAssignmentTargetConstrainsSourceReplacementAction(Rewrite, var_indirection, CDDeclIndirection{ *lhs_DD, lhs_inference_info.indirection_level }).do_replacement(state1);
+
+							auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &m_Rewrite);
+							if (update_declaration_flag) {
+								update_declaration(*lhs_DD, (*this).m_Rewrite, state1);
+							}
+						}
+						if (rhs_DD && rhs_inference_info.ddecl_conversion_state_ptr && (rhs_inference_info.indirection_level < rhs_inference_info.ddecl_conversion_state_ptr->m_indirection_state_stack.size())) {
+							CAssignmentTargetConstrainsSourceReplacementAction(Rewrite, var_indirection, CDDeclIndirection{ *rhs_DD, rhs_inference_info.indirection_level }).do_replacement(state1);
+
+							auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &m_Rewrite);
+							if (update_declaration_flag) {
+								update_declaration(*rhs_DD, (*this).m_Rewrite, state1);
+							}
+						}
+					}
 
 					clang::Expr const* pInitExpr = get_init_expr_if_any(m_var_DD);
 					const auto pInitExpr_ii = state1.m_ast_context_ptr ? IgnoreParenImpNoopCasts(pInitExpr, *(state1.m_ast_context_ptr)) : IgnoreParenImpCasts(pInitExpr);
@@ -9887,6 +10003,8 @@ namespace convm1 {
 							ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(pInitExpr, m_Rewrite, state1));
 						}
 						ddcs_ref.m_fallback_current_initialization_expr_str = cocs_ref.current_text();
+					} else {
+						int q = 5;
 					}
 
 					update_declaration(*m_var_DD, m_Rewrite, state1);
@@ -12162,7 +12280,7 @@ namespace convm1 {
 			Rewrite(Rewrite), m_state1(state1) {}
 
 		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
-			, const clang::ConditionalOperator* CO, std::optional<const DeclaratorDecl*> maybe_DD) 
+			, const clang::ConditionalOperator* CO, std::optional<const DeclaratorDecl*> maybe_DD, size_t DD_indirection_level = 0) 
 		{
 			const Expr* LHS = nullptr;
 			const Expr* RHS = nullptr;
@@ -12358,7 +12476,7 @@ namespace convm1 {
 						}
 					}
 
-					auto cr_shptr = std::make_shared<CConditionalOperatorReconciliation2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0), CO, lhs_res2.ddecl_cptr, rhs_res2.ddecl_cptr, possibly_null_DD);
+					auto cr_shptr = std::make_shared<CConditionalOperatorReconciliation2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0), CO, lhs_res2.ddecl_cptr, rhs_res2.ddecl_cptr, possibly_null_DD, DD_indirection_level);
 					(*cr_shptr).do_replacement(state1);
 					state1.m_conversion_state_change_action_map.insert(cr_shptr);
 				}
@@ -12369,7 +12487,7 @@ namespace convm1 {
 					if (lhs_res2.ddecl_cptr) {
 						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(lhs_res2.ddecl_cptr), &Rewrite);
 
-						auto cr_shptr = std::make_shared<CConditionalOperatorReconciliation2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*lhs_res2.ddecl_cptr, lhs_res2.indirection_level), CO, lhs_res2.ddecl_cptr, rhs_res2.ddecl_cptr, possibly_null_DD);
+						auto cr_shptr = std::make_shared<CConditionalOperatorReconciliation2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*lhs_res2.ddecl_cptr, lhs_res2.indirection_level), CO, lhs_res2.ddecl_cptr, rhs_res2.ddecl_cptr, possibly_null_DD, DD_indirection_level);
 
 						(*cr_shptr).do_replacement(state1);
 						state1.m_conversion_state_change_action_map.insert(cr_shptr);
@@ -12377,7 +12495,7 @@ namespace convm1 {
 							auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(lhs_res2.indirection_level);
 
 							/* Is this redundant now? */
-							if (indirection_state_ref.is_known_to_be_used_as_array_iterator()) {
+							if (indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
 								if (!indirection_state_ref.is_known_to_have_malloc_target()) {
 									state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
 								}
@@ -12400,7 +12518,7 @@ namespace convm1 {
 					if (rhs_res2.ddecl_cptr) {
 						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(rhs_res2.ddecl_cptr), &Rewrite);
 
-						auto cr_shptr = std::make_shared<CConditionalOperatorReconciliation2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*rhs_res2.ddecl_cptr, rhs_res2.indirection_level), CO, lhs_res2.ddecl_cptr, rhs_res2.ddecl_cptr, possibly_null_DD);
+						auto cr_shptr = std::make_shared<CConditionalOperatorReconciliation2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*rhs_res2.ddecl_cptr, rhs_res2.indirection_level), CO, lhs_res2.ddecl_cptr, rhs_res2.ddecl_cptr, possibly_null_DD, DD_indirection_level);
 
 						(*cr_shptr).do_replacement(state1);
 						state1.m_conversion_state_change_action_map.insert(cr_shptr);
@@ -12408,7 +12526,7 @@ namespace convm1 {
 							auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(rhs_res2.indirection_level);
 
 							/* Is this redundant now? */
-							if (indirection_state_ref.is_known_to_be_used_as_array_iterator()) {
+							if (indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
 								if (!indirection_state_ref.is_known_to_have_malloc_target()) {
 									state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
 								}
@@ -13717,7 +13835,7 @@ namespace convm1 {
 				if (lhs_res2.ddecl_cptr) {
 					maybe_DD = lhs_res2.ddecl_cptr;
 				}
-				MCSSSConditionalExpr::s_handler1(MR, Rewrite, state1, CO, maybe_DD);
+				MCSSSConditionalExpr::s_handler1(MR, Rewrite, state1, CO, maybe_DD, lhs_res2.indirection_level);
 			}
 
 			if (rhs_is_an_indirect_type && rhs_res2.ddecl_cptr) {
@@ -13913,14 +14031,14 @@ namespace convm1 {
 								if (!lhs_indirection_state_ref.is_known_to_have_malloc_target()) {
 									lhs_indirection_state_ref.set_is_known_to_have_malloc_target(true);
 									state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_ddecl_indirection);
-									if (lhs_indirection_state_ref.is_known_to_be_used_as_array_iterator()) {
+									if (lhs_indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
 										state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_ddecl_indirection);
 									}
 								}
 								if (!lhs_indirection_state_ref.is_known_to_have_non_malloc_target()) {
 									lhs_indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
 									state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_ddecl_indirection);
-									if (lhs_indirection_state_ref.is_known_to_be_used_as_array_iterator()) {
+									if (lhs_indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
 										state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_ddecl_indirection);
 									}
 								}
@@ -13965,22 +14083,22 @@ namespace convm1 {
 						if (!(("void *" == LHS_qtype_str) || ("const void *" == LHS_qtype_str))) {
 							/* Here we're establishing and "enforcing" the constraint that the lhs value must
 							* be of an (array) type that can be assigned the rhs string literal. */
-							if (!lhs_indirection_state_ref.is_known_to_be_used_as_array_iterator()) {
-								lhs_indirection_state_ref.set_is_known_to_be_used_as_array_iterator(true);
+							if (!lhs_indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
+								lhs_indirection_state_ref.set_is_known_to_be_used_as_an_array_iterator(true);
 								state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_ddecl_indirection);
 								state1.m_array2_contingent_replacement_map.execute_matching_actions(state1, lhs_ddecl_indirection);
 							}
 							if (!lhs_indirection_state_ref.is_known_to_have_malloc_target()) {
 								lhs_indirection_state_ref.set_is_known_to_have_malloc_target(true);
 								state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_ddecl_indirection);
-								if (lhs_indirection_state_ref.is_known_to_be_used_as_array_iterator()) {
+								if (lhs_indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
 									state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_ddecl_indirection);
 								}
 							}
 							if (!lhs_indirection_state_ref.is_known_to_have_non_malloc_target()) {
 								lhs_indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
 								state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_ddecl_indirection);
-								if (lhs_indirection_state_ref.is_known_to_be_used_as_array_iterator()) {
+								if (lhs_indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
 									state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_ddecl_indirection);
 								}
 							}
@@ -14930,7 +15048,7 @@ namespace convm1 {
 						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
 						ddcs_ref.m_indirection_state_stack.at(0).set_is_known_to_have_malloc_target(true);
-						bool lhs_has_been_determined_to_point_to_an_array = ddcs_ref.m_indirection_state_stack.at(0).is_known_to_be_used_as_array_iterator();
+						bool lhs_has_been_determined_to_point_to_an_array = ddcs_ref.m_indirection_state_stack.at(0).is_known_to_be_used_as_an_array_iterator();
 
 						const clang::Type* TP = QT.getTypePtr();
 						auto lhs_type_str = QT.getAsString();
