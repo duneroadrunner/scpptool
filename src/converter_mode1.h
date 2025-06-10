@@ -1851,6 +1851,13 @@ namespace convm1 {
 					params_str = params_string_from_qtypes(param_qtypes);
 				}
 				set_current_direct_function_qtype_str(return_type_str, params_str);
+			
+				auto FND = dyn_cast<const clang::FunctionDecl>(&ddecl);
+				if (FND) {
+					m_indirection_state_stack.m_direct_type_state.m_function_type_state.m_function_decl_ptr = FND;
+				} else {
+					int q = 3;
+				}
 			}
 			if (llvm::isa<clang::ParmVarDecl>(&ddecl)) {
 				auto PVD = dyn_cast<const clang::VarDecl>(&ddecl);
@@ -3750,8 +3757,8 @@ namespace convm1 {
 			return sc_species_str;
 		}
 
-		std::string m_arg_prefix_str = "(";
-		std::string m_arg_suffix_str = ")";
+		std::string m_arg_prefix_str;
+		std::string m_arg_suffix_str;
 		bool m_lhs_needs_to_be_cast = false;
 		bool m_rhs_needs_to_be_cast = false;
 
@@ -9519,6 +9526,8 @@ namespace convm1 {
 		}
 	}
 
+	struct do_not_exclude_functions_with_conversions_t {};
+	template<typename TOptions = options_t<> >
 	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1);
 
 	void CConditionalOperatorReconciliation2ReplacementAction::do_replacement(CTUState& state1) const {
@@ -9709,13 +9718,6 @@ namespace convm1 {
 					}
 				}
 
-				auto& ecs_ref = state1.get_expr_conversion_state_ref<CConditionalOperatorExprConversionState>(*CO, m_Rewrite);
-				/* Even though ecs_ref should be referencing an object of type CConditionalOperatorExprConversionState, 
-				ecs_ref's type is actually a reference to its base class. So we'll up(/down?) cast it to (a reference to) 
-				the object's actual type. As rtti is disabled, we can't use dynamic_cast<>(). */
-				assert("conditional operator" == ecs_ref.species());
-				auto& cocs_ref = static_cast<CConditionalOperatorExprConversionState&>(ecs_ref);
-
 				bool array_needed_to_be_wrapped = false;
 				if ((lhs_is_known_to_be_an_array || rhs_is_known_to_be_an_array) && LHS->getType()->isPointerType()) {
 					bool lhs_needs_to_be_wrapped = false;
@@ -9730,203 +9732,489 @@ namespace convm1 {
 						rhs_needs_to_be_wrapped = true;
 						array_needed_to_be_wrapped = true;
 					}
+				}
 
-					if (lhs_needs_to_be_wrapped || rhs_needs_to_be_wrapped) {
-						std::string arg_pointee_qtype_str;
+				auto& Rewrite = m_Rewrite;
+				auto var_DD = m_var_DD;
+				auto var_indirection_level = m_var_indirection_level;
 
-						CDDeclConversionState* ddcs_ptr = nullptr;
-						CArrayInferenceInfo& inference_info = lhs_DD ? lhs_inference_info : rhs_inference_info;
-						if (lhs_DD != nullptr) {
-							auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &m_Rewrite);
-							ddcs_ptr = &ddcs_ref;
-							inference_info = lhs_inference_info;
-						} else if (rhs_DD != nullptr) {
-							auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &m_Rewrite);
-							ddcs_ptr = &ddcs_ref;
-							inference_info = rhs_inference_info;
-						}
-						if (ddcs_ptr) {
-							auto& ddcs_ref = *ddcs_ptr;
-							if ((inference_info.indirection_level + 1) <= ddcs_ref.m_indirection_state_stack.size()) {
-								auto indirection_state_stack_of_pointee = ddcs_ref.m_indirection_state_stack;
-								/* This clears the base vector, but leaves the other members intact. */
-								indirection_state_stack_of_pointee.clear();
-								for (size_t i = size_t(inference_info.indirection_level + 1); ddcs_ref.m_indirection_state_stack.size() > i; ++i) {
-									indirection_state_stack_of_pointee.push_back(ddcs_ref.m_indirection_state_stack.at(i));
-								}
+				auto lambda = [&Rewrite, &state1, CO, LHS, RHS, lhs_DD, rhs_DD, var_DD, var_indirection_level]() {
+#ifndef NDEBUG
+					auto SR = cm1_adj_nice_source_range(CO->getSourceRange(), state1, Rewrite);
+					DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+					DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+					if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+						int q = 5;
+					}
+#endif /*!NDEBUG*/
 
-								auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_pointee, (*this).m_Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
-								auto direct_qtype_str = ddcs_ref.current_direct_qtype_str();
+					auto lhs_inference_info = infer_array_type_info_from_stmt(*LHS, "", state1, lhs_DD);
+					bool lhs_is_known_to_be_an_array = false;
+					bool lhs_is_dynamic_array = false;
+					bool lhs_is_native_array = false;
+					bool lhs_is_variously_native_and_dynamic_array = false;
+					bool lhs_update_flag = false;
+					bool lhs_is_known_to_be_a_pointer_target = false;
+					std::optional<CFunctionTypeState> lhs_maybe_function_state;
+					CDDeclConversionState* lhs_ddcs_ptr = nullptr;
+					if (lhs_DD != nullptr) {
+						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &Rewrite);
+						lhs_ddcs_ptr = &ddcs_ref;
 
-								if (0 == indirection_state_stack_of_pointee.size()) {
-									/* The type of the conditional operator argument(/alternative/option/branch) expressions seems to have
-									(only) one level of indirection. (I.e. It may be a pointer, but not a pointer to a pointer.) So the
-									"pointee" type is the "direct" type. */
-									if (LHS->getType()->getPointeeType().isConstQualified()) {
-										if (!(ddcs_ref.direct_type_state_ref().is_const())) {
-											/* Ok, so the pointee/"direct" type derived from the DDecl seems to be non-const, while the 
-											pointee/"direct" type of the actual type of the conditional operator argument(/alternative/option/branch) 
-											expressions is const. So we'll just add a const qualifier to the "direct" type. */
-											direct_qtype_str = "const " + direct_qtype_str;
-										}
-									}
-								}
-
-								arg_pointee_qtype_str = res3.m_prefix_str + direct_qtype_str + res3.m_suffix_str;
-							} else {
-								/* unexpected */
-								int q = 3;
+						if (lhs_inference_info.indirection_level < ddcs_ref.m_indirection_state_stack.size()) {
+							auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(lhs_inference_info.indirection_level);
+							lhs_maybe_function_state = indirection_state_ref.m_function_type_state;
+							if (indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
+								lhs_is_known_to_be_an_array = true;
+								if (indirection_state_ref.is_known_to_have_malloc_target() && indirection_state_ref.is_known_to_have_non_malloc_target()) {
+									lhs_is_variously_native_and_dynamic_array = true;
+								} else if (indirection_state_ref.is_known_to_have_malloc_target()) {
+									lhs_is_dynamic_array = true;
+								} else if (indirection_state_ref.is_known_to_have_non_malloc_target()) {
+									lhs_is_native_array = true;
+								} 
 							}
-						}
-						if ("" == arg_pointee_qtype_str) {
-							arg_pointee_qtype_str = LHS->getType()->getPointeeType().getAsString();
-						}
-
-						auto xscope_eligibility = EXScopeEligibility::No;
-						std::string arg_prefix_str;
-						if ("Dual" == ConvertMode) {
-							arg_prefix_str = "MSE_LH_CAST(";
-							if (false && (EXScopeEligibility::Yes == xscope_eligibility)) {
-								arg_prefix_str += "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(" + arg_pointee_qtype_str + ")";
-							} else {
-								arg_prefix_str += "MSE_LH_ARRAY_ITERATOR_TYPE(" + arg_pointee_qtype_str + ")";
-							}
-							arg_prefix_str += ", ";
 						} else {
-							if (false && EXScopeEligibility::Yes == xscope_eligibility) {
-								arg_prefix_str += "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<" + arg_pointee_qtype_str + " >";
-							} else {
-								arg_prefix_str += "mse::lh::TLHNullableAnyRandomAccessIterator<" + arg_pointee_qtype_str + " >";
+							auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state;
+							lhs_maybe_function_state = indirection_state_ref.m_function_type_state;
+							if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
+								lhs_is_known_to_be_a_pointer_target = true;
 							}
-							arg_prefix_str += "(";
 						}
-						cocs_ref.m_arg_prefix_str = arg_prefix_str;
+						if (lhs_update_flag) {
+							update_declaration(*lhs_DD, Rewrite, state1);
+						}
+					}
 
-						if (lhs_needs_to_be_wrapped) {
-							cocs_ref.m_lhs_needs_to_be_cast = true;
-						}
-						if (rhs_needs_to_be_wrapped) {
-							cocs_ref.m_rhs_needs_to_be_cast = true;
-						}
-					}
-				} else if (lhs_is_known_to_be_a_pointer_target || rhs_is_known_to_be_a_pointer_target) {
-					std::string adj_arg_qtype_str;
+					auto rhs_inference_info = infer_array_type_info_from_stmt(*RHS, "", state1, rhs_DD);
+					bool rhs_is_known_to_be_an_array = false;
+					bool rhs_is_dynamic_array = false;
+					bool rhs_is_native_array = false;
+					bool rhs_is_variously_native_and_dynamic_array = false;
+					bool rhs_update_flag = false;
+					bool rhs_is_known_to_be_a_pointer_target = false;
+					std::optional<CFunctionTypeState> rhs_maybe_function_state;
+					if (rhs_DD != nullptr) {
+						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &Rewrite);
 
-					if (LHS->getType()->isPointerType()) {
-						CDDeclConversionState* ddcs_ptr = nullptr;
-						if (lhs_DD != nullptr) {
-							auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &m_Rewrite);
-							ddcs_ptr = &ddcs_ref;
-						} else if (rhs_DD != nullptr) {
-							auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &m_Rewrite);
-							ddcs_ptr = &ddcs_ref;
-						}
-						if (ddcs_ptr) {
-							auto& ddcs_ref = *ddcs_ptr;
-							auto res3 = generate_type_indirection_prefix_and_suffix(ddcs_ref.m_indirection_state_stack, (*this).m_Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
-							auto direct_qtype_str = ddcs_ref.current_direct_qtype_str();
-							adj_arg_qtype_str = res3.m_prefix_str + direct_qtype_str + res3.m_suffix_str;
-						}
-					}
-					if ("" == adj_arg_qtype_str) {
-						adj_arg_qtype_str = LHS->getType().getAsString();
-					}
-					std::string arg_prefix_str;
-					if ("Dual" == ConvertMode) {
-						arg_prefix_str = "MSE_LH_CAST(" + adj_arg_qtype_str + ", ";
-					} else {
-						arg_prefix_str = "(" + adj_arg_qtype_str + ")(";
-					}
-					cocs_ref.m_arg_prefix_str = arg_prefix_str;
-
-					if (lhs_is_known_to_be_a_pointer_target) {
-						cocs_ref.m_lhs_needs_to_be_cast = true;
-					}
-					if (rhs_is_known_to_be_a_pointer_target) {
-						cocs_ref.m_rhs_needs_to_be_cast = true;
-					}
-				} else if ((lhs_maybe_function_state.has_value() && lhs_maybe_function_state.value().has_been_changed())
-					|| (rhs_maybe_function_state.has_value() && rhs_maybe_function_state.value().has_been_changed())) {
-
-					auto& changed_function_state = (lhs_maybe_function_state.has_value() && lhs_maybe_function_state.value().has_been_changed()) 
-						? lhs_maybe_function_state.value() : rhs_maybe_function_state.value();
-					if (lhs_DD && rhs_DD) {
-						if (state1.m_ast_context_ptr) {
-							struct CLoneModifiableArgInfo {
-								decltype(lhs_DD) DD = nullptr;
-								decltype(lhs_inference_info.indirection_level) indirection_level = 0;
-								decltype(LHS) EX = nullptr;
-							};
-							std::optional<CLoneModifiableArgInfo> maybe_lone_modifiable_arg_info;
-							auto lhs_is_non_modifiable = is_non_modifiable(*lhs_DD, *(state1.m_ast_context_ptr), Rewrite, state1);
-							auto rhs_is_non_modifiable = is_non_modifiable(*rhs_DD, *(state1.m_ast_context_ptr), Rewrite, state1);
-							if (rhs_is_non_modifiable && (!lhs_is_non_modifiable)) {
-								maybe_lone_modifiable_arg_info = { lhs_DD, lhs_inference_info.indirection_level, LHS };
-							} else if (lhs_is_non_modifiable && (!rhs_is_non_modifiable)) {
-								maybe_lone_modifiable_arg_info = { rhs_DD, rhs_inference_info.indirection_level, RHS };
+						if (rhs_inference_info.indirection_level < ddcs_ref.m_indirection_state_stack.size()) {
+							auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(rhs_inference_info.indirection_level);
+							rhs_maybe_function_state = indirection_state_ref.m_function_type_state;
+							if (indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
+								rhs_is_known_to_be_an_array = true;
+								if (indirection_state_ref.is_known_to_have_malloc_target() && indirection_state_ref.is_known_to_have_non_malloc_target()) {
+									rhs_is_variously_native_and_dynamic_array = true;
+								} else if (indirection_state_ref.is_known_to_have_malloc_target()) {
+									rhs_is_dynamic_array = true;
+								} else if (indirection_state_ref.is_known_to_have_non_malloc_target()) {
+									rhs_is_native_array = true;
+								} 
 							}
-							if (maybe_lone_modifiable_arg_info.has_value()) {
-								auto& lone_modifiable_arg_info = maybe_lone_modifiable_arg_info.value();
-								/* Ok, one of the conditional operator (function) arguments(/alternatives/options/branches) seems to be 
-								non-modifiable while the other one doesn't seem to be. So we're going to replace the non-modifiable one 
-								with a wrapper function that has an interface that's hopefully compatible with the other (changed) 
-								(function) argument. */
-								auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(lone_modifiable_arg_info.DD), &m_Rewrite);
-								auto indirection_state_stack_of_expression = ddcs_ref.m_indirection_state_stack;
-								indirection_state_stack_of_expression.clear();
-								if (lone_modifiable_arg_info.indirection_level < ddcs_ref.m_indirection_state_stack.size()) {
-									for (size_t i = size_t(lone_modifiable_arg_info.indirection_level); ddcs_ref.m_indirection_state_stack.size() > i; ++i) {
-										indirection_state_stack_of_expression.push_back(ddcs_ref.m_indirection_state_stack.at(i));
-									}
+							if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
+								rhs_is_known_to_be_a_pointer_target = true;
+							}
+						} else {
+							auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state;
+							rhs_maybe_function_state = indirection_state_ref.m_function_type_state;
+							if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
+								rhs_is_known_to_be_a_pointer_target = true;
+							}
+						}
+						if (rhs_update_flag) {
+							update_declaration(*rhs_DD, Rewrite, state1);
+						}
+					}
+
+					auto& ecs_ref = state1.get_expr_conversion_state_ref<CConditionalOperatorExprConversionState>(*CO, Rewrite);
+					/* Even though ecs_ref should be referencing an object of type CConditionalOperatorExprConversionState, 
+					ecs_ref's type is actually a reference to its base class. So we'll up(/down?) cast it to (a reference to) 
+					the object's actual type. As rtti is disabled, we can't use dynamic_cast<>(). */
+					assert("conditional operator" == ecs_ref.species());
+					auto& cocs_ref = static_cast<CConditionalOperatorExprConversionState&>(ecs_ref);
+
+					cocs_ref.m_arg_prefix_str = "";
+					cocs_ref.m_arg_suffix_str = "";
+
+					bool array_needed_to_be_wrapped = false;
+
+					bool is_a_function_or_function_pointer_value_type = false;
+					if (var_DD) {
+						is_a_function_or_function_pointer_value_type |= var_DD->getType()->isFunctionPointerType();
+					}
+					if (LHS && !is_a_function_or_function_pointer_value_type) {
+						is_a_function_or_function_pointer_value_type |= (LHS->getType()->isFunctionType() || LHS->getType()->isFunctionPointerType());
+					}
+					if (RHS && !is_a_function_or_function_pointer_value_type) {
+						is_a_function_or_function_pointer_value_type |= (RHS->getType()->isFunctionType() || RHS->getType()->isFunctionPointerType());
+					}
+					if (is_a_function_or_function_pointer_value_type) {
+						auto& changed_function_state = (lhs_maybe_function_state.has_value() && lhs_maybe_function_state.value().has_been_changed()) 
+							? lhs_maybe_function_state.value() : rhs_maybe_function_state.value();
+						if (lhs_DD && rhs_DD) {
+							if (state1.m_ast_context_ptr) {
+								struct CLoneModifiableArgInfo {
+									decltype(lhs_DD) DD = nullptr;
+									decltype(lhs_inference_info.indirection_level) indirection_level = 0;
+									decltype(LHS) EX = nullptr;
+									decltype(LHS) non_modifiable_EX = nullptr;
+								};
+								std::optional<CLoneModifiableArgInfo> maybe_lone_modifiable_arg_info;
+								auto lhs_is_non_modifiable = is_non_modifiable<options_t<do_not_exclude_functions_with_conversions_t> >(*lhs_DD, *(state1.m_ast_context_ptr), Rewrite, state1);
+								auto rhs_is_non_modifiable = is_non_modifiable<options_t<do_not_exclude_functions_with_conversions_t> >(*rhs_DD, *(state1.m_ast_context_ptr), Rewrite, state1);
+								if (rhs_is_non_modifiable && (!lhs_is_non_modifiable)) {
+									maybe_lone_modifiable_arg_info = { lhs_DD, lhs_inference_info.indirection_level, LHS, RHS };
+								} else if (lhs_is_non_modifiable && (!rhs_is_non_modifiable)) {
+									maybe_lone_modifiable_arg_info = { rhs_DD, rhs_inference_info.indirection_level, RHS, LHS };
 								}
+								if (maybe_lone_modifiable_arg_info.has_value()) {
+									auto& lone_modifiable_arg_info = maybe_lone_modifiable_arg_info.value();
+									/* Ok, one of the conditional operator (function) arguments(/alternatives/options/branches) seems to be 
+									non-modifiable while the other one doesn't seem to be. So we're going to replace the non-modifiable one 
+									with a wrapper function that has an interface that's hopefully compatible with the other (changed) 
+									(function) argument. */
+									auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(lone_modifiable_arg_info.DD), &Rewrite);
+									auto indirection_state_stack_of_expression = ddcs_ref.m_indirection_state_stack;
+									indirection_state_stack_of_expression.clear();
+									if (lone_modifiable_arg_info.indirection_level < ddcs_ref.m_indirection_state_stack.size()) {
+										for (size_t i = size_t(lone_modifiable_arg_info.indirection_level); ddcs_ref.m_indirection_state_stack.size() > i; ++i) {
+											indirection_state_stack_of_expression.push_back(ddcs_ref.m_indirection_state_stack.at(i));
+										}
+									}
 
-								auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_expression, (*this).m_Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
-								auto direct_qtype_str = ddcs_ref.current_direct_qtype_str();
+									auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_expression, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
+									auto direct_qtype_str = ddcs_ref.current_direct_qtype_str();
 
-								if (0 == indirection_state_stack_of_expression.size()) {
-									/* The expressions seems to not be indirect. The type of the expression is the "direct" type. */
-									if (lone_modifiable_arg_info.EX->getType().isConstQualified()) {
-										if (!(ddcs_ref.direct_type_state_ref().is_const())) {
-											/* Ok, so the "direct" type derived from the DDecl seems to be non-const, while the 
-											"direct" type of the actual type of the conditional operator argument(/alternative/option/branch) 
-											expressions is const. So we'll just add a const qualifier to the "direct" type. */
-											direct_qtype_str = "const " + direct_qtype_str;
+									auto& function_type_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state;
+									if (function_type_state_ref.m_function_decl_ptr) {
+										clang::FunctionProtoTypeLoc functionProtoTypeLoc;
+										/* I don't think functionProtoTypeLoc will actually be used in this case (so it should be ok if it 
+										just has the default value), but current_params_string() does take it as a parameter so we'll 
+										assign it a proper value if available. */
+										if (function_type_state_ref.m_maybe_functionProtoTypeLoc.has_value()) {
+											IF_DEBUG(auto typeLocClass = definition_TypeLoc(function_type_state_ref.m_maybe_functionProtoTypeLoc.value()).getTypeLocClass();)
+											functionProtoTypeLoc = definition_TypeLoc(function_type_state_ref.m_maybe_functionProtoTypeLoc.value()).getAsAdjusted<clang::FunctionProtoTypeLoc>();
+										}
+
+										auto direct_qtype_str2 = ddcs_ref.current_direct_return_qtype_str();
+										direct_qtype_str2 += current_params_string(Rewrite, function_type_state_ref
+											, functionProtoTypeLoc, true/*suppress_modifications*/, &state1);
+
+										direct_qtype_str = direct_qtype_str2;
+									}
+
+									if (0 == indirection_state_stack_of_expression.size()) {
+										/* The expressions seems to not be indirect. The type of the expression is the "direct" type. */
+										if (lone_modifiable_arg_info.EX->getType().isConstQualified()) {
+											if (!(ddcs_ref.direct_type_state_ref().is_const())) {
+												/* Ok, so the "direct" type derived from the DDecl seems to be non-const, while the 
+												"direct" type of the actual type of the conditional operator argument(/alternative/option/branch) 
+												expressions is const. So we'll just add a const qualifier to the "direct" type. */
+												direct_qtype_str = "const " + direct_qtype_str;
+											}
+										}
+									}
+
+									auto adj_arg_qtype_str = res3.m_prefix_str + direct_qtype_str + res3.m_suffix_str;
+
+									std::string arg_prefix_str;
+									std::string function_pointer_type_str;
+									std::string make_fn_wrapper_prefix_str;
+									if ("Dual" == ConvertMode) {
+										auto direct_return_qtype_str = ddcs_ref.current_direct_return_qtype_str();
+										function_pointer_type_str = std::string("(MSE_LH_FUNCTION_POINTER_TYPE_PREFIX") + direct_return_qtype_str 
+											+ "MSE_LH_FUNCTION_POINTER_TYPE_SUFFIX(" + changed_function_state.m_params_current_str  + "))";
+										arg_prefix_str = "(" + function_pointer_type_str + ")(";
+										make_fn_wrapper_prefix_str = "MSE_LH_UNSAFE_MAKE_FN_WRAPPER(";
+									} else {
+										function_pointer_type_str = std::string("mse::lh::TNativeFunctionPointerReplacement<") + direct_qtype_str + ">";
+										arg_prefix_str = function_pointer_type_str + "(";
+										make_fn_wrapper_prefix_str = "mse::us::lh::unsafe_make_fn_wrapper(";
+									}
+
+									std::string arg_suffix_str;
+									std::string make_fn_wrapper_suffix_str;
+									if ("Dual" == ConvertMode) {
+										arg_suffix_str = ")";
+										make_fn_wrapper_suffix_str = std::string(", ") + function_pointer_type_str + "())";
+									} else {
+										arg_suffix_str = ")";
+										make_fn_wrapper_suffix_str = std::string(", ") + function_pointer_type_str + "())";
+									}
+
+									auto& ecs_ref = state1.get_expr_conversion_state_ref(*(lone_modifiable_arg_info.non_modifiable_EX), Rewrite);
+									const auto l_text_modifier = CWrapExprTextModifier(make_fn_wrapper_prefix_str, make_fn_wrapper_suffix_str);
+									bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+										&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+									if (!seems_to_be_already_applied) {
+										auto shptr2 = std::make_shared<CWrapExprTextModifier>(make_fn_wrapper_prefix_str, make_fn_wrapper_suffix_str);
+										ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+										ecs_ref.update_current_text();
+									}
+
+									cocs_ref.m_arg_prefix_str += arg_prefix_str;
+									cocs_ref.m_arg_suffix_str = cocs_ref.m_arg_suffix_str + ")";
+									cocs_ref.m_lhs_needs_to_be_cast = true;
+									cocs_ref.m_rhs_needs_to_be_cast = true;
+
+								} else if (lhs_is_non_modifiable && rhs_is_non_modifiable) {
+									/* Both arguments(/alternatives/options/branches) of the conditional operator are non-modifiable 
+									so they presumably wouldn't need any casting or wrapping to conform with each other, but it still 
+									might be needed to for compatibility with the assignment target of the conditional expression (if 
+									one is provided). */
+									bool var_is_non_modifiable = false;
+									if (var_DD) {
+										var_is_non_modifiable = is_non_modifiable(*var_DD, *(state1.m_ast_context_ptr), Rewrite, state1);
+
+										if (!var_is_non_modifiable) {
+											auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*var_DD, &Rewrite);
+
+											if (var_indirection_level <= ddcs_ref.m_indirection_state_stack.size()) {
+												auto indirection_state_stack_of_asignee = ddcs_ref.m_indirection_state_stack;
+												/* This clears the base vector, but leaves the other members intact. */
+												indirection_state_stack_of_asignee.clear();
+												for (size_t i = size_t(var_indirection_level); ddcs_ref.m_indirection_state_stack.size() > i; ++i) {
+													indirection_state_stack_of_asignee.push_back(ddcs_ref.m_indirection_state_stack.at(i));
+												}
+
+												auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_asignee, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
+												auto direct_qtype_str = ddcs_ref.current_direct_return_qtype_str();
+
+												if (0 == indirection_state_stack_of_asignee.size()) {
+													/* The type of the LHS expression does not seem to be indirect. So the LHS type is the 
+													"direct" type. */
+													if (LHS->getType().isConstQualified()) {
+														if (!(ddcs_ref.direct_type_state_ref().is_const())) {
+															/* Ok, so the "direct" type derived from the DDecl seems to be non-const, while the 
+															LHS expressions is const. So we'll just add a const qualifier to the "direct" type. */
+															direct_qtype_str = "const " + direct_qtype_str;
+														}
+													}
+												}
+
+												if (res3.m_seems_to_involve_a_template_param_originally) {
+													/* The original type seems to involve a template parameter (and so the 
+													declaration is presumably in the body of a template). We don't want to
+													replace the original (presumably) dependent type with direct_qtype_str 
+													which may refer to a specific specialization of the originally expressed 
+													type. */
+													if ("" != res3.m_tparam_that_encompasses_the_direct_type_str) {
+														/* The name of a template parameter that encompasses the direct type has been provided. We'll 
+														use it in place of the direct type. Note that the given template parameter may actually 
+														encompass more than just the direct type, but any given prefixes and/or suffixes are presumably 
+														adjusted to compensate. */
+														direct_qtype_str = res3.m_tparam_that_encompasses_the_direct_type_str;
+													} else {
+														/* For some reason, a template parameter that encompasses the direct type was not provided. So we'll 
+														use the original expression of the type in the source text, if that's available. */
+														auto l_original_source_text = indirection_state_stack_of_asignee.m_direct_type_state.original_source_text();
+														if ("" != l_original_source_text) {
+															direct_qtype_str = l_original_source_text;
+														}
+													}
+												}
+
+												auto new_asignee_qtype_str = res3.m_prefix_str + direct_qtype_str + res3.m_suffix_str;
+
+												std::string arg_prefix_str;
+												std::string& function_pointer_type_str = new_asignee_qtype_str;
+												std::string make_fn_wrapper_prefix_str;
+												if ("Dual" == ConvertMode) {
+													make_fn_wrapper_prefix_str = "MSE_LH_UNSAFE_MAKE_FN_WRAPPER(";
+												} else {
+													make_fn_wrapper_prefix_str = "mse::us::lh::unsafe_make_fn_wrapper(";
+												}
+
+												std::string arg_suffix_str;
+												std::string make_fn_wrapper_suffix_str;
+												if ("Dual" == ConvertMode) {
+													make_fn_wrapper_suffix_str = std::string(", ") + function_pointer_type_str + "())";
+												} else {
+													make_fn_wrapper_suffix_str = std::string(", ") + function_pointer_type_str + "())";
+												}
+
+												auto apply_to_expr_conversion_state = [&](clang::Expr const * E) {
+													auto& ecs_ref = state1.get_expr_conversion_state_ref(*E, Rewrite);
+													const auto l_text_modifier = CWrapExprTextModifier(make_fn_wrapper_prefix_str, make_fn_wrapper_suffix_str);
+													bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+														&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+													if (!seems_to_be_already_applied) {
+														auto shptr2 = std::make_shared<CWrapExprTextModifier>(make_fn_wrapper_prefix_str, make_fn_wrapper_suffix_str);
+														ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+														ecs_ref.update_current_text();
+													}
+												};
+												apply_to_expr_conversion_state(LHS);
+												apply_to_expr_conversion_state(RHS);
+											}
 										}
 									}
 								}
+							}
+						}
+					} else if ((lhs_is_known_to_be_an_array || rhs_is_known_to_be_an_array) && LHS->getType()->isPointerType()) {
+						bool lhs_needs_to_be_wrapped = false;
+						if ((lhs_is_dynamic_array && (!rhs_is_dynamic_array)) || (lhs_is_native_array && (!rhs_is_native_array))
+							|| ((!lhs_is_known_to_be_an_array) && rhs_is_known_to_be_an_array)) {
+							lhs_needs_to_be_wrapped = true;
+							array_needed_to_be_wrapped = true;
+						}
+						bool rhs_needs_to_be_wrapped = false;
+						if ((rhs_is_dynamic_array && (!lhs_is_dynamic_array)) || (rhs_is_native_array && (!lhs_is_native_array))
+							|| ((!rhs_is_known_to_be_an_array) && lhs_is_known_to_be_an_array)) {
+							rhs_needs_to_be_wrapped = true;
+							array_needed_to_be_wrapped = true;
+						}
 
-								auto adj_arg_qtype_str = res3.m_prefix_str + direct_qtype_str + res3.m_suffix_str;
+						if (lhs_needs_to_be_wrapped || rhs_needs_to_be_wrapped) {
+							std::string arg_pointee_qtype_str;
 
-								std::string arg_prefix_str;
-								std::string function_pointer_type_str;
-								if ("Dual" == ConvertMode) {
-									auto direct_return_qtype_str = ddcs_ref.current_direct_return_qtype_str();
-									function_pointer_type_str = std::string("(MSE_LH_FUNCTION_POINTER_TYPE_PREFIX") + direct_return_qtype_str 
-										+ "MSE_LH_FUNCTION_POINTER_TYPE_SUFFIX(" + changed_function_state.m_params_current_str  + "))";
-									arg_prefix_str = "(" + function_pointer_type_str + ")(MSE_LH_UNSAFE_MAKE_FN_WRAPPER(";
+							CDDeclConversionState* ddcs_ptr = nullptr;
+							CArrayInferenceInfo& inference_info = lhs_DD ? lhs_inference_info : rhs_inference_info;
+							if (lhs_DD != nullptr) {
+								auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &Rewrite);
+								ddcs_ptr = &ddcs_ref;
+								inference_info = lhs_inference_info;
+							} else if (rhs_DD != nullptr) {
+								auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &Rewrite);
+								ddcs_ptr = &ddcs_ref;
+								inference_info = rhs_inference_info;
+							}
+							if (ddcs_ptr) {
+								auto& ddcs_ref = *ddcs_ptr;
+								if ((inference_info.indirection_level + 1) <= ddcs_ref.m_indirection_state_stack.size()) {
+									auto indirection_state_stack_of_pointee = ddcs_ref.m_indirection_state_stack;
+									/* This clears the base vector, but leaves the other members intact. */
+									indirection_state_stack_of_pointee.clear();
+									for (size_t i = size_t(inference_info.indirection_level + 1); ddcs_ref.m_indirection_state_stack.size() > i; ++i) {
+										indirection_state_stack_of_pointee.push_back(ddcs_ref.m_indirection_state_stack.at(i));
+									}
+
+									auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_pointee, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
+									auto direct_qtype_str = ddcs_ref.current_direct_qtype_str();
+
+									if (0 == indirection_state_stack_of_pointee.size()) {
+										/* The type of the conditional operator argument(/alternative/option/branch) expressions seems to have
+										(only) one level of indirection. (I.e. It may be a pointer, but not a pointer to a pointer.) So the
+										"pointee" type is the "direct" type. */
+										if (LHS->getType()->getPointeeType().isConstQualified()) {
+											if (!(ddcs_ref.direct_type_state_ref().is_const())) {
+												/* Ok, so the pointee/"direct" type derived from the DDecl seems to be non-const, while the 
+												pointee/"direct" type of the actual type of the conditional operator argument(/alternative/option/branch) 
+												expressions is const. So we'll just add a const qualifier to the "direct" type. */
+												direct_qtype_str = "const " + direct_qtype_str;
+											}
+										}
+									}
+
+									arg_pointee_qtype_str = res3.m_prefix_str + direct_qtype_str + res3.m_suffix_str;
 								} else {
-									function_pointer_type_str = std::string("mse::lh::TNativeFunctionPointerReplacement<") + direct_qtype_str + ">";
-									arg_prefix_str = function_pointer_type_str + "(mse::us::lh::unsafe_make_fn_wrapper(";
+									/* unexpected */
+									int q = 3;
 								}
+							}
+							if ("" == arg_pointee_qtype_str) {
+								arg_pointee_qtype_str = LHS->getType()->getPointeeType().getAsString();
+							}
 
-								std::string arg_suffix_str;
-								if ("Dual" == ConvertMode) {
-									arg_suffix_str = std::string(", ") + function_pointer_type_str + "()))";
+							auto xscope_eligibility = EXScopeEligibility::No;
+							std::string arg_prefix_str;
+							if ("Dual" == ConvertMode) {
+								arg_prefix_str = "MSE_LH_CAST(";
+								if (false && (EXScopeEligibility::Yes == xscope_eligibility)) {
+									arg_prefix_str += "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(" + arg_pointee_qtype_str + ")";
 								} else {
-									arg_suffix_str = std::string(", ") + function_pointer_type_str + "()))";
+									arg_prefix_str += "MSE_LH_ARRAY_ITERATOR_TYPE(" + arg_pointee_qtype_str + ")";
 								}
+								arg_prefix_str += ", ";
+							} else {
+								if (false && EXScopeEligibility::Yes == xscope_eligibility) {
+									arg_prefix_str += "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<" + arg_pointee_qtype_str + " >";
+								} else {
+									arg_prefix_str += "mse::lh::TLHNullableAnyRandomAccessIterator<" + arg_pointee_qtype_str + " >";
+								}
+								arg_prefix_str += "(";
+							}
+							cocs_ref.m_arg_prefix_str += arg_prefix_str;
+							cocs_ref.m_arg_suffix_str = cocs_ref.m_arg_suffix_str + ")";
 
-								cocs_ref.m_arg_prefix_str = arg_prefix_str;
-								cocs_ref.m_arg_suffix_str = arg_suffix_str;
+							if (lhs_needs_to_be_wrapped) {
 								cocs_ref.m_lhs_needs_to_be_cast = true;
+							}
+							if (rhs_needs_to_be_wrapped) {
 								cocs_ref.m_rhs_needs_to_be_cast = true;
 							}
 						}
 					}
-				}
 
-				if (ConvertToSCPP) {
-					state1.m_pending_code_modification_actions.add_expression_update_replacement_action(m_Rewrite, COSR, state1, CO);
+					if (lhs_is_known_to_be_a_pointer_target || rhs_is_known_to_be_a_pointer_target) {
+						std::string adj_arg_qtype_str;
+
+						if (LHS->getType()->isPointerType()) {
+							CDDeclConversionState* ddcs_ptr = nullptr;
+							if (lhs_DD != nullptr) {
+								auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &Rewrite);
+								ddcs_ptr = &ddcs_ref;
+							} else if (rhs_DD != nullptr) {
+								auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &Rewrite);
+								ddcs_ptr = &ddcs_ref;
+							}
+							if (ddcs_ptr) {
+								auto& ddcs_ref = *ddcs_ptr;
+								auto res3 = generate_type_indirection_prefix_and_suffix(ddcs_ref.m_indirection_state_stack, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
+								auto direct_qtype_str = ddcs_ref.current_direct_qtype_str();
+								adj_arg_qtype_str = res3.m_prefix_str + direct_qtype_str + res3.m_suffix_str;
+							}
+						}
+						if ("" == adj_arg_qtype_str) {
+							adj_arg_qtype_str = LHS->getType().getAsString();
+						}
+						std::string arg_prefix_str;
+						if ("Dual" == ConvertMode) {
+							arg_prefix_str = "MSE_LH_CAST(" + adj_arg_qtype_str + ", ";
+						} else {
+							arg_prefix_str = "(" + adj_arg_qtype_str + ")(";
+						}
+						cocs_ref.m_arg_prefix_str = cocs_ref.m_arg_prefix_str + arg_prefix_str;
+						cocs_ref.m_arg_suffix_str += ")";
+
+						if (lhs_is_known_to_be_a_pointer_target) {
+							cocs_ref.m_lhs_needs_to_be_cast = true;
+						}
+						if (rhs_is_known_to_be_a_pointer_target) {
+							cocs_ref.m_rhs_needs_to_be_cast = true;
+						}
+					}
+
+					if (ConvertToSCPP) {
+						//state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, COSR, state1, CO);
+
+						/* This lambda is expected to be executed as a deferred action, so we cannot furhter defer modification 
+						of the source text, as we presumably won't get another chance to do so. */
+						auto COSR = write_once_source_range(cm1_adjusted_source_range(CO->getSourceRange(), state1, Rewrite));
+						if (COSR.isValid()) {
+							auto& current_text_ref = ecs_ref.current_text();
+							if (current_text_ref != ecs_ref.m_original_source_text_str) {
+								Rewrite.ReplaceText(COSR, current_text_ref);
+							}
+						}
+					}
+				};
+				//lambda();
+				bool apply_modification = true;
+				assert(COSR.isValid());
+				if ((!m_var_DD) && (1 <= state1.m_pending_code_modification_actions.size())) {
+					auto found_it = state1.m_pending_code_modification_actions.find(COSR);
+					if (state1.m_pending_code_modification_actions.end() != found_it) {
+						/* There seems to ba a modification action already queued for this expression. It might have been 
+						queued when handling the an assignment expression of which this expression is the rhs. That 
+						handling may have (unlike our current situation) had the m_var_DD field provided and therefore 
+						been able to produce a more comprehensive modification action. So we wouldn't want to supercede 
+						that action with this one. */
+						apply_modification = false;
+					}
+				}
+				if (apply_modification) {
+					state1.m_pending_code_modification_actions.add_replacement_action(COSR, lambda);
 				}
 
 				CDDeclConversionState* var_ddcs_ptr = nullptr;
@@ -10002,6 +10290,14 @@ namespace convm1 {
 						if (pInitExpr && (!ddcs_ref.m_maybe_initialization_expr_text_info.has_value())) {
 							ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(pInitExpr, m_Rewrite, state1));
 						}
+
+						auto& ecs_ref = state1.get_expr_conversion_state_ref<CConditionalOperatorExprConversionState>(*CO, m_Rewrite);
+						/* Even though ecs_ref should be referencing an object of type CConditionalOperatorExprConversionState, 
+						ecs_ref's type is actually a reference to its base class. So we'll up(/down?) cast it to (a reference to) 
+						the object's actual type. As rtti is disabled, we can't use dynamic_cast<>(). */
+						assert("conditional operator" == ecs_ref.species());
+						auto& cocs_ref = static_cast<CConditionalOperatorExprConversionState&>(ecs_ref);
+
 						ddcs_ref.m_fallback_current_initialization_expr_str = cocs_ref.current_text();
 					} else {
 						int q = 5;
@@ -10009,8 +10305,8 @@ namespace convm1 {
 
 					update_declaration(*m_var_DD, m_Rewrite, state1);
 					if (array_needed_to_be_wrapped) {
-						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
-							ddcs_ref.set_indirection_current(0, "variously native and dynamic array");
+						if (m_var_indirection_level < ddcs_ref.m_indirection_state_stack.size()) {
+							ddcs_ref.set_indirection_current(m_var_indirection_level, "variously native and dynamic array");
 
 							update_declaration(*m_var_DD, m_Rewrite, state1);
 						} else {
@@ -12900,6 +13196,7 @@ namespace convm1 {
 		return false;
 	}
 
+	template<typename TOptions/* = options_t<> */>
 	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1) {
 		auto suppress_check_flag = state1.m_suppress_check_region_set.contains(&decl, Rewrite, Ctx);
 		if (suppress_check_flag) {
@@ -12943,19 +13240,21 @@ namespace convm1 {
 					}
 				}
 
-				auto maybe_function_conversion_index = s_function_conversion_index_if_any(function_qname);
-				if (maybe_function_conversion_index.has_value()) {
-					/* While the function would've otherwise been "non-modifiable", it may be one of the recognized 
-					functions slated for conversion. */
-					auto index = maybe_function_conversion_index.value();
-					auto& function_conversion_infos = s_function_conversion_infos();
-					if (function_conversion_infos.at(index).m_maybe_num_parameters.has_value()) {
-						const auto fc_num_params = function_conversion_infos.at(index).m_maybe_num_parameters.value();
-						if (fc_num_params == num_params) {
+				if constexpr (!std::is_base_of_v<do_not_exclude_functions_with_conversions_t, TOptions>) {
+					auto maybe_function_conversion_index = s_function_conversion_index_if_any(function_qname);
+					if (maybe_function_conversion_index.has_value()) {
+						/* While the function would've otherwise been "non-modifiable", it may be one of the recognized 
+						functions slated for conversion. */
+						auto index = maybe_function_conversion_index.value();
+						auto& function_conversion_infos = s_function_conversion_infos();
+						if (function_conversion_infos.at(index).m_maybe_num_parameters.has_value()) {
+							const auto fc_num_params = function_conversion_infos.at(index).m_maybe_num_parameters.value();
+							if (fc_num_params == num_params) {
+								return false;
+							}
+						} else {
 							return false;
 						}
-					} else {
-						return false;
 					}
 				}
 				auto res1 = analyze_malloc_resemblance(*FND, state1, Rewrite);
@@ -14120,6 +14419,7 @@ namespace convm1 {
 					auto rhs_FND = llvm::cast<const clang::FunctionDecl>(rhs_res2.ddecl_cptr);
 
 					if ((CDDeclIndirection::no_indirection == lhs_res2.indirection_level) || (0 == lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size())) {
+						int q = 5;
 					} else if (lhs_res2.indirection_level >= lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size()) {
 						assert(lhs_res2.indirection_level == lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size());
 						auto& lhs_direct_type_state_ref = lhs_res2.ddecl_conversion_state_ptr->direct_type_state_ref();
