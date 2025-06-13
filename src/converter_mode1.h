@@ -14199,6 +14199,34 @@ namespace convm1 {
 									rhs_ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
 								}
 							}
+
+							auto RHS_ii_qtype_str = RHS_ii->getType().getAsString();
+							if ((("void *" == RHS_ii_qtype_str) || ("const void *" == RHS_ii_qtype_str)) 
+								&& !(("void *" == RHS_qtype_str) || ("const void *" == RHS_qtype_str))) {
+								/* RHS expression seems to consist of an ("non-modifiable") void pointer being converted to something 
+								else. (Presumably some non-void pointer.) Being non-modifiable, presumably we're going to wrap it in 
+								a function call that (unsafely) creates a "safe" iterator interface wrapping for the raw pointer. But 
+								in the case of void pointers, we'd want to cast it to the non-void pointer type first so that the 
+								iterator interface wrapping will be created with the proper type. */
+
+								std::shared_ptr<CExprTextModifier> shptr1;
+								if (!string_begins_with(rhs_function_qname_if_any, "mse::")) {
+									bool seems_to_be_already_applied = false;
+									for (auto& expr_text_modifier_shptr : rhs_ecs_ref.m_expr_text_modifier_stack) {
+										if ("cast" == expr_text_modifier_shptr->species_str()) {
+											seems_to_be_already_applied = true;
+											break;
+										}
+									}
+									if (!seems_to_be_already_applied) {
+										shptr1 = std::make_shared<CCastExprTextModifier>(RHS_qtype_str);
+									}
+								}
+								if (shptr1) {
+									rhs_ecs_ref.m_expr_text_modifier_stack.push_back(shptr1);
+									rhs_ecs_ref.update_current_text();
+								}
+							}
 							if (("FILE *" != RHS_qtype_str)) {
 								std::shared_ptr<CExprTextModifier> shptr1;
 								if (!string_begins_with(rhs_function_qname_if_any, "mse::")) {
