@@ -14187,32 +14187,6 @@ namespace convm1 {
 								}
 							}
 
-							auto RHS_qtype_str = RHS_qtype.getAsString();
-							if (("void *" == RHS_qtype_str) || ("const void *" == RHS_qtype_str)) {
-								std::string new_cast_prefix;
-								std::string new_cast_suffix;
-								if ("Dual" == ConvertMode) {
-									new_cast_prefix = "MSE_LH_CAST("
-										+ LHS_qtype_str + ", ";
-								} else {
-									new_cast_prefix = "("
-										+ LHS_qtype_str + ")(";
-								}
-								new_cast_suffix = ")";
-
-								bool seems_to_be_already_applied = false;
-								for (auto& expr_text_modifier_shptr : rhs_ecs_ref.m_expr_text_modifier_stack) {
-									if ("cast" == expr_text_modifier_shptr->species_str()) {
-										seems_to_be_already_applied = true;
-										break;
-									}
-								}
-								if (!seems_to_be_already_applied) {
-									auto shptr2 = std::make_shared<CCastExprTextModifier>(LHS_qtype_str);
-									rhs_ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
-								}
-							}
-
 							auto RHS_ii_qtype_str = RHS_ii->getType().getAsString();
 							if ((("void *" == RHS_ii_qtype_str) || ("const void *" == RHS_ii_qtype_str)) 
 								&& !(("void *" == RHS_qtype_str) || ("const void *" == RHS_qtype_str))) {
