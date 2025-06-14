@@ -2993,6 +2993,19 @@ namespace convm1 {
 		typedef std::map<COrderedSourceRange, std::list<CCodeModificationActionAndID> > base_class;
 		using base_class::base_class;
 
+		void set_ReplaceText_supression_mode(bool mode) {
+			m_ReplaceText_supression_mode = mode;
+		}
+		void clear_ReplaceText_supression_mode() {
+			m_ReplaceText_supression_mode = false;
+		}
+		bool ReplaceText(Rewriter &Rewrite, clang::SourceRange range, std::string_view NewStr) const {
+			if (!m_ReplaceText_supression_mode) {
+				return Rewrite.ReplaceText(range, NewStr);
+			}
+			return false;
+		}
+
 		std::pair<base_class::iterator, bool> add_replacement_action(const COrderedSourceRange& OSR, const CCodeModificationActionAndID& modifier) {
 			auto iter1 = base_class::find(OSR);
 			if (base_class::end() != iter1) {
@@ -3030,7 +3043,6 @@ namespace convm1 {
 
 			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, OSR, Rewrite);
 			DEBUG_SOURCE_TEXT_STR(debug_source_text1, OSR, Rewrite);
-
 #ifndef NDEBUG
 			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 				int q = 5;
@@ -3054,7 +3066,7 @@ namespace convm1 {
 						}
 #endif /*!NDEBUG*/
 
-						Rewrite.ReplaceText(OSR, new_text);
+						ReplaceText(Rewrite, OSR, new_text);
 						this->m_already_modified_regions.insert(OSR);
 
 #ifndef NDEBUG
@@ -3158,7 +3170,7 @@ namespace convm1 {
 #endif /*!NDEBUG*/
 
 								//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, OSR, replacement_code);
-								auto res2 = Rewrite.ReplaceText(OSR, replacement_code);
+								auto res2 = ReplaceText(Rewrite, OSR, replacement_code);
 								this->m_already_modified_regions.insert(OSR);
 							}
 						}
@@ -3186,7 +3198,7 @@ namespace convm1 {
 #endif /*!NDEBUG*/
 
 							//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, OSR, replacement_code);
-							auto res2 = Rewrite.ReplaceText(OSR, replacement_code);
+							auto res2 = ReplaceText(Rewrite, OSR, replacement_code);
 							this->m_already_modified_regions.insert(OSR);
 						}
 					}
@@ -3205,6 +3217,7 @@ namespace convm1 {
 
 		COrderedRegionSet m_already_modified_regions;
 		std::unordered_set<decltype(std::declval<clang::TypeLoc>().getOpaqueData())> m_already_modified_typeLocs;
+		bool m_ReplaceText_supression_mode = false;
 	};
 
 
@@ -3894,7 +3907,7 @@ namespace convm1 {
 						auto& ecs_ref = *((*iter).second);
 						auto& current_text_ref = ecs_ref.current_text();
 						if (current_text_ref != ecs_ref.m_original_source_text_str) {
-							Rewrite.ReplaceText(OSR, current_text_ref);
+							ReplaceText(Rewrite, OSR, current_text_ref);
 							this->m_already_modified_regions.insert(OSR);
 						}
 					}
@@ -7743,7 +7756,7 @@ namespace convm1 {
 							/* If the source range is not rewritable then this may be the one and only chance to write anything 
 							to the source range, so we cannot queue the modification for later execution, we must execute the 
 							modification here and now. */
-							auto res2 = Rewrite.ReplaceText(last_decl_source_range, replacement_code);
+							auto res2 = state1.m_pending_code_modification_actions.ReplaceText(Rewrite, last_decl_source_range, replacement_code);
 						}
 					} else {
 						int q = 7;
@@ -7769,7 +7782,7 @@ namespace convm1 {
 								}
 #endif /*!NDEBUG*/
 
-								auto res2 = Rewrite.ReplaceText(SR, replacement_code);
+								auto res2 = state1.m_pending_code_modification_actions.ReplaceText(Rewrite, SR, replacement_code);
 								state1.m_pending_code_modification_actions.m_already_modified_regions.insert(SR);
 							}
 						}
@@ -10194,7 +10207,7 @@ namespace convm1 {
 						if (COSR.isValid()) {
 							auto& current_text_ref = ecs_ref.current_text();
 							if (current_text_ref != ecs_ref.m_original_source_text_str) {
-								Rewrite.ReplaceText(COSR, current_text_ref);
+								state1.m_pending_code_modification_actions.ReplaceText(Rewrite, COSR, current_text_ref);
 							}
 						}
 					}
@@ -13754,7 +13767,7 @@ namespace convm1 {
 
 					auto& current_text_ref = ecs_ref.current_text();
 					if (current_text_ref != ecs_ref.m_original_source_text_str) {
-						Rewrite.ReplaceText(CSCESR, current_text_ref);
+						state1.m_pending_code_modification_actions.ReplaceText(Rewrite, CSCESR, current_text_ref);
 					}
 				}
 				//finished_cast_handling_flag = true;
@@ -14696,10 +14709,15 @@ namespace convm1 {
 							assert(arg_EX_ii->getType().getTypePtrOrNull());
 
 							auto arg_EX_ii_SR = write_once_source_range(cm1_adj_nice_source_range(arg_EX_ii->getSourceRange(), state1, Rewrite));
-							std::string arg_EX_ii_source_text;
-							if (arg_EX_ii_SR.isValid()) {
-								IF_DEBUG(arg_EX_ii_source_text = Rewrite.getRewrittenText(arg_EX_ii_SR);)
+
+							DEBUG_SOURCE_LOCATION_STR(arg_EX_ii_debug_source_location_str, arg_EX_ii_SR, Rewrite);
+							DEBUG_SOURCE_TEXT_STR(arg_EX_ii_debug_source_text, arg_EX_ii_SR, Rewrite);
+#ifndef NDEBUG
+							if (std::string::npos != arg_EX_ii_debug_source_location_str.find(g_target_debug_source_location_str1)) {
+								int q = 5;
 							}
+#endif /*!NDEBUG*/
+
 							if (is_nullptr_literal(arg_EX_ii, *(MR.Context))) {
 								continue;
 							}
@@ -14890,6 +14908,11 @@ namespace convm1 {
 										assert(nullptr != arg_EX);
 										auto& arg_ecs_ref = state1.get_expr_conversion_state_ref(*arg_EX, Rewrite);
 
+										auto CO = dyn_cast<const clang::ConditionalOperator>(arg_EX_ii);
+										if (CO) {
+											MCSSSConditionalExpr::s_handler1(MR, Rewrite, state1, CO, {});
+										}
+
 										if (ConvertToSCPP) {
 											std::shared_ptr<CExprTextModifier> shptr1;
 											auto arg_EX_qtype_str = arg_EX_qtype.getAsString();
@@ -14921,7 +14944,7 @@ namespace convm1 {
 										auto DD = clang::dyn_cast<clang::DeclaratorDecl>(DRE->getDecl());
 										if (DD) {
 											/* It seems that (at least some implementations of) the *printf() functions don't
-											like C++  objects with non-trivial copy constructors as (variadic) arguments, even
+											like C++ objects with non-trivial copy constructors as (variadic) arguments, even
 											if said objects are implicitly convertible to scalar integer types. Since we convert
 											objects that are pointer targets (aka "addressable" ojects) to C++ objects with
 											non-trivial copy constructors, we need to cast them back to their original scalar
@@ -18187,30 +18210,28 @@ namespace convm1 {
 					}
 #endif /*!NDEBUG*/
 
-					if (action.first.is_rewritable()) {
-						/* Execute and discard all source code text modification functions associated with this source range. */
-						auto sub_it = action.second.begin();
-						while (action.second.size() >= 1) {
-							/* Note that we may cause the container to be modified as we're iterating over it. (So we can't use
-							a "traditional" loop.) */
+					/* If the range can only be reliably modified once, then we want to suppress any attempts to modify 
+					the range until the last modification action is (about to be) executed. */
+					m_tu_state.m_pending_code_modification_actions.set_ReplaceText_supression_mode(!(action.first.is_rewritable()));
 
-							auto& modification_function = *sub_it;
-							modification_function();
-							action.second.erase(sub_it);
-							sub_it = action.second.begin();
+					/* Execute and discard all source code text modification functions associated with this source range. */
+					auto sub_it = action.second.begin();
+					while (action.second.size() >= 1) {
+						/* Note that we may cause the container to be modified as we're iterating over it. (So we can't use
+						a "traditional" loop.) */
+
+						if (1 == action.second.size()) {
+							/* This appears to be the last modification action, so we want to disengage any suppression of modification 
+							to the source range due to the range reliably supporting only one modification. */
+							m_tu_state.m_pending_code_modification_actions.clear_ReplaceText_supression_mode();
 						}
-					} else
-					{
-						/* This source range is marked as supporting only one text replacement operation before
-						becoming "stale"/"invalid". So here we execute only the last associated source code text
-						modification function (and hope that any other ones, if present, are redundant). */
-						if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.contains(action.first)) {
-							auto& modification_function = action.second.back();
-							modification_function();
-						} else {
-							int q = 5;
-						}
+
+						auto& modification_function = *sub_it;
+						modification_function();
+						action.second.erase(sub_it);
+						sub_it = action.second.begin();
 					}
+					m_tu_state.m_pending_code_modification_actions.clear_ReplaceText_supression_mode();
 				}
 
 				auto res1 = m_tu_state.m_pending_code_modification_actions.erase(retained_it);
