@@ -1525,6 +1525,7 @@ namespace convm1 {
 							/* Incrementing/decrementing a pointer type is pointer arithmetic and
 							* implies the pointer is being used as an array iterator. */
 							/* To do: modify the stack entry to reflect this. */
+							process_child_flag = true;
 						}
 					}
 				}
@@ -3492,7 +3493,7 @@ namespace convm1 {
 
 						if (state1.m_ast_context_ptr && (b10 || b10b)) {
 							//auto parent_E = Tget_immediately_containing_element_of_type<clang::Expr>(expr_ptr, *(state1.m_ast_context_ptr));
-							auto parent_E = NonParenImpCastParentOfType<clang::Expr>(expr_ptr, *(state1.m_ast_context_ptr));
+							auto parent_E = NonImplicitParentOfType<clang::Expr>(expr_ptr, *(state1.m_ast_context_ptr));
 							if (parent_E) {
 								auto parent_rawSR = parent_E->getSourceRange();
 								if (parent_rawSR.isValid()) {
@@ -3704,6 +3705,8 @@ namespace convm1 {
 		if (m_original_source_text_str.length() > last_pos) {
 			std::string text_frag = m_original_source_text_str.substr(last_pos);
 			non_child_dependent_text_fragments.push_back(text_frag);
+		} else {
+			non_child_dependent_text_fragments.push_back("");
 		}
 		
 		m_non_child_dependent_text_fragments = non_child_dependent_text_fragments;
@@ -3718,7 +3721,7 @@ namespace convm1 {
 		if (m_state1.m_ast_context_ptr) {
 			bool has_ancestor_with_conversion_state = false;
 			//auto parent_E = NonParenNoopCastParentOfType<clang::Expr>(m_expr_cptr, *(m_state1.m_ast_context_ptr));
-			auto parent_E = NonParenImpCastParentOfType<clang::Expr>(m_expr_cptr, *(m_state1.m_ast_context_ptr));
+			auto parent_E = NonImplicitParentOfType<clang::Expr>(m_expr_cptr, *(m_state1.m_ast_context_ptr));
 			auto E1 = parent_E;
 			while (E1) {
 				auto excs_iter = m_state1.m_expr_conversion_state_map.find(E1);
@@ -3726,7 +3729,7 @@ namespace convm1 {
 					has_ancestor_with_conversion_state = true;
 					break;
 				}
-				E1 = NonParenImpCastParentOfType<clang::Expr>(E1, *(m_state1.m_ast_context_ptr));
+				E1 = NonImplicitParentOfType<clang::Expr>(E1, *(m_state1.m_ast_context_ptr));
 			}
 			if (has_ancestor_with_conversion_state) {
 				assert(parent_E);
@@ -5966,9 +5969,13 @@ namespace convm1 {
 									}
 								}
 								if (definition_SR.getEnd() < pointee_SR.getEnd()) {
-									pointee_SR.setEnd(definition_SR.getEnd());
-									old_pointee_text = Rewrite.getRewrittenText(pointee_SR);
-									int q = 5;
+									if (definition_SR.getEnd() > pointee_SR.getBegin()) {
+										pointee_SR.setEnd(definition_SR.getEnd());
+										old_pointee_text = Rewrite.getRewrittenText(pointee_SR);
+										int q = 5;
+									} else {
+										int q = 5;
+									}
 								}
 							}
 
@@ -9432,6 +9439,39 @@ namespace convm1 {
 		return sr;
 	}
 
+	inline auto given_or_descendant_DeclRefExpr(const clang::Expr* E, clang::ASTContext& context) {
+		auto DRE = dyn_cast<const clang::DeclRefExpr>(E);
+		auto ME = dyn_cast<const clang::MemberExpr>(E);
+		if (!DRE) {
+			if (ME) {
+				DRE = Tget_descendant_of_type<const clang::DeclRefExpr>(ME, context);
+			} else {
+				ME = Tget_descendant_of_type<const clang::MemberExpr>(E, context);
+				if (ME) {
+					DRE = Tget_descendant_of_type<const clang::DeclRefExpr>(ME, context);
+				} else {
+					DRE = Tget_descendant_of_type<const clang::DeclRefExpr>(E, context);
+				}
+			}
+		}
+		return DRE;
+	}
+
+	inline auto ddecl_of_expression_if_available(clang::Expr const *E, clang::ASTContext& context) {
+		std::optional<clang::DeclaratorDecl const *> retval;
+		if (!E) { return retval; }
+
+		auto E_ii = IgnoreParenImpNoopCasts(E, context);
+		auto DRE = given_or_descendant_DeclRefExpr(E_ii, context);
+		if (DRE) {
+			auto DD = llvm::dyn_cast<clang::DeclaratorDecl const>(DRE->getDecl());
+			if (DD) {
+				retval = DD;
+			} else { assert(false); }
+		}
+		return retval;
+	}
+
 	class CCStyleCastReplacementCodeItem {
 	public:
 		std::string m_new_cast_prefix;
@@ -9441,6 +9481,8 @@ namespace convm1 {
 	inline CCStyleCastReplacementCodeItem generate_c_style_cast_replacement_code(Rewriter &Rewrite, CTUState& state1, const clang::CStyleCastExpr* CSCE, std::optional<std::string> maybe_replacement_qtype_str = {}) {
 		CCStyleCastReplacementCodeItem retval;
 		if (CSCE) {
+			auto CSCE_qtype = CSCE->getType();
+			IF_DEBUG(std::string CSCE_qtype_str = CSCE_qtype.getAsString();)
 			auto whole_cast_expression_SR = write_once_source_range(spelling_source_range(CSCE->getSourceRange(), Rewrite));
 			auto cast_operation_SR = write_once_source_range(spelling_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, Rewrite));
 			auto cast_preconversion_expression_SR = write_once_source_range(spelling_source_range(CSCE->getSubExprAsWritten()->getSourceRange(), Rewrite));
@@ -9450,6 +9492,154 @@ namespace convm1 {
 				IF_DEBUG(auto whole_cast_expression_text = Rewrite.getRewrittenText(whole_cast_expression_SR);)
 				auto cast_preconversion_expression_text = Rewrite.getRewrittenText(cast_preconversion_expression_SR);
 
+				if ((!(maybe_replacement_qtype_str.has_value())) && state1.m_ast_context_ptr) {
+					auto& context_ref = *(state1.m_ast_context_ptr);
+					/* At this point we haven't been given any (direct) information about what the cast type should be 
+					converted to. So we going to look to see if this cast operation is embedded in some context from 
+					which we know how to extract information about the what type it should be converted to. */
+
+					/* First we look for a containing call expression. If our cast expression is part of a call expression 
+					argument then we probably don't want to consider any context outside of the call expression. */
+					const auto containing_CE = Tget_containing_element_of_type<clang::CallExpr>(CSCE, context_ref);
+					auto is_outside_of_containing_CE = [containing_CE, &context_ref](auto* node_ptr1) {
+							if (!containing_CE) {
+								return false;
+							}
+							const auto containing_CE2 = Tget_containing_element_of_type<clang::CallExpr>(node_ptr1, context_ref);
+							if (containing_CE2 == containing_CE) {
+								return false;
+							}
+							return true;
+						};
+
+					/* First we're going to try to determine if the cast expression is part of a constraining binary 
+					operation. */
+					auto containing_BO = Tget_containing_element_of_type<clang::BinaryOperator>(CSCE, context_ref);
+					while (containing_BO) {
+						const auto opcode_str = std::string(containing_BO->getOpcodeStr());
+						if ((clang::BinaryOperator::Opcode::BO_Assign == containing_BO->getOpcode()) 
+							|| ("==" == opcode_str) || ("!=" == opcode_str) || ("<" == opcode_str) || (">" == opcode_str) || ("<=" == opcode_str) || (">=" == opcode_str)) {
+
+							break;
+						}
+						containing_BO = Tget_containing_element_of_type<clang::BinaryOperator>(containing_BO, context_ref);
+					}
+					if (containing_BO && !is_outside_of_containing_CE(containing_BO)) {
+						auto precasted_expr_res = infer_array_type_info_from_stmt(*(CSCE->getSubExpr()), "", state1);
+						clang::DeclaratorDecl const* precasted_DD = precasted_expr_res.ddecl_cptr;
+
+						/* Ok, so now we're looking for a DeclRefExpr that is part of the binary operation, but ouside of our 
+						cast expression, whose associated CDDeclConversionState from which we can extract information about
+						what type the cast type should bre converted to. */
+						auto res1 = infer_array_type_info_from_stmt(*(containing_BO->getLHS()), "", state1);
+						if ((!(res1.ddecl_cptr)) || (res1.ddecl_cptr == precasted_DD)) {
+							res1 = infer_array_type_info_from_stmt(*(containing_BO->getRHS()), "", state1);
+						}
+						if (res1.ddecl_cptr && (res1.ddecl_cptr != precasted_DD)) {
+							CIndirectionStateStack CSCE_qtype_indirection_state_stack;
+							auto CSCE_direct_rhs_qtype = populateQTypeIndirectionStack(CSCE_qtype_indirection_state_stack, CSCE_qtype);
+							CIndirectionStateStack related_ddecl_qtype_indirection_state_stack;
+							auto related_ddecl_direct_rhs_qtype = populateQTypeIndirectionStack(related_ddecl_qtype_indirection_state_stack, res1.ddecl_cptr->getType());
+							bool related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info = true;
+							if ((CSCE_qtype_indirection_state_stack.size() + res1.indirection_level) == related_ddecl_qtype_indirection_state_stack.size()) {
+								related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info = false;
+							}
+							if (related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info) {
+								std::string CSCE_qtype_str = CSCE_qtype.getAsString();
+								if (("void *" == CSCE_qtype_str) || ("const void *" == CSCE_qtype_str)) {
+									/* If the cast expression is a `void *`, it could be legitimate to cast to a pointer with more levels 
+									of indirection than the one apparent one thet `void *` does. */
+									related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info = false;
+								}
+							}
+							if (!related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info) {
+								std::string related_ddecl_qtype_str = res1.ddecl_cptr->getType().getAsString();
+								if (("void *" == related_ddecl_qtype_str) || ("const void *" == related_ddecl_qtype_str)) {
+									/* While the fact that the related ddecl is a `void *` prevents us from concluding that its degree of 
+									indirection is mismatched with that of our cast expression, it also means that meaningful information 
+									about the original type of the value it holds is not available. */
+									related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info = true;
+								}
+							}
+
+							if ((0 == res1.indirection_level) && !related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info) {
+								/* For now we only support the case where there are no (net) dereferencing or address_of operations. */
+
+								auto res4 = generate_declaration_replacement_code(res1.ddecl_cptr, Rewrite, &state1, state1.m_ddecl_conversion_state_map);
+								if ("" != res4.m_replacement_return_type_str) {
+									maybe_replacement_qtype_str = res4.m_replacement_return_type_str;
+								} else {
+									int q = 5;
+								}
+							} else {
+								/* todo: */
+								int q = 5;
+							}
+						}
+					}
+					if (!(maybe_replacement_qtype_str.has_value())) {
+						/* We're still haven't found a suitable associated DeclRefExpr from which to obtain the neede type 
+						conversion information. Next we'll try to determine if the cast expression is part of (an 
+						initialization expression of) a (variable) declaration. */
+						auto containing_VD = Tget_containing_element_of_type<clang::VarDecl>(CSCE, context_ref);
+						if (containing_VD && !is_outside_of_containing_CE(containing_VD)) {
+							CIndirectionStateStack CSCE_qtype_indirection_state_stack;
+							auto CSCE_direct_rhs_qtype = populateQTypeIndirectionStack(CSCE_qtype_indirection_state_stack, CSCE_qtype);
+							CIndirectionStateStack related_ddecl_qtype_indirection_state_stack;
+							auto related_ddecl_direct_rhs_qtype = populateQTypeIndirectionStack(related_ddecl_qtype_indirection_state_stack, containing_VD->getType());
+							bool related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info = true;
+							if (CSCE_qtype_indirection_state_stack.size() == related_ddecl_qtype_indirection_state_stack.size()) {
+								related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info = false;
+							}
+							if (related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info) {
+								std::string CSCE_qtype_str = CSCE_qtype.getAsString();
+								if (("void *" == CSCE_qtype_str) || ("const void *" == CSCE_qtype_str)) {
+									related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info = false;
+								}
+							}
+							if (!related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info) {
+								std::string related_ddecl_qtype_str = containing_VD->getType().getAsString();
+								if (("void *" == related_ddecl_qtype_str) || ("const void *" == related_ddecl_qtype_str)) {
+									/* While the fact that the related ddecl is a `void *` prevents us from concluding that its degree of 
+									indirection is mismatched with that of our cast expression, it also means that meaningful information 
+									about the original type of the value it holds is not available. */
+									related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info = true;
+								}
+							}
+
+							if (!related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info) {
+								auto res4 = generate_declaration_replacement_code(containing_VD, Rewrite, &state1, state1.m_ddecl_conversion_state_map);
+								if ("" != res4.m_replacement_return_type_str) {
+									maybe_replacement_qtype_str = res4.m_replacement_return_type_str;
+
+									auto VD = dyn_cast<const clang::VarDecl>(containing_VD);
+									if (VD && VD->hasInit()) {
+										const auto init_E = VD->getInit();
+										assert(init_E);
+										/* So this cast expression has seems to have an ancestor variable declaration that has an initialization 
+										expression. So that cast expression that we are generating the replacement code for is likely a 
+										sub-expression if that initialization expression. When the associated CExprConversionState is created 
+										for the cast expression, it will search its ancestor expressions for one that has its own associated 
+										CExprConversionState, and if it finds one, will establish a relationship between them such that any 
+										changes to the descendant expression will be reflected in the rendering of the ancestor expression. So 
+										we want to make sure that that initalization expression indeed does have an associated 
+										CExprConversionState, so the relationship will indeed be established. Otherwise the initialization 
+										expression might be rendered in a way that overwrites and does not reflect any changes to the cast 
+										expression. The following line ensures that the initialization expression has an associated 
+										CExprConversionState. (This may be redundant now.) */
+										state1.get_expr_conversion_state_ref(*init_E, Rewrite);
+									}
+								} else {
+									int q = 5;
+								}
+							} else {
+								int q = 5;
+							}
+						} else {
+							int q = 5;
+						}
+					}
+				}
 				if (!(maybe_replacement_qtype_str.has_value())) {
 					auto containing_D = Tget_containing_element_of_type<clang::Decl>(CSCE, *(state1.m_ast_context_ptr));
 					std::optional<clang::TypeLoc> maybe_typeLoc;
@@ -9895,7 +10085,7 @@ namespace convm1 {
 									}
 
 									auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_expression, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
-									auto direct_qtype_str = ddcs_ref.current_direct_qtype_str();
+									auto direct_qtype_str = indirection_state_stack_of_expression.m_direct_type_state.current_return_qtype_str();
 
 									auto& function_type_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state;
 									if (function_type_state_ref.m_function_decl_ptr) {
@@ -9990,7 +10180,7 @@ namespace convm1 {
 												}
 
 												auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_asignee, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
-												auto direct_qtype_str = ddcs_ref.current_direct_return_qtype_str();
+												auto direct_qtype_str = indirection_state_stack_of_asignee.m_direct_type_state.current_return_qtype_str();
 
 												if (0 == indirection_state_stack_of_asignee.size()) {
 													/* The type of the LHS expression does not seem to be indirect. So the LHS type is the 
@@ -10103,7 +10293,7 @@ namespace convm1 {
 									}
 
 									auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_pointee, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
-									auto direct_qtype_str = ddcs_ref.current_direct_qtype_str();
+									auto direct_qtype_str = indirection_state_stack_of_pointee.m_direct_type_state.current_return_qtype_str();
 
 									if (0 == indirection_state_stack_of_pointee.size()) {
 										/* The type of the conditional operator argument(/alternative/option/branch) expressions seems to have
@@ -11017,6 +11207,50 @@ namespace convm1 {
 								//retval.update_declaration_flag = true;
 								m_state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(m_state1, CDDeclIndirection(*DD, 0));
 								update_declaration(*DD, Rewrite, m_state1);
+							}
+						}
+						if (VD) {
+							if (VD->hasInit()) {
+								auto pInitExpr = VD->getInit();
+								if (pInitExpr) {
+									auto init_expr_source_range = cm1_adj_nice_source_range(pInitExpr->getSourceRange(), m_state1, Rewrite);
+
+									/* It seems that getInit() will return the initalization expression even if it
+									was expressed in another redeclaration of the variable rather than this declaration.
+									We're using source ranges to determine whether the initializtion expression is
+									part of this declaration because it's not immediately clear how else to do it. */
+									auto init_expr_located_in_this_decl = first_is_a_subset_of_second(init_expr_source_range, SR);
+
+									if (init_expr_source_range.isValid() && init_expr_located_in_this_decl) {
+										auto initialization_expr_str = Rewrite.getRewrittenText(init_expr_source_range);
+										if (variable_name == initialization_expr_str) {
+											/* We encountered a weird bug where the initialization expression sometimes
+											* was indicated as being present and the source range set to the variable name
+											* when actually no initialization expression was present in the original source. */
+											initialization_expr_str = "";
+										} else {
+											ddcs_ref.m_initializer_SR_or_insert_before_point = init_expr_source_range;
+											ddcs_ref.m_original_initialization_expr_str = initialization_expr_str;
+											if (true || ddcs_ref.current_initialization_expr_str().empty()) {
+												/* This line ensures that the initialization expression has an associated CExprConversionState. This 
+												will allow any (modified) subexpressions to establish an ancestor-descendant relationship and 
+												facilitate the incorporation of any subexpression modifications into the rendering of the 
+												initialization expression. */
+												m_state1.get_expr_conversion_state_ref(*pInitExpr, Rewrite);
+
+												ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(pInitExpr, Rewrite, m_state1));
+												ddcs_ref.m_fallback_current_initialization_expr_str = initialization_expr_str;
+											} else {
+												initialization_expr_str = ddcs_ref.current_initialization_expr_str();
+											}
+											ddcs_ref.m_original_initialization_has_been_noted = true;
+										}
+									} else {
+										int q = 5;
+									}
+								} else {
+									int q = 3;
+								}
 							}
 						}
 
@@ -13149,39 +13383,6 @@ namespace convm1 {
 		CTUState& m_state1;
 	};
 
-	inline auto given_or_descendant_DeclRefExpr(const clang::Expr* E, clang::ASTContext& context) {
-		auto DRE = dyn_cast<const clang::DeclRefExpr>(E);
-		auto ME = dyn_cast<const clang::MemberExpr>(E);
-		if (!DRE) {
-			if (ME) {
-				DRE = Tget_descendant_of_type<const clang::DeclRefExpr>(ME, context);
-			} else {
-				ME = Tget_descendant_of_type<const clang::MemberExpr>(E, context);
-				if (ME) {
-					DRE = Tget_descendant_of_type<const clang::DeclRefExpr>(ME, context);
-				} else {
-					DRE = Tget_descendant_of_type<const clang::DeclRefExpr>(E, context);
-				}
-			}
-		}
-		return DRE;
-	}
-
-	inline auto ddecl_of_expression_if_available(clang::Expr const *E, clang::ASTContext& context) {
-		std::optional<clang::DeclaratorDecl const *> retval;
-		if (!E) { return retval; }
-
-		auto E_ii = IgnoreParenImpNoopCasts(E, context);
-		auto DRE = given_or_descendant_DeclRefExpr(E_ii, context);
-		if (DRE) {
-			auto DD = llvm::dyn_cast<clang::DeclaratorDecl const>(DRE->getDecl());
-			if (DD) {
-				retval = DD;
-			} else { assert(false); }
-		}
-		return retval;
-	}
-
 	inline bool set_xscope_elegibility_of_outermost_indirection_if_any(bool xscope_eligibility, clang::DeclaratorDecl const * DD, CTUState& state1) {
 		if (!DD) { return false; }
 
@@ -13434,34 +13635,54 @@ namespace convm1 {
 					auto b1 = contains_explicit_pointer_cast_subexpression(*precasted_expr_ptr);
 
 					if (true || (!b1) || ("char" == non_const_csce_pointee_QT.getAsString())) {
-						auto res = generate_c_style_cast_replacement_code(Rewrite, state1, CSCE);
 
-						auto adjusted_new_cast_prefix = res.m_new_cast_prefix;
-						if (true) {
-							auto preconversion_expression_start_offset = Rewrite.getSourceMgr().getFileOffset(precasted_expr_SR.getBegin()) - Rewrite.getSourceMgr().getFileOffset(CSCESR.getBegin());
-							const std::string og_whole_cast_expr_text = Rewrite.getRewrittenText(CSCESR);
-							if ((og_whole_cast_expr_text.length() > preconversion_expression_start_offset) && (0 <= preconversion_expression_start_offset)) {
-								if (res.m_new_cast_prefix.length() < preconversion_expression_start_offset) {
-									/* Just adding some padding to the prefix so that "precasted" expression ends up at its original 
-									(relative) location. (Just in case some of our other hacks depend on it.) */
-									const auto length_diff1 = preconversion_expression_start_offset - res.m_new_cast_prefix.length();
-									std::string padding;
-									for (size_t i = 0; length_diff1 > i; i += 1) {
-										padding += ' ';
+						auto lambda = [&Rewrite, &state1, CSCE, precasted_expr_ptr, CSCESR, precasted_expr_SR]() {
+							auto SR = CSCESR;
+							RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+							DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, CSCESR, Rewrite);
+							DEBUG_SOURCE_TEXT_STR(debug_source_text1, CSCESR, Rewrite);
+#ifndef NDEBUG
+							if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+								int q = 5;
+							}
+#endif /*!NDEBUG*/
+
+							auto res = generate_c_style_cast_replacement_code(Rewrite, state1, CSCE);
+
+							auto adjusted_new_cast_prefix = res.m_new_cast_prefix;
+							if (true) {
+								auto preconversion_expression_start_offset = Rewrite.getSourceMgr().getFileOffset(precasted_expr_SR.getBegin()) - Rewrite.getSourceMgr().getFileOffset(CSCESR.getBegin());
+								const std::string og_whole_cast_expr_text = Rewrite.getRewrittenText(CSCESR);
+								if ((og_whole_cast_expr_text.length() > preconversion_expression_start_offset) && (0 <= preconversion_expression_start_offset)) {
+									if (res.m_new_cast_prefix.length() < preconversion_expression_start_offset) {
+										/* Just adding some padding to the prefix so that "precasted" expression ends up at its original 
+										(relative) location. (Just in case some of our other hacks depend on it.) */
+										const auto length_diff1 = preconversion_expression_start_offset - res.m_new_cast_prefix.length();
+										std::string padding;
+										for (size_t i = 0; length_diff1 > i; i += 1) {
+											padding += ' ';
+										}
+										adjusted_new_cast_prefix = padding + adjusted_new_cast_prefix;
 									}
-									adjusted_new_cast_prefix = padding + adjusted_new_cast_prefix;
+								}
+
+								auto& ecs_ref = state1.get_expr_conversion_state_ref<CCastExprConversionState>(*CSCE, Rewrite, *precasted_expr_ptr, adjusted_new_cast_prefix, res.m_new_cast_suffix);
+								ecs_ref.update_current_text();
+
+								if (CSCESR.isValid()) {
+									//state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CSCESR, state1, CSCE);
+
+									auto& current_text_ref = ecs_ref.current_text();
+									if (current_text_ref != ecs_ref.m_original_source_text_str) {
+										state1.m_pending_code_modification_actions.ReplaceText(Rewrite, CSCESR, current_text_ref);
+									}
 								}
 							}
-
-							auto& ecs_ref = state1.get_expr_conversion_state_ref<CCastExprConversionState>(*CSCE, Rewrite, *precasted_expr_ptr, adjusted_new_cast_prefix, res.m_new_cast_suffix);
-							ecs_ref.update_current_text();
-
-							if (CSCESR.isValid() && (!there_seems_to_be_a_contending_pending_code_modification_action)) {
-								state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CSCESR, state1, CSCE);
-							}
+						};
+						//lambda();
+						if (CSCESR.isValid() && (!there_seems_to_be_a_contending_pending_code_modification_action)) {
+							state1.m_pending_code_modification_actions.add_replacement_action(CSCESR, lambda);
 						}
-
-						//CExprTextYieldingReplacementAction(Rewrite, MR, CSCE, res.m_whole_cast_expression_replacement_text).do_replacement(state1);
 					} else {
 						std::string cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);
 						/* We're going to "blank out"/erase the original source text of the C-style cast operation
@@ -13681,7 +13902,7 @@ namespace convm1 {
 				}
 
 				auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_LHS, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
-				auto direct_qtype_str = ddcs_ref.current_direct_return_qtype_str();
+				auto direct_qtype_str = indirection_state_stack_of_LHS.m_direct_type_state.current_return_qtype_str();
 
 				if (0 == indirection_state_stack_of_LHS.size()) {
 					/* The type of the LHS expression does not seem to be indirect. So the LHS type is the 
@@ -13898,75 +14119,6 @@ namespace convm1 {
 				RHS_decl_is_non_modifiable = is_non_modifiable(*(rhs_res2.ddecl_cptr), MR, Rewrite, state1);
 			}
 
-			if (lhs_res2.ddecl_cptr) {
-				auto LHSDD_SR = cm1_adj_nice_source_range(lhs_res2.ddecl_cptr->getSourceRange(), state1, Rewrite);
-				if ((LHS_decl_is_non_modifiable /*&& (!RHS_decl_is_non_modifiable)*/) && (LHS || VLD) && RHS) {
-					/* LHS will, for whatever reason, not be converted to a safe pointer. But presumably the RHS will 
-					(or at least could) be. So we may need to add an unsafe cast from the RHS safe pointer to the LHS
-					raw pointer. */
-					auto LHS_qtype = LHS ? LHS->getType() : maybe_VLD_effective_qtype.value();
-					auto RHS_qtype = RHS->getType();
-					
-					RETURN_IF_DEPENDENT_TYPE_CONV1(LHS_qtype);
-
-					assert(RHS->getType().getTypePtrOrNull());
-					auto rhs_source_range = write_once_source_range(cm1_adj_nice_source_range(RHS->getSourceRange(), state1, Rewrite));
-					std::string rhs_source_text;
-					if (rhs_source_range.isValid()) {
-						IF_DEBUG(rhs_source_text = Rewrite.getRewrittenText(rhs_source_range);)
-					}
-
-					auto DRE = given_or_descendant_DeclRefExpr(RHS_ii, *(MR.Context));
-
-					if ((nullptr != DRE) && rhs_source_range.isValid()
-						&& LHS_qtype->isPointerType() && (!LHS_qtype->isFunctionPointerType())) {
-
-						assert(nullptr != RHS);
-						auto& rhs_ecs_ref = state1.get_expr_conversion_state_ref(*RHS, Rewrite);
-
-						if (ConvertToSCPP) {
-
-							std::string rhs_function_qname_if_any;
-							auto rhs_CE = dyn_cast<const clang::CallExpr>(RHS_ii);
-							if (rhs_CE) {
-								auto rhs_function_decl1 = rhs_CE->getDirectCallee();
-								if (rhs_function_decl1) {
-									rhs_function_qname_if_any = rhs_function_decl1->getQualifiedNameAsString();
-								}
-							}
-
-							std::shared_ptr<CExprTextModifier> shptr1;
-							auto RHS_qtype_str = RHS_qtype.getAsString();
-							if (!string_begins_with(rhs_function_qname_if_any, "mse::")) {
-								shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
-								if (1 <= rhs_ecs_ref.m_expr_text_modifier_stack.size()) {
-									if ("unsafe make raw pointer from" == rhs_ecs_ref.m_expr_text_modifier_stack.back()->species_str()) {
-										/* already applied */
-										return;
-									}
-								}
-							}
-							if (shptr1) {
-								rhs_ecs_ref.m_expr_text_modifier_stack.push_back(shptr1);
-								rhs_ecs_ref.update_current_text();
-
-								state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, rhs_source_range, state1, RHS);
-								//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, rhs_source_range, (*rhs_shptr_ref).current_text());
-								//(*this).Rewrite.ReplaceText(rhs_source_range, (*rhs_shptr_ref).current_text());
-								return;
-							}
-						} else {
-							int q = 5;
-						}
-					} else {
-						int q = 5;
-					}
-					int q = 5;
-		
-					return;
-				}
-			}
-
 			auto rhsii_EX = RHS->IgnoreParenImpCasts();
 			auto rhsii_stmt_class = rhsii_EX->getStmtClass();
 			//clang::Stmt::StmtClass::CXXStaticCastExprClass;
@@ -13989,7 +14141,7 @@ namespace convm1 {
 					do {
 						if ((csce_QT->isPointerType()) && precasted_expr_ptr->getType()->isPointerType() && cast_operation_SR.isValid()) {
 							std::string csce_QT_str = csce_QT.getAsString();
-							if ("void *" == csce_QT_str) {
+							if (false && ("void *" == csce_QT_str)) {
 								/* This case is handled by the MCSSSExprUtil handler. */
 								finished_cast_handling_flag = true;
 								break;
@@ -14070,6 +14222,75 @@ namespace convm1 {
 							}
 						}
 					}
+				}
+			}
+
+			if (lhs_res2.ddecl_cptr) {
+				auto LHSDD_SR = cm1_adj_nice_source_range(lhs_res2.ddecl_cptr->getSourceRange(), state1, Rewrite);
+				if ((LHS_decl_is_non_modifiable /*&& (!RHS_decl_is_non_modifiable)*/) && (LHS || VLD) && RHS) {
+					/* LHS will, for whatever reason, not be converted to a safe pointer. But presumably the RHS will 
+					(or at least could) be. So we may need to add an unsafe cast from the RHS safe pointer to the LHS
+					raw pointer. */
+					auto LHS_qtype = LHS ? LHS->getType() : maybe_VLD_effective_qtype.value();
+					auto RHS_qtype = RHS->getType();
+					
+					RETURN_IF_DEPENDENT_TYPE_CONV1(LHS_qtype);
+
+					assert(RHS->getType().getTypePtrOrNull());
+					auto rhs_source_range = write_once_source_range(cm1_adj_nice_source_range(RHS->getSourceRange(), state1, Rewrite));
+					std::string rhs_source_text;
+					if (rhs_source_range.isValid()) {
+						IF_DEBUG(rhs_source_text = Rewrite.getRewrittenText(rhs_source_range);)
+					}
+
+					auto DRE = given_or_descendant_DeclRefExpr(RHS_ii, *(MR.Context));
+
+					if ((nullptr != DRE) && rhs_source_range.isValid()
+						&& LHS_qtype->isPointerType() && (!LHS_qtype->isFunctionPointerType())) {
+
+						assert(nullptr != RHS);
+						auto& rhs_ecs_ref = state1.get_expr_conversion_state_ref(*RHS, Rewrite);
+
+						if (ConvertToSCPP) {
+
+							std::string rhs_function_qname_if_any;
+							auto rhs_CE = dyn_cast<const clang::CallExpr>(RHS_ii);
+							if (rhs_CE) {
+								auto rhs_function_decl1 = rhs_CE->getDirectCallee();
+								if (rhs_function_decl1) {
+									rhs_function_qname_if_any = rhs_function_decl1->getQualifiedNameAsString();
+								}
+							}
+
+							std::shared_ptr<CExprTextModifier> shptr1;
+							auto RHS_qtype_str = RHS_qtype.getAsString();
+							if (!string_begins_with(rhs_function_qname_if_any, "mse::")) {
+								shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
+								if (1 <= rhs_ecs_ref.m_expr_text_modifier_stack.size()) {
+									if ("unsafe make raw pointer from" == rhs_ecs_ref.m_expr_text_modifier_stack.back()->species_str()) {
+										/* already applied */
+										return;
+									}
+								}
+							}
+							if (shptr1) {
+								rhs_ecs_ref.m_expr_text_modifier_stack.push_back(shptr1);
+								rhs_ecs_ref.update_current_text();
+
+								state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, rhs_source_range, state1, RHS);
+								//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, rhs_source_range, (*rhs_shptr_ref).current_text());
+								//(*this).Rewrite.ReplaceText(rhs_source_range, (*rhs_shptr_ref).current_text());
+								return;
+							}
+						} else {
+							int q = 5;
+						}
+					} else {
+						int q = 5;
+					}
+					int q = 5;
+		
+					return;
 				}
 			}
 
@@ -14586,7 +14807,31 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+				//RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+				/* In this case we only filter out the element if the call expression and all of its arguments would 
+				be individually filtered out. */
+				if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR.getBegin())) {
+					bool an_arg_is_not_filtered_out = false;
+					auto function_decl1 = CE->getDirectCallee();
+					const auto num_args = CE->getNumArgs();
+					if (function_decl1) {
+						const std::string function_qname = function_decl1->getQualifiedNameAsString();
+						const auto num_args = CE->getNumArgs();
+						size_t arg_index = 0;
+						for (; (num_args > arg_index); arg_index += 1) {
+							auto arg_EX = CE->getArg(arg_index);
+							auto arg_SR = cm1_adj_nice_source_range(arg_EX->getSourceRange(), state1, Rewrite);
+							if ((!arg_SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, arg_SR.getBegin())) {
+							} else {
+								an_arg_is_not_filtered_out = true;
+								break;
+							}
+						}
+					}
+					if (!an_arg_is_not_filtered_out) {
+						return;
+					}
+				}
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 

@@ -557,6 +557,11 @@ inline auto get_cannonical_type_ptr(clang::Type const * type_ptr) -> clang::Type
 }
 
 template<typename TPtr>
+inline auto IgnoreImplicit(TPtr ptr) -> decltype(ptr->IgnoreImplicit()) {
+	if (!ptr) { return ptr; }
+	return ptr->IgnoreImplicit();
+}
+template<typename TPtr>
 inline auto IgnoreParenImpCasts(TPtr ptr) -> decltype(ptr->IgnoreImplicit()->IgnoreParenImpCasts()) {
 	if (!ptr) { return ptr; }
 	return ptr->IgnoreImplicit()->IgnoreParenImpCasts();
@@ -637,12 +642,12 @@ inline auto NonParenNoopCastParentOfType(const NodeT* ptr, clang::ASTContext& Ct
 /* This function just returns the immediate parent node, ignoring "Implicit" or "Paren(thesis)"
 expressions, if that parent is the specified type. Otherwise it returns nullptr. */
 template <typename ContainingElementT, typename NodeT>
-inline auto NonParenImpCastParentOfType(const NodeT* ptr, clang::ASTContext& Ctx) {
+inline auto NonImplicitParentOfType(const NodeT* ptr, clang::ASTContext& Ctx) {
 	ContainingElementT const* retval = nullptr;
 	if (!ptr) { return retval; }
 	auto parent_E = Tget_immediately_containing_element_of_type<clang::Expr>(ptr, Ctx);
 	std::optional<clang::Expr const*> maybe_last_parent_E;
-	while (parent_E && (IgnoreParenImpCasts(parent_E) != parent_E)) {
+	while (parent_E && (IgnoreImplicit(parent_E) != parent_E)) {
 		maybe_last_parent_E = parent_E;
 		parent_E = Tget_immediately_containing_element_of_type<clang::Expr>(parent_E, Ctx);
 	}

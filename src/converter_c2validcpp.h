@@ -3362,7 +3362,7 @@ namespace convc2validcpp {
 
 						if (state1.m_ast_context_ptr && (b10 || b10b)) {
 							//auto parent_E = Tget_immediately_containing_element_of_type<clang::Expr>(expr_ptr, *(state1.m_ast_context_ptr));
-							auto parent_E = NonParenImpCastParentOfType<clang::Expr>(expr_ptr, *(state1.m_ast_context_ptr));
+							auto parent_E = NonImplicitParentOfType<clang::Expr>(expr_ptr, *(state1.m_ast_context_ptr));
 							if (parent_E) {
 								auto parent_rawSR = parent_E->getSourceRange();
 								if (parent_rawSR.isValid()) {
@@ -3588,7 +3588,7 @@ namespace convc2validcpp {
 		if (m_state1.m_ast_context_ptr) {
 			bool has_ancestor_with_conversion_state = false;
 			//auto parent_E = NonParenNoopCastParentOfType<clang::Expr>(m_expr_cptr, *(m_state1.m_ast_context_ptr));
-			auto parent_E = NonParenImpCastParentOfType<clang::Expr>(m_expr_cptr, *(m_state1.m_ast_context_ptr));
+			auto parent_E = NonImplicitParentOfType<clang::Expr>(m_expr_cptr, *(m_state1.m_ast_context_ptr));
 			auto E1 = parent_E;
 			while (E1) {
 				auto excs_iter = m_state1.m_expr_conversion_state_map.find(E1);
@@ -3596,7 +3596,7 @@ namespace convc2validcpp {
 					has_ancestor_with_conversion_state = true;
 					break;
 				}
-				E1 = NonParenImpCastParentOfType<clang::Expr>(E1, *(m_state1.m_ast_context_ptr));
+				E1 = NonImplicitParentOfType<clang::Expr>(E1, *(m_state1.m_ast_context_ptr));
 			}
 			if (has_ancestor_with_conversion_state) {
 				assert(parent_E);
