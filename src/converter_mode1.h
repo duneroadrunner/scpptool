@@ -8034,6 +8034,10 @@ namespace convm1 {
 		}
 	}
 
+	struct do_not_exclude_functions_with_conversions_t {};
+	template<typename TOptions = options_t<> >
+	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1);
+
 	static void update_declaration(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1, apply_to_redeclarations_t apply_to_redeclarations/* = apply_to_redeclarations_t::yes*/, std::string options_str/* = ""*/) {
 		const DeclaratorDecl* DD = &ddecl;
 
@@ -8048,8 +8052,15 @@ namespace convm1 {
 
 		IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 
-		if (filtered_out_by_location<options_t<converter_mode_t> >(SM, SR.getBegin())) {
-			return void();
+		if (state1.m_ast_context_ptr) {
+			if (is_non_modifiable(ddecl, *(state1.m_ast_context_ptr), Rewrite, state1)) {
+				int q = 5;
+				return void();
+			}
+		} else {
+			if (filtered_out_by_location<options_t<converter_mode_t> >(SM, SR.getBegin())) {
+				return void();
+			}
 		}
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
@@ -9729,10 +9740,6 @@ namespace convm1 {
 		}
 	}
 
-	struct do_not_exclude_functions_with_conversions_t {};
-	template<typename TOptions = options_t<> >
-	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1);
-
 	void CConditionalOperatorReconciliation2ReplacementAction::do_replacement(CTUState& state1) const {
 		const clang::ConditionalOperator* CO = m_CO;
 		const Expr* COND = nullptr;
@@ -11050,6 +11057,11 @@ namespace convm1 {
 				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(DD, Rewrite, *(MR.Context));
 				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
 				if (suppress_check_flag) {
+					return;
+				}
+
+				if (is_non_modifiable(*DD, *(MR.Context), Rewrite, m_state1)) {
+					int q = 5;
 					return;
 				}
 
@@ -13426,8 +13438,19 @@ namespace convm1 {
 			if (!(SR.isValid())) {
 				return true;
 			}
-			auto DD = dyn_cast<const clang::VarDecl>(&decl);
+			auto DD = dyn_cast<const clang::DeclaratorDecl>(&decl);
 			if (DD) {
+				auto tsi = DD->getTypeSourceInfo();
+				if (tsi) {
+					auto type_SL = tsi->getTypeLoc().getBeginLoc();
+					if (filtered_out_by_location<options_t<converter_mode_t>>(Ctx, type_SL)) {
+						/* Even if the declaration itself isn't filtered_out_by_location, if the definition of its type is 
+						filtered_out_by_location, then we should probably leave the type specifier alone. For example, the 
+						type could be specified by a system macro whose definition might be platform dependent. */
+						non_modifiable_flag = true;
+						break;
+					}
+				}
 				std::string qtype_str = DD->getType().getAsString();
 				if ("FILE *" == qtype_str) {
 					return true;
@@ -16364,6 +16387,11 @@ namespace convm1 {
 				if (DD) {
 					const auto qtype = DD->getType();
 					const std::string qtype_str = DD->getType().getAsString();
+
+					if (is_non_modifiable(*DD, *(MR.Context), Rewrite, state1)) {
+						int q = 5;
+						return;
+					}
 
 					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
