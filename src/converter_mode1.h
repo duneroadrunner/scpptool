@@ -10420,20 +10420,7 @@ namespace convm1 {
 				//lambda();
 				bool apply_modification = true;
 				assert(COSR.isValid());
-				if ((!m_var_DD) && (1 <= state1.m_pending_code_modification_actions.size())) {
-					auto found_it = state1.m_pending_code_modification_actions.find(COSR);
-					if (state1.m_pending_code_modification_actions.end() != found_it) {
-						/* There seems to ba a modification action already queued for this expression. It might have been 
-						queued when handling the an assignment expression of which this expression is the rhs. That 
-						handling may have (unlike our current situation) had the m_var_DD field provided and therefore 
-						been able to produce a more comprehensive modification action. So we wouldn't want to supercede 
-						that action with this one. */
-						apply_modification = false;
-					}
-				}
-				if (apply_modification) {
-					state1.m_pending_code_modification_actions.add_replacement_action(COSR, lambda);
-				}
+				state1.m_pending_code_modification_actions.add_replacement_action(COSR, lambda);
 
 				CDDeclConversionState* var_ddcs_ptr = nullptr;
 				if (m_var_DD != nullptr) {
