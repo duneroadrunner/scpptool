@@ -7749,17 +7749,17 @@ namespace convm1 {
 					if (ConvertToSCPP && last_decl_source_range.isValid() && (3 <= replacement_code.size())
 							&& changed_from_original) {
 
+						DEBUG_SOURCE_LOCATION_STR(debug_last_decl_source_location_str, last_decl_source_range, Rewrite);
+						DEBUG_SOURCE_TEXT_STR(debug_last_decl_source_text1, last_decl_source_range, Rewrite);
+#ifndef NDEBUG
+						if (std::string::npos != debug_last_decl_source_location_str.find(g_target_debug_source_location_str1)) {
+							int q = 5;
+						}
+#endif /*!NDEBUG*/
+
 						if (last_decl_source_range.is_rewritable()) {
 							state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, last_decl_source_range, replacement_code);
 						} else {
-							DEBUG_SOURCE_LOCATION_STR(debug_last_decl_source_location_str, last_decl_source_range, Rewrite);
-							DEBUG_SOURCE_TEXT_STR(debug_last_decl_source_text1, last_decl_source_range, Rewrite);
-#ifndef NDEBUG
-							if (std::string::npos != debug_last_decl_source_location_str.find(g_target_debug_source_location_str1)) {
-								int q = 5;
-							}
-#endif /*!NDEBUG*/
-
 							/* If the source range is not rewritable then this may be the one and only chance to write anything 
 							to the source range, so we cannot queue the modification for later execution, we must execute the 
 							modification here and now. */
@@ -9139,6 +9139,14 @@ namespace convm1 {
 		if (/*(DS != nullptr) && */(DD != nullptr))
 		{
 			auto decl_source_range = cm1_adj_nice_source_range(DD->getSourceRange(), state1, Rewrite);
+
+			DEBUG_SOURCE_LOCATION_STR(debug_last_decl_source_location_str, decl_source_range, Rewrite);
+			DEBUG_SOURCE_TEXT_STR(debug_last_decl_source_text1, decl_source_range, Rewrite);
+#ifndef NDEBUG
+			if (std::string::npos != debug_last_decl_source_location_str.find(g_target_debug_source_location_str1)) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
 
 			auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &m_Rewrite);
 
@@ -11801,6 +11809,8 @@ namespace convm1 {
 						}
 					}
 					if ("" != lhs_element_type_str) {
+						bool is_char_star = (("char" == lhs_element_type_str) || ("const char" == lhs_element_type_str));
+
 						auto lhs_source_range = cm1_adj_nice_source_range(LHS->getSourceRange(), state1, Rewrite);
 						auto lhs_source_text = Rewrite.getRewrittenText(lhs_source_range);
 
@@ -11893,7 +11903,7 @@ namespace convm1 {
 									&& (nullptr != res2.ddecl_conversion_state_ptr)) {
 								auto cr_shptr = std::make_shared<CMallocArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), BO, bo_replacement_code);
 
-								if (true || ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_point_to_an_array(res2.indirection_level))) {
+								if (true || ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_point_to_an_array(res2.indirection_level) || is_char_star)) {
 									(*cr_shptr).do_replacement(state1);
 								} else {
 									//state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
@@ -15672,6 +15682,8 @@ namespace convm1 {
 							}
 						}
 						if ("" != element_type_str) {
+							bool is_char_star = (("char" == element_type_str) || ("const char" == element_type_str));
+
 							std::string array_initializer_info_str;
 							std::string pointer_initializer_info_str;
 
@@ -15738,7 +15750,7 @@ namespace convm1 {
 							if (ConvertToSCPP && decl_source_range.isValid() && (SR.isValid())) {
 								auto cr_shptr = std::make_shared<CInitializerArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0/*indirection_level*/), array_initializer_info_str);
 
-								if (lhs_has_been_determined_to_point_to_an_array) {
+								if (lhs_has_been_determined_to_point_to_an_array || is_char_star) {
 									(*cr_shptr).do_replacement(state1);
 								} else {
 									/* lhs has not (yet) been determined to be an array iterator. Here we apply the
