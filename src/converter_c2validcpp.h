@@ -13718,7 +13718,13 @@ namespace convc2validcpp {
 				So we (redundantly) implement (some of) them in this general expression matcher
 				which seems to be more reliable. */
 
+				const auto E_qtype = E->getType();
+				MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(E_qtype);
+				IF_DEBUG(auto E_qtype_str = E_qtype.getAsString();)
+
 				auto E_ii = IgnoreParenImpNoopCasts(E, *(MR.Context));
+				const auto E_ii_qtype = E_ii->getType();
+				IF_DEBUG(auto E_ii_qtype_str = E_ii_qtype.getAsString();)
 
 				if (ExpandPointerMacros) {
 					if (E->getType()->isPointerType()) {
@@ -13939,6 +13945,69 @@ namespace convc2validcpp {
 							state1.add_pending_straight_text_replacement_expression_update(Rewrite, SR, E, name + "_a");
 							break;
 						}
+					}
+					auto D = DRE->getDecl();
+					if (D) {
+						const auto D_qtype = D->getType();
+						IF_DEBUG(auto D_qtype_str = D_qtype.getAsString();)
+						auto *ECD = dyn_cast<const clang::EnumConstantDecl>(D);
+						if (ECD) {
+							const auto ECD_qtype = D->getType();
+							IF_DEBUG(auto ECD_qtype_str = ECD_qtype.getAsString();)
+							const auto name = ECD->getNameAsString();
+							const auto qname = ECD->getQualifiedNameAsString();
+							const std::string original_source_text_str = Rewrite.getRewrittenText(SR);
+							if (original_source_text_str == name) {
+								state1.add_pending_straight_text_replacement_expression_update(Rewrite, SR, E, qname);
+							}
+							int q = 5;
+						}
+						if (D_qtype->isEnumeralType()) {
+							auto TD = E_ii_qtype->getAsTagDecl();
+							if (TD) {
+								auto NNS = TD->getQualifier();
+								if (NNS) {
+									auto kind = NNS->getKind();
+									if (clang::NestedNameSpecifier::SpecifierKind::Identifier == kind) {
+										auto II = NNS->getAsIdentifier();
+										if (II) {
+											auto name = std::string(II->getName());
+											int q = 5;
+										} else {
+											int q = 5;
+										}
+									}
+								} else {
+									int q = 5;
+								}
+							} else {
+								int q = 5;
+							}
+						}
+					} else {
+						int q = 5;
+					}
+				}
+				if (E_ii_qtype->isEnumeralType()) {
+					auto TD = E_ii_qtype->getAsTagDecl();
+					if (TD) {
+						auto NNS = TD->getQualifier();
+						if (NNS) {
+							auto kind = NNS->getKind();
+							if (clang::NestedNameSpecifier::SpecifierKind::Identifier == kind) {
+								auto II = NNS->getAsIdentifier();
+								if (II) {
+									auto name = std::string(II->getName());
+									int q = 5;
+								} else {
+									int q = 5;
+								}
+							}
+						} else {
+							int q = 5;
+						}
+					} else {
+						int q = 5;
 					}
 				}
 
