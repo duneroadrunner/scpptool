@@ -13962,50 +13962,6 @@ namespace convc2validcpp {
 							}
 							int q = 5;
 						}
-						if (D_qtype->isEnumeralType()) {
-							auto TD = E_ii_qtype->getAsTagDecl();
-							if (TD) {
-								auto NNS = TD->getQualifier();
-								if (NNS) {
-									auto kind = NNS->getKind();
-									if (clang::NestedNameSpecifier::SpecifierKind::Identifier == kind) {
-										auto II = NNS->getAsIdentifier();
-										if (II) {
-											auto name = std::string(II->getName());
-											int q = 5;
-										} else {
-											int q = 5;
-										}
-									}
-								} else {
-									int q = 5;
-								}
-							} else {
-								int q = 5;
-							}
-						}
-					} else {
-						int q = 5;
-					}
-				}
-				if (E_ii_qtype->isEnumeralType()) {
-					auto TD = E_ii_qtype->getAsTagDecl();
-					if (TD) {
-						auto NNS = TD->getQualifier();
-						if (NNS) {
-							auto kind = NNS->getKind();
-							if (clang::NestedNameSpecifier::SpecifierKind::Identifier == kind) {
-								auto II = NNS->getAsIdentifier();
-								if (II) {
-									auto name = std::string(II->getName());
-									int q = 5;
-								} else {
-									int q = 5;
-								}
-							}
-						} else {
-							int q = 5;
-						}
 					} else {
 						int q = 5;
 					}
