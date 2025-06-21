@@ -8036,7 +8036,7 @@ namespace convm1 {
 
 	struct do_not_exclude_functions_with_conversions_t {};
 	template<typename TOptions = options_t<> >
-	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1);
+	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1, clang::Expr const* E = nullptr);
 
 	static void update_declaration(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1, apply_to_redeclarations_t apply_to_redeclarations/* = apply_to_redeclarations_t::yes*/, std::string options_str/* = ""*/) {
 		const DeclaratorDecl* DD = &ddecl;
@@ -12703,6 +12703,35 @@ namespace convm1 {
 							if (num_args != fc_info.m_maybe_num_parameters.value()) {
 								return;
 							}
+
+							auto num_args = CE->getNumArgs();
+							if (2 <= num_args) {
+								bool first_two_args_are_void_star = false;
+								auto* const arg1_E = CE->getArg(0);
+								if (arg1_E) {
+									auto* const arg1_ii_E = IgnoreParenImpNoopCasts(arg1_E, *(MR.Context));
+									const auto arg1_ii_qtype = arg1_ii_E->getType();
+									const auto arg1_ii_qtype_str = arg1_ii_qtype.getAsString();
+									if (("void *" == arg1_ii_qtype_str) || ("const void *" == arg1_ii_qtype_str)) {
+										auto* const arg2_E = CE->getArg(1);
+										if (arg2_E) {
+											auto* const arg2_ii_E = IgnoreParenImpNoopCasts(arg2_E, *(MR.Context));
+											const auto arg2_ii_qtype = arg2_ii_E->getType();
+											const auto arg2_ii_qtype_str = arg2_ii_qtype.getAsString();
+											if (("void *" == arg2_ii_qtype_str) || ("const void *" == arg2_ii_qtype_str)) {
+												/* So library functions like memcmp() and memcpy() are generally expected to be replaced with safe 
+												implementations. But the safe implementations don't support the case when the pointer arguments 
+												passed are both `void *`. In such case, we don't expect the (unsafe) function to be replaced. */
+												return;
+											}
+										} else {
+											int q = 3;
+										}
+									}
+								} else {
+									int q = 3;
+								}
+							}
 						}
 
 						bool fall_back_flag = false;
@@ -13420,7 +13449,7 @@ namespace convm1 {
 	}
 
 	template<typename TOptions/* = options_t<> */>
-	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1) {
+	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1, clang::Expr const* E /*= nullptr*/) {
 		auto suppress_check_flag = state1.m_suppress_check_region_set.contains(&decl, Rewrite, Ctx);
 		if (suppress_check_flag) {
 			return true;
@@ -13484,7 +13513,40 @@ namespace convm1 {
 						if (function_conversion_infos.at(index).m_maybe_num_parameters.has_value()) {
 							const auto fc_num_params = function_conversion_infos.at(index).m_maybe_num_parameters.value();
 							if (fc_num_params == num_params) {
-								return false;
+								const auto CE = E ? dyn_cast<const clang::CallExpr>(E) : nullptr;
+								if (!CE) {
+									return false;
+								} else {
+									auto num_args = CE->getNumArgs();
+									if (2 <= num_args) {
+										bool first_two_args_are_void_star = false;
+										auto* const arg1_E = CE->getArg(0);
+										if (arg1_E) {
+											auto* const arg1_ii_E = IgnoreParenImpNoopCasts(arg1_E, Ctx);
+											const auto arg1_ii_qtype = arg1_ii_E->getType();
+											const auto arg1_ii_qtype_str = arg1_ii_qtype.getAsString();
+											if (("void *" == arg1_ii_qtype_str) || ("const void *" == arg1_ii_qtype_str)) {
+												auto* const arg2_E = CE->getArg(1);
+												if (arg2_E) {
+													auto* const arg2_ii_E = IgnoreParenImpNoopCasts(arg2_E, Ctx);
+													const auto arg2_ii_qtype = arg2_ii_E->getType();
+													const auto arg2_ii_qtype_str = arg2_ii_qtype.getAsString();
+													if (("void *" == arg2_ii_qtype_str) || ("const void *" == arg2_ii_qtype_str)) {
+														/* So library functions like memcmp() and memcpy() are generally expected to be replaced with safe 
+														implementations. But the safe implementations don't support the case when the pointer arguments 
+														passed are both `void *`. In such case, we don't expect the (unsafe) function to be replaced. */
+														return true;
+													}
+												} else {
+													int q = 3;
+												}
+											}
+										} else {
+											int q = 3;
+										}
+									}
+									return false;
+								}
 							}
 						} else {
 							return false;
@@ -13500,8 +13562,8 @@ namespace convm1 {
 		}
 		return non_modifiable_flag;
 	}
-	bool is_non_modifiable(clang::Decl const& decl, const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::Rewriter &Rewrite, CTUState& state1) {
-		return is_non_modifiable(decl, *(MR.Context), Rewrite, state1);
+	bool is_non_modifiable(clang::Decl const& decl, const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::Rewriter &Rewrite, CTUState& state1, clang::Expr const* E = nullptr) {
+		return is_non_modifiable(decl, *(MR.Context), Rewrite, state1, E);
 	}
 
 	inline static void handle_c_style_cast_without_context(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
@@ -14133,10 +14195,10 @@ namespace convm1 {
 			bool LHS_decl_is_non_modifiable = false;
 			bool RHS_decl_is_non_modifiable = false;
 			if (lhs_res2.ddecl_cptr) {
-				LHS_decl_is_non_modifiable = is_non_modifiable(*(lhs_res2.ddecl_cptr), MR, Rewrite, state1);
+				LHS_decl_is_non_modifiable = is_non_modifiable(*(lhs_res2.ddecl_cptr), MR, Rewrite, state1, LHS);
 			}
 			if (rhs_res2.ddecl_cptr) {
-				RHS_decl_is_non_modifiable = is_non_modifiable(*(rhs_res2.ddecl_cptr), MR, Rewrite, state1);
+				RHS_decl_is_non_modifiable = is_non_modifiable(*(rhs_res2.ddecl_cptr), MR, Rewrite, state1, RHS);
 			}
 
 			auto rhsii_EX = RHS->IgnoreParenImpCasts();
@@ -14578,7 +14640,7 @@ namespace convm1 {
 						/* Here we're establishing the constraint in the opposite direction as well. */
 
 						if (rhs_res2.ddecl_cptr) {
-							bool RHS_decl_is_non_modifiable = is_non_modifiable(*(rhs_res2.ddecl_cptr), MR, Rewrite, state1);
+							bool RHS_decl_is_non_modifiable = is_non_modifiable(*(rhs_res2.ddecl_cptr), MR, Rewrite, state1, RHS);
 							if (RHS_decl_is_non_modifiable && (LHS || VLD) && RHS) {
 								/* RHS will, for whatever reason, not be converted to a safe iterator. But presumably the LHS wiil 
 								(or at least could) be. So we may need to ensure that LHS gets converted to a type that can handle 
@@ -14874,7 +14936,7 @@ namespace convm1 {
 					const std::string function_qname = function_decl1->getQualifiedNameAsString();
 
 					auto function_decl1_SR = cm1_adj_nice_source_range(function_decl1->getSourceRange(), state1, Rewrite);
-					bool FD_is_non_modifiable = is_non_modifiable(*function_decl1, MR, Rewrite, state1);
+					bool FD_is_non_modifiable = is_non_modifiable(*function_decl1, MR, Rewrite, state1, CE);
 					bool function_is_variadic = function_decl1->isVariadic();
 
 					do {
@@ -14973,7 +15035,7 @@ namespace convm1 {
 											auto arg_num_args = arg_CE->getNumArgs();
 											if (arg_function_decl1) {
 												IF_DEBUG(std::string debug_arg_function_name = arg_function_decl1->getNameAsString();)
-												bool arg_FD_is_non_modifiable = is_non_modifiable(*arg_function_decl1, MR, Rewrite, state1);
+												bool arg_FD_is_non_modifiable = is_non_modifiable(*arg_function_decl1, MR, Rewrite, state1, arg_CE);
 												if (arg_FD_is_non_modifiable) {
 													/* This argument corresponding to a pointer parameter that cannot be converted to a safe pointer, 
 													seems to be the direct return value of a function that also cannot be converted to return a safe 
