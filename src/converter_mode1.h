@@ -16621,6 +16621,76 @@ namespace convm1 {
 
 						const auto init_EX = VD->getInit();
 						if (init_EX) {
+
+							if (qtype->isArrayType()) {
+								const clang::ArrayType* ATP = qtype->getAsArrayTypeUnsafe();
+								if (ATP) {
+									clang::QualType QT = ATP->getElementType();
+									IF_DEBUG(auto l_type_str = QT.getAsString();)
+
+									/* This is the declaration of a native array with an initializer expression (which is presumably 
+									likely to be an (aggregate) initializer list). While the initialization as a whole is present in 
+									the AST, the initialization of each individual element does not seem to be present in the AST. But 
+									we still need to ensure that any (pointer) fields of the element be converted to a type that 
+									supports the being assigned the corresponding initalization value type. Rather than dissecting 
+									the initialization expression to determine the types of each field of the initalization value(s), 
+									we're just going to indicate that all the (pointer) fields of the assignee should be converted to 
+									a type that supports both malloc()ed and non-malloc()ed targets. */
+
+									auto RD = QT->getAsRecordDecl();
+									if (RD) {
+
+										/* This lambda function will, when passed a clang::FieldDecl of a pointer field, set the field's 
+										conversion properties to indicate that the (pointer) field should be converted to a type that 
+										supports both malloc()ed and non-malloc()ed targets. */
+										auto set_pointer_field_conversion_properties = [&state1, &MR, &Rewrite](clang::QualType qtype_param, std::optional<clang::Decl const *> maybe_D = {}, std::optional<clang::CXXBaseSpecifier const *> maybe_CXXBS = {}) {
+											MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype_param);
+
+											const auto qtype = get_cannonical_type(qtype_param);
+											IF_DEBUG(std::string qtype_str = qtype.getAsString();)
+											if (!(qtype->isPointerType())) {
+												return;
+											}
+											if (maybe_D.has_value()) {
+												auto D = maybe_D.value();
+												auto FD = clang::dyn_cast<const clang::FieldDecl>(D);
+												if (FD) {
+													auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*FD, &Rewrite);
+													if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+														size_t indirection_level = 0;
+														for (auto& indirection_state_ref : ddcs_ref.m_indirection_state_stack) {
+															auto ddecl_indirection = CDDeclIndirection(*FD, indirection_level);
+
+															/* Here we're indicating that the (pointer) field should be converted to a type that supports both 
+															malloc()ed and non-malloc()ed targets. */
+															if (!indirection_state_ref.is_known_to_have_malloc_target()) {
+																indirection_state_ref.set_is_known_to_have_malloc_target(true);
+																state1.m_conversion_state_change_action_map.execute_matching_actions(state1, ddecl_indirection);
+																if (indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
+																	state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, ddecl_indirection);
+																}
+															}
+															if (!indirection_state_ref.is_known_to_have_non_malloc_target()) {
+																indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
+																state1.m_conversion_state_change_action_map.execute_matching_actions(state1, ddecl_indirection);
+																if (indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
+																	state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, ddecl_indirection);
+																}
+															}
+
+															++indirection_level;
+														}
+													}
+												}
+											}
+										};
+
+										checker::apply_to_all_owned_types(QT, set_pointer_field_conversion_properties, {}, {}, std::tuple{state1, &MR, &Rewrite});
+									}
+								}
+							}
+
+
 							auto res = statement_makes_reference_to_decl(*VD, *init_EX);
 							if (res) {
 								const std::string error_desc = std::string("Reference to variable '")
