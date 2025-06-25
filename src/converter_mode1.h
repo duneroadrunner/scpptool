@@ -10364,12 +10364,14 @@ namespace convm1 {
 						}
 					}
 
-					if (lhs_is_known_to_be_a_pointer_target || rhs_is_known_to_be_a_pointer_target) {
+					if ((lhs_is_known_to_be_a_pointer_target || rhs_is_known_to_be_a_pointer_target)
+						&& (!(lhs_is_known_to_be_a_pointer_target && rhs_is_known_to_be_a_pointer_target))) {
+
 						std::string adj_arg_qtype_str;
 
 						if (LHS->getType()->isPointerType()) {
 							CDDeclConversionState* ddcs_ptr = nullptr;
-							if (lhs_DD != nullptr) {
+							if (lhs_is_known_to_be_a_pointer_target && (lhs_DD != nullptr)) {
 								auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &Rewrite);
 								ddcs_ptr = &ddcs_ref;
 							} else if (rhs_DD != nullptr) {
