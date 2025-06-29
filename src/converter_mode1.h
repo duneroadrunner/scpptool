@@ -12714,6 +12714,7 @@ namespace convm1 {
 			, { "fread", "mse::lh::fread", "MSE_LH_FREAD", {4} }
 			, { "fwrite", "mse::lh::fwrite", "MSE_LH_FWRITE", {4} }
 			, { "getline", "mse::lh::getline", "MSE_LH_GETLINE", {3} }
+			, { "iconv", "mse::lh::iconv_wrapper", "MSE_LH_ICONV_WRAPPER", {5} }
 
 			, { "std::memset", "mse::lh::memset", "MSE_LH_MEMSET", {3} }
 			, { "std::memcpy", "mse::lh::memcpy", "MSE_LH_MEMCPY", {3} }
@@ -14057,6 +14058,32 @@ namespace convm1 {
 	}
 	static void decl_util_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1, const clang::Decl* D);
 
+	bool type_definition_is_non_modifiable(clang::Type const& type_cref, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1) {
+		auto Type = &type_cref;
+		auto TD = type_cref.getAsTagDecl();
+		if (TD) {
+			return is_non_modifiable(*TD, Ctx, Rewrite, state1);
+		}
+		const TypedefType * TDT = type_cref.getAs<TypedefType>();
+		if (TDT) {
+			TypedefNameDecl *TDND = TDT->getDecl();
+			if (TDND) {
+				return is_non_modifiable(*TDND, Ctx, Rewrite, state1);
+			}
+		}
+		return false;
+	}
+	bool type_definition_is_non_modifiable(clang::QualType const& qtype, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1) {
+		auto type_ptr = qtype.getTypePtr();
+		if (!type_ptr) {
+			return false;
+		}
+		return type_definition_is_non_modifiable(*type_ptr, Ctx, Rewrite, state1);
+	}
+	bool type_definition_is_non_modifiable(clang::QualType const& qtype, const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::Rewriter &Rewrite, CTUState& state1) {
+		return type_definition_is_non_modifiable(qtype, *(MR.Context), Rewrite, state1);
+	}
+
 	class MCSSSAssignment : public MatchFinder::MatchCallback
 	{
 	public:
@@ -14623,15 +14650,19 @@ namespace convm1 {
 			}
 
 			if (rhs_is_an_indirect_type && rhs_res2.ddecl_cptr) {
-				auto RHSDD_SR = cm1_adj_nice_source_range(rhs_res2.ddecl_cptr->getSourceRange(), state1, Rewrite);
-				if ((RHS_decl_is_non_modifiable && (!LHS_decl_is_non_modifiable)) && (LHS || VLD) && RHS) {
+				auto LHS_qtype = LHS ? LHS->getType() : VLD->getType();
+				auto RHS_qtype = RHS->getType();
+				assert(RHS->getType().getTypePtrOrNull());
+
+				/* If the type definition is non-modifiable then we hesitate to convert items declared as that type. 
+				For example, you could imagine a library defining a "handle" type as a pointer (at least on cetain 
+				platforms). We probably wouldn't want to convert items declared as that handle type to safe pointers. */
+				auto RHS_type_definition_is_non_modifiable = type_definition_is_non_modifiable(RHS_qtype, MR, Rewrite, state1);
+
+				if ((RHS_decl_is_non_modifiable && (!LHS_decl_is_non_modifiable)) && (LHS || VLD) && RHS && (!RHS_type_definition_is_non_modifiable)) {
 					/* RHS will, for whatever reason, not be converted to a safe pointer. But presumably the LHS will 
 					(or at least could) be. So we may need to add an unsafe cast from the RHS raw pointer to the LHS 
 					safe pointer. */
-					auto LHS_qtype = LHS ? LHS->getType() : VLD->getType();
-					auto RHS_qtype = RHS->getType();
-
-					assert(RHS->getType().getTypePtrOrNull());
 					auto rhs_source_range = write_once_source_range(cm1_adj_nice_source_range(RHS->getSourceRange(), state1, Rewrite));
 					std::string rhs_source_text;
 					if (rhs_source_range.isValid()) {
