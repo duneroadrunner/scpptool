@@ -1136,6 +1136,9 @@ namespace convm1 {
 		}
 	};
 
+	clang::SourceRange extended_to_include_west_const_if_any(Rewriter& Rewrite, const clang::SourceRange& SR);
+	clang::SourceRange extended_to_include_east_const_if_any(Rewriter& Rewrite, const clang::SourceRange& SR);
+
 	/* Given a type and an (empty) CIndirectionStateStack, this function will fill the stack with indications of
 	* whether each level of indirection (if any) of the type is of the pointer or the array variety. Pointers
 	* can, of course, function as arrays, but context is required to identify those situations. Such identification
@@ -1159,7 +1162,10 @@ namespace convm1 {
 				: cm1_nice_source_range(typeLoc.getSourceRange(), Rewrite);
 			if ((l_SR).isValid() && (((l_SR).getBegin() < (l_SR).getEnd()) || ((l_SR).getBegin() == (l_SR).getEnd()))) {
 				DEBUG_SOURCE_LOCATION_STR(l_debug_source_location_str, l_SR, Rewrite);
-				original_source_text = (Rewrite).getRewrittenText(l_SR);
+				/* For some reason, typeLoc.getSourceRange() seems to leave out leading (and I assume trailing) `const` qualifiers. */
+				auto cq_SR = extended_to_include_west_const_if_any(Rewrite, l_SR);
+				cq_SR = extended_to_include_east_const_if_any(Rewrite, cq_SR);
+				original_source_text = (Rewrite).getRewrittenText(cq_SR);
 				return_type_original_source_text = original_source_text;
 			}
 		}
@@ -5130,7 +5136,8 @@ namespace convm1 {
 											|| ("struct _IO_FILE" == direct_type_original_qtype_str) || ("const struct _IO_FILE" == direct_type_original_qtype_str));
 		bool og_direct_type_was_target_of_other_untranslatable_type = false && (("jmp_buf" == direct_type_original_qtype_str) || ("const struct __jmp_buf_tag" == direct_type_original_qtype_str)
 											|| ("struct __jmp_buf_tag" == direct_type_original_qtype_str) || ("const jmp_buf" == direct_type_original_qtype_str));
-		bool og_direct_type_was_void_type = (("void" == direct_type_original_qtype_str) || ("const void" == direct_type_original_qtype_str));
+		bool og_direct_type_was_void_or_const_void_type = (("void" == direct_type_original_qtype_str) || ("const void" == direct_type_original_qtype_str));
+		bool og_direct_type_was_const_void_type = ("const void" == direct_type_original_qtype_str);
 		bool direct_type_is_function_type = false;
 		if (direct_type_state_ref.current_qtype_if_any().has_value()) {
 			direct_type_is_function_type = direct_type_state_ref.current_qtype_if_any().value().getTypePtr()->isFunctionType();
@@ -5376,7 +5383,7 @@ namespace convm1 {
 					is_other_untranslatable_indirect_type = true;
 					/* This indirect type has been deemed untraslatable. */
 					l_changed_from_original = false;
-				} else if (is_innermost_indirection && (og_direct_type_was_void_type) && additional_void_star_replacement_criteria()) {
+				} else if (is_innermost_indirection && (og_direct_type_was_void_or_const_void_type) && additional_void_star_replacement_criteria()) {
 					is_void_star = true;
 					l_changed_from_original = true;
 				} else if (is_innermost_indirection && direct_type_is_function_type) {
@@ -5388,7 +5395,7 @@ namespace convm1 {
 				}
 				if (!is_innermost_indirection) {
 					bool is_second_innermost_indirection = (indirection_state_stack.size() == (i+2));
-					if (is_second_innermost_indirection && (og_direct_type_was_void_type) && additional_void_star_replacement_criteria()) {
+					if (is_second_innermost_indirection && (og_direct_type_was_void_or_const_void_type) && additional_void_star_replacement_criteria()) {
 						is_void_star_star = true;
 						/* In the case of pointers to void (aka "void*"s), the direct type (i.e. "void")
 						will be replaced with "mse::lh::void_star_replacement " and the last indirection
@@ -5457,9 +5464,9 @@ namespace convm1 {
 
 							std::string new_qtype_str;
 							if ("Dual" == ConvertMode) {
-								new_qtype_str = "MSE_LH_VOID_STAR ";
+								new_qtype_str = og_direct_type_was_const_void_type ? "MSE_LH_CONST_VOID_STAR " : "MSE_LH_VOID_STAR ";
 							} else {
-								new_qtype_str = "mse::lh::void_star_replacement ";
+								new_qtype_str = og_direct_type_was_const_void_type ? "mse::lh::const_void_star_replacement " : "mse::lh::void_star_replacement ";
 							}
 							if (params_str.empty()) {
 								direct_type_state_ref.set_current_non_function_qtype_str(new_qtype_str);
@@ -5658,9 +5665,9 @@ namespace convm1 {
 
 						std::string new_qtype_str;
 						if ("Dual" == ConvertMode) {
-							new_qtype_str = "MSE_LH_VOID_STAR ";
+							new_qtype_str = og_direct_type_was_const_void_type ? "MSE_LH_CONST_VOID_STAR " : "MSE_LH_VOID_STAR ";
 						} else {
-							new_qtype_str = "mse::lh::void_star_replacement ";
+							new_qtype_str = og_direct_type_was_const_void_type ? "mse::lh::const_void_star_replacement " : "mse::lh::void_star_replacement ";
 						}
 						if (params_str.empty()) {
 							direct_type_state_ref.set_current_non_function_qtype_str(new_qtype_str);
@@ -14213,14 +14220,23 @@ namespace convm1 {
 				std::string new_cast_suffix;
 				bool preconversion_expression_is_void_star = false;
 				bool converted_expression_is_void_star = false;
+				bool apparent_const_correctness_violation = false;
 				if (CSCE->getType()->isPointerType() && CSCE->getSubExpr()->getType()->isPointerType()) {
 					const std::string og_converted_pointee_qtype_str = CSCE->getType()->getPointeeType().getAsString();
 					const std::string og_preconversion_pointee_qtype_str = CSCE->getSubExpr()->getType()->getPointeeType().getAsString();
-					preconversion_expression_is_void_star = ("void" == og_preconversion_pointee_qtype_str) || ("const void" == og_preconversion_pointee_qtype_str);
-					converted_expression_is_void_star = ("void" == og_converted_pointee_qtype_str) || ("const void" == og_converted_pointee_qtype_str);
+
+					bool preconversion_expression_is_const_void_star = ("const void" == og_preconversion_pointee_qtype_str);
+					bool preconversion_expression_is_nonconst_void_star = ("void" == og_preconversion_pointee_qtype_str);
+					preconversion_expression_is_void_star = preconversion_expression_is_const_void_star || preconversion_expression_is_nonconst_void_star;
+					bool converted_expression_is_const_void_star = ("const void" == og_converted_pointee_qtype_str);
+					bool converted_expression_is_nonconst_void_star = ("void" == og_converted_pointee_qtype_str);
+					converted_expression_is_void_star = converted_expression_is_const_void_star || converted_expression_is_nonconst_void_star;
+					if (converted_expression_is_nonconst_void_star && preconversion_expression_is_const_void_star) {
+						apparent_const_correctness_violation = true;
+					}
 				}
 				if (new_cast_prefix.empty()) {
-					if (preconversion_expression_is_void_star || converted_expression_is_void_star) {
+					if ((preconversion_expression_is_void_star || converted_expression_is_void_star) && (!apparent_const_correctness_violation)) {
 						if ("Dual" == ConvertMode) {
 							new_cast_prefix = "MSE_LH_CAST("
 								+ replacement_qtype_str + ", ";
