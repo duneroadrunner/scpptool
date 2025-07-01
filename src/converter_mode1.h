@@ -10117,7 +10117,7 @@ namespace convm1 {
 					CDDeclConversionState* lhs_ddcs_ptr = nullptr;
 					if (lhs_DD != nullptr) {
 						if (state1.m_ast_context_ptr) {
-							lhs_is_non_modifiable = is_non_modifiable<options_t<do_not_exclude_functions_with_conversions_t> >(*lhs_DD, *(state1.m_ast_context_ptr), Rewrite, state1);
+							lhs_is_non_modifiable = is_non_modifiable(*lhs_DD, *(state1.m_ast_context_ptr), Rewrite, state1);
 						}
 
 						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &Rewrite);
@@ -10180,7 +10180,7 @@ namespace convm1 {
 					std::optional<CFunctionTypeState> rhs_maybe_function_state;
 					if (rhs_DD != nullptr) {
 						if (state1.m_ast_context_ptr) {
-							rhs_is_non_modifiable = is_non_modifiable<options_t<do_not_exclude_functions_with_conversions_t> >(*rhs_DD, *(state1.m_ast_context_ptr), Rewrite, state1);
+							rhs_is_non_modifiable = is_non_modifiable(*rhs_DD, *(state1.m_ast_context_ptr), Rewrite, state1);
 						}
 
 						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &Rewrite);
@@ -10268,6 +10268,14 @@ namespace convm1 {
 									decltype(LHS) non_modifiable_EX = nullptr;
 								};
 								std::optional<CLoneModifiableArgInfo> maybe_lone_modifiable_arg_info;
+
+								/* In this case, where we're dealing with the functions themselves rather than invocations of the 
+								functions, we need to use a slightly different evaluation method of whether the lhs and rhs are 
+								"non-modifiable". Certain known unsafe functions that would be substituted with safe replacements 
+								when used in a call expression, will not be replaced when used as a (function or function pointer) 
+								value. */
+								auto lhs_is_non_modifiable = is_non_modifiable<options_t<do_not_exclude_functions_with_conversions_t> >(*lhs_DD, *(state1.m_ast_context_ptr), Rewrite, state1);
+								auto rhs_is_non_modifiable = is_non_modifiable<options_t<do_not_exclude_functions_with_conversions_t> >(*rhs_DD, *(state1.m_ast_context_ptr), Rewrite, state1);
 								if (rhs_is_non_modifiable && (!lhs_is_non_modifiable)) {
 									maybe_lone_modifiable_arg_info = { lhs_DD, lhs_inference_info.indirection_level, LHS, RHS };
 								} else if (lhs_is_non_modifiable && (!rhs_is_non_modifiable)) {
@@ -12941,6 +12949,9 @@ namespace convm1 {
 			, { "fwrite", "mse::lh::fwrite", "MSE_LH_FWRITE", {4} }
 			, { "getline", "mse::lh::getline", "MSE_LH_GETLINE", {3} }
 			, { "iconv", "mse::lh::iconv_wrapper", "MSE_LH_ICONV_WRAPPER", {5} }
+			, { "strndup", "mse::lh::strndup", "MSE_LH_STRNDUP", {2} }
+			, { "strdup", "mse::lh::strdup", "MSE_LH_STRDUP", {1} }
+			, { "xstrdup", "mse::lh::strdup", "MSE_LH_STRDUP", {1} }
 
 			, { "std::memset", "mse::lh::memset", "MSE_LH_MEMSET", {3} }
 			, { "std::memcpy", "mse::lh::memcpy", "MSE_LH_MEMCPY", {3} }
@@ -12981,12 +12992,16 @@ namespace convm1 {
 	public:
 		MCSSSFunctionCall1 (Rewriter &Rewrite, CTUState& state1) : Rewrite(Rewrite), m_state1(state1) {}
 
-		static void modifier(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1)
+		static void modifier(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1, const CallExpr* CE = nullptr, const DeclRefExpr* DRE = nullptr)
 		{
-			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("functioncall1");
-			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("functioncall2");
+			if (!CE) {
+				CE = MR.Nodes.getNodeAs<clang::CallExpr>("functioncall1");
+			}
+			if (!DRE) {
+				DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("functioncall2");
+			}
 
-			if ((CE != nullptr) && (DRE != nullptr))
+			if ((CE != nullptr)/* && (DRE != nullptr)*/)
 			{
 				auto SR = cm1_adj_nice_source_range(CE->getSourceRange(), state1, Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
@@ -13120,7 +13135,7 @@ namespace convm1 {
 			const CallExpr* CE = MR.Nodes.getNodeAs<clang::CallExpr>("functioncall1");
 			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("functioncall2");
 
-			if ((CE != nullptr) && (DRE != nullptr))
+			if ((CE != nullptr)/* && (DRE != nullptr)*/)
 			{
 				auto SR = cm1_adj_nice_source_range(CE->getSourceRange(), m_state1, Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
@@ -13153,7 +13168,7 @@ namespace convm1 {
 
 						if (ConvertToSCPP && SR.isValid()) {
 
-							auto lambda = [MR, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1); };
+							auto lambda = [MR, CE, DRE, *this](){ modifier(MR, (*this).Rewrite, (*this).m_state1, CE, DRE); };
 							/* This modification needs to be queued so that it will be executed after any other
 							modifications that might affect the relevant part of the source text.
 							(Update: This is probably no longer necessary since we no longer modify the arguments.) */
@@ -13768,19 +13783,21 @@ namespace convm1 {
 
 	template<typename TOptions/* = options_t<> */>
 	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1, clang::Expr const* E /*= nullptr*/) {
-		auto suppress_check_flag = state1.m_suppress_check_region_set.contains(&decl, Rewrite, Ctx);
-		if (suppress_check_flag) {
-			return true;
-		}
 		bool non_modifiable_flag = false;
 		do {
+			auto suppress_check_flag = state1.m_suppress_check_region_set.contains(&decl, Rewrite, Ctx);
+			if (suppress_check_flag) {
+				non_modifiable_flag = true;
+				break;
+			}
 			if (filtered_out_by_location<options_t<converter_mode_t> >(Ctx, decl.getSourceRange().getBegin())) {
 				non_modifiable_flag = true;
 				break;
 			}
 			auto SR = decl.getSourceRange();
 			if (!(SR.isValid())) {
-				return true;
+				non_modifiable_flag = true;
+				break;
 			}
 			auto DD = dyn_cast<const clang::DeclaratorDecl>(&decl);
 			if (DD) {
@@ -17692,6 +17709,7 @@ namespace convm1 {
 				if (CE) {
 					MCSSSArgToParameterPassingArray2::s_handler1(MR, Rewrite, state1, CE);
 					MCSSSArgToReferenceParameterPassing::s_handler1(MR, Rewrite, state1, CE);
+					MCSSSFunctionCall1::modifier(MR, Rewrite, state1, CE);
 
 					if ((1 == CE->getNumArgs()) && (CE->getArg(0)->getType()->isPointerType())) {
 						auto arg_EX = CE->getArg(0);
