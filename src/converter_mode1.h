@@ -2385,6 +2385,10 @@ namespace convm1 {
 	public:
 	};
 
+	/* Note that the `CExprConversionState` corresponding to an expression should be constructed (generally 
+	indirectly via CTUState1::get_expr_conversion_state_ref()) after the establishment of any 
+	`CExprConversionState`s corresponding to ancestor expressions, as the `CExprConversionState` constructor 
+	will look for and establish a relationship with any existing ancestor `CExprConversionState`s. */
 	class CExprConversionState {
 	public:
 	struct do_not_set_up_child_dependencies_t {};
@@ -3420,6 +3424,10 @@ namespace convm1 {
 		expression. If no such object exists, one will be created and stored. If the existing object 
 		is an instance of the CExprConversionState base class, it will replaced by a new object of the 
 		specified subclass. */
+		/* Note that you should generally use get_expr_conversion_state_ref() to establish an expression conversion 
+		state after the expression conversion state of any ancestor expressions have already been established, as 
+		the expression conversion state's constructor will look for and establish a relationship with any existing 
+		ancestor expression conversion states. */
 		template<typename TExprConversionState = CExprConversionState, typename TExpr, typename... TArgs>
 		auto& get_expr_conversion_state_ref(TExpr const& expr, Rewriter &Rewrite, TArgs&&... args) {
 			return get_expr_conversion_state_ref_helper1<TExprConversionState>(false/*overwrite*/, expr, Rewrite, std::forward<TArgs>(args)...);
@@ -3669,10 +3677,6 @@ namespace convm1 {
 			return false;
 		}
 		auto& SM = m_state1.m_ast_context_ptr->getSourceManager();
-		auto whole_SR = write_once_source_range(cm1_adj_nice_source_range(m_expr_cptr->getSourceRange(), m_state1, Rewrite));
-		if (!(whole_SR.isValid())) {
-			return false;
-		}
 
 		struct COrderedExpr {
 			bool operator<(const COrderedExpr& rhs) const {
@@ -3685,89 +3689,183 @@ namespace convm1 {
 			CExprTextInfo m_text_info;
 		};
 		std::set<COrderedExpr> visible_child_infos;
-		auto children_iters = m_expr_cptr->children();
-		for (auto child_iter : children_iters) {
-			if (child_iter) {
-				static_assert(std::is_convertible<decltype(*child_iter), clang::Stmt const&>::value, "");
-				auto E = dyn_cast<const clang::Expr>(&(*child_iter));
-				if (E) {
-					auto OSR = write_once_source_range(cm1_adj_nice_source_range(E->getSourceRange(), m_state1, Rewrite));
-					if (OSR.isValid()) {
-						if ((OSR.getBegin() < whole_SR.getBegin()) || (whole_SR.getEnd() < OSR.getEnd())) {
-							int q = 5;
-							continue;
-						}
-						std::string child_original_source_text_str;
-						auto text_info = CExprTextInfo(E, Rewrite, m_state1);
-						auto excs_iter = m_state1.m_expr_conversion_state_map.find(E);
-						if (m_state1.m_expr_conversion_state_map.end() != excs_iter) {
-							child_original_source_text_str = (*excs_iter).second->m_original_source_text_str;
-						} else {
-							child_original_source_text_str = text_info.m_original_source_text_str;
-						}
-						if ("" != child_original_source_text_str) {
-							//SM.getCharacterData();
-							auto pos = SM.getFileOffset(OSR.getBegin()) - SM.getFileOffset(whole_SR.getBegin());
-							if (0 <= pos) {
-								visible_child_infos.insert(COrderedExpr{ E, OSR, child_original_source_text_str, pos, text_info });
+
+		auto whole_rawSR = m_expr_cptr->getSourceRange();
+		if (!(whole_rawSR.isValid())) {
+			return false;
+		}
+		bool b1 = whole_rawSR.getBegin().isMacroID();
+		bool b2 = whole_rawSR.getEnd().isMacroID();
+
+		if (false && (whole_rawSR.getBegin().isMacroID() || whole_rawSR.getEnd().isMacroID())) {
+			auto whole_SR_plus = cm1_adjusted_source_range(m_expr_cptr->getSourceRange(), m_state1, Rewrite);
+			if (!(whole_SR_plus.isValid())) {
+				return false;
+			}
+			struct CB {
+			};
+
+		} else {
+			auto whole_SR = write_once_source_range(cm1_adj_nice_source_range(m_expr_cptr->getSourceRange(), m_state1, Rewrite));
+			if (!(whole_SR.isValid())) {
+				return false;
+			}
+
+			auto children_iters = m_expr_cptr->children();
+			for (auto child_iter : children_iters) {
+				if (child_iter) {
+					static_assert(std::is_convertible<decltype(*child_iter), clang::Stmt const&>::value, "");
+					auto E = dyn_cast<const clang::Expr>(&(*child_iter));
+					if (E) {
+						struct CExprBasicInfo {
+							CExprBasicInfo(const clang::Expr* E, COrderedSourceRange OSR) : m_E(E), m_OSR(OSR) {}
+							const clang::Expr* m_E;
+							COrderedSourceRange m_OSR;
+						};
+						std::vector<CExprBasicInfo> l_descendants_contained_in_range;
+
+						auto rawSR = E->getSourceRange();
+						bool b3 = rawSR.getBegin().isMacroID();
+						bool b4 = rawSR.getEnd().isMacroID();
+
+						auto OSR = write_once_source_range(cm1_adj_nice_source_range(E->getSourceRange(), m_state1, Rewrite));
+						if (OSR.isValid()) {
+							bool b5 = OSR.getBegin().isMacroID();
+							bool b6 = OSR.getEnd().isMacroID();
+
+							if ((OSR.getBegin() < whole_SR.getBegin()) || (whole_SR.getEnd() < OSR.getEnd())) {
+								/* The source range of this element does not seem to be contained inside the source range of the parent 
+								expression. This can happen, for example, when macros are involved. But it's possible that some of the 
+								element' descendants actually are contained in the source range of the parent expression. (Macro 
+								function arguments, for example.) So we're going to search for such descendants and treat them, for 
+								rendering purposes, as if they were (direct) children of the parent expression. */
+
+								struct CB {
+									static auto descendants_contained_in_range(COrderedSourceRange whole_SR, clang::Expr const& expr_cref, Rewriter& Rewrite, CTUState& state1) -> std::vector<CExprBasicInfo> {
+										auto expr_cptr = &expr_cref;
+
+										std::vector<CExprBasicInfo> l_descendants_contained_in_range;
+
+										auto children_iters = expr_cptr->children();
+										for (auto child_iter : children_iters) {
+											if (child_iter) {
+												static_assert(std::is_convertible<decltype(*child_iter), clang::Stmt const&>::value, "");
+												auto E = dyn_cast<const clang::Expr>(&(*child_iter));
+												if (E) {
+													auto rawSR = E->getSourceRange();
+													bool b3 = rawSR.getBegin().isMacroID();
+													bool b4 = rawSR.getEnd().isMacroID();
+
+													bool no_descendant_does_not_seem_to_be_within_ancestor_source_range = false;
+													auto OSR = write_once_source_range(cm1_adj_nice_source_range(E->getSourceRange(), state1, Rewrite));
+													if (OSR.isValid()) {
+														bool b5 = OSR.getBegin().isMacroID();
+														bool b6 = OSR.getEnd().isMacroID();
+
+														if ((OSR.getBegin() < whole_SR.getBegin()) || (whole_SR.getEnd() < OSR.getEnd())) {
+															no_descendant_does_not_seem_to_be_within_ancestor_source_range = true;
+														} else {
+															l_descendants_contained_in_range.push_back({ E, OSR });
+														}
+													} else {
+														no_descendant_does_not_seem_to_be_within_ancestor_source_range = true;
+													}
+													if (no_descendant_does_not_seem_to_be_within_ancestor_source_range) {
+														auto res1 = descendants_contained_in_range(whole_SR, *E, Rewrite, state1);
+														for (auto& visible_descendant_ref : res1) {
+															l_descendants_contained_in_range.push_back(visible_descendant_ref);
+														}
+													}
+												}
+											}
+										}
+										return l_descendants_contained_in_range;
+									}
+								};
+								auto res1 = CB::descendants_contained_in_range(whole_SR, *E, Rewrite, m_state1);
+								for (auto& visible_descendant_ref : res1) {
+									l_descendants_contained_in_range.push_back(visible_descendant_ref);
+								}
+							} else {
+								l_descendants_contained_in_range.push_back({ E, OSR });
+							}
+							for (auto& visible_descendant : l_descendants_contained_in_range) {
+								auto E = visible_descendant.m_E;
+								auto OSR = visible_descendant.m_OSR;
+
+								std::string child_original_source_text_str;
+								auto text_info = CExprTextInfo(E, Rewrite, m_state1);
+								auto excs_iter = m_state1.m_expr_conversion_state_map.find(E);
+								if (m_state1.m_expr_conversion_state_map.end() != excs_iter) {
+									child_original_source_text_str = (*excs_iter).second->m_original_source_text_str;
+								} else {
+									child_original_source_text_str = text_info.m_original_source_text_str;
+								}
+								if ("" != child_original_source_text_str) {
+									//SM.getCharacterData();
+									auto pos = SM.getFileOffset(OSR.getBegin()) - SM.getFileOffset(whole_SR.getBegin());
+									if (0 <= pos) {
+										visible_child_infos.insert(COrderedExpr{ E, OSR, child_original_source_text_str, pos, text_info });
+									}
+								}
 							}
 						}
 					}
 				}
 			}
-		}
-		if (1 > visible_child_infos.size()) {
-			return true;
-		}
+			if (1 > visible_child_infos.size()) {
+				return true;
+			}
 
-		{
-			auto last_iter = visible_child_infos.begin();
-			size_t last_pos = last_iter->m_start_pos + last_iter->m_original_text.length();
-			auto iter = last_iter;
-			++iter;
-			for (; visible_child_infos.end() != iter; ++iter) {
-				while (iter->m_start_pos < last_pos) {
-					/* The current element seems to overlap the previous one. We assume that the current element is 
-					contained inside the previous one. We'll delete the previous one. */
-					auto to_be_erased = last_iter;
-					if (visible_child_infos.begin() != last_iter) {
-						--last_iter;
-						last_pos = last_iter->m_start_pos + last_iter->m_original_text.length();
-						visible_child_infos.erase(to_be_erased);
-					} else {
-						last_iter = iter;
-						visible_child_infos.erase(to_be_erased);
-						break;
+			{
+				auto last_iter = visible_child_infos.begin();
+				size_t last_pos = last_iter->m_start_pos + last_iter->m_original_text.length();
+				auto iter = last_iter;
+				++iter;
+				for (; visible_child_infos.end() != iter; ++iter) {
+					while (iter->m_start_pos < last_pos) {
+						/* The current element seems to overlap the previous one. We assume that the current element is 
+						contained inside the previous one. We'll delete the previous one. */
+						auto to_be_erased = last_iter;
+						if (visible_child_infos.begin() != last_iter) {
+							--last_iter;
+							last_pos = last_iter->m_start_pos + last_iter->m_original_text.length();
+							visible_child_infos.erase(to_be_erased);
+						} else {
+							last_iter = iter;
+							visible_child_infos.erase(to_be_erased);
+							break;
+						}
 					}
+					last_iter = iter;
+					last_pos = last_iter->m_start_pos + last_iter->m_original_text.length();
 				}
-				last_iter = iter;
-				last_pos = last_iter->m_start_pos + last_iter->m_original_text.length();
 			}
-		}
 
-		std::vector<CExprTextInfo> child_text_infos;
-		std::vector<std::string> non_child_dependent_text_fragments;
-		size_t last_pos = 0;
-		for (auto& visible_child_info : visible_child_infos) {
-			if (m_original_source_text_str.length() <= last_pos) {
-				return false;
+			std::vector<CExprTextInfo> child_text_infos;
+			std::vector<std::string> non_child_dependent_text_fragments;
+			size_t last_pos = 0;
+			for (auto& visible_child_info : visible_child_infos) {
+				if (m_original_source_text_str.length() <= last_pos) {
+					return false;
+				}
+				std::string text_frag = m_original_source_text_str.substr(last_pos, visible_child_info.m_start_pos - last_pos);
+				non_child_dependent_text_fragments.push_back(text_frag);
+				last_pos = visible_child_info.m_start_pos + visible_child_info.m_original_text.length();
+				child_text_infos.push_back(visible_child_info.m_text_info);
 			}
-			std::string text_frag = m_original_source_text_str.substr(last_pos, visible_child_info.m_start_pos - last_pos);
-			non_child_dependent_text_fragments.push_back(text_frag);
-			last_pos = visible_child_info.m_start_pos + visible_child_info.m_original_text.length();
-			child_text_infos.push_back(visible_child_info.m_text_info);
-		}
-		if (m_original_source_text_str.length() > last_pos) {
-			std::string text_frag = m_original_source_text_str.substr(last_pos);
-			non_child_dependent_text_fragments.push_back(text_frag);
-		} else {
-			non_child_dependent_text_fragments.push_back("");
-		}
-		
-		m_non_child_dependent_text_fragments = non_child_dependent_text_fragments;
-		m_child_text_infos.clear();
-		for (auto& child_text_info : child_text_infos) {
-			m_child_text_infos.push_back(child_text_info);
+			if (m_original_source_text_str.length() > last_pos) {
+				std::string text_frag = m_original_source_text_str.substr(last_pos);
+				non_child_dependent_text_fragments.push_back(text_frag);
+			} else {
+				non_child_dependent_text_fragments.push_back("");
+			}
+			
+			m_non_child_dependent_text_fragments = non_child_dependent_text_fragments;
+			m_child_text_infos.clear();
+			for (auto& child_text_info : child_text_infos) {
+				m_child_text_infos.push_back(child_text_info);
+			}
 		}
 		return true;
 	}
@@ -10743,8 +10841,9 @@ namespace convm1 {
 				state1.m_pending_code_modification_actions.add_replacement_action(COSR, lambda);
 
 				/* We've queued the modification action for deferred execution, but we don't want to delay the
-				establishment of the expression conversion state because it reads from and stores the original 
-				source text and we want that done before the source text gets potentially modified. */
+				establishment of the expression conversion state because, among other reasons, it reads from 
+				and stores the original source text and we want that done before the source text gets 
+				potentially modified. */
 				auto& ecs_ref = state1.get_expr_conversion_state_ref<CConditionalOperatorExprConversionState>(*CO, Rewrite);
 
 				CDDeclConversionState* var_ddcs_ptr = nullptr;
@@ -13027,6 +13126,11 @@ namespace convm1 {
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
 				if (function_decl) {
+
+					/* Just trying to ensure that the expression conversion state for this call is established prior to 
+					the construction of child argument expression conversion states. */
+					auto& ce_ecs_ref = state1.get_expr_conversion_state_ref(*CE, Rewrite);
+
 					const std::string function_name = function_decl->getNameAsString();
 					const std::string function_qname = function_decl->getQualifiedNameAsString();
 					auto maybe_function_index = s_function_conversion_index_if_any(function_qname);
@@ -13173,6 +13277,12 @@ namespace convm1 {
 							modifications that might affect the relevant part of the source text.
 							(Update: This is probably no longer necessary since we no longer modify the arguments.) */
 							(*this).m_state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
+
+							/* We've queued the modification action for deferred execution, but we don't want to delay the
+							establishment of the expression conversion state because, among other reasons, it reads from 
+							and stores the original source text and we want that done before the source text gets 
+							potentially modified. */
+							auto& ecs_ref = (*this).m_state1.get_expr_conversion_state_ref(*CE, Rewrite);
 						} else {
 							int q = 7;
 						}
@@ -14117,6 +14227,16 @@ namespace convm1 {
 						//lambda();
 						if (CSCESR.isValid() && (!there_seems_to_be_a_contending_pending_code_modification_action)) {
 							state1.m_pending_code_modification_actions.add_replacement_action(CSCESR, lambda);
+
+							/* We've queued the modification action for deferred execution, but we don't want to delay the
+							establishment of the expression conversion state because, among other reasons, it reads from 
+							and stores the original source text and we want that done before the source text gets 
+							potentially modified. */
+							auto& ecs_ref = state1.get_expr_conversion_state_ref(*CSCE, Rewrite);
+							/* Note, the expression conversion state of subexpressions should be constructed after the establishment 
+							of any ancestor expressions as they will automatically establish relationships with any pre-existing 
+							ancestors (but not descendants). */
+							auto& precasted_ecs_ref = state1.get_expr_conversion_state_ref(*precasted_expr_ptr, Rewrite);
 						}
 					} else {
 						std::string cast_operation_text = Rewrite.getRewrittenText(cast_operation_SR);
@@ -14706,6 +14826,16 @@ namespace convm1 {
 
 						state1.m_pending_code_modification_actions.add_replacement_action(CSCESR, lambda);
 						finished_cast_handling_flag = true;
+
+						/* We've queued the modification action for deferred execution, but we don't want to delay the
+						establishment of the expression conversion state because, among other reasons, it reads from 
+						and stores the original source text and we want that done before the source text gets 
+						potentially modified. */
+						auto& ecs_ref = state1.get_expr_conversion_state_ref(*CSCE, Rewrite);
+						/* Note, the expression conversion state of subexpressions should be constructed after the establishment 
+						of any ancestor expressions as they will automatically establish relationships with any pre-existing 
+						ancestors (but not descendants). */
+						auto& precasted_ecs_ref = state1.get_expr_conversion_state_ref(*precasted_expr_ptr, Rewrite);
 					}
 				}
 				if (!finished_cast_handling_flag) {
@@ -15440,6 +15570,12 @@ namespace convm1 {
 						}
 					} while (false);
 
+					/* We may end up establishing expression conversion states for the arguments. Here we're just making 
+					the expression conversion state of the parent call expression is established first, which is 
+					necessary to enable the child argument expression conversion states to automatically find and 
+					establish a relationship with the parent. */
+					auto& ce_ecs_ref = state1.get_expr_conversion_state_ref(*CE, Rewrite);
+
 					if (FD_is_non_modifiable || function_is_variadic) {
 						const std::string function_qname = function_decl1->getQualifiedNameAsString();
 						const auto num_args = CE->getNumArgs();
@@ -16005,6 +16141,12 @@ namespace convm1 {
 				if (function_decl1) {
 					const std::string function_name = function_decl1->getNameAsString();
 
+					/* We may end up establishing expression conversion states for the arguments. Here we're just making 
+					the expression conversion state of the parent call expression is established first, which is 
+					necessary to enable the child argument expression conversion states to automatically find and 
+					establish a relationship with the parent. */
+					auto& ce_ecs_ref = state1.get_expr_conversion_state_ref(*CE, Rewrite);
+
 					std::vector<const clang::ParmVarDecl*> param_decls_of_first_function_decl;
 					for (auto param_VD : function_decl1->parameters()) {
 						param_decls_of_first_function_decl.push_back(param_VD);
@@ -16321,6 +16463,12 @@ namespace convm1 {
 						/* This modification needs to be queued so that it will be executed after any other
 						modifications that might affect the relevant part of the source text. */
 						(*this).m_state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
+
+						/* We've queued the modification action for deferred execution, but we don't want to delay the
+						establishment of the expression conversion state because, among other reasons, it reads from 
+						and stores the original source text and we want that done before the source text gets 
+						potentially modified. */
+						auto& ecs_ref = (*this).m_state1.get_expr_conversion_state_ref(*CE, Rewrite);
 					}
 				}
 			}
@@ -17554,14 +17702,7 @@ namespace convm1 {
 				}
 
 				if (ConvertToSCPP && SR.isValid()) {
-					if (false) {
-						auto lambda = [MR, *this, D](){ s_handler1(MR, (*this).Rewrite, (*this).m_state1, D); };
-						/* This modification needs to be queued so that it will be executed after any other
-						modifications that might affect the relevant part of the source text. */
-						(*this).m_state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
-					} else {
-						s_handler1(MR, (*this).Rewrite, (*this).m_state1, D);
-					}
+					s_handler1(MR, (*this).Rewrite, (*this).m_state1, D);
 				} else {
 					int q = 7;
 				}
