@@ -485,7 +485,7 @@ Note that we add a little qualification and modification to the rules as quoted.
 
 ##### third party lifetime annotations
 
-Note that other static lifetime analyzers in development introduce their own distinct lifetime annotations (including the lifetime profile checker and [others](https://discourse.llvm.org/t/rfc-lifetime-annotations-for-c/61377)). Those analyzers may not recognize the lifetime annotations introduced here, so to be compliant with those analyzers you may have to use their lifetime annotations as well. Ideally, in the future scpptool would also support those lifetime annotations, reducing the need for redundant annotations.
+Note that other static lifetime analyzers in development introduce their own distinct lifetime annotations (including the lifetime profile checker and [others](https://discourse.llvm.org/t/rfc-lifetime-annotations-for-c/61377)). Those analyzers may not recognize the lifetime annotations introduced here, so to be compliant with those analyzers you may have to use their lifetime annotations as well. Ideally, in the future scpptool would also support those lifetime annotations, reducing the need for redundant annotations. Note that scpptool does recognize clang's [`lifetimebound`](https://clang.llvm.org/docs/AttributeReference.html#lifetimebound) annotation and treats it like its corresponding native lifetime annotation.
 
 #### Lifetime annotated elements in the SaferCPlusPlus library
 
