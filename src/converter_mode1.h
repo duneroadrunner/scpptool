@@ -13022,6 +13022,7 @@ namespace convm1 {
 		std::string NewFunctionQName;
 		std::string NewDualModeFunctionQName;
 		std::optional<size_t> m_maybe_num_parameters;
+		std::vector<std::pair<std::string, std::string> > m_string_options;
 	};
 	static std::vector<CFConversionInfo> const& s_function_conversion_infos() {
 		static std::vector<CFConversionInfo> sl_function_conversion_infos = {
@@ -13047,7 +13048,7 @@ namespace convm1 {
 			, { "fread", "mse::lh::fread", "MSE_LH_FREAD", {4} }
 			, { "fwrite", "mse::lh::fwrite", "MSE_LH_FWRITE", {4} }
 			, { "getline", "mse::lh::getline", "MSE_LH_GETLINE", {3} }
-			, { "iconv", "mse::lh::iconv_wrapper", "MSE_LH_ICONV_WRAPPER", {5} }
+			, { "iconv", "MSE_LH_ICONV", "MSE_LH_ICONV", {5} }
 			, { "strndup", "mse::lh::strndup", "MSE_LH_STRNDUP", {2} }
 			, { "strdup", "mse::lh::strdup", "MSE_LH_STRDUP", {1} }
 			, { "xstrdup", "mse::lh::strdup", "MSE_LH_STRDUP", {1} }
