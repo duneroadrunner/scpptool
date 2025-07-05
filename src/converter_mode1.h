@@ -13029,9 +13029,11 @@ namespace convm1 {
 			{ "memset", "mse::lh::memset", "MSE_LH_MEMSET", {3} }
 			, { "memcpy", "mse::lh::memcpy", "MSE_LH_MEMCPY", {3} }
 			, { "memcmp", "mse::lh::memcmp", "MSE_LH_MEMCMP", {3} }
+			, { "memchr", "mse::lh::memchr", "MSE_LH_MEMCHR", {3} }
 			, { "strcpy", "mse::lh::strcpy", "MSE_LH_STRCPY", {2} }
 			, { "strcmp", "mse::lh::strcmp", "MSE_LH_STRCMP", {2} }
 			, { "strncmp", "mse::lh::strncmp", "MSE_LH_STRNCMP", {3} }
+			, { "strchr", "mse::lh::strchr", "MSE_LH_STRCMP", {2} }
 			, { "strlen", "mse::lh::strlen", "MSE_LH_STRLEN", {1} }
 			, { "strnlen_s", "mse::lh::strnlen_s", "MSE_LH_STRNLEN_S", {2} }
 			, { "strtol", "mse::lh::strtol", "MSE_LH_STRTOL", {3} }
@@ -13056,9 +13058,11 @@ namespace convm1 {
 			, { "std::memset", "mse::lh::memset", "MSE_LH_MEMSET", {3} }
 			, { "std::memcpy", "mse::lh::memcpy", "MSE_LH_MEMCPY", {3} }
 			, { "std::memcmp", "mse::lh::memcmp", "MSE_LH_MEMCMP", {3} }
+			, { "std::memchr", "mse::lh::memchr", "MSE_LH_MEMCHR", {3} }
 			, { "std::strcpy", "mse::lh::strcpy", "MSE_LH_STRCPY", {2} }
 			, { "std::strcmp", "mse::lh::strcmp", "MSE_LH_STRCMP", {2} }
 			, { "std::strncmp", "mse::lh::strncmp", "MSE_LH_STRNCMP", {3} }
+			, { "std::strchr", "mse::lh::strchr", "MSE_LH_STRCMP", {2} }
 			, { "std::strlen", "mse::lh::strlen", "MSE_LH_STRLEN", {1} }
 			, { "std::strnlen_s", "mse::lh::strnlen_s", "MSE_LH_STRNLEN_S", {2} }
 			, { "std::strtol", "mse::lh::strtol", "MSE_LH_STRTOL", {3} }
@@ -13954,8 +13958,12 @@ namespace convm1 {
 				auto PVD = dyn_cast<const clang::ParmVarDecl>(&decl);
 				if (PVD && state1.m_ast_context_ptr) {
 					auto DC = PVD->getParentFunctionOrMethod();
-					FND = dyn_cast<const clang::FunctionDecl>(DC);
-					//FND = Tget_immediately_containing_element_of_type<clang::FunctionDecl>(&decl, *(state1.m_ast_context_ptr));
+					if (DC) {
+						FND = dyn_cast<const clang::FunctionDecl>(DC);
+						//FND = Tget_immediately_containing_element_of_type<clang::FunctionDecl>(&decl, *(state1.m_ast_context_ptr));
+					} else {
+						int q = 5;
+					}
 				}
 			}
 			if (FND) {
@@ -14578,9 +14586,17 @@ namespace convm1 {
 				bool preconversion_expression_is_void_star = false;
 				bool converted_expression_is_void_star = false;
 				bool apparent_const_correctness_violation = false;
+				bool seems_to_be_a_benign_cast = (CSCE->getType() == CSCE->getSubExpr()->getType());
 				if (CSCE->getType()->isPointerType() && CSCE->getSubExpr()->getType()->isPointerType()) {
-					const std::string og_converted_pointee_qtype_str = CSCE->getType()->getPointeeType().getAsString();
-					const std::string og_preconversion_pointee_qtype_str = CSCE->getSubExpr()->getType()->getPointeeType().getAsString();
+					const auto og_converted_pointee_qtype = CSCE->getType()->getPointeeType();
+					const auto og_preconversion_pointee_qtype = CSCE->getSubExpr()->getType()->getPointeeType();
+					const std::string og_converted_pointee_qtype_str = og_converted_pointee_qtype.getAsString();
+					const std::string og_preconversion_pointee_qtype_str = og_preconversion_pointee_qtype.getAsString();
+					if ((!og_converted_pointee_qtype.isConstQualified()) && og_preconversion_pointee_qtype.isConstQualified()) {
+						apparent_const_correctness_violation = true;
+					} else if (og_converted_pointee_qtype == og_preconversion_pointee_qtype.withConst()) {
+						seems_to_be_a_benign_cast |= true;
+					}
 
 					bool preconversion_expression_is_const_void_star = ("const void" == og_preconversion_pointee_qtype_str);
 					bool preconversion_expression_is_nonconst_void_star = ("void" == og_preconversion_pointee_qtype_str);
@@ -14588,12 +14604,11 @@ namespace convm1 {
 					bool converted_expression_is_const_void_star = ("const void" == og_converted_pointee_qtype_str);
 					bool converted_expression_is_nonconst_void_star = ("void" == og_converted_pointee_qtype_str);
 					converted_expression_is_void_star = converted_expression_is_const_void_star || converted_expression_is_nonconst_void_star;
-					if (converted_expression_is_nonconst_void_star && preconversion_expression_is_const_void_star) {
-						apparent_const_correctness_violation = true;
-					}
 				}
 				if (new_cast_prefix.empty()) {
-					if ((preconversion_expression_is_void_star || converted_expression_is_void_star) && (!apparent_const_correctness_violation)) {
+					if (((preconversion_expression_is_void_star || converted_expression_is_void_star) && (!apparent_const_correctness_violation))
+						|| seems_to_be_a_benign_cast) {
+
 						if ("Dual" == ConvertMode) {
 							new_cast_prefix = "MSE_LH_CAST("
 								+ replacement_qtype_str + ", ";
@@ -14709,7 +14724,10 @@ namespace convm1 {
 			} else {
 				const DeclaratorDecl* lhs_DD = llvm::cast<const clang::DeclaratorDecl>(VLD);
 				if (lhs_DD) {
-					decl_util_handler1(MR, Rewrite, state1, VLD);
+					auto found_it = state1.m_ddecl_conversion_state_map.find(lhs_DD);
+					if (state1.m_ddecl_conversion_state_map.end() == found_it) {
+						decl_util_handler1(MR, Rewrite, state1, lhs_DD);
+					}
 					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &Rewrite);
 
 					lhs_res2.ddecl_cptr = lhs_DD;
@@ -14784,9 +14802,25 @@ namespace convm1 {
 					MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(csce_QT);
 					auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
 					assert(precasted_expr_ptr);
+					const auto precasted_expr_qtype = precasted_expr_ptr->getType();
 					auto precasted_expr_SR = cm1_adj_nice_source_range(precasted_expr_ptr->getSourceRange(), state1, Rewrite);
 					auto CSCESR = write_once_source_range(cm1_adj_nice_source_range(CSCE->getSourceRange(), state1, Rewrite));
 					auto cast_operation_SR = write_once_source_range(cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite));
+
+					if (precasted_expr_qtype->isPointerType()) {
+						const std::string precasted_expr_qtype_str = precasted_expr_qtype.getAsString();
+						if (("const void *" == precasted_expr_qtype_str) || ("void *" == precasted_expr_qtype_str)) {
+							/* At this point, `void *` (or rather, its replacement) doesn't preserve "xscope" eligibility information, 
+							so we'll mark any object that is assigned a value from a `void *` as ineligible for "xscope" status. */
+							if (lhs_res2.ddecl_conversion_state_ptr) {
+								auto& ddcs = *(lhs_res2.ddecl_conversion_state_ptr);
+								if (ddcs.m_indirection_state_stack.size() > lhs_res2.indirection_level) {
+									auto& indirection_state_ref = ddcs.m_indirection_state_stack.at(lhs_res2.indirection_level);
+									indirection_state_ref.set_xscope_eligibility(false);
+								}
+							}
+						}
+					}
 					do {
 						if ((csce_QT->isPointerType()) && precasted_expr_ptr->getType()->isPointerType() && cast_operation_SR.isValid()) {
 							std::string csce_QT_str = csce_QT.getAsString();
@@ -15280,7 +15314,8 @@ namespace convm1 {
 
 						auto LHS_qtype = LHS ? LHS->getType() : VLD->getType();
 						auto LHS_qtype_str = LHS_qtype.getAsString();
-						if (!(("void *" == LHS_qtype_str) || ("const void *" == LHS_qtype_str))) {
+						bool is_initialization_of_native_array = (bool(VLD) && VLD->getType()->isArrayType());
+						if (!(("void *" == LHS_qtype_str) || ("const void *" == LHS_qtype_str) || is_initialization_of_native_array)) {
 							/* Here we're establishing and "enforcing" the constraint that the lhs value must
 							* be of an (array) type that can be assigned the rhs string literal. */
 							if (!lhs_indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
@@ -17235,6 +17270,18 @@ namespace convm1 {
 
 						const auto init_EX = VD->getInit();
 						if (init_EX) {
+
+							auto individual_declarator_decls = IndividualDeclaratorDecls(DD);
+							if (1 > individual_declarator_decls.size()) {
+								assert(false);
+							} else if (individual_declarator_decls.front() != DD) {
+								assert(2 <= individual_declarator_decls.size());
+								/* We've observed that for some reason with declarations statements that contain the declaration 
+								of multiple items with initialization expressions, the "assignment" matcher will only match the 
+								initialization of the first item. But this declaration seems to be one of those subsequent items 
+								in a multiplee declaration statement. So here we'll maually call the assignment handler. */
+								MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_EX/*RHS*/, VD, MCSSSAssignment::EIsAnInitialization::Yes);
+							}
 
 							if (qtype->isArrayType()) {
 								const clang::ArrayType* ATP = qtype->getAsArrayTypeUnsafe();
