@@ -13967,6 +13967,42 @@ namespace convc2validcpp {
 					}
 				}
 
+				auto SL = dyn_cast<const clang::StringLiteral>(E);
+				if (SL) {
+					const auto str = std::string(SL->getString());
+					const auto SL_SR = write_once_source_range(cm1_adj_nice_source_range(SL->getSourceRange(), state1, Rewrite));
+					const std::string original_source_text_str = Rewrite.getRewrittenText(SL_SR);
+					std::string new_source_text_str = original_source_text_str;
+
+					const auto num_toks = SL->getNumConcatenated();
+					for (unsigned int j = 0; num_toks > j; j += 1) {
+						int i = num_toks - 1 - j;
+						auto SrcLoc1 = SL->getStrTokenLoc(i);
+
+						const auto SL_SR5 = write_once_source_range(cm1_adj_nice_source_range(clang::SourceRange{ SrcLoc1, SrcLoc1 }, state1, Rewrite));
+						if (SL_SR5.isValid()) {
+							auto& SM = Rewrite.getSourceMgr();
+							const std::string original_source_text_str5 = Rewrite.getRewrittenText(SL_SR5);
+							auto pos = SM.getFileOffset(SL_SR5.getBegin()) - SM.getFileOffset(SL_SR.getBegin());
+
+							if ((SL_SR.getBegin() <= SL_SR5.getBegin()) && (SL_SR.getEnd() >= SL_SR5.getEnd()) && ("" != original_source_text_str5)
+								&& (0 <= pos) && (original_source_text_str.length() > pos)) {
+
+								if (new_source_text_str.substr(pos, original_source_text_str5.length()) == original_source_text_str5) {
+									/* We're adding spaces around string literals to address: error: invalid suffix on literal; C++11 requires a space between literal and identifier [-Wreserved-user-defined-literal] */
+									std::string with_added_space_bumpers = " " + original_source_text_str5 + " ";
+									new_source_text_str.replace(pos, original_source_text_str5.length(), with_added_space_bumpers);
+								} else {
+									int q = 3;
+								}
+							}
+						}
+					}
+					if (original_source_text_str != new_source_text_str) {
+						state1.add_pending_straight_text_replacement_expression_update(Rewrite, SL_SR, SL, new_source_text_str);
+					}
+				}
+
 #if 0
 				auto *CSCE = dyn_cast<const clang::CStyleCastExpr>(E);
 				if (CSCE) {
