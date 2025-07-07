@@ -14993,7 +14993,59 @@ namespace convm1 {
 								int q = 5;
 							}
 						} else {
-							int q = 5;
+							/* It seems the lhs is of function pointer type. */
+							std::string lhs_text;
+							if (VLD) {
+								lhs_text = VLD->getNameAsString();
+							} else if (LHS) {
+								auto lhs_SR = cm1_adj_nice_source_range(LHS->getSourceRange(), state1, Rewrite);
+								lhs_text = Rewrite.getRewrittenText(lhs_SR);
+								if ("" == lhs_text) {
+									auto lhs_SRPlus = cm1_adjusted_source_range(LHS->getSourceRange(), state1, Rewrite);
+									//lhs_text = lhs_SRPlus.m_adjusted_source_text_as_if_expanded;;
+								}
+							} else { assert(false); }
+
+							if ("" != lhs_text) {
+								std::string make_raw_fn_wrapper_prefix_str;
+								if ("Dual" == ConvertMode) {
+									make_raw_fn_wrapper_prefix_str = "MSE_LH_UNSAFE_MAKE_RAW_FN_WRAPPER_SHORT1(";
+								} else {
+									make_raw_fn_wrapper_prefix_str = "mse::us::lh::make_raw_fn_wrapper(";
+								}
+
+								std::string make_raw_fn_wrapper_suffix_str;
+								if ("Dual" == ConvertMode) {
+									make_raw_fn_wrapper_suffix_str = std::string(", (") + lhs_text + "))";
+								} else {
+									make_raw_fn_wrapper_suffix_str = std::string(", (") + lhs_text + "))";
+								}
+
+								if (RHS_ii->getType()->isFunctionType()) {
+									/* The rhs seems to be a function rather than a function pointer. */
+									make_raw_fn_wrapper_prefix_str += "&(";
+									make_raw_fn_wrapper_suffix_str = ")" + make_raw_fn_wrapper_suffix_str;
+								}
+
+								auto& ecs_ref = state1.get_expr_conversion_state_ref(*RHS_ii, Rewrite);
+								const auto l_text_modifier = CWrapExprTextModifier(make_raw_fn_wrapper_prefix_str, make_raw_fn_wrapper_suffix_str);
+								bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+									&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+								if (!seems_to_be_already_applied) {
+									auto shptr2 = std::make_shared<CWrapExprTextModifier>(make_raw_fn_wrapper_prefix_str, make_raw_fn_wrapper_suffix_str);
+									ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+									ecs_ref.update_current_text();
+
+									auto rhs_ii_SR = cm1_adj_nice_source_range(RHS_ii->getSourceRange(), state1, Rewrite);
+									if (rhs_ii_SR.isValid()) {
+										state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, rhs_ii_SR, state1, RHS_ii);
+									}
+								}
+
+								int q = 5;
+							} else {
+								int q = 3;
+							}
 						}
 					} else {
 						int q = 5;
