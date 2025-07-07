@@ -7848,8 +7848,9 @@ namespace convm1 {
 			}
 			if (named_record_type_defined_in_declaration) {
 				static const std::string anonymous_struct_prefix = "struct (anonymous struct";
+				static const std::string unnamed_struct_prefix = "struct (unnamed struct";
 				auto qtype_str = DD->getType().getAsString();
-				if (string_begins_with(qtype_str, anonymous_struct_prefix)) {
+				if (string_begins_with(qtype_str, anonymous_struct_prefix) || string_begins_with(qtype_str, unnamed_struct_prefix)) {
 					named_record_type_defined_in_declaration = false;
 				}
 			}
@@ -12215,7 +12216,11 @@ namespace convm1 {
 							lhs_element_type_str = type_str;
 						}
 						adjusted_num_bytes_str = "(" + alloc_function_info1.m_num_bytes_arg_source_text + ")";
-						if ((target_type.getAsString() != lhs_element_type_str) && ("void" != lhs_element_type_str)) {
+						if (("void" == lhs_element_type_str) | ("const void" == lhs_element_type_str)) {
+							/* The assignee of the *alloc() function seems to be a void pointer. Without being able to deduce 
+							the intended type of the allocated memory, there's nothing we can really do to make it (type) safe. */
+							return;
+						} else if (target_type.getAsString() != lhs_element_type_str) {
 							adjusted_num_bytes_str += " / sizeof(" + target_type.getAsString() + ") * sizeof(" + lhs_element_type_str + ")";
 						}
 					}
@@ -13937,11 +13942,17 @@ namespace convm1 {
 						auto definition_type_SL = definition_TypeLoc(tsi->getTypeLoc()).getBeginLoc();
 
 						auto definition_type_SR = clang::SourceRange(definition_type_SL, definition_type_SL);
-						DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, definition_type_SR, Rewrite);
+						DEBUG_SOURCE_LOCATION_STR(definition_debug_source_location_str, definition_type_SR, Rewrite);
 
 						if (filtered_out_by_location<options_t<converter_mode_t>>(Ctx, definition_type_SL)) {
-							non_modifiable_flag = true;
-							break;
+							/* The problem with the strategy of designating declarations using potentially platform-specific 
+							types as "non-modifiable" is that it technically may include arithmetic types like `int64_t`, which, 
+							although (typically) a platform-specific typedef, has no properties, relevant to us, that are 
+							non-portable. */
+							if (!tsi->getType()->isArithmeticType()) {
+								non_modifiable_flag = true;
+								break;
+							}
 						}
 					}
 				}
@@ -14941,41 +14952,45 @@ namespace convm1 {
 					auto DRE = given_or_descendant_DeclRefExpr(RHS_ii, *(MR.Context));
 
 					if ((nullptr != DRE) && rhs_source_range.isValid()
-						&& LHS_qtype->isPointerType() && (!LHS_qtype->isFunctionPointerType())) {
+						&& LHS_qtype->isPointerType()) {
 
-						assert(nullptr != RHS);
-						auto& rhs_ecs_ref = state1.get_expr_conversion_state_ref(*RHS, Rewrite);
+						if (!LHS_qtype->isFunctionPointerType()) {
+							assert(nullptr != RHS);
+							auto& rhs_ecs_ref = state1.get_expr_conversion_state_ref(*RHS, Rewrite);
 
-						if (ConvertToSCPP) {
+							if (ConvertToSCPP) {
 
-							std::string rhs_function_qname_if_any;
-							auto rhs_CE = dyn_cast<const clang::CallExpr>(RHS_ii);
-							if (rhs_CE) {
-								auto rhs_function_decl1 = rhs_CE->getDirectCallee();
-								if (rhs_function_decl1) {
-									rhs_function_qname_if_any = rhs_function_decl1->getQualifiedNameAsString();
-								}
-							}
-
-							std::shared_ptr<CExprTextModifier> shptr1;
-							auto RHS_qtype_str = RHS_qtype.getAsString();
-							if (!string_begins_with(rhs_function_qname_if_any, "mse::")) {
-								shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
-								if (1 <= rhs_ecs_ref.m_expr_text_modifier_stack.size()) {
-									if ("unsafe make raw pointer from" == rhs_ecs_ref.m_expr_text_modifier_stack.back()->species_str()) {
-										/* already applied */
-										return;
+								std::string rhs_function_qname_if_any;
+								auto rhs_CE = dyn_cast<const clang::CallExpr>(RHS_ii);
+								if (rhs_CE) {
+									auto rhs_function_decl1 = rhs_CE->getDirectCallee();
+									if (rhs_function_decl1) {
+										rhs_function_qname_if_any = rhs_function_decl1->getQualifiedNameAsString();
 									}
 								}
-							}
-							if (shptr1) {
-								rhs_ecs_ref.m_expr_text_modifier_stack.push_back(shptr1);
-								rhs_ecs_ref.update_current_text();
 
-								state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, rhs_source_range, state1, RHS);
-								//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, rhs_source_range, (*rhs_shptr_ref).current_text());
-								//(*this).Rewrite.ReplaceText(rhs_source_range, (*rhs_shptr_ref).current_text());
-								return;
+								std::shared_ptr<CExprTextModifier> shptr1;
+								auto RHS_qtype_str = RHS_qtype.getAsString();
+								if (!string_begins_with(rhs_function_qname_if_any, "mse::")) {
+									shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
+									if (1 <= rhs_ecs_ref.m_expr_text_modifier_stack.size()) {
+										if ("unsafe make raw pointer from" == rhs_ecs_ref.m_expr_text_modifier_stack.back()->species_str()) {
+											/* already applied */
+											return;
+										}
+									}
+								}
+								if (shptr1) {
+									rhs_ecs_ref.m_expr_text_modifier_stack.push_back(shptr1);
+									rhs_ecs_ref.update_current_text();
+
+									state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, rhs_source_range, state1, RHS);
+									//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, rhs_source_range, (*rhs_shptr_ref).current_text());
+									//(*this).Rewrite.ReplaceText(rhs_source_range, (*rhs_shptr_ref).current_text());
+									return;
+								}
+							} else {
+								int q = 5;
 							}
 						} else {
 							int q = 5;
