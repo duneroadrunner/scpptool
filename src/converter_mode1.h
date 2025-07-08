@@ -14996,7 +14996,14 @@ namespace convm1 {
 							/* It seems the lhs is of function pointer type. */
 							std::string lhs_text;
 							if (VLD) {
-								lhs_text = VLD->getNameAsString();
+								auto PVD = dyn_cast<const clang::ParmVarDecl>(VLD);
+								if (PVD) {
+									/* The lhs, being a parameter declaration, doesn't really contain an accessible expression or value 
+									from which the (function pointer) type can be deduced. So we're going to (try to) manufacture one. */
+									lhs_text = LHS_qtype_str + "{}";
+								} else {
+									lhs_text = VLD->getNameAsString();
+								}
 							} else if (LHS) {
 								auto lhs_SR = cm1_adj_nice_source_range(LHS->getSourceRange(), state1, Rewrite);
 								lhs_text = Rewrite.getRewrittenText(lhs_SR);
@@ -15574,6 +15581,23 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
+				auto get_arg_EX_ii = [&](const size_t arg_index) {
+						clang::Expr const* retval = nullptr;
+						const auto num_args = CE->getNumArgs();
+						if (num_args > arg_index) {
+							auto arg_EX = CE->getArg(arg_index);
+							auto arg_EX_qtype = arg_EX->getType();
+							IF_DEBUG(std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();)
+							assert(arg_EX->getType().getTypePtrOrNull());
+							auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+							auto arg_EX_ii_qtype = arg_EX_ii->getType();
+							IF_DEBUG(std::string arg_EX_ii_qtype_str = arg_EX_ii_qtype.getAsString();)
+							assert(arg_EX_ii->getType().getTypePtrOrNull());
+							retval = arg_EX_ii;
+						}
+						return retval;
+					};
+
 				//RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 				/* In this case we only filter out the element if the call expression and all of its arguments would 
 				be individually filtered out. */
@@ -15586,12 +15610,13 @@ namespace convm1 {
 						const auto num_args = CE->getNumArgs();
 						size_t arg_index = 0;
 						for (; (num_args > arg_index); arg_index += 1) {
-							auto arg_EX = CE->getArg(arg_index);
-							auto arg_SR = cm1_adj_nice_source_range(arg_EX->getSourceRange(), state1, Rewrite);
-							if ((!arg_SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, arg_SR.getBegin())) {
-							} else {
-								an_arg_is_not_filtered_out = true;
-								break;
+							auto arg_EX_ii = get_arg_EX_ii(arg_index);
+							auto arg_EX_ii_SR = cm1_adj_nice_source_range(arg_EX_ii->getSourceRange(), state1, Rewrite);
+							if (arg_EX_ii_SR.isValid()) {
+								if (!filtered_out_by_location<options_t<converter_mode_t> >(MR, arg_EX_ii_SR.getBegin())) {
+									an_arg_is_not_filtered_out = true;
+									break;
+								}
 							}
 						}
 					}
@@ -15637,23 +15662,6 @@ namespace convm1 {
 							if (begins_with__builtin_) {
 								return;
 							}
-
-							auto get_arg_EX_ii = [&](const size_t arg_index) {
-									clang::Expr const* retval = nullptr;
-									const auto num_args = CE->getNumArgs();
-									if (num_args > arg_index) {
-										auto arg_EX = CE->getArg(arg_index);
-										auto arg_EX_qtype = arg_EX->getType();
-										IF_DEBUG(std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();)
-										assert(arg_EX->getType().getTypePtrOrNull());
-										auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
-										auto arg_EX_ii_qtype = arg_EX_ii->getType();
-										IF_DEBUG(std::string arg_EX_ii_qtype_str = arg_EX_ii_qtype.getAsString();)
-										assert(arg_EX_ii->getType().getTypePtrOrNull());
-										retval = arg_EX_ii;
-									}
-									return retval;
-								};
 
 							if ("fprintf" == function_name) {
 								const auto arg_EX_ii = get_arg_EX_ii(1);
