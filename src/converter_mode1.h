@@ -4931,10 +4931,20 @@ namespace convm1 {
 		clang::SourceRange SR3 { SL3.getLocWithOffset(1 - int(const_str.length())), cq_SR.getBegin().getLocWithOffset(-1) };
 		auto text3 = Rewrite.getRewrittenText(SR3);
 		if (text3.substr(0, const_str.length()) == const_str) {
-			/* (west) const qualifier found */
-			/* extend the source range(s) to include the const qualifier */
-			cq_SR.setBegin(SR3.getBegin());
-			IF_DEBUG(std::string old_text = Rewrite.getRewrittenText(cq_SR);)
+			auto SL4 = SL3.getLocWithOffset(-1);
+			clang::SourceRange SR4 { SL4, SL4 };
+			auto text4 = Rewrite.getRewrittenText(SR4);
+			bool text4_is_alphanum_or_underscore = false;
+			if (1 <= text4.length()) {
+				auto ch = text4.back();
+				text4_is_alphanum_or_underscore = Parse::is_alnum_or_underscore(ch);
+			}
+			if (!text4_is_alphanum_or_underscore) {
+				/* (west) const qualifier found */
+				/* extend the source range(s) to include the const qualifier */
+				cq_SR.setBegin(SR3.getBegin());
+				IF_DEBUG(std::string old_text = Rewrite.getRewrittenText(cq_SR);)
+			}
 		}
 		return cq_SR;
 	}
@@ -4949,10 +4959,20 @@ namespace convm1 {
 		clang::SourceRange SR3 { SL3, SL3.getLocWithOffset(int(const_str.length()) - 1) };
 		auto text3 = Rewrite.getRewrittenText(SR3);
 		if (const_str == text3) {
-			/* east const qualifier found */
-			/* extend the source range(s) to include the const qualifier */
-			cq_SR.setEnd(SR3.getEnd());
-			IF_DEBUG(std::string old_text = Rewrite.getRewrittenText(cq_SR);)
+			auto SL4 = SR3.getEnd().getLocWithOffset(+1);
+			clang::SourceRange SR4 { SL4, SL4 };
+			auto text4 = Rewrite.getRewrittenText(SR4);
+			bool text4_is_alphanum_or_underscore = false;
+			if (1 <= text4.length()) {
+				auto ch = text4.front();
+				text4_is_alphanum_or_underscore = Parse::is_alnum_or_underscore(ch);
+			}
+			if (!text4_is_alphanum_or_underscore) {
+				/* east const qualifier found */
+				/* extend the source range(s) to include the const qualifier */
+				cq_SR.setEnd(SR3.getEnd());
+				IF_DEBUG(std::string old_text = Rewrite.getRewrittenText(cq_SR);)
+			}
 		}
 		return cq_SR;
 	}
