@@ -725,7 +725,8 @@ namespace convm1 {
 		//CSourceRangePlus& operator=(base_class&& src) { base_class::operator=(std::forward<decltype(src)>(src)); return *this; }
 		//CSourceRangePlus& operator=(base_class const& src) { base_class::operator=(src); return *this; }
 		void set_source_range(base_class const& src) { base_class::operator=(src); }
-		
+
+		clang::SourceRange m_original_source_range;
 		std::string m_adjusted_source_text_as_if_expanded;
 		bool m_range_is_essentially_the_entire_body_of_a_macro = false;
 		bool m_macro_expansion_range_substituted_with_macro_invocation_range = false;
@@ -750,7 +751,8 @@ namespace convm1 {
 			std::string m_text;
 			bool m_can_be_substituted_with_macro_invocation_text = false;
 			std::vector<std::string> m_macro_args;
-			clang::SourceRange m_macro_range;
+			clang::SourceRange m_macro_invocation_range;
+			clang::SourceRange m_macro_definition_range;
 			std::string m_macro_name;
 		};
 		std::vector<CAdjustedSourceTextInfo> m_adjusted_source_text_infos;
@@ -1307,29 +1309,6 @@ namespace convm1 {
 					} else {
 						/* When there is source text, the array size expression will be read from the source
 						(elsewhere) when required. */
-					}
-
-					if (false) {
-						/*
-						auto DDSR = cm1_adj_nice_source_range(DD->getSourceRange(), state1, Rewrite);
-						std::string array_size_expression_text;
-						std::string source_text;
-						if (DDSR.isValid()) {
-							source_text = Rewrite.getRewrittenText(DDSR);
-
-							auto left_bracket_pos = source_text.find('[');
-							auto right_bracket_pos = source_text.find(']');
-							if ((std::string::npos != left_bracket_pos) && (std::string::npos != right_bracket_pos)
-									&& (left_bracket_pos + 1 < right_bracket_pos)) {
-								auto array_size_expression_text = source_text.substr(left_bracket_pos + 1, right_bracket_pos - (left_bracket_pos + 1));
-								int q = 3;
-							} else {
-								int q = 7;
-							}
-						} else {
-							int q = 5;
-						}
-						*/
 					}
 				}
 			}
@@ -2024,12 +2003,12 @@ namespace convm1 {
 		bool direct_qtype_has_been_changed() const {
 			return direct_type_state_ref().qtype_has_been_changed();
 		}
-		bool initializer_has_been_changed() const {
+		bool initializer_has_been_changed(Rewriter &Rewrite, CTUState* state1_ptr, std::optional<CExprTextInfoContext> maybe_context = {}) const {
 			if (m_original_initialization_has_been_noted) {
-				if (current_initialization_expr_str() != m_original_initialization_expr_str) {
+				if (current_initialization_expr_str(Rewrite, state1_ptr, maybe_context) != m_original_initialization_expr_str) {
 					return true;
 				}
-			} else if ("" != current_initialization_expr_str())  {
+			} else if ("" != current_initialization_expr_str(Rewrite, state1_ptr, maybe_context))  {
 				return true;
 			}
 			return false;
@@ -2092,10 +2071,27 @@ namespace convm1 {
 			}
 			return adjusted_qtype_str(non_const_direct_return_qtype_str);
 		}
-		std::string const& current_initialization_expr_str(std::optional<CExprTextInfoContext> maybe_context = {}) const {
+		std::string const& current_initialization_expr_str(Rewriter &Rewrite, CTUState* state1_ptr, std::optional<CExprTextInfoContext> maybe_context = {}) const {
 			if (m_maybe_initialization_expr_text_info.has_value()) {
 				auto& initialization_expr_text_info = m_maybe_initialization_expr_text_info.value();
-				return initialization_expr_text_info.current_text(maybe_context);
+
+				auto maybe_default_context = [&]() -> std::optional<CExprTextInfoContext> {
+					if (m_ddecl_cptr) {
+						/* Presumably the initialization expression will be rendered as part of the (whole) declaration 
+						statement, so the CExprTextInfoContext we supply should presumably reflect that. */
+						const auto raw_SR = m_ddecl_cptr->getSourceRange();
+						if (state1_ptr && raw_SR.getBegin().isMacroID() && raw_SR.getEnd().isMacroID()) {
+							const auto SR_plus = cm1_adjusted_source_range(raw_SR, *state1_ptr, Rewrite);
+							if (SR_plus.isValid()) {
+								return CExprTextInfoContext{ SR_plus };
+							}
+						}
+					}
+					return {};
+				};
+				auto new_maybe_context = maybe_context.has_value() ? maybe_context : maybe_default_context();
+
+				return initialization_expr_text_info.current_text(new_maybe_context);
 			}
 			return m_fallback_current_initialization_expr_str;
 		}
@@ -2434,12 +2430,13 @@ namespace convm1 {
 		}
 		virtual ~CExprConversionState() {}
 		virtual void update_current_text(std::optional<CExprTextInfoContext> maybe_context = {}) {
-			CExprTextInfoContext context = maybe_context.has_value() ? maybe_context.value() : CExprTextInfoContext{ m_SR_plus } ;
+			auto new_maybe_context = maybe_context.has_value() ? maybe_context : maybe_default_context();
+
 			if (m_child_text_infos.size() + 1 == m_non_child_dependent_text_fragments.size()) {
 				std::string working_text;
 				for (size_t i = 0; i < m_child_text_infos.size(); i += 1) {
 					working_text += m_non_child_dependent_text_fragments.at(i);
-					working_text += m_child_text_infos.at(i).current_text(context);
+					working_text += m_child_text_infos.at(i).current_text(new_maybe_context);
 				}
 				working_text += m_non_child_dependent_text_fragments.back();
 				m_current_text_str = modified_copy(working_text);
@@ -2451,6 +2448,7 @@ namespace convm1 {
 			static const auto sc_species_str = std::string("");
 			return sc_species_str;
 		}
+
 		const std::string& current_text(std::optional<CExprTextInfoContext> maybe_context = {}) {
 			update_current_text(maybe_context);
 			return m_current_text_str;
@@ -2470,6 +2468,16 @@ namespace convm1 {
 		clang::ASTContext* maybe_null_ast_context_ptr() const;
 		bool set_up_child_depenedencies_generically();
 		bool set_up_relation_to_parent_generically();
+
+		auto maybe_default_context() const -> std::optional<CExprTextInfoContext> {
+			if (m_expr_cptr) {
+				const auto raw_SR = m_expr_cptr->getSourceRange();
+				if (raw_SR.getBegin().isMacroID() && raw_SR.getEnd().isMacroID()) {
+					return CExprTextInfoContext{ m_SR_plus };
+				}
+			}
+			return {};
+		}
 
 		void add_straight_text_replacement_modifier(std::string_view replacement_text) {
 			auto shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(replacement_text);
@@ -3639,7 +3647,7 @@ namespace convm1 {
 		if (m_state1.m_expr_conversion_state_map.end() != iter) {
 			return (*iter).second->current_text(maybe_context);
 		}
-		if (maybe_context) {
+		if (maybe_context.has_value() && maybe_context.value().m_root_SR.isValid()) {
 			auto& context = maybe_context.value();
 			/* The presence of a context implies that this element may be being rendered as a component of a 
 			containing element. The representation of that containing element may be in the definition body of 
@@ -3649,16 +3657,49 @@ namespace convm1 {
 			in the containing macro. The m_SR_plus member field actually (hopefully) stores representations valid 
 			for each containing macro at various levels of (macro invocation) nesting. So we'll try to find one 
 			that seems to correspond to the element associated with the context. */
+
+			if (2 <= m_SR_plus.m_adjusted_source_text_infos.size()) {
+				if (std::string::npos != m_SR_plus.m_adjusted_source_text_infos.at(m_SR_plus.m_adjusted_source_text_infos.size() - 1).m_text.find("outlen")) {
+					int q = 5;
+				}
+			}
+
 			for (size_t ind = 0; m_SR_plus.m_adjusted_source_text_infos.size() > ind; ind += 1) {
 				auto& adjusted_source_text_info_ref = m_SR_plus.m_adjusted_source_text_infos.at(ind);
-				if (!((context.m_root_SR.getBegin() < adjusted_source_text_info_ref.m_macro_range.getBegin())
-					|| (adjusted_source_text_info_ref.m_macro_range.getEnd() < context.m_root_SR.getEnd()))) {
+
+				bool b1 = adjusted_source_text_info_ref.m_macro_definition_range.isValid() && (!((context.m_root_SR.getBegin() < adjusted_source_text_info_ref.m_macro_definition_range.getBegin())
+					|| (adjusted_source_text_info_ref.m_macro_definition_range.getEnd() < context.m_root_SR.getEnd())));
+
+				/* We expect this criteria should actually only be potentially relevant for the last adjusted_source_text_info 
+				for which a valid m_macro_definition_range wouldn't be available. */
+				bool b2 = adjusted_source_text_info_ref.m_macro_invocation_range.isValid() && (!((context.m_root_SR.getBegin() < adjusted_source_text_info_ref.m_macro_invocation_range.getBegin())
+					|| (adjusted_source_text_info_ref.m_macro_invocation_range.getEnd() < context.m_root_SR.getEnd())));
+
+				if (b1 || b2) {
 					/* We found a macro whose body seems to contain the element associated with the context. */
 
 					if ("" != adjusted_source_text_info_ref.m_text) {
 						/* So we'll return the stored representation that should be valid in the body of that macro. */
 						return adjusted_source_text_info_ref.m_text;
 					}
+				}
+			}
+			if (2 <= m_SR_plus.m_adjusted_source_text_infos.size()) {
+				if (std::string::npos != m_SR_plus.m_adjusted_source_text_infos.at(m_SR_plus.m_adjusted_source_text_infos.size() - 1).m_text.find("outlen")) {
+					int q = 5;
+				}
+				bool context_might_be_outside_any_macro = ((!(m_SR_plus.m_original_source_range.getBegin().isMacroID())) || (!(m_SR_plus.m_original_source_range.getEnd().isMacroID())));
+				if (context_might_be_outside_any_macro) {
+					/* While this expression seems to be in a macro, it's possible that the context expression isn't, 
+					in which case, none of the containing macros would contain the context expression. In such case 
+					the outer-most (i.e. least deeply nested) adjusted version of the source text should probably work. */
+					auto& adjusted_source_text_info_ref = m_SR_plus.m_adjusted_source_text_infos.at(m_SR_plus.m_adjusted_source_text_infos.size() - 1);
+					if ("" != adjusted_source_text_info_ref.m_text) {
+						return adjusted_source_text_info_ref.m_text;
+					}
+				} else {
+					/* Do we ever get here? */
+					int q = 5;
 				}
 			}
 		}
@@ -3697,15 +3738,7 @@ namespace convm1 {
 		bool b1 = whole_rawSR.getBegin().isMacroID();
 		bool b2 = whole_rawSR.getEnd().isMacroID();
 
-		if (false && (whole_rawSR.getBegin().isMacroID() || whole_rawSR.getEnd().isMacroID())) {
-			auto whole_SR_plus = cm1_adjusted_source_range(m_expr_cptr->getSourceRange(), m_state1, Rewrite);
-			if (!(whole_SR_plus.isValid())) {
-				return false;
-			}
-			struct CB {
-			};
-
-		} else {
+		{
 			auto whole_SR = write_once_source_range(cm1_adj_nice_source_range(m_expr_cptr->getSourceRange(), m_state1, Rewrite));
 			if (!(whole_SR.isValid())) {
 				return false;
@@ -3905,18 +3938,19 @@ namespace convm1 {
 			: CExprConversionState(co_cref, Rewrite, state1), m_cond_text_info(IgnoreParenImpCasts(co_cref.getCond()), Rewrite, state1), m_lhs_text_info(IgnoreParenImpCasts(co_cref.getLHS()), Rewrite, state1), m_rhs_text_info(IgnoreParenImpCasts(co_cref.getRHS()), Rewrite, state1) {}
 
 		virtual void update_current_text(std::optional<CExprTextInfoContext> maybe_context = {}) override {
-			CExprTextInfoContext context = maybe_context.has_value() ? maybe_context.value() : CExprTextInfoContext{ m_SR_plus } ;
-			std::string updated_text = m_cond_text_info.current_text(context) + " ? ";
+			auto new_maybe_context = maybe_context.has_value() ? maybe_context : maybe_default_context();
+
+			std::string updated_text = m_cond_text_info.current_text(new_maybe_context) + " ? ";
 			if (m_lhs_needs_to_be_cast) {
-				updated_text += m_arg_prefix_str + m_lhs_text_info.current_text(context) + m_arg_suffix_str;
+				updated_text += m_arg_prefix_str + m_lhs_text_info.current_text(new_maybe_context) + m_arg_suffix_str;
 			} else {
-				updated_text += m_lhs_text_info.current_text(context);
+				updated_text += m_lhs_text_info.current_text(new_maybe_context);
 			}
 			updated_text += " : ";
 			if (m_rhs_needs_to_be_cast) {
-				updated_text += m_arg_prefix_str + m_rhs_text_info.current_text(context) + m_arg_suffix_str;
+				updated_text += m_arg_prefix_str + m_rhs_text_info.current_text(new_maybe_context) + m_arg_suffix_str;
 			} else {
-				updated_text += m_rhs_text_info.current_text(context);
+				updated_text += m_rhs_text_info.current_text(new_maybe_context);
 			}
 			updated_text = modified_copy(updated_text);
 			m_current_text_str = updated_text;
@@ -3947,10 +3981,11 @@ namespace convm1 {
 			}
 
 		virtual void update_current_text(std::optional<CExprTextInfoContext> maybe_context = {}) override {
-			CExprTextInfoContext context = maybe_context.has_value() ? maybe_context.value() : CExprTextInfoContext{ m_SR_plus } ;
+			auto new_maybe_context = maybe_context.has_value() ? maybe_context : maybe_default_context();
+
 			std::string updated_text = m_function_name + "(";
 			for (auto& arg_text_info : m_arg_text_infos) {
-				updated_text += arg_text_info.current_text(context) + ", ";
+				updated_text += arg_text_info.current_text(new_maybe_context) + ", ";
 			}
 			if (1 <= m_arg_text_infos.size()) {
 				updated_text = updated_text.substr(0, updated_text.length() - 2);
@@ -3976,8 +4011,9 @@ namespace convm1 {
 			: CExprConversionState(call_expr_cref, Rewrite, state1), m_arg_text_info(IgnoreParenImpCasts(&arg_expr_cref), Rewrite, state1), m_arg_expr_cptr(&arg_expr_cref), m_function_name(function_name) {}
 
 		virtual void update_current_text(std::optional<CExprTextInfoContext> maybe_context = {}) override {
-			CExprTextInfoContext context = maybe_context.has_value() ? maybe_context.value() : CExprTextInfoContext{ m_SR_plus } ;
-			std::string updated_text = m_function_name + "(" + m_arg_text_info.current_text(context) + ")";
+			auto new_maybe_context = maybe_context.has_value() ? maybe_context : maybe_default_context();
+
+			std::string updated_text = m_function_name + "(" + m_arg_text_info.current_text(new_maybe_context) + ")";
 			updated_text = modified_copy(updated_text);
 			m_current_text_str = updated_text;
 		}
@@ -3998,8 +4034,9 @@ namespace convm1 {
 			: CExprConversionState(cast_expr_cref, Rewrite, state1), m_arg_text_info(IgnoreParenImpCasts(&arg_expr_cref), Rewrite, state1), m_arg_expr_cptr(&arg_expr_cref), m_prefix(prefix), m_suffix(suffix) {}
 
 		virtual void update_current_text(std::optional<CExprTextInfoContext> maybe_context = {}) override {
-			CExprTextInfoContext context = maybe_context.has_value() ? maybe_context.value() : CExprTextInfoContext{ m_SR_plus } ;
-			std::string updated_text = m_prefix + m_arg_text_info.current_text(context) + m_suffix;
+			auto new_maybe_context = maybe_context.has_value() ? maybe_context : maybe_default_context();
+
+			std::string updated_text = m_prefix + m_arg_text_info.current_text(new_maybe_context) + m_suffix;
 			updated_text = modified_copy(updated_text);
 			m_current_text_str = updated_text;
 		}
@@ -4021,8 +4058,9 @@ namespace convm1 {
 			: CExprConversionState(addrofexpr_cref, Rewrite, state1), m_array_text_info(IgnoreParenImpCasts(arraysubscriptexpr_cref.getBase()), Rewrite, state1), m_index_text_info(IgnoreParenImpCasts(arraysubscriptexpr_cref.getIdx()), Rewrite, state1) {}
 
 		virtual void update_current_text(std::optional<CExprTextInfoContext> maybe_context = {}) override {
-			CExprTextInfoContext context = maybe_context.has_value() ? maybe_context.value() : CExprTextInfoContext{ m_SR_plus } ;
-			std::string updated_text = "((" + m_array_text_info.current_text(context) + ") + (" + m_index_text_info.current_text(context) + "))";
+			auto new_maybe_context = maybe_context.has_value() ? maybe_context : maybe_default_context();
+
+			std::string updated_text = "((" + m_array_text_info.current_text(new_maybe_context) + ") + (" + m_index_text_info.current_text(new_maybe_context) + "))";
 			updated_text = modified_copy(updated_text);
 			m_current_text_str = updated_text;
 		}
@@ -4249,6 +4287,7 @@ namespace convm1 {
 		try to instead return an extended range that covers the entire gnu attribute specifier. */
 
 		CSourceRangePlus retval = sr;
+		retval.m_original_source_range = sr;
 
 		auto rawSR = sr;
 		auto SL = rawSR.getBegin();
@@ -4604,8 +4643,10 @@ namespace convm1 {
 								auto& adjusted_source_text_info_ref = retval.m_adjusted_source_text_infos.at(1 + nesting_level);
 								adjusted_source_text_info_ref.m_text = retval.m_adjusted_source_text_as_if_expanded;
 								adjusted_source_text_info_ref.m_macro_args = macro_args;
-								adjusted_source_text_info_ref.m_macro_range = adjusted_macro_SPSR;
+								adjusted_source_text_info_ref.m_macro_invocation_range = adjusted_macro_SPSR;
 								adjusted_source_text_info_ref.m_macro_name = macro_name;
+
+								retval.m_adjusted_source_text_infos.at(nesting_level).m_macro_definition_range = found_macro_iter->second.definition_SR();
 							}
 						} else {
 							int q = 5;
@@ -6882,7 +6923,7 @@ namespace convm1 {
 		bool is_a_function_parameter = false;
 		bool is_member = false;
 		bool is_vardecl = false;
-		std::string initialization_expr_str{ ddcs_ref.current_initialization_expr_str() };
+		std::string initialization_expr_str{ ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr) };
 		bool is_function = DD->isFunctionOrFunctionTemplate();
 
 		auto VD = dyn_cast<const clang::VarDecl>(DD);
@@ -6926,13 +6967,13 @@ namespace convm1 {
 							} else {
 								ddcs_ref.m_initializer_SR_or_insert_before_point = init_expr_source_range;
 								ddcs_ref.m_original_initialization_expr_str = initialization_expr_str;
-								if (ddcs_ref.current_initialization_expr_str().empty()) {
+								if (ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr).empty()) {
 									if (state1_ptr) {
 										ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(pInitExpr, Rewrite, *state1_ptr));
 									}
 									ddcs_ref.m_fallback_current_initialization_expr_str = initialization_expr_str;
 								} else {
-									initialization_expr_str = ddcs_ref.current_initialization_expr_str();
+									initialization_expr_str = ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr);
 								}
 							}
 						} else {
@@ -7058,13 +7099,13 @@ namespace convm1 {
 								} else {
 									ddcs_ref.m_initializer_SR_or_insert_before_point = init_expr_source_range;
 									ddcs_ref.m_original_initialization_expr_str = initialization_expr_str;
-									if (ddcs_ref.current_initialization_expr_str().empty()) {
+									if (ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr).empty()) {
 										if (state1_ptr) {
 											ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(pInitExpr, Rewrite, *state1_ptr));
 										}
 										ddcs_ref.m_fallback_current_initialization_expr_str = initialization_expr_str;
 									} else {
-										initialization_expr_str = ddcs_ref.current_initialization_expr_str();
+										initialization_expr_str = ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr);
 									}
 								}
 							} else {
@@ -7251,7 +7292,7 @@ namespace convm1 {
 					if (b1) {
 						if ((0 == ddcs_ref.m_indirection_state_stack.size())
 							&& (ddcs_ref.m_ddecl_cptr->getType()->isRecordType())
-							&& (string_begins_with(ddcs_ref.current_initialization_expr_str(), "{"))) {
+							&& (string_begins_with(ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr), "{"))) {
 						
 							/* "Aggregate" types that are converted to "addressable" types will lose their
 							"aggregate" status and thus their support for aggregate initialization. So if
@@ -7280,10 +7321,10 @@ namespace convm1 {
 									std::string new_init_expr_str;
 									if ("Dual" == ConvertMode) {
 										new_init_expr_str = "MSE_LH_IF_ENABLED("
-											+ ddcs_ref.non_const_current_direct_qtype_str() + ") " + ddcs_ref.current_initialization_expr_str();
+											+ ddcs_ref.non_const_current_direct_qtype_str() + ") " + ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr);
 									} else {
 										new_init_expr_str = ddcs_ref.non_const_current_direct_qtype_str()
-											+ " " + ddcs_ref.current_initialization_expr_str();
+											+ " " + ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr);
 									}
 									if (state1_ptr) {
 										auto& state1 = *state1_ptr;
@@ -7302,7 +7343,7 @@ namespace convm1 {
 									}
 									ddcs_ref.m_fallback_current_initialization_expr_str = new_init_expr_str;
 
-									initialization_expr_str = ddcs_ref.current_initialization_expr_str();
+									initialization_expr_str = ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr);
 								}
 							}
 						}
@@ -7348,7 +7389,7 @@ namespace convm1 {
 		//if (("" != prefix_str) || ("" != suffix_str)/* || ("" != post_name_suffix_str)*/)
 		if (res4.m_changed_from_original || ddcs_ref.direct_qtype_has_been_changed()) {
 			changed_from_original = true;
-		} else if (ddcs_ref.initializer_has_been_changed() || (discard_initializer_option_flag)) {
+		} else if (ddcs_ref.initializer_has_been_changed(Rewrite, state1_ptr) || (discard_initializer_option_flag)) {
 			changed_from_original = true;
 		}
 
@@ -7548,8 +7589,8 @@ namespace convm1 {
 					auto insert_before_point_ptr = std::get_if<clang::SourceLocation>(&(ddcs_ref.m_initializer_SR_or_insert_before_point));
 					if (initializer_SR_ptr) {
 						if (true || !(*state1_ptr).m_pending_code_modification_actions.m_already_modified_regions.properly_contains(*initializer_SR_ptr)) {
-							if (ddcs_ref.initializer_has_been_changed()) {
-								std::string initializer_str = ddcs_ref.current_initialization_expr_str();
+							if (ddcs_ref.initializer_has_been_changed(Rewrite, state1_ptr)) {
+								std::string initializer_str = ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr);
 								//TheRewriter.ReplaceText(*initializer_SR_ptr, initializer_str);
 								//m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.insert(*initializer_SR_ptr);
 								(*state1_ptr).m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, write_once_source_range(*initializer_SR_ptr), initializer_str);
@@ -7562,9 +7603,9 @@ namespace convm1 {
 						if (true || !(*state1_ptr).m_pending_code_modification_actions.m_already_modified_regions.contains({ insert_after_point, *insert_before_point_ptr })) {
 							std::string initializer_str;
 							if ("Dual" == ConvertMode) {
-								initializer_str = " MSE_LH_IF_ENABLED( = " + ddcs_ref.current_initialization_expr_str() + " )";
+								initializer_str = " MSE_LH_IF_ENABLED( = " + ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr) + " )";
 							} else {
-								initializer_str = " = " + ddcs_ref.current_initialization_expr_str();
+								initializer_str = " = " + ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr);
 							}
 							//TheRewriter.InsertTextAfterToken(insert_after_point, initializer_str);
 							(*state1_ptr).m_pending_code_modification_actions.add_insert_after_token_at_given_location_action(Rewrite, write_once_source_range({ (*insert_before_point_ptr), insert_after_point }), insert_after_point, initializer_str);
@@ -10827,9 +10868,17 @@ namespace convm1 {
 
 						/* This lambda is expected to be executed as a deferred action, so we cannot furhter defer modification 
 						of the source text, as we presumably won't get another chance to do so. */
-						auto COSR = write_once_source_range(cm1_adjusted_source_range(CO->getSourceRange(), state1, Rewrite));
+						const auto raw_COSR = CO->getSourceRange();
+						bool macro_flag = raw_COSR.getBegin().isMacroID() && raw_COSR.getEnd().isMacroID();
+						const auto COSRPlus = cm1_adjusted_source_range(CO->getSourceRange(), state1, Rewrite);
+						bool macro_flag2 = COSRPlus.getBegin().isMacroID() && COSRPlus.getEnd().isMacroID();
+						const auto COSR = write_once_source_range(COSRPlus);
 						if (COSR.isValid()) {
-							auto& current_text_ref = ecs_ref.current_text();
+							std::optional<CExprTextInfoContext> maybe_context;
+							if (macro_flag) {
+								maybe_context = CExprTextInfoContext{ COSRPlus };
+							}
+							auto& current_text_ref = ecs_ref.current_text(maybe_context);
 							if (current_text_ref != ecs_ref.m_original_source_text_str) {
 								state1.m_pending_code_modification_actions.ReplaceText(Rewrite, COSR, current_text_ref);
 							}
@@ -11567,7 +11616,7 @@ namespace convm1 {
 											m_state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, blank_text);
 
 											static const std::string void_str = "void";
-											auto void_pos = (*rhs_res2.ddecl_conversion_state_ptr).current_initialization_expr_str().find(void_str);
+											auto void_pos = (*rhs_res2.ddecl_conversion_state_ptr).current_initialization_expr_str(Rewrite, &m_state1).find(void_str);
 											if (std::string::npos != void_pos) {
 												clang::Expr const* pInitExpr = get_init_expr_if_any(DD);
 												if (pInitExpr) {
@@ -11663,7 +11712,7 @@ namespace convm1 {
 										} else {
 											ddcs_ref.m_initializer_SR_or_insert_before_point = init_expr_source_range;
 											ddcs_ref.m_original_initialization_expr_str = initialization_expr_str;
-											if (true || ddcs_ref.current_initialization_expr_str().empty()) {
+											if (true || ddcs_ref.current_initialization_expr_str(Rewrite, &m_state1).empty()) {
 												/* This line ensures that the initialization expression has an associated CExprConversionState. This 
 												will allow any (modified) subexpressions to establish an ancestor-descendant relationship and 
 												facilitate the incorporation of any subexpression modifications into the rendering of the 
@@ -11673,7 +11722,7 @@ namespace convm1 {
 												ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(pInitExpr, Rewrite, m_state1));
 												ddcs_ref.m_fallback_current_initialization_expr_str = initialization_expr_str;
 											} else {
-												initialization_expr_str = ddcs_ref.current_initialization_expr_str();
+												initialization_expr_str = ddcs_ref.current_initialization_expr_str(Rewrite, &m_state1);
 											}
 											ddcs_ref.m_original_initialization_has_been_noted = true;
 										}
