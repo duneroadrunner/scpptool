@@ -4931,7 +4931,7 @@ namespace convm1 {
 		clang::SourceRange SR3 { SL3.getLocWithOffset(1 - int(const_str.length())), cq_SR.getBegin().getLocWithOffset(-1) };
 		auto text3 = Rewrite.getRewrittenText(SR3);
 		if (text3.substr(0, const_str.length()) == const_str) {
-			auto SL4 = SL3.getLocWithOffset(-1);
+			auto SL4 = SR3.getBegin().getLocWithOffset(-1);
 			clang::SourceRange SR4 { SL4, SL4 };
 			auto text4 = Rewrite.getRewrittenText(SR4);
 			bool text4_is_alphanum_or_underscore = false;
@@ -15195,6 +15195,45 @@ namespace convm1 {
 								}
 
 							}
+						} else {
+							/* This might be the invocation of a function call via function pointer. */
+
+							if (rhs_res2.ddecl_cptr && rhs_res2.ddecl_conversion_state_ptr) {
+								auto& rhs_ddecl_ref = *(rhs_res2.ddecl_cptr);
+								auto& rhs_ddcs_ref = *(rhs_res2.ddecl_conversion_state_ptr);
+								if (rhs_ddcs_ref.m_indirection_state_stack.size() > rhs_res2.indirection_level) {
+									auto& indirection_state_ref = rhs_ddcs_ref.m_indirection_state_stack.at(rhs_res2.indirection_level);
+									auto rhs_ddecl_indirection = CDDeclIndirection(rhs_ddecl_ref, rhs_res2.indirection_level);
+
+									bool b1 = indirection_state_ref.current_is_function_type();
+
+									if (rhs_ddcs_ref.m_indirection_state_stack.size() > 1 + rhs_res2.indirection_level) {
+										auto& pointee_indirection_state_ref = rhs_ddcs_ref.m_indirection_state_stack.at(1 + rhs_res2.indirection_level);
+										auto rhs_pointee_ddecl_indirection = CDDeclIndirection(rhs_ddecl_ref, 1 + rhs_res2.indirection_level);
+
+										bool b2 = pointee_indirection_state_ref.current_is_function_type();
+										if (b2) {
+											/* You can invoke a function call from a function pointer, `fnptr`, by dereferencing the function 
+											pointer like so: `(*fnptr)()`. But you can also equivalently omit the dereference operation: `fnptr()`, 
+											right? That appears to be what's going on here. So we're going to adjust the rhs indirection level so 
+											that the rhs expression will be treated as if the function pointer were dereferenced. */
+											rhs_res2.indirection_level += 1;
+										}
+										int q = 5;
+									} else {
+										auto& direct_type_state_ref = rhs_ddcs_ref.m_indirection_state_stack.m_direct_type_state;
+										bool b3 = direct_type_state_ref.seems_to_be_a_function_type();
+										if (b3) {
+											/* You can invoke a function call from a function pointer, `fnptr`, by dereferencing the function 
+											pointer like so: `(*fnptr)()`. But you can also equivalently omit the dereference operation: `fnptr()`, 
+											right? That appears to be what's going on here. So we're going to adjust the rhs indirection level so 
+											that the rhs expression will be treated as if the function pointer were dereferenced. */
+											rhs_res2.indirection_level += 1;
+										}
+										int q = 5;
+									}
+								}
+							}
 						}
 					} else {
 						int q = 3;
@@ -15207,6 +15246,37 @@ namespace convm1 {
 					maybe_DD = lhs_res2.ddecl_cptr;
 				}
 				MCSSSConditionalExpr::s_handler1(MR, Rewrite, state1, CO, maybe_DD, lhs_res2.indirection_level);
+			}
+
+			if (lhs_res2.ddecl_conversion_state_ptr && RHS_ii->getType()->isFunctionType()) {
+				auto& lhs_ddecl_ref = *(lhs_res2.ddecl_cptr);
+				auto& lhs_ddcs_ref = *(lhs_res2.ddecl_conversion_state_ptr);
+
+				if (lhs_ddcs_ref.m_indirection_state_stack.size() > 1 + lhs_res2.indirection_level) {
+					auto& pointee_indirection_state_ref = lhs_ddcs_ref.m_indirection_state_stack.at(1 + lhs_res2.indirection_level);
+					auto lhs_pointee_ddecl_indirection = CDDeclIndirection(lhs_ddecl_ref, 1 + lhs_res2.indirection_level);
+
+					bool b2 = pointee_indirection_state_ref.current_is_function_type();
+					if (b2) {
+						/* You can assign a function value to a function pointer, `fnptr`, by taking the address of the 
+						function like so: `fnptr = &strlen;`. But you can also equivalently omit the address taking operation: 
+						`fnptr = strlen;`, right? That appears to be what's going on here. So we're going to adjust the lhs 
+						indirection level so that it will be treated as if the address were taken. */
+						lhs_indirection_level_adjustment += 1;
+					}
+					int q = 5;
+				} else {
+					auto& direct_type_state_ref = lhs_ddcs_ref.m_indirection_state_stack.m_direct_type_state;
+					bool b3 = direct_type_state_ref.seems_to_be_a_function_type();
+					if (b3) {
+						/* You can assign a function value to a function pointer, `fnptr`, by taking the address of the 
+						function like so: `fnptr = &strlen;`. But you can also equivalently omit the address taking operation: 
+						`fnptr = strlen;`, right? That appears to be what's going on here. So we're going to adjust the lhs 
+						indirection level so that it will be treated as if the address were taken. */
+						lhs_indirection_level_adjustment += 1;
+					}
+					int q = 5;
+				}
 			}
 
 			if (rhs_is_an_indirect_type && rhs_res2.ddecl_cptr) {
@@ -15317,7 +15387,7 @@ namespace convm1 {
 				auto& lhs_ddecl_ref = *(lhs_res2.ddecl_cptr);
 
 				for (size_t i = 0; lhs_indirection_level_adjustment > i; i += 1) {
-					/* These are the lhs indirection levels (actually, there should at max one) that
+					/* These are the lhs indirection levels (actually, there should be at max one) that
 					have no corresponding indirection level in the rhs variable because a `&`
 					("address of") operator caused the correspondence to be shifted (by one level). */
 					if (EIsAnInitialization::No == is_an_initialization) {
