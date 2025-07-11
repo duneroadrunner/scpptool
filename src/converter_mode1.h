@@ -10768,6 +10768,16 @@ namespace convm1 {
 								maybe_lone_modifiable_arg_info = { rhs_DD, rhs_inference_info.indirection_level, RHS, LHS };
 							}
 						}
+
+
+						auto is_char_star_or_const_char_star = [](CDDeclConversionState& ddcs_ref, size_t indirection_level = 0) {
+							if (ddcs_ref.m_indirection_state_stack.size() == 1 + indirection_level) {
+								auto direct_qtype_str = ddcs_ref.m_indirection_state_stack.m_direct_type_state.current_qtype_str();
+								return (("char" == direct_qtype_str) || ("const char" == direct_qtype_str));
+							}
+							return false;
+						};
+
 						if (maybe_lone_modifiable_arg_info.has_value()) {
 							auto& lone_modifiable_arg_info = maybe_lone_modifiable_arg_info.value();
 							/* Ok, one of the conditional operator arguments(/alternatives/options/branches) seems to be non-modifiable 
@@ -10778,7 +10788,8 @@ namespace convm1 {
 								auto& ecs_ref = state1.get_expr_conversion_state_ref(*(lone_modifiable_arg_info.non_modifiable_EX), Rewrite);
 
 								auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(lone_modifiable_arg_info.indirection_level);
-								std::shared_ptr<CExprTextModifier> l_text_modifier_shptr = indirection_state_ref.is_known_to_be_used_as_an_array_iterator() 
+								bool is_iterator = indirection_state_ref.is_known_to_be_used_as_an_array_iterator() || is_char_star_or_const_char_star(ddcs_ref, lone_modifiable_arg_info.indirection_level);
+								std::shared_ptr<CExprTextModifier> l_text_modifier_shptr = is_iterator 
 									? std::shared_ptr<CExprTextModifier>(std::make_shared<CUnsafeMakeLHNullableAnyRandomAccessIteratorFromExprTextModifier>()) 
 									: std::shared_ptr<CExprTextModifier>(std::make_shared<CUnsafeMakeLHNullableAnyPointerFromExprTextModifier>());
 
@@ -10824,7 +10835,8 @@ namespace convm1 {
 									auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*var_DD, &Rewrite);
 
 									auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(var_indirection_level);
-									std::shared_ptr<CExprTextModifier> l_text_modifier_shptr = indirection_state_ref.is_known_to_be_used_as_an_array_iterator() 
+									bool is_iterator = indirection_state_ref.is_known_to_be_used_as_an_array_iterator() || is_char_star_or_const_char_star(ddcs_ref, var_indirection_level);
+									std::shared_ptr<CExprTextModifier> l_text_modifier_shptr = is_iterator 
 										? std::shared_ptr<CExprTextModifier>(std::make_shared<CUnsafeMakeLHNullableAnyRandomAccessIteratorFromExprTextModifier>()) 
 										: std::shared_ptr<CExprTextModifier>(std::make_shared<CUnsafeMakeLHNullableAnyPointerFromExprTextModifier>());
 
