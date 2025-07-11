@@ -10823,61 +10823,42 @@ namespace convm1 {
 								if (!var_is_non_modifiable) {
 									auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*var_DD, &Rewrite);
 
-									if (var_indirection_level < ddcs_ref.m_indirection_state_stack.size()) {
-										auto indirection_state_stack_of_asignee = ddcs_ref.m_indirection_state_stack;
-										/* This clears the base vector, but leaves the other members intact. */
-										indirection_state_stack_of_asignee.clear();
-										for (size_t i = size_t(var_indirection_level); ddcs_ref.m_indirection_state_stack.size() > i; ++i) {
-											indirection_state_stack_of_asignee.push_back(ddcs_ref.m_indirection_state_stack.at(i));
-										}
+									auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(var_indirection_level);
+									std::shared_ptr<CExprTextModifier> l_text_modifier_shptr = indirection_state_ref.is_known_to_be_used_as_an_array_iterator() 
+										? std::shared_ptr<CExprTextModifier>(std::make_shared<CUnsafeMakeLHNullableAnyRandomAccessIteratorFromExprTextModifier>()) 
+										: std::shared_ptr<CExprTextModifier>(std::make_shared<CUnsafeMakeLHNullableAnyPointerFromExprTextModifier>());
 
-										auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_asignee, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
+									auto apply_to_expr_conversion_state2 = [&](clang::Expr const * E) {
+										auto& ecs_ref = state1.get_expr_conversion_state_ref(*E, Rewrite);
 
-										auto new_asignee_qtype_str = res3.m_complete_type_str;
-
-										if (0 == indirection_state_stack_of_asignee.size()) {
-											/* The type of the LHS expression does not seem to be indirect. So the LHS type is the 
-											"direct" type. */
-											if (LHS->getType().isConstQualified()) {
-												if (!(ddcs_ref.direct_type_state_ref().is_const())) {
-													/* Ok, so the "direct" type derived from the DDecl seems to be non-const, while the 
-													LHS expressions is const. So we'll just add a const qualifier to the "direct" type. */
-													new_asignee_qtype_str = "const " + new_asignee_qtype_str;
-												}
+										if (indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
+											/* The expression pointer is now known to be used as an iterator, so if there is an already existing 
+											modifier that assumed it was not an iterator, we'll remove it. */
+											for (size_t i = 0; ecs_ref.m_expr_text_modifier_stack.size() > i; i += 1) {
+												size_t j = ecs_ref.m_expr_text_modifier_stack.size() - 1 - i;
+												auto& text_modifier_ref = ecs_ref.m_expr_text_modifier_stack.at(j);
+												if ("unsafe make lh_nullable_any_pointer from" == text_modifier_ref->species_str()) {
+													ecs_ref.m_expr_text_modifier_stack.erase(ecs_ref.m_expr_text_modifier_stack.begin() + j);
+													break;
+												};
 											}
 										}
 
-										std::string arg_prefix_str;
-										std::string& function_pointer_type_str = new_asignee_qtype_str;
-										std::string unsafe_make_prefix_str;
-										if ("Dual" == ConvertMode) {
-											unsafe_make_prefix_str = "MSE_LH_UNSAFE_MAKE_FN_WRAPPER(";
-										} else {
-											unsafe_make_prefix_str = "mse::us::lh::unsafe_make_fn_wrapper(";
-										}
-
-										std::string arg_suffix_str;
-										std::string make_fn_wrapper_suffix_str;
-										if ("Dual" == ConvertMode) {
-											make_fn_wrapper_suffix_str = std::string(", ") + function_pointer_type_str + "())";
-										} else {
-											make_fn_wrapper_suffix_str = std::string(", ") + function_pointer_type_str + "())";
-										}
-
-										auto apply_to_expr_conversion_state = [&](clang::Expr const * E) {
-											auto& ecs_ref = state1.get_expr_conversion_state_ref(*E, Rewrite);
-											const auto l_text_modifier = CWrapExprTextModifier(unsafe_make_prefix_str, make_fn_wrapper_suffix_str);
-											bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
-												&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
-											if (!seems_to_be_already_applied) {
-												auto shptr2 = std::make_shared<CWrapExprTextModifier>(unsafe_make_prefix_str, make_fn_wrapper_suffix_str);
-												ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
-												ecs_ref.update_current_text();
+										bool seems_to_be_already_applied = false;
+										const auto species_str = l_text_modifier_shptr->species_str();
+										for (auto& text_modifier_shptr_ref : ecs_ref.m_expr_text_modifier_stack) {
+											if (species_str == text_modifier_shptr_ref->species_str()) {
+												seems_to_be_already_applied = true;
+												break;
 											}
-										};
-										apply_to_expr_conversion_state(LHS);
-										apply_to_expr_conversion_state(RHS);
-									}
+										}
+										if (!seems_to_be_already_applied) {
+											ecs_ref.m_expr_text_modifier_stack.push_back(l_text_modifier_shptr);
+											ecs_ref.update_current_text();
+										}
+									};
+									apply_to_expr_conversion_state2(LHS);
+									apply_to_expr_conversion_state2(RHS);
 								}
 							}
 						}
