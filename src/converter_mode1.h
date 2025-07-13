@@ -725,6 +725,9 @@ namespace convm1 {
 		//CSourceRangePlus& operator=(base_class&& src) { base_class::operator=(std::forward<decltype(src)>(src)); return *this; }
 		//CSourceRangePlus& operator=(base_class const& src) { base_class::operator=(src); return *this; }
 		void set_source_range(base_class const& src) { base_class::operator=(src); }
+		bool isValid() const {
+			return (base_class::isValid() && (!(getBegin() > getEnd())));
+		}
 
 		clang::SourceRange m_original_source_range;
 		std::string m_adjusted_source_text_as_if_expanded;
@@ -7911,7 +7914,7 @@ namespace convm1 {
 				static const std::string anonymous_struct_prefix = "struct (anonymous struct";
 				static const std::string unnamed_struct_prefix = "struct (unnamed struct";
 				auto qtype_str = DD->getType().getAsString();
-				if (string_begins_with(qtype_str, anonymous_struct_prefix) || string_begins_with(qtype_str, unnamed_struct_prefix)) {
+				if ((std::string::npos != qtype_str.find(anonymous_struct_prefix)) || (std::string::npos != qtype_str.find(unnamed_struct_prefix))) {
 					named_record_type_defined_in_declaration = false;
 				}
 			}
@@ -10327,6 +10330,15 @@ namespace convm1 {
 						if (lhs_update_flag) {
 							update_declaration(*lhs_DD, Rewrite, state1);
 						}
+					} else {
+						const auto LHS_ii = state1.m_ast_context_ptr ? IgnoreParenImpNoopCasts(LHS, *(state1.m_ast_context_ptr)) : IgnoreParenImpCasts(LHS);
+						auto SL = dyn_cast<const clang::StringLiteral>(LHS_ii);
+						if (SL) {
+							lhs_is_known_to_be_an_array = true;
+							//lhs_is_native_array = true;
+							lhs_is_variously_native_and_dynamic_array = true;
+							lhs_is_non_modifiable = true;
+						}
 					}
 
 					auto rhs_inference_info = infer_array_type_info_from_stmt(*RHS, "", state1, rhs_DD);
@@ -10391,6 +10403,15 @@ namespace convm1 {
 						}
 						if (rhs_update_flag) {
 							update_declaration(*rhs_DD, Rewrite, state1);
+						}
+					} else {
+						const auto RHS_ii = state1.m_ast_context_ptr ? IgnoreParenImpNoopCasts(RHS, *(state1.m_ast_context_ptr)) : IgnoreParenImpCasts(RHS);
+						auto SL = dyn_cast<const clang::StringLiteral>(RHS_ii);
+						if (SL) {
+							rhs_is_known_to_be_an_array = true;
+							//rhs_is_native_array = true;
+							rhs_is_variously_native_and_dynamic_array = true;
+							rhs_is_non_modifiable = true;
 						}
 					}
 
@@ -10604,13 +10625,17 @@ namespace convm1 {
 						if ((lhs_is_known_to_be_an_array || rhs_is_known_to_be_an_array) && LHS->getType()->isPointerType()) {
 							bool lhs_needs_to_be_wrapped = false;
 							if ((lhs_is_dynamic_array && (!rhs_is_dynamic_array)) || (lhs_is_native_array && (!rhs_is_native_array))
-								|| ((!lhs_is_known_to_be_an_array) && rhs_is_known_to_be_an_array)) {
+								|| ((!lhs_is_known_to_be_an_array) && rhs_is_known_to_be_an_array)
+								|| ((!lhs_is_non_modifiable) && rhs_is_non_modifiable)) {
+
 								lhs_needs_to_be_wrapped = true;
 								array_needed_to_be_wrapped = true;
 							}
 							bool rhs_needs_to_be_wrapped = false;
 							if ((rhs_is_dynamic_array && (!lhs_is_dynamic_array)) || (rhs_is_native_array && (!lhs_is_native_array))
-								|| ((!rhs_is_known_to_be_an_array) && lhs_is_known_to_be_an_array)) {
+								|| ((!rhs_is_known_to_be_an_array) && lhs_is_known_to_be_an_array)
+								|| ((!rhs_is_non_modifiable) && lhs_is_non_modifiable)) {
+
 								rhs_needs_to_be_wrapped = true;
 								array_needed_to_be_wrapped = true;
 							}
@@ -10841,7 +10866,7 @@ namespace convm1 {
 										: std::shared_ptr<CExprTextModifier>(std::make_shared<CUnsafeMakeLHNullableAnyPointerFromExprTextModifier>());
 
 									auto apply_to_expr_conversion_state2 = [&](clang::Expr const * E) {
-										auto& ecs_ref = state1.get_expr_conversion_state_ref(*E, Rewrite);
+										auto& ecs_ref = state1.get_expr_conversion_state_ref(*IgnoreParenImpCasts(E), Rewrite);
 
 										if (indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
 											/* The expression pointer is now known to be used as an iterator, so if there is an already existing 
@@ -10891,8 +10916,8 @@ namespace convm1 {
 							if (macro_flag) {
 								maybe_context = CExprTextInfoContext{ COSRPlus };
 							}
-							auto& current_text_ref = ecs_ref.current_text(maybe_context);
-							if (current_text_ref != ecs_ref.m_original_source_text_str) {
+							auto& current_text_ref = cocs_ref.current_text(maybe_context);
+							if (current_text_ref != cocs_ref.m_original_source_text_str) {
 								state1.m_pending_code_modification_actions.ReplaceText(Rewrite, COSR, current_text_ref);
 							}
 						}
@@ -14018,9 +14043,29 @@ namespace convm1 {
 						}
 					}
 				}
+
 				std::string qtype_str = DD->getType().getAsString();
 				if ("FILE *" == qtype_str) {
 					return true;
+				}
+
+				if (DD->getType()->isArrayType()) {
+					if (llvm::isa<const clang::ArrayType>(DD->getType().getTypePtr())) {
+						auto ATP = llvm::cast<const clang::ArrayType>(DD->getType().getTypePtr());
+						auto element_qtype = ATP->getElementType();
+						std::string element_qtype_str = element_qtype.getAsString();
+
+						static const std::string anonymous_struct_prefix = "struct (anonymous struct";
+						static const std::string unnamed_struct_prefix = "struct (unnamed struct";
+						if ((std::string::npos != element_qtype_str.find(anonymous_struct_prefix)) || (std::string::npos != element_qtype_str.find(unnamed_struct_prefix))) {
+							/* The declaration seeems to be a (native) array of an unnamed struct type. But `lh::TNativeArrayReplacement<>` 
+							(like `std::array<>`) doesn't support unnamed struct types. Ultimately the solution would presumably be to just 
+							give the struct a name in a separate declaration, but for now we're just going to treat it as if it were 
+							unmodifiable. */
+							return true;
+						}
+
+					}
 				}
 			}
 		} while (false);

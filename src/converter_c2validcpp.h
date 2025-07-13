@@ -690,6 +690,9 @@ namespace convc2validcpp {
 		//CSourceRangePlus& operator=(base_class&& src) { base_class::operator=(std::forward<decltype(src)>(src)); return *this; }
 		//CSourceRangePlus& operator=(base_class const& src) { base_class::operator=(src); return *this; }
 		void set_source_range(base_class const& src) { base_class::operator=(src); }
+		bool isValid() const {
+			return (base_class::isValid() && (!(getBegin() > getEnd())));
+		}
 		
 		std::string m_adjusted_source_text_as_if_expanded;
 		bool m_range_is_essentially_the_entire_body_of_a_macro = false;
@@ -11290,10 +11293,23 @@ namespace convc2validcpp {
 				}
 			}
 			auto DD = lhs_res2.ddecl_cptr;
+			MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(RHS->getType());
 
-			auto RHS_ii = IgnoreParenImpCasts(RHS);
+			auto RHS_ii = IgnoreParenImpNoopCasts(RHS, *(MR.Context));
 
-			std::string LHS_qtype_str = LHS ? LHS->getType().getAsString() : (VLD ? VLD->getType().getAsString() : "");
+			std::optional<clang::QualType> maybe_VLD_effective_qtype;
+			if (VLD) {
+				auto FND = dyn_cast<const clang::FunctionDecl>(VLD);
+				if (FND) {
+					maybe_VLD_effective_qtype = FND->getReturnType();
+				} else {
+					maybe_VLD_effective_qtype = VLD->getType();
+				}
+			}
+
+			auto lhs_qtype = LHS ? LHS->getType() : maybe_VLD_effective_qtype.value();
+
+			std::string LHS_qtype_str = LHS ? LHS->getType().getAsString() : (maybe_VLD_effective_qtype.has_value() ? maybe_VLD_effective_qtype.value().getAsString() : "");
 			std::string RHS_ii_qtype_str = RHS_ii->getType().getAsString();
 
 			assert(LHS || VLD);
@@ -12601,6 +12617,7 @@ namespace convc2validcpp {
 					const std::string function_name = function_decl1->getNameAsString();
 					const auto lc_function_name = tolowerstr(function_name);
 
+					/*
 					static const std::string free_str = "free";
 					bool ends_with_free = ((lc_function_name.size() >= free_str.size())
 							&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
@@ -12644,6 +12661,7 @@ namespace convc2validcpp {
 					if (rhs_res2.ddecl_cptr && rhs_res2.update_declaration_flag) {
 						update_declaration_if_not_suppressed(*(rhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 					}
+					*/
 
 					auto function_decls_range = function_decl1->redecls();
 					for (const auto& function_decl : function_decls_range) {
@@ -14903,12 +14921,14 @@ namespace convc2validcpp {
 							hasDescendant(declRefExpr().bind("mcsssaddressof"))
 					)
 					)).bind("mcsssaddressof3"), &HandlerForSSSAddressOf);
+#endif /*0*/
 
 		Matcher.addMatcher(returnStmt(allOf(
 				hasAncestor(functionDecl().bind("mcsssreturnvalue1")),
 					hasDescendant(declRefExpr().bind("mcsssreturnvalue3"))
 					)).bind("mcsssreturnvalue2"), &HandlerForSSSReturnValue);
 
+#if 0
 		Matcher.addMatcher(binaryOperator(allOf(
 				hasOperatorName("="),
 				hasRHS(
