@@ -7523,6 +7523,7 @@ namespace convm1 {
 						give the type a name, but for now I think we're just gonna bail. */
 						replacement_code = FND ? ddcs_ref.m_function_return_type_original_source_text_str
 							: ddcs_ref.m_original_source_text_str;
+						initializer_append_str = "";
 					} else {
 						bool is_enum_decl = false;
 						if ((std::string::npos != ddcs_ref.m_original_source_text_str.find("{"))
