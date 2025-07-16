@@ -2813,6 +2813,9 @@ namespace convc2validcpp {
 
 	inline bool replace_whole_instances_of_given_string(std::string& text, const std::string_view old_string, const std::string_view new_string) {
 		bool changed_flag = false;
+		if (0 == old_string.length()) {
+			return changed_flag;
+		}
 
 		if (text.size() >= old_string.size()) {
 			bool preceeding_char_is_alpha_numerickish = false;
@@ -5900,7 +5903,7 @@ namespace convc2validcpp {
 			return retval;
 		}
 
-		auto res1 = ddecl_conversion_state_map.insert(*DD);
+		auto res1 = ddecl_conversion_state_map.insert(*DD, &Rewrite, state1_ptr);
 		auto ddcs_map_iter = res1.first;
 		auto& ddcs_ref = (*ddcs_map_iter).second;
 
@@ -6748,10 +6751,7 @@ namespace convc2validcpp {
 				auto res = generate_declaration_replacement_code(&ddecl, Rewrite, &state1, state1.m_ddecl_conversion_state_map, options_str);
 				changed_from_original |= res.m_changed_from_original;
 
-				auto res1 = state1.m_ddecl_conversion_state_map.insert(ddecl);
-				auto ddcs_map_iter = res1.first;
-				auto& ddcs_ref = (*ddcs_map_iter).second;
-				bool update_declaration_flag = res1.second;
+				auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(ddecl, &Rewrite);
 
 				if (ConvertC2ValidCpp && return_type_source_range.isValid() && (1 <= res.m_replacement_code.size())
 						&& changed_from_original) {
@@ -6901,9 +6901,7 @@ namespace convc2validcpp {
 			auto ddecls = IndividualDeclaratorDecls(DD, Rewrite);
 			if ((1 <= ddecls.size())/* && (ddecls.back() == DD)*/) {
 				for (const auto& ddecl_cref : ddecls) {
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*ddecl_cref);
-					auto ddcs_map_iter = res1.first;
-					auto& ddcs_ref = (*ddcs_map_iter).second;
+					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*ddecl_cref, &Rewrite);
 					for (const auto& unsupported_element_encounterred : unsupported_elements_encounterred) {
 						std::string tmp_str = ddcs_ref.current_direct_qtype_str();
 						replace_whole_instances_of_given_string(tmp_str, unsupported_element_encounterred.m_element_type_name, unsupported_element_encounterred.m_replacement_element_type_name);
@@ -6948,9 +6946,7 @@ namespace convc2validcpp {
 					IF_DEBUG(std::string last_decl_source_text = last_decl_source_range.isValid() ? Rewrite.getRewrittenText(last_decl_source_range) : std::string("[invalid]");)
 
 					{
-						auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
-						auto ddcs_map_iter = res1.first;
-						auto& ddcs_ref = (*ddcs_map_iter).second;
+						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 						/* In this case we're overwriting the whole declaration and including any
 						initializers, so we want to remove any direction to append the initializer to
 						the end of the declaration. */
@@ -7007,15 +7003,8 @@ namespace convc2validcpp {
 		CSameTypeReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)
 			, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)).do_replacement(state1);
 
-		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref2);
-		auto lhs_ddcs_map_iter = lhs_res1.first;
-		auto& lhs_ddcs_ref = (*lhs_ddcs_map_iter).second;
-		bool lhs_update_declaration_flag = lhs_res1.second;
-
-		auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(ddecl_cref1);
-		auto rhs_ddcs_map_iter = rhs_res1.first;
-		auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
-		bool rhs_update_declaration_flag = rhs_res1.second;
+		auto [lhs_ddcs_ref, lhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(ddecl_cref2, &Rewrite);
+		auto [rhs_ddcs_ref, rhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(ddecl_cref1, &Rewrite);
 
 		size_t lhs_indirection_level_adjustment = 0;
 		if (1 <= lhs_ddcs_ref.m_indirection_state_stack.size()) {
@@ -7252,10 +7241,7 @@ namespace convc2validcpp {
 
 	void note_array_determination(Rewriter &Rewrite, CTUState& state1, const CDDeclIndirection& ddecl_indirection) {
 
-		auto res1 = state1.m_ddecl_conversion_state_map.insert(*(ddecl_indirection.m_ddecl_cptr));
-		auto ddcs_map_iter = res1.first;
-		auto& ddcs_ref = (*ddcs_map_iter).second;
-		bool update_declaration_flag = res1.second;
+		auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(ddecl_indirection.m_ddecl_cptr), &Rewrite);
 
 		if (ddcs_ref.m_indirection_state_stack.size() >= ddecl_indirection.m_indirection_level) {
 			if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(ddecl_indirection.m_indirection_level).current_species()) {
@@ -7494,10 +7480,7 @@ namespace convc2validcpp {
 				if (nullptr == l_DD) {
 					l_DD = expr2_DD;
 				}
-				auto res1 = state1_ref.m_ddecl_conversion_state_map.insert(*l_DD);
-				auto ddcs_map_iter = res1.first;
-				auto& ddcs_ref = (*ddcs_map_iter).second;
-				bool update_declaration_flag = res1.second;
+				auto [ddcs_ref, update_declaration_flag] = state1_ref.get_ddecl_conversion_state_ref_and_update_flag(*l_DD, state1_ref.m_Rewrite_ptr);
 
 				auto QT = (*l_DD).getType();
 				std::string variable_name = (*l_DD).getNameAsString();
@@ -7579,9 +7562,7 @@ namespace convc2validcpp {
 		bool target_points_to_mallocked_obj = false;
 
 		auto& trgt_indirection = m_ddecl_indirection;
-		auto trgt_res1 = state1.m_ddecl_conversion_state_map.insert(*(trgt_indirection.m_ddecl_cptr));
-		auto trgt_ddcs_map_iter = trgt_res1.first;
-		auto& trgt_ddcs_ref = (*trgt_ddcs_map_iter).second;
+		auto [trgt_ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(trgt_indirection.m_ddecl_cptr), &m_Rewrite);
 		auto trgt_indirection_level = trgt_indirection.m_indirection_level;
 
 #ifndef NDEBUG
@@ -7606,10 +7587,7 @@ namespace convc2validcpp {
 		}
 
 		auto& src_indirection = m_ddecl_indirection2;
-		auto src_res1 = state1.m_ddecl_conversion_state_map.insert(*(src_indirection.m_ddecl_cptr));
-		auto src_ddcs_map_iter = src_res1.first;
-		auto& src_ddcs_ref = (*src_ddcs_map_iter).second;
-		bool src_update_declaration_flag = src_res1.second;
+		auto [src_ddcs_ref, src_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(src_indirection.m_ddecl_cptr), &m_Rewrite);
 		auto src_indirection_level = src_indirection.m_indirection_level;
 
 		{
@@ -7686,16 +7664,11 @@ namespace convc2validcpp {
 		Rewriter &Rewrite = m_Rewrite;
 
 		auto& trgt_indirection = m_ddecl_indirection2;
-		auto trgt_res1 = state1.m_ddecl_conversion_state_map.insert(*(trgt_indirection.m_ddecl_cptr));
-		auto trgt_ddcs_map_iter = trgt_res1.first;
-		auto& trgt_ddcs_ref = (*trgt_ddcs_map_iter).second;
-		bool trgt_update_declaration_flag = trgt_res1.second;
+		auto [trgt_ddcs_ref, trgt_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(trgt_indirection.m_ddecl_cptr), &m_Rewrite);
 		auto trgt_indirection_level = trgt_indirection.m_indirection_level;
 
 		auto& src_indirection = m_ddecl_indirection;
-		auto src_res1 = state1.m_ddecl_conversion_state_map.insert(*(src_indirection.m_ddecl_cptr));
-		auto src_ddcs_map_iter = src_res1.first;
-		auto& src_ddcs_ref = (*src_ddcs_map_iter).second;
+		auto [src_ddcs_ref, src_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(src_indirection.m_ddecl_cptr), &m_Rewrite);
 		auto src_indirection_level = src_indirection.m_indirection_level;
 
 		{
@@ -7742,16 +7715,10 @@ namespace convc2validcpp {
 		Rewriter &Rewrite = m_Rewrite;
 
 		auto& lhs_indirection = m_ddecl_indirection2;
-		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(lhs_indirection.m_ddecl_cptr));
-		auto lhs_ddcs_map_iter = lhs_res1.first;
-		auto& lhs_ddcs_ref = (*lhs_ddcs_map_iter).second;
-		bool lhs_update_declaration_flag = lhs_res1.second;
+		auto [lhs_ddcs_ref, lhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(lhs_indirection.m_ddecl_cptr), &m_Rewrite);
 
 		auto& rhs_indirection = m_ddecl_indirection;
-		auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(rhs_indirection.m_ddecl_cptr));
-		auto rhs_ddcs_map_iter = rhs_res1.first;
-		auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
-		bool rhs_update_declaration_flag = rhs_res1.second;
+		auto [rhs_ddcs_ref, rhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(rhs_indirection.m_ddecl_cptr), &m_Rewrite);
 
 #ifndef NDEBUG
 		auto SR = cm1_adj_nice_source_range(rhs_indirection.m_ddecl_cptr->getSourceRange(), state1, Rewrite);
@@ -7969,10 +7936,7 @@ namespace convc2validcpp {
 			auto BOSR = write_once_source_range(cm1_adj_nice_source_range(BO->getSourceRange(), state1, Rewrite));
 
 			if ((*this).ddecl_indirection_cref().m_ddecl_cptr) {
-				auto res1 = state1.m_ddecl_conversion_state_map.insert(*((*this).ddecl_indirection_cref().m_ddecl_cptr));
-				auto ddcs_map_iter = res1.first;
-				auto& ddcs_ref = (*ddcs_map_iter).second;
-				bool update_declaration_flag = res1.second;
+				auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*((*this).ddecl_indirection_cref().m_ddecl_cptr), &Rewrite);
 
 				if (ddcs_ref.m_indirection_state_stack.size() >= (*this).ddecl_indirection_cref().m_indirection_level) {
 					if ("inferred array" == ddcs_ref.indirection_current((*this).ddecl_indirection_cref().m_indirection_level)) {
@@ -8039,9 +8003,7 @@ namespace convc2validcpp {
 		{
 			auto decl_source_range = cm1_adj_nice_source_range(DD->getSourceRange(), state1, Rewrite);
 
-			auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
-			auto ddcs_map_iter = res1.first;
-			auto& ddcs_ref = (*ddcs_map_iter).second;
+			auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
 			std::string current_direct_qtype_str = ddcs_ref.current_direct_qtype_str();
 			std::string initializer_info_str = m_current_initialization_expr_str;
@@ -8098,10 +8060,7 @@ namespace convc2validcpp {
 	void CAssignmentTargetConstrainsSourceDynamicArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
 
-		auto res1 = state1.m_ddecl_conversion_state_map.insert(*(m_ddecl_indirection2.m_ddecl_cptr));
-		auto ddcs_map_iter = res1.first;
-		auto& ddcs_ref = (*ddcs_map_iter).second;
-		bool update_declaration_flag = res1.second;
+		auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(m_ddecl_indirection2.m_ddecl_cptr), &Rewrite);
 
 		if (ddcs_ref.m_indirection_state_stack.size() >= m_ddecl_indirection2.m_indirection_level) {
 			if (true) {
@@ -8149,15 +8108,8 @@ namespace convc2validcpp {
 		CSameTypeReplacementAction(Rewrite, m_ddecl_indirection, m_ddecl_indirection2).do_replacement(state1);
 
 #if 0
-		auto lhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(m_ddecl_indirection2.m_ddecl_cptr));
-		auto lhs_ddcs_map_iter = lhs_res1.first;
-		auto& lhs_ddcs_ref = (*lhs_ddcs_map_iter).second;
-		bool lhs_update_declaration_flag = lhs_res1.second;
-
-		auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(m_ddecl_indirection.m_ddecl_cptr));
-		auto rhs_ddcs_map_iter = rhs_res1.first;
-		auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
-		bool rhs_update_declaration_flag = rhs_res1.second;
+		auto [lhs_ddcs_ref, lhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(m_ddecl_indirection2.m_ddecl_cptr), &Rewrite);
+		auto [rhs_ddcs_ref, rhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(m_ddecl_indirection.m_ddecl_cptr), &Rewrite);
 
 		if ((lhs_ddcs_ref.m_indirection_state_stack.size() >= m_ddecl_indirection2.m_indirection_level) &&
 				(rhs_ddcs_ref.m_indirection_state_stack.size() >= m_ddecl_indirection.m_indirection_level)){
@@ -8375,10 +8327,7 @@ namespace convc2validcpp {
 
 		const clang::CallExpr* CE = m_CE;
 		if (CE) {
-			auto res1 = state1.m_ddecl_conversion_state_map.insert(*((*this).m_indirect_function_DD));
-			auto ddcs_map_iter = res1.first;
-			auto& ddcs_ref = (*ddcs_map_iter).second;
-			//ddcs_ref.current_direct_qtype_ref();
+			auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*((*this).m_indirect_function_DD), &Rewrite);
 
 			auto SR = cm1_adj_nice_source_range(CE->getSourceRange(), state1, Rewrite);
 			RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
@@ -8477,10 +8426,7 @@ namespace convc2validcpp {
 		auto DD = (*this).m_ddecl_indirection2.m_ddecl_cptr;
 
 		if (DD) {
-			auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
-			auto ddcs_map_iter = res1.first;
-			auto& ddcs_ref = (*ddcs_map_iter).second;
-			//ddcs_ref.current_direct_qtype_ref();
+			auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
 			auto SR = cm1_adj_nice_source_range(DD->getSourceRange(), state1, Rewrite);
 			RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
@@ -8682,9 +8628,7 @@ namespace convc2validcpp {
 			auto lhs_SR = write_once_source_range(cm1_adj_nice_source_range(LHS->getSourceRange(), state1, (*this).m_Rewrite));
 			auto rhs_SR = write_once_source_range(cm1_adj_nice_source_range(RHS->getSourceRange(), state1, (*this).m_Rewrite));
 			if ((COSR.isValid()) && (cond_SR.isValid()) && (lhs_SR.isValid()) && (rhs_SR.isValid())) {
-				auto res1 = state1.m_ddecl_conversion_state_map.insert(*lhs_DD);
-				auto ddcs_map_iter = res1.first;
-				auto& ddcs_ref = (*ddcs_map_iter).second;
+				auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &m_Rewrite);
 				/* At the moment we only support the case where the value option expressions are
 				* just declared variables. */
 				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
@@ -8717,9 +8661,7 @@ namespace convc2validcpp {
 			bool rhs_is_native_array = false;
 			bool rhs_update_flag = false;
 			{
-				auto res1 = state1.m_ddecl_conversion_state_map.insert(*rhs_DD);
-				auto ddcs_map_iter = res1.first;
-				auto& ddcs_ref = (*ddcs_map_iter).second;
+				auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &m_Rewrite);
 				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 					auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(0);
 					if (true == indirection_state_ref.xscope_eligibility()) {
@@ -8816,9 +8758,7 @@ namespace convc2validcpp {
 					auto& cocs_shptr_ref = (*(*cocs_iter).second);
 					cocs_shptr_ref.update_current_text();
 
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*m_var_DD);
-					auto ddcs_map_iter = res1.first;
-					auto& ddcs_ref = (*ddcs_map_iter).second;
+					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*m_var_DD, &m_Rewrite);
 
 					ddcs_ref.m_fallback_current_initialization_expr_str = cocs_shptr_ref.m_current_text_str;
 
@@ -9080,10 +9020,7 @@ namespace convc2validcpp {
 					int q = 5;
 					//return;
 				} else {
-					auto res1 = (*this).m_state1.m_ddecl_conversion_state_map.insert(*DD);
-					auto ddcs_map_iter = res1.first;
-					auto& ddcs_ref = (*ddcs_map_iter).second;
-					//bool update_declaration_flag = res1.second;
+					auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
 					if (AddressableVars) {
 						auto qtype = DD->getType();
@@ -9377,10 +9314,7 @@ namespace convc2validcpp {
 
 					auto res2 = infer_array_type_info_from_stmt(*E, "pointer arithmetic", state1, DD);
 
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
-					auto ddcs_map_iter = res1.first;
-					auto& ddcs_ref = (*ddcs_map_iter).second;
-					bool update_declaration_flag = res1.second;
+					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 					if (ddcs_ref.m_indirection_state_stack.size() > res2.indirection_level) {
 						if (true == ddcs_ref.m_indirection_state_stack.at(res2.indirection_level).xscope_eligibility()) {
 							/* If a declaration for the pointer arithmetic expression is available, then
@@ -9619,10 +9553,7 @@ namespace convc2validcpp {
 						}
 					}
 
-					auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*DD);
-					auto ddcs_map_iter = res1.first;
-					auto& ddcs_ref = (*ddcs_map_iter).second;
-					bool update_declaration_flag = res1.second;
+					auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
 					size_t target_indirection_index = CDDeclIndirection::no_indirection;
 					if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
@@ -9735,10 +9666,7 @@ namespace convc2validcpp {
 							return;
 						}
 
-						auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
-						auto ddcs_map_iter = res1.first;
-						auto& ddcs_ref = (*ddcs_map_iter).second;
-						bool update_declaration_flag = res1.second;
+						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
 						for (auto& indirection_state_ref : ddcs_ref.m_indirection_state_stack) {
 							if (true == indirection_state_ref.xscope_eligibility()) {
@@ -9926,9 +9854,7 @@ namespace convc2validcpp {
 				if (qtype.getTypePtr()->isPointerType()) {
 					Expr::NullPointerConstantKind kind = RHS->IgnoreParenCasts()->isNullPointerConstant(*(MR.Context), Expr::NullPointerConstantValueDependence());
 					if ((clang::Expr::NPCK_NotNull != kind) && (clang::Expr::NPCK_CXX11_nullptr != kind)) {
-						auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*DD);
-						auto ddcs_map_iter = res1.first;
-						auto& ddcs_ref = (*ddcs_map_iter).second;
+						auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
 						if (!ddcs_ref.m_original_initialization_has_been_noted) {
 							int q = 5;
@@ -9964,10 +9890,7 @@ namespace convc2validcpp {
 												return;
 											}
 
-											auto res1 = (*this).m_state1.m_ddecl_conversion_state_map.insert(*DD);
-											auto ddcs_map_iter = res1.first;
-											auto& ddcs_ref = (*ddcs_map_iter).second;
-											bool update_declaration_flag = res1.second;
+											auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
 											const clang::Type* TP = QT.getTypePtr();
 											auto lhs_type_str = QT.getAsString();
@@ -10802,9 +10725,7 @@ namespace convc2validcpp {
 
 				std::string var_current_state_str;
 
-				auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*DD);
-				auto ddcs_map_iter = res1.first;
-				auto& ddcs_ref = (*ddcs_map_iter).second;
+				auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 					var_current_state_str = ddcs_ref.m_indirection_state_stack.at(0).current_species();
 				} else {
@@ -10922,9 +10843,7 @@ namespace convc2validcpp {
 				if (lhs_qualifies && rhs_qualifies) {
 					std::string lhs_current_state_str;
 					{
-						auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*(lhs_res2.ddecl_cptr));
-						auto ddcs_map_iter = res1.first;
-						auto& ddcs_ref = (*ddcs_map_iter).second;
+						auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*(lhs_res2.ddecl_cptr), &Rewrite);
 						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 							lhs_current_state_str = ddcs_ref.m_indirection_state_stack.at(0).current_species();
 						} else {
@@ -10933,9 +10852,7 @@ namespace convc2validcpp {
 					}
 					std::string rhs_current_state_str;
 					{
-						auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*(rhs_res2.ddecl_cptr));
-						auto ddcs_map_iter = res1.first;
-						auto& ddcs_ref = (*ddcs_map_iter).second;
+						auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*(rhs_res2.ddecl_cptr), &Rewrite);
 						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 							rhs_current_state_str = ddcs_ref.m_indirection_state_stack.at(0).current_species();
 						} else {
@@ -11024,10 +10941,7 @@ namespace convc2validcpp {
 	inline bool set_xscope_elegibility_of_outermost_indirection_if_any(bool xscope_eligibility, clang::DeclaratorDecl const * DD, CTUState& state1) {
 		if (!DD) { return false; }
 
-		auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
-		auto ddcs_map_iter = res1.first;
-		auto& ddcs_ref = (*ddcs_map_iter).second;
-		bool update_declaration_flag = res1.second;
+		auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD);
 		if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 			ddcs_ref.m_indirection_state_stack.at(0).set_xscope_eligibility(xscope_eligibility);
 			return true;
@@ -11278,10 +11192,7 @@ namespace convc2validcpp {
 			} else {
 				const DeclaratorDecl* lhs_DD = llvm::cast<const clang::DeclaratorDecl>(VLD);
 				if (lhs_DD) {
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*lhs_DD);
-					auto ddcs_map_iter = res1.first;
-					auto& ddcs_ref = (*ddcs_map_iter).second;
-					bool update_declaration_flag = res1.second;
+					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &Rewrite);
 
 					lhs_res2.ddecl_cptr = lhs_DD;
 					lhs_res2.ddecl_conversion_state_ptr = &ddcs_ref;
@@ -11528,10 +11439,7 @@ namespace convc2validcpp {
 					if (!finished_cast_handling_flag) {
 						if (cast_qtype->isPointerType() || (cast_qtype->isReferenceType())) {
 							if (DD && (DD->getType()->isPointerType() || (DD->getType()->isReferenceType()))) {
-								auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
-								auto ddcs_map_iter = res1.first;
-								auto& ddcs_ref = (*ddcs_map_iter).second;
-								bool update_declaration_flag = res1.second;
+								auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
 								auto cast_pointee_qtype = definition_qtype(cast_qtype->getPointeeType());
 								auto DD_pointee_qtype = definition_qtype(DD->getType()->getPointeeType());
@@ -11718,9 +11626,7 @@ namespace convc2validcpp {
 									update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 
 									for (auto param_PVD : rhs_FND->parameters()) {
-										auto PVD_res1 = state1.m_ddecl_conversion_state_map.insert(*param_PVD);
-										auto PVD_ddcs_map_iter = PVD_res1.first;
-										auto& PVD_ddcs_ref = (*PVD_ddcs_map_iter).second;
+										auto [PVD_ddcs_ref, PVD_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*param_PVD, &Rewrite);
 										for (size_t j = 0; j < PVD_ddcs_ref.m_indirection_state_stack.size(); j += 1) {
 											auto cr_shptr = std::make_shared<CUpdateDeclIndirectionArray2ReplacementAction>(Rewrite, MR,
 												CDDeclIndirection(*param_PVD, j),
@@ -11742,9 +11648,7 @@ namespace convc2validcpp {
 								update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 
 								for (auto param_PVD : rhs_FND->parameters()) {
-									auto PVD_res1 = state1.m_ddecl_conversion_state_map.insert(*param_PVD);
-									auto PVD_ddcs_map_iter = PVD_res1.first;
-									auto& PVD_ddcs_ref = (*PVD_ddcs_map_iter).second;
+									auto [PVD_ddcs_ref, PVD_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*param_PVD, &Rewrite);
 									for (size_t j = 0; j < PVD_ddcs_ref.m_indirection_state_stack.size(); j += 1) {
 										auto cr_shptr = std::make_shared<CUpdateDeclIndirectionArray2ReplacementAction>(Rewrite, MR,
 											CDDeclIndirection(*param_PVD, j),
@@ -11759,18 +11663,12 @@ namespace convc2validcpp {
 						}
 					}
 					if (true || (CDDeclIndirection::no_indirection == lhs_res2.indirection_level)) {
-						auto res1 = state1.m_ddecl_conversion_state_map.insert(*(lhs_res2.ddecl_cptr));
-						auto ddcs_map_iter = res1.first;
-						auto& ddcs_ref = (*ddcs_map_iter).second;
-						bool update_declaration_flag = res1.second;
+						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(lhs_res2.ddecl_cptr), &Rewrite);
 
 						auto adjusted_lhs_indirection_level = lhs_res2.indirection_level + lhs_indirection_level_adjustment;
 						auto rhs_indirection_level = rhs_res2.indirection_level;
 						if (adjusted_lhs_indirection_level == rhs_indirection_level) {
-							auto rhs_res1 = state1.m_ddecl_conversion_state_map.insert(*(rhs_res2.ddecl_cptr));
-							auto rhs_ddcs_map_iter = rhs_res1.first;
-							auto& rhs_ddcs_ref = (*rhs_ddcs_map_iter).second;
-							bool rhs_update_declaration_flag = rhs_res1.second;
+							auto [rhs_ddcs_ref, rhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(rhs_res2.ddecl_cptr), &Rewrite);
 
 							auto& lhs_function_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state;
 							auto& rhs_function_state_ref = rhs_ddcs_ref.direct_type_state_ref().m_function_type_state;
@@ -12030,10 +11928,7 @@ namespace convc2validcpp {
 											objects that are pointer targets (aka "addressable" ojects) to C++ objects with
 											non-trivial copy constructors, we need to cast them back to their original scalar
 											type before passing them to a *printf() function. */
-											auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
-											auto ddcs_map_iter = res1.first;
-											auto& ddcs_ref = (*ddcs_map_iter).second;
-											bool update_declaration_flag = res1.second;
+											auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
 											auto arg_iter = state1.m_expr_conversion_state_map.find(arg_EX);
 											if (state1.m_expr_conversion_state_map.end() == arg_iter) {
@@ -12290,10 +12185,7 @@ namespace convc2validcpp {
 														does apply the constraint both ways. */
 														std::shared_ptr<CDDeclIndirectionReplacementAction> cr_shptr = std::make_shared<CSameTypeReplacementAction>(Rewrite, MR, *param_VD, *arg_VD2);
 
-														auto res1 = state1.m_ddecl_conversion_state_map.insert(*param_VD);
-														auto ddcs_map_iter = res1.first;
-														auto& ddcs_ref = (*ddcs_map_iter).second;
-														bool update_declaration_flag = res1.second;
+														auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*param_VD, &Rewrite);
 
 														if (ddcs_ref.has_been_determined_to_be_a_pointer_target()) {
 															(*cr_shptr).do_replacement(state1);
@@ -12398,10 +12290,7 @@ namespace convc2validcpp {
 							return;
 						}
 
-						auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
-						auto ddcs_map_iter = res1.first;
-						auto& ddcs_ref = (*ddcs_map_iter).second;
-						bool update_declaration_flag = res1.second;
+						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
 						bool lhs_has_been_determined_to_point_to_an_array = false;
 						if ("native pointer" == ddcs_ref.m_indirection_state_stack.at(0).current_species()) {
@@ -13170,10 +13059,7 @@ namespace convc2validcpp {
 					const auto name = DD->getNameAsString();
 					const auto qualified_name = DD->getQualifiedNameAsString();
 
-					auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD);
-					auto ddcs_map_iter = res1.first;
-					auto& ddcs_ref = (*ddcs_map_iter).second;
-					bool update_declaration_flag = res1.second;
+					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
 					auto VD = dyn_cast<const clang::VarDecl>(D);
 					auto FD = dyn_cast<const clang::FieldDecl>(D);
@@ -13482,6 +13368,145 @@ namespace convc2validcpp {
 								state1.m_pending_code_modification_actions.add_replacement_of_instances_of_given_string_action(Rewrite, name_SR, name, updated_name);
 							}
 							break;
+						}
+					}
+
+					if (std::string::npos == qtype_str.find("::")) {
+						/* qtype does not seem to be namespace qualified. We'll check if it needs to be under C++. */
+
+						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+
+						clang::Type const* directType = nullptr;
+
+						auto maybe_direct_qtype = ddcs_ref.m_indirection_state_stack.m_direct_type_state.current_qtype_if_any();
+						if (maybe_direct_qtype.has_value()) {
+							auto& direct_qtype_ref = maybe_direct_qtype.value();
+							auto* directType = direct_qtype_ref.getTypePtr();
+
+							clang::Decl const * definition_D = directType->getAsRecordDecl();
+							if (!definition_D) {
+								definition_D = directType->getAsTagDecl();
+							}
+
+							auto nested_containing_structs = [&MR](clang::Decl const * definition_D) {
+								std::vector<clang::RecordDecl const *> retval;
+								auto parent_RD = NonImplicitParentOfType<clang::RecordDecl const>(definition_D, *(MR.Context));
+								while (parent_RD) {
+									retval.push_back(parent_RD);
+									parent_RD = NonImplicitParentOfType<clang::RecordDecl const>(parent_RD, *(MR.Context));
+								}
+								std::reverse(retval.begin(), retval.end());
+								return retval;
+							};
+
+							auto nested_containing_structs_of_def = nested_containing_structs(definition_D);
+
+							if (1 <= nested_containing_structs_of_def.size()) {
+								/* The type seems to have been declared inside the body of a struct. So in C++, depending where it 
+								is used, it may need to be namespace qualified. So we'll try to obtain a corresponding list of 
+								nested structs containing the declaration which uses the type. Then we can try to determine if the 
+								declaration that uses the type is in the same namespace as the declaration of the type itself. In 
+								which case we may not need to add namespace qualification to the type usage. */
+
+								auto nested_containing_structs_of_decl = nested_containing_structs(DD);
+								if (0 == nested_containing_structs_of_decl.size()) {
+									auto DC = DD->getParentFunctionOrMethod();
+									if (DC) {
+										auto FND = dyn_cast<const clang::FunctionDecl>(DC);
+										if (FND) {
+											nested_containing_structs_of_decl = nested_containing_structs(FND);
+										}
+									}
+								}
+
+								while ((nested_containing_structs_of_def.size() >= 1) && (nested_containing_structs_of_decl.size() >= 1)) {
+									/* We don't need to qualify the type usage with namespaces that the declaration that uses the type 
+									and declaration of the type itself have in common. So we'll test for common containing namespaces 
+									and discard them. */
+									if (nested_containing_structs_of_def.front() != nested_containing_structs_of_decl.front()) {
+										break;
+									}
+									nested_containing_structs_of_def.erase(nested_containing_structs_of_def.begin());
+									nested_containing_structs_of_decl.erase(nested_containing_structs_of_decl.begin());
+								}
+								if (1 <= nested_containing_structs_of_def.size()) {
+									std::string new_namespace_qualified_direct_type_str;
+									for (auto& containing_RD : nested_containing_structs_of_def) {
+										if (!containing_RD) { assert(false); break; }
+										auto struct_name = containing_RD->getQualifiedNameAsString();
+										new_namespace_qualified_direct_type_str += struct_name + "::";
+									}
+									auto direct_type_str = ddcs_ref.m_indirection_state_stack.m_direct_type_state.current_qtype_str(); 
+									static const std::string struct_space_str = "struct ";
+									if (string_begins_with(direct_type_str, struct_space_str)) {
+										direct_type_str = direct_type_str.substr(struct_space_str.length());
+									}
+									new_namespace_qualified_direct_type_str += direct_type_str;
+
+									bool vetoed_flag = false;
+									if (std::string::npos != new_namespace_qualified_direct_type_str.find("unnamed enum at")) {
+										vetoed_flag = true;
+									}
+									if (std::string::npos != new_namespace_qualified_direct_type_str.find(" (unnamed ")) {
+										vetoed_flag = true;
+									}
+									if ((!vetoed_flag)) {
+										if (false) {
+											auto& maybe_typeLoc = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_maybe_typeLoc;
+											if (maybe_typeLoc.has_value()) {
+												auto& typeLoc = maybe_typeLoc.value();
+												auto direct_type_raw_SR = typeLoc.getSourceRange();
+												auto direct_type_SR = write_once_source_range(cm1_adj_nice_source_range(direct_type_raw_SR, state1, Rewrite));
+												if (direct_type_SR.isValid()) {
+													IF_DEBUG(auto text1 = Rewrite.getRewrittenText(direct_type_SR));
+													state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, direct_type_SR, new_namespace_qualified_direct_type_str);
+												}
+											}
+										} else {
+											if (SR.isValid()) {
+												auto current_DD_text = Rewrite.getRewrittenText(SR);
+												if (std::string::npos == current_DD_text.find("::")) {
+													ddcs_ref.set_current_direct_non_function_qtype_str(new_namespace_qualified_direct_type_str);
+
+													std::string new_cpp_DD_text;
+													//auto res = generate_declaration_replacement_code(DD, Rewrite, &state1, state1.m_ddecl_conversion_state_map);
+													//new_cpp_DD_text = res.m_replacement_code;
+													new_cpp_DD_text = current_DD_text;
+													replace_whole_instances_of_given_string(new_cpp_DD_text, ddcs_ref.m_indirection_state_stack.m_direct_type_state.original_type_source_text(), new_namespace_qualified_direct_type_str);
+
+													std::string new_DD_text = "#ifdef __cplusplus \n" + new_cpp_DD_text + "\n#else /*__cplusplus*/ \n" + current_DD_text + "\n#endif /*__cplusplus*/ \n";
+
+													state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_DD_text);
+												}
+											}
+										}
+									}
+									int q = 5;
+								}
+							}
+						}
+
+						directType = qtype.getTypePtr();
+						do {
+							if (directType->isPointerType()) {
+								directType = directType->getPointeeOrArrayElementType();
+								continue;
+							} else if (directType->isArrayType()) {
+								directType = directType->getPointeeOrArrayElementType();
+								continue;
+							}
+							break;
+						} while (true);
+
+						const auto* RD = directType->getAsRecordDecl();
+						if (RD) {
+							auto name = RD->getQualifiedNameAsString();
+							auto* parent_RD = Tget_immediately_containing_element_of_type<clang::RecordDecl>(RD, *(MR.Context));
+							if (parent_RD) {
+								auto parent_name = parent_RD->getQualifiedNameAsString();
+								int q = 5;
+							}
+							int q = 5;
 						}
 					}
 
@@ -14323,9 +14348,7 @@ namespace convc2validcpp {
 									{
 										/*  */
 										auto l_DD = field;
-										auto res1 = m_state1.m_ddecl_conversion_state_map.insert(*l_DD);
-										auto ddcs_map_iter = res1.first;
-										auto& ddcs_ref = (*ddcs_map_iter).second;
+										auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*l_DD, &Rewrite);
 
 										update_declaration_if_not_suppressed(*l_DD, Rewrite, *(MR.Context), m_state1);
 									}

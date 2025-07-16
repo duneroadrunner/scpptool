@@ -2977,6 +2977,9 @@ namespace convm1 {
 
 	inline bool replace_whole_instances_of_given_string(std::string& text, const std::string_view old_string, const std::string_view new_string) {
 		bool changed_flag = false;
+		if (0 == old_string.length()) {
+			return changed_flag;
+		}
 
 		if (text.size() >= old_string.size()) {
 			bool preceeding_char_is_alpha_numerickish = false;
@@ -3909,7 +3912,7 @@ namespace convm1 {
 	bool CExprConversionState::set_up_relation_to_parent_generically() {
 		if (m_state1.m_ast_context_ptr) {
 			bool has_ancestor_with_conversion_state = false;
-			//auto parent_E = NonParenNoopCastParentOfType<clang::Expr>(m_expr_cptr, *(m_state1.m_ast_context_ptr));
+			//auto parent_E = NonParenImpNoopCastParentOfType<clang::Expr>(m_expr_cptr, *(m_state1.m_ast_context_ptr));
 			auto parent_E = NonImplicitParentOfType<clang::Expr>(m_expr_cptr, *(m_state1.m_ast_context_ptr));
 			auto E1 = parent_E;
 			while (E1) {
@@ -14203,7 +14206,7 @@ namespace convm1 {
 				/*&& (precasted_expr_QT->isPointerType() || precasted_expr_QT->isArrayType())
 				&& cast_operation_SR.isValid()*/) {
 
-				auto CE = NonParenNoopCastParentOfType<clang::CallExpr>(CSCE, *(MR.Context));
+				auto CE = NonParenImpNoopCastParentOfType<clang::CallExpr>(CSCE, *(MR.Context));
 				if (CE) {
 					auto function_decl1 = CE->getDirectCallee();
 					auto num_args = CE->getNumArgs();
@@ -18079,12 +18082,12 @@ namespace convm1 {
 						if (CE && precasted_CE_qtype->isPointerType() && E_qtype->isPointerType()) {
 							auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
 							if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
-								auto DD = NonParenNoopCastParentOfType<clang::DeclaratorDecl>(CSCE, *(MR.Context));
+								auto DD = NonParenImpNoopCastParentOfType<clang::DeclaratorDecl>(CSCE, *(MR.Context));
 								if (DD) {
 									/* This case is handled elsewhere. */
 									finished_cast_handling_flag = true;
 								} else {
-									auto BO = NonParenNoopCastParentOfType<clang::BinaryOperator>(CSCE, *(MR.Context));
+									auto BO = NonParenImpNoopCastParentOfType<clang::BinaryOperator>(CSCE, *(MR.Context));
 									if (BO) {
 										const auto opcode = BO->getOpcode();
 										const auto opcode_str= std::string(BO->getOpcodeStr());
@@ -18163,9 +18166,8 @@ namespace convm1 {
 							MCSSSFree2::s_handler1(MR, Rewrite, state1, CE, DRE);
 						}
 					}
-
 				}
-				auto parent_ST_ii = NonParenNoopCastParentStmt(E, *MR.Context);
+				auto parent_ST_ii = NonParenImpNoopCastParentStmt(E, *MR.Context);
 				if (parent_ST_ii) {
 					auto RS = dyn_cast<const clang::ReturnStmt>(parent_ST_ii);
 					if (RS) {
@@ -18181,7 +18183,7 @@ namespace convm1 {
 
 				if (E_qtype->isPointerType()) {
 					auto& Ctx = *(MR.Context);
-					auto parent_E_ii = NonParenNoopCastThisOrParent(Tget_immediately_containing_element_of_type<clang::Expr>(E, Ctx), Ctx);
+					auto parent_E_ii = NonParenImpNoopCastThisOrParent(Tget_immediately_containing_element_of_type<clang::Expr>(E, Ctx), Ctx);
 					if (parent_E_ii) {
 						/* For some reason our matcher for pointer arithmetic seems to be unreliable.
 						So here we identify some of the cases of pointer arithmetic that our matcher
