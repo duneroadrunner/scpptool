@@ -14002,8 +14002,37 @@ namespace convm1 {
 				break;
 			}
 			if (filtered_out_by_location<options_t<converter_mode_t> >(Ctx, decl.getSourceRange().getBegin())) {
-				non_modifiable_flag = true;
-				break;
+				if (filtered_out_by_location<options_t<converter_mode_t> >(Ctx, decl.getSourceRange().getEnd())) {
+					auto FND = dyn_cast<const clang::FunctionDecl>(&decl);
+					if (FND) {
+						IF_DEBUG(const auto qfname_str = FND->getQualifiedNameAsString();)
+
+						/* So technically, the fact that the Begin and End of the item's range are in a "filtered out" location 
+						out doesn't *necessarily* mean that the whole item is in a "filtered out" location, though we'll 
+						generally presume it to be. But in this case the item is a function declaration, so we'll just check if 
+						all the parameter declarations are also "filtered out" by location. */
+						bool an_arg_is_modifiable = false;
+						const auto num_params = FND->getNumParams();
+						for (size_t i = 0; num_params > i; i += 1) {
+							auto PVD = FND->getParamDecl(i);
+							if (PVD && !is_non_modifiable(*PVD, Ctx, Rewrite, state1)) {
+								an_arg_is_modifiable = true;
+								break;
+							}
+						}
+						if (!an_arg_is_modifiable) {
+							non_modifiable_flag = true;
+							break;
+						} else {
+							int q = 5;
+						}
+					} else {
+						non_modifiable_flag = true;
+						break;
+					}
+				} else {
+					int q = 5;
+				}
 			}
 			auto SR = decl.getSourceRange();
 			if (!(SR.isValid())) {

@@ -109,7 +109,7 @@ int main(int argc, const char **argv)
 
   if (false) {
     /* This is just here for use in creatng a "baseline" for address sanitizer errors. */
-    std::string code = "struct A{public: int i;}; void f(A & a}{}";   
+    std::string code = "struct A{public: int i;}; void f(A & a){}";   
     std::unique_ptr<clang::ASTUnit> ast(clang::tooling::buildASTFromCode(code));
     // now you have the AST for the code snippet
     //clang::ASTContext * pctx = &(ast->getASTContext());
