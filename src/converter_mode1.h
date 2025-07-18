@@ -7762,6 +7762,7 @@ namespace convm1 {
 				}
 			}
 		}
+
 		/* Though I think that we may no longer depend on any source range being rewritable. */
 		return suspected_to_be_rewritable ? rewritable_source_range(unordered_SR) : write_once_source_range(unordered_SR);
 	}
@@ -7886,6 +7887,9 @@ namespace convm1 {
 				std::string rd_name = rdcs_ref.recdecl_ptr()->getNameAsString();
 				if ("" != rd_name) {
 					if (rdcs_ref.recdecl_ptr()->isThisDeclarationADefinition()) {
+						/* Some declarations combine a (named) struct definition with one or more variable definitions.
+						For example, somethng like "struct abc_t { int m_a; } acb1;". In these cases we'll separate the
+						the definition and declaration to something like "struct abc_t { int m_a; }; abc_t acb1;". */
 						replacement_code += rdcs_ref.m_current_text_str + "; ";
 					}
 				} else {
@@ -7893,34 +7897,6 @@ namespace convm1 {
 					return;
 				}
 				int q = 5;
-			}
-
-			bool named_record_type_defined_in_declaration = false;
-			std::string named_record_type_definition_text;
-
-			/* Some declarations combine a (named) struct definition with one or more variable definitions.
-			For example, somethng like "struct abc_t { int m_a; } acb1;". In these cases we'll separate the
-			the definition and declaration to something like "struct abc_t { int m_a; }; abc_t acb1;". */
-			auto CXXRD = DD->getType()->getAsCXXRecordDecl();
-			if (CXXRD) {
-				auto CXXRD_SR = cm1_adj_nice_source_range(CXXRD->getSourceRange(), state1, Rewrite);
-				named_record_type_defined_in_declaration |= first_is_a_subset_of_second(CXXRD_SR, SR);
-				named_record_type_definition_text = Rewrite.getRewrittenText(CXXRD_SR);
-			} else {
-				auto RD = DD->getType()->getAsRecordDecl();
-				if (RD) {
-					auto RD_SR = cm1_adj_nice_source_range(RD->getSourceRange(), state1, Rewrite);
-					named_record_type_defined_in_declaration |= first_is_a_subset_of_second(RD_SR, SR);
-					named_record_type_definition_text = Rewrite.getRewrittenText(RD_SR);
-				}
-			}
-			if (named_record_type_defined_in_declaration) {
-				static const std::string anonymous_struct_prefix = "struct (anonymous struct";
-				static const std::string unnamed_struct_prefix = "struct (unnamed struct";
-				auto qtype_str = DD->getType().getAsString();
-				if ((std::string::npos != qtype_str.find(anonymous_struct_prefix)) || (std::string::npos != qtype_str.find(unnamed_struct_prefix))) {
-					named_record_type_defined_in_declaration = false;
-				}
 			}
 
 			/* Here we're checking for and noting any unsupported types. */
@@ -8004,11 +7980,8 @@ namespace convm1 {
 				}
 
 				if ((true || (2 <= ddecls.size()) || UsesPointerTypedef(DD->getType()) || is_macro_instantiation(DD->getSourceRange(), Rewrite)
-					|| IsUnwieldyDecl(*DD) || named_record_type_defined_in_declaration || ContainsFunctionPointerOfConcernDecl(*DD))) {
+					|| IsUnwieldyDecl(*DD) || ContainsFunctionPointerOfConcernDecl(*DD))) {
 
-					if (named_record_type_defined_in_declaration) {
-						replacement_code += named_record_type_definition_text + "; ";
-					}
 					std::string l_replacement_code;
 					/* Instead of modifying the existing declaration(s), here we're completely
 					replacing (overwriting) them. */
