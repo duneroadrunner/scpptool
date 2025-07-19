@@ -7344,31 +7344,33 @@ namespace convm1 {
 							if (init_EX) {
 								auto ILE = dyn_cast<const clang::InitListExpr>(init_EX);
 								if (ILE) {
-									std::string new_init_expr_str;
+									std::string new_init_prefix_str;
 									if ("Dual" == ConvertMode) {
-										new_init_expr_str = "MSE_LH_IF_ENABLED("
-											+ ddcs_ref.non_const_current_direct_qtype_str() + ") " + ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr);
+										new_init_prefix_str = "MSE_LH_IF_ENABLED("
+											+ ddcs_ref.non_const_current_direct_qtype_str() + ") ";
 									} else {
-										new_init_expr_str = ddcs_ref.non_const_current_direct_qtype_str()
-											+ " " + ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr);
+										new_init_prefix_str = ddcs_ref.non_const_current_direct_qtype_str() + " ";
 									}
 									if (state1_ptr) {
 										auto& state1 = *state1_ptr;
 										ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(init_EX, Rewrite, state1));
 
-										auto& ecs = state1.get_expr_conversion_state_ref<CExprConversionState>(*init_EX, Rewrite);
-										std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(new_init_expr_str);
-										ecs.m_expr_text_modifier_stack.push_back(shptr1);
-										ecs.update_current_text();
+										auto& ecs_ref = state1.get_expr_conversion_state_ref<CExprConversionState>(*init_EX, Rewrite);
+										const auto l_text_modifier = CWrapExprTextModifier(new_init_prefix_str, "");
+										bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+											&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+										if (!seems_to_be_already_applied) {
+											auto shptr2 = std::make_shared<CWrapExprTextModifier>(new_init_prefix_str, "");
+											ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+											ecs_ref.update_current_text();
 
-										/* We shouldn't need to add an "expression_update_replacement_action" here as the updated expression 
-										text should be rendered when the parent declaration text gets rendered. */
-										//state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, init_EX_SR, state1, init_EX);
-
-										//state1.add_pending_straight_text_replacement_expression_update(*init_EX, Rewrite, new_init_expr_str);
+											/* We shouldn't need to add an "expression_update_replacement_action" here as the updated expression 
+											text should be rendered when the parent declaration text gets rendered. */
+											//state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, init_EX_SR, state1, init_EX);
+											//state1.add_pending_straight_text_replacement_expression_update(*init_EX, Rewrite, new_init_expr_str);
+										}
 									}
-									ddcs_ref.m_fallback_current_initialization_expr_str = new_init_expr_str;
-
+									ddcs_ref.m_fallback_current_initialization_expr_str = ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr);
 									initialization_expr_str = ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr);
 								}
 							}
@@ -7491,31 +7493,76 @@ namespace convm1 {
 						replacement_code += "> " + variable_name;
 					}
 
-					size_t num_init_elements_rough_estimate = std::count(initializer_append_str.begin(), initializer_append_str.end(), ',');
-					if (64/* arbitrary */ < num_init_elements_rough_estimate) {
-						auto first_token_range = Parse::find_potential_noncomment_token_v1(initializer_append_str);
-						auto first_token_sv = Parse::substring_view(initializer_append_str, first_token_range);
-						if ("=" == first_token_sv) {
-							auto second_token_range = Parse::find_potential_noncomment_token_v1(initializer_append_str, first_token_range.end);
-							auto second_token_sv = Parse::substring_view(initializer_append_str, second_token_range);
-							if ("{" == second_token_sv) {
-								auto terminating_delimiter_index = initializer_append_str.length() - 1;
-								while ((1 <= terminating_delimiter_index) && ('}' != initializer_append_str.at(terminating_delimiter_index))) {
-									terminating_delimiter_index -= 1;
-								}
-								if ('}' == initializer_append_str.at(terminating_delimiter_index)) {
-									/* The SaferCPlusPlus arrays emulate aggregate initialization (at compile-time). Some
-									compilers may have difficulty handling large initalizer lists. So we insert an
-									intermediate std::array<>. */
+					const clang::Expr* init_EX = nullptr;
+					if (VD) {
+						init_EX = VD->getInit();
+					} else if (FD) {
+						init_EX = FD->getInClassInitializer();
+					}
 
-									initializer_append_str.replace(terminating_delimiter_index, initializer_append_str.length() - terminating_delimiter_index, "} }");
+					if (init_EX) {
+						auto ILE = dyn_cast<const clang::InitListExpr>(init_EX);
+						if (ILE) {
+							bool add_std_array_intermediary = false;
 
-									std::string aggregate_initialization_prefix_replacement = " = std::array<";
-									aggregate_initialization_prefix_replacement += direct_qtype_str;
-									aggregate_initialization_prefix_replacement += ", " + res4.m_native_array_size_text;
-									aggregate_initialization_prefix_replacement += " > { {";
-									initializer_append_str.replace(0, second_token_range.end, aggregate_initialization_prefix_replacement);
+							size_t num_init_elements_rough_estimate = std::count(initializer_append_str.begin(), initializer_append_str.end(), ',');
+							if (64/* arbitrary */ < num_init_elements_rough_estimate) {
+								/* The SaferCPlusPlus arrays emulate aggregate initialization (at compile-time). Some
+								compilers may have difficulty handling large initalizer lists. So we insert an
+								intermediate std::array<>. */
+								add_std_array_intermediary = true;
+							} else if (1 <= ILE->getNumInits()) {
+								auto init_item_E = ILE->getInit(0);
+								if (init_item_E) {
+									auto nested_ILE = dyn_cast<const clang::InitListExpr>(init_item_E);
+									if (nested_ILE) {
+										add_std_array_intermediary = true;
+									}
 								}
+							}
+							if (add_std_array_intermediary) {
+
+								std::string initializer_prefix = "std::array<";
+								initializer_prefix += direct_qtype_str;
+								initializer_prefix += ", " + res4.m_native_array_size_text;
+								initializer_prefix += " > { ";
+								std::string initializer_suffix = " }";
+
+								std::string new_init_prefix_str;
+								if ("Dual" == ConvertMode) {
+									new_init_prefix_str = "MSE_LH_IF_ENABLED("
+										+ initializer_prefix + ") ";
+								} else {
+									new_init_prefix_str = initializer_prefix;
+								}
+								std::string new_init_suffix_str;
+								if ("Dual" == ConvertMode) {
+									new_init_suffix_str = "MSE_LH_IF_ENABLED("
+										+ initializer_suffix + ") ";
+								} else {
+									new_init_suffix_str = initializer_suffix;
+								}
+								if (state1_ptr) {
+									auto& state1 = *state1_ptr;
+									ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(init_EX, Rewrite, state1));
+
+									auto& ecs_ref = state1.get_expr_conversion_state_ref<CExprConversionState>(*init_EX, Rewrite);
+									const auto l_text_modifier = CWrapExprTextModifier(new_init_prefix_str, new_init_suffix_str);
+									bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+										&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+									if (!seems_to_be_already_applied) {
+										auto shptr2 = std::make_shared<CWrapExprTextModifier>(new_init_prefix_str, new_init_suffix_str);
+										ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+										ecs_ref.update_current_text();
+
+										/* We shouldn't need to add an "expression_update_replacement_action" here as the updated expression 
+										text should be rendered when the parent declaration text gets rendered. */
+										//state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, init_EX_SR, state1, init_EX);
+										//state1.add_pending_straight_text_replacement_expression_update(*init_EX, Rewrite, new_init_expr_str);
+									}
+								}
+								ddcs_ref.m_fallback_current_initialization_expr_str = ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr);
+								initialization_expr_str = ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr);
 							}
 						}
 					}
@@ -14782,7 +14829,7 @@ namespace convm1 {
 
 		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
 			, const clang::Expr* LHS, const clang::Expr* RHS, const clang::ValueDecl* VLD = nullptr
-			, EIsAnInitialization is_an_initialization = EIsAnInitialization::No) {
+			, EIsAnInitialization is_an_initialization = EIsAnInitialization::No, std::optional<int> maybe_lhs_indirection_level_adjustment = {}) {
 
 			if (!RHS) {
 				return;
@@ -14819,7 +14866,6 @@ namespace convm1 {
 				}
 				rhs_is_filtered_out = true;
 			}
-
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -14863,6 +14909,38 @@ namespace convm1 {
 					return;
 				}
 			}
+			if (maybe_lhs_indirection_level_adjustment.has_value()) {
+				auto& lhs_indirection_level_adjustment_param = maybe_lhs_indirection_level_adjustment.value();
+				/* The maybe_lhs_indirection_level_adjustment is intended to enable synthesized assignment operations 
+				where the intended lhs declaration (or expression) is not available, but is an indirection of one that 
+				is available. In such case, one can pass the available declaration (or expression) and also an 
+				lhs_indirection_level_adjustment value indicating which indirecction level of the provided declaration 
+				(or expression) is intended to as the lhs.  */
+				if (lhs_res2.ddecl_conversion_state_ptr) {
+					if (lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size() >= (lhs_res2.indirection_level + lhs_indirection_level_adjustment_param)) {
+						lhs_res2.indirection_level += lhs_indirection_level_adjustment_param;
+					} else {
+						int q = 3;
+						return;
+					}
+				}
+			}
+			std::optional<clang::QualType> maybe_adjusted_lhs_qtype;
+			if (lhs_res2.ddecl_conversion_state_ptr) {
+				if (lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size() > (lhs_res2.indirection_level)) {
+					auto& indirection_state_ref = lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.at(lhs_res2.indirection_level);
+					maybe_adjusted_lhs_qtype = indirection_state_ref.m_maybe_original_qtype;
+				} else if (lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size() == (lhs_res2.indirection_level)) {
+					maybe_adjusted_lhs_qtype = lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.m_direct_type_state.maybe_original_qtype();
+				} else {
+					int q = 3;
+				}
+			}
+			std::string adjusted_lhs_qtype_str;
+			if (maybe_adjusted_lhs_qtype.has_value()) {
+				adjusted_lhs_qtype_str = maybe_adjusted_lhs_qtype.value().getAsString();
+			}
+
 			auto DD = lhs_res2.ddecl_cptr;
 			MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(RHS->getType());
 
@@ -15427,6 +15505,74 @@ namespace convm1 {
 				}
 			}
 
+			auto ILE = dyn_cast<const clang::InitListExpr>(RHS_ii);
+			if (ILE && lhs_res2.ddecl_conversion_state_ptr) {
+				if (lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size() >= (lhs_res2.indirection_level + lhs_indirection_level_adjustment)) {
+					auto adjusted_lhs_qtype = [&]() {
+						if (maybe_adjusted_lhs_qtype.has_value()) {
+							return maybe_adjusted_lhs_qtype.value();
+						}
+						return lhs_qtype;
+					};
+					bool is_array_type = false;
+					const auto adj_lhs_qtype = adjusted_lhs_qtype();
+					if (adj_lhs_qtype->isArrayType()) {
+						auto element_TypePtr = adj_lhs_qtype->getPointeeOrArrayElementType();
+						const auto num_int_items = ILE->getNumInits();
+						for (size_t i = 0; num_int_items > i; i += 1) {
+							auto init_item_E = ILE->getInit(i);
+							if (init_item_E) {
+								/* For each item in the initializer list, we'll process a synthesized assignment operation. We need 
+								to pass 1 as the argument for the maybe_lhs_indirection_level_adjustment parameter to indicate that 
+								the provided RHS expression should not be assigned to the provided (native) array declaration, but 
+								rather some element of the array. */
+								auto l_maybe_lhs_indirection_level_adjustment = maybe_lhs_indirection_level_adjustment;
+								if (l_maybe_lhs_indirection_level_adjustment.has_value()) {
+									l_maybe_lhs_indirection_level_adjustment.value() += 1;
+								} else {
+									l_maybe_lhs_indirection_level_adjustment = 1;
+								}
+								/* recursion */
+								MCSSSAssignment::s_handler1(MR, Rewrite, state1, LHS/*LHS*//*presumably null in this case*/, init_item_E/*RHS*/
+									, VLD/*VLD*/, is_an_initialization, l_maybe_lhs_indirection_level_adjustment);
+							} else {
+								int q = 3;
+							}
+						}
+					} else {
+						const auto RD = adj_lhs_qtype->getAsRecordDecl();
+						if (RD) {
+							auto field_range = RD->fields();
+							int num_fields = 0;
+							for (auto iter = field_range.begin(); field_range.end() != iter; ++iter) {
+								num_fields += 1;
+							}
+							const auto num_int_items = ILE->getNumInits();
+							if (num_int_items <= num_fields) {
+								size_t init_item_index = 0;
+								for (auto iter = field_range.begin(); (field_range.end() != iter) && (num_int_items > init_item_index); ++iter) {
+									auto init_item_E = ILE->getInit(init_item_index);
+									auto FD = *iter;
+									if (FD && init_item_E) {
+										/* recursion */
+										MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_item_E/*RHS*/, FD/*VLD*/, is_an_initialization);
+									} else {
+										int q = 3;
+									}
+
+									init_item_index += 1;
+								}
+							} else {
+								int q = 7;
+							}
+						}
+					}
+				}
+
+				/*** left off here ***/
+				return;
+			}
+
 			if (ConvertToSCPP && (lhs_res2.ddecl_conversion_state_ptr) && (rhs_res2.ddecl_conversion_state_ptr) && lhs_is_an_indirect_type && lhs_res2.ddecl_cptr) {
 				auto& lhs_ddecl_ref = *(lhs_res2.ddecl_cptr);
 
@@ -15611,10 +15757,12 @@ namespace convm1 {
 
 					auto rhs_FND = llvm::cast<const clang::FunctionDecl>(rhs_res2.ddecl_cptr);
 
+					auto adjusted_lhs_indirection_level = lhs_res2.indirection_level + lhs_indirection_level_adjustment;
+
 					if ((CDDeclIndirection::no_indirection == lhs_res2.indirection_level) || (0 == lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size())) {
 						int q = 5;
-					} else if (lhs_res2.indirection_level >= lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size()) {
-						assert(lhs_res2.indirection_level == lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size());
+					} else if (adjusted_lhs_indirection_level >= lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size()) {
+						assert(adjusted_lhs_indirection_level == lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size());
 						auto& lhs_direct_type_state_ref = lhs_res2.ddecl_conversion_state_ptr->direct_type_state_ref();
 						auto lhs_pointee_maybe_qtype = lhs_direct_type_state_ref.current_qtype_if_any();
 						if (lhs_pointee_maybe_qtype.has_value()) {
@@ -15641,7 +15789,7 @@ namespace convm1 {
 							int q = 3;
 						}
 					} else {
-						auto& lhs_pointee_indirection_state_ref = lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.at(lhs_res2.indirection_level);
+						auto& lhs_pointee_indirection_state_ref = lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.at(adjusted_lhs_indirection_level);
 						if (lhs_pointee_indirection_state_ref.m_current_is_function_type) {
 							lhs_pointee_indirection_state_ref.m_function_type_state.m_function_decl_ptr = rhs_FND;
 							update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
@@ -15651,7 +15799,7 @@ namespace convm1 {
 								for (size_t j = 0; j < PVD_ddcs_ref.m_indirection_state_stack.size(); j += 1) {
 									auto cr_shptr = std::make_shared<CUpdateDeclIndirectionArray2ReplacementAction>(Rewrite, MR,
 										CDDeclIndirection(*param_PVD, j),
-										CDDeclIndirection(*(lhs_res2.ddecl_conversion_state_ptr->m_ddecl_cptr), lhs_res2.indirection_level));
+										CDDeclIndirection(*(lhs_res2.ddecl_conversion_state_ptr->m_ddecl_cptr), adjusted_lhs_indirection_level));
 									state1.m_conversion_state_change_action_map.insert(cr_shptr);
 									state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
 									state1.m_native_array2_contingent_replacement_map.insert(cr_shptr);
@@ -17363,6 +17511,7 @@ namespace convm1 {
 
 					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
+					clang::Expr const* init_EX = nullptr;
 					auto VD = dyn_cast<const clang::VarDecl>(D);
 					auto FD = dyn_cast<const clang::FieldDecl>(D);
 					auto FND = dyn_cast<const clang::FunctionDecl>(DD);
@@ -17485,7 +17634,7 @@ namespace convm1 {
 						}
 
 						if (qtype.getTypePtr()->isScalarType()) {
-							const auto init_EX = VD->getInit();
+							init_EX = VD->getInit();
 							if (!init_EX) {
 								auto PVD = dyn_cast<const ParmVarDecl>(VD);
 								if (!PVD) {
@@ -17526,7 +17675,7 @@ namespace convm1 {
 							}
 						}
 
-						const auto init_EX = VD->getInit();
+						init_EX = VD->getInit();
 						if (init_EX) {
 
 							auto individual_declarator_decls = IndividualDeclaratorDecls(DD);
@@ -17684,7 +17833,7 @@ namespace convm1 {
 						if (false && (qtype.getTypePtr()->isPointerType() || qtype.getTypePtr()->isReferenceType())) {
 							/* These are handled in MCSSSRecordDecl2. */
 						} else if (qtype.getTypePtr()->isScalarType()) {
-							const auto* init_EX = FD->getInClassInitializer();
+							init_EX = FD->getInClassInitializer();
 							if (!init_EX) {
 								const auto parent_RD = FD->getParent();
 
@@ -17812,6 +17961,15 @@ namespace convm1 {
 									}
 								}
 							}
+						}
+					}
+
+					if (init_EX) {
+						auto init_EX_ii = IgnoreParenImpNoopCasts(init_EX, *(MR.Context));
+						auto ILE = dyn_cast<const clang::InitListExpr>(init_EX_ii);
+						if (ILE) {
+							/* A (native) array with initializer list (including aggregate initialization). */
+							MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_EX_ii/*RHS*/, DD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
 						}
 					}
 
