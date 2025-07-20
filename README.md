@@ -134,7 +134,7 @@ These restrictions imposed on scope reference types are generally not super-oner
 
 When the value of one pointer is assigned to another, some static analyzers will attempt to determine the lifetime of the target object based on the "most recent" value that was assigned to the source pointer. scpptool does not do this. scpptool infers a lower bound for the target object lifespan based solely on the declaration of the source pointer ([not any subsequent assignment operation](#flow-insensitive-analysis)). By default, the only assumption made is that the target object outlives the source pointer. 
 
-If [lifetime annotations](#annotating-lifetime-constraints) are applied to the pointer, then it can be assumed that the target object (also) outlives the pointer's intialization value target object. Often [`rsv::TXSLTAPointer<>`](#txsltapointer) will be used in place of raw pointers. It acts just like a raw pointer with lifetime annotations.
+If [lifetime annotations](#annotating-lifetime-constraints) are applied to the pointer, then it can be assumed that the target object (also) outlives the pointer's initialization value target object. Often [`rsv::TXSLTAPointer<>`](#txsltapointer) will be used in place of raw pointers. It acts just like a raw pointer with lifetime annotations.
 
 #### Referencing elements in a dynamic container
 
@@ -188,7 +188,7 @@ After the first parameter we added `MSE_ATTR_PARAM_STR("mse::lifetime_label(42)"
 
 After the function declaration (and before the body of the function), we added the annotation `MSE_ATTR_FUNC_STR("mse::lifetime_notes{ labels(42, 99); encompasses(42, 99) }")`. `mse::lifetime_notes{}` is used as a sometimes more compact way of expressing multiple annotations separated by semicolons, and without the `mse::lifetime_` prefix on each one. So for example, in place of this annotation we could have instead wrote `MSE_ATTR_FUNC_STR("mse::lifetime_labels(42, 99)") MSE_ATTR_FUNC_STR("mse::lifetime_encompasses(42, 99)")`, which is equivalent (and might even be preferred in cases where you want to put each annotation on its own line).
 
-Ok, so the `labels(42, 99)` annotation is just the declaration of the lifetime labels, akin to declaring variables before use. Though here we place the declarations below the place where they are used. But that's just an asthetic choice on our part. You can place them before the function declaration if you prefer. (Note that at the time of writing the tool actually allows you to use lifetime labels without declaring them separately, but is expected to be more strict in the future.)
+Ok, so the `labels(42, 99)` annotation is just the declaration of the lifetime labels, akin to declaring variables before use. Though here we place the declarations below the place where they are used. But that's just an aesthetic choice on our part. You can place them before the function declaration if you prefer. (Note that at the time of writing the tool actually allows you to use lifetime labels without declaring them separately, but is expected to be more strict in the future.)
 
 `encompasses(42, 99)` declares a constraint on the two lifespans. Namely that the `99` lifespan must be contained within the duration of the `42` lifespan. Or, essentially, that the object associated with the `42` lifespan must outlive the object associated with the `99` lifespan.
 
@@ -1115,7 +1115,7 @@ Note that the `mse::rsv::make_xscope_pointer_to()` function, which allows you to
 
 #### Elements not (yet) addressed
 
-The set of potentially unsafe elements in C++, and in the standard library itself, is pretty large. This tool does not yet address them all. In particular it does not complain about the use of essential elements for which the SaferCPlusPlus library does not (yet) provide a safe alternative, such as conatiners like maps, sets, etc.,. 
+The set of potentially unsafe elements in C++, and in the standard library itself, is pretty large. This tool does not yet address them all. In particular it does not complain about the use of essential elements for which the SaferCPlusPlus library does not (yet) provide a safe alternative, such as containers like maps, sets, etc.,. 
 
 ### Autotranslation
 
@@ -1176,9 +1176,23 @@ But this benefit is in a sense similarly "brittle" or unreliable. That is, some 
 
 While more code will require modification to satisfy the (non-"flow (or path) sensitive") scpptool analyzer, that modification can generally be automated.  And scpptool has a [feature](https://github.com/duneroadrunner/scpptool#autotranslation) to do a lot of that automated code modification for you. Note that this auto-converted code may incur a few more run-time checks than the original code, but of course you end up with code that doesn't suffer the brittleness phenomenon.
 
-In fact "flow (or path) sensitive" analyzers like the lifetime profile checker can avoid some run-time checks that a non-"flow (or path) sensitive" analyzer like scpptool can't. This is the case, for example, when it comes to ensuring that contents of dynamic containers aren't moved or deallocated when there are outstanding references to that content. But we find that in practice these run-time checks tend not to occur inside (performance sensitive) inner loops.
+To be clear, "flow (or path) sensitive" analyzers like the lifetime profile checker can avoid some run-time checks that a non-"flow (or path) sensitive" analyzer like scpptool can't. This is the case, for example, when it comes to ensuring that contents of dynamic containers aren't moved or deallocated when there are outstanding references to that content. But we find that in practice these run-time checks tend not to occur inside (performance sensitive) inner loops, and thus have negligible effect on performance.
 
-So we've made an argument for non-"flow (or path) sensitive" analysis being the better trade-off, but still, it is a trade-off, and so ultimately a judgement call based on which properties one values more.
+In some sense, the flow-sensitive versus non-flow-sensitive analysis tradeoff can be thought of as paralleling the dynamic versus static typing tradeoff. Typically (or historically?) with statically-typed languages, the structure of objects are (required to be) determined and fixed at compile-time, where dynamic typing basically just refers to the absence such requirements, right? So in a sense, by definition, static typing is strictly less expressively powerful than dynamic typing.
+
+(One example of the difference in expressivity is the presence of `eval()` functions that can execute dynamically generated code strings in some dynamically-typed languages, and the general absence of such capability in statically-typed languages.)
+
+But the argument for static typing is that, while technically not quite as expressive, statically-typed languages retain generally adequate functionality, while being more maintainable and scalable. 
+
+Analogously, the newer crop of languages with compile-time lifetime safety enforcement can be categorized, for example, as requiring the lifetime restrictions of references, and their nullability, to be determined and fixed in their declaration (i.e. non-flow-sensitive), or not having such requirement (i.e. flow-sensitive). 
+
+Requiring the determination to be made in the declaration technically reduces the expressivity of the compile-time-safety-enforced elements, but as argued earlier, the expressiveness lost is of the "brittle" kind. Similar to the argument for static typing, the argument is that non-flow-sensitive code should be easier to understand, and more maintainable and scalable. 
+
+And analogous to how static typing often enables better run-time performance, it should generally be faster to execute non-flow-sensitive analysis than flow-sensitive analysis (at compile-time). 
+
+Interestingly, the Rust language does require nullability of references to be determined and fixed in their declaration (by the presence or absence of an `Option` wrapper, much like scpptool), but not the restrictions on the lifetime of their target(s). Whereas, for example, the lifetime profile checker requires neither to be determined and fixed in the declaration. 
+
+So we've made an argument for non-"flow (or path) sensitive" analysis being the better trade-off, but still, it is a trade-off, and so ultimately a judgment call based on which properties one values more.
 
 
 ### Questions and comments
