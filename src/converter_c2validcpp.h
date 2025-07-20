@@ -13474,7 +13474,7 @@ namespace convc2validcpp {
 													new_cpp_DD_text = current_DD_text;
 													replace_whole_instances_of_given_string(new_cpp_DD_text, ddcs_ref.m_indirection_state_stack.m_direct_type_state.original_type_source_text(), new_namespace_qualified_direct_type_str);
 
-													std::string new_DD_text = "#ifdef __cplusplus \n" + new_cpp_DD_text + "\n#else /*__cplusplus*/ \n" + current_DD_text + "\n#endif /*__cplusplus*/ \n";
+													std::string new_DD_text = "\n#ifdef __cplusplus \n" + new_cpp_DD_text + "\n#else /*__cplusplus*/ \n" + current_DD_text + "\n#endif /*__cplusplus*/ \n";
 
 													state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_DD_text);
 												}
