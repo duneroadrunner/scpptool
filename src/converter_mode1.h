@@ -15757,6 +15757,8 @@ namespace convm1 {
 
 					auto rhs_FND = llvm::cast<const clang::FunctionDecl>(rhs_res2.ddecl_cptr);
 
+					/* Note the adjusted_lhs_indirection_level should already be set so that it corresponds to the indirection 
+					level that is a function type (i.e. the pointee of the function pointer), not a function pointer type.  */
 					auto adjusted_lhs_indirection_level = lhs_res2.indirection_level + lhs_indirection_level_adjustment;
 
 					if ((CDDeclIndirection::no_indirection == lhs_res2.indirection_level) || (0 == lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size())) {
@@ -15791,6 +15793,67 @@ namespace convm1 {
 					} else {
 						auto& lhs_pointee_indirection_state_ref = lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.at(adjusted_lhs_indirection_level);
 						if (lhs_pointee_indirection_state_ref.m_current_is_function_type) {
+							if (lhs_pointee_indirection_state_ref.m_function_type_state.m_function_decl_ptr 
+								&& (lhs_pointee_indirection_state_ref.m_function_type_state.m_function_decl_ptr != rhs_FND)) {
+								
+								/* It seems that the function pointer is being reassigned to a different value. We need to ensure 
+								that (all the parameters and return value of) the old function and the new function are constrained 
+								to be the same type. */;
+								const auto old_FND = lhs_pointee_indirection_state_ref.m_function_type_state.m_function_decl_ptr;
+								const auto old_num_params = old_FND->getNumParams();
+								const auto rhs_num_params = rhs_FND->getNumParams();
+								if (old_num_params == rhs_num_params) {
+									for (size_t i = 0; rhs_num_params > i; i += 1) {
+										const auto old_param_PVD = old_FND->getParamDecl(i);
+										const auto param_PVD = rhs_FND->getParamDecl(i);
+
+										auto [old_PVD_ddcs_ref, old_PVD_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*old_param_PVD, &Rewrite);
+										auto [PVD_ddcs_ref, PVD_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*param_PVD, &Rewrite);
+										if (PVD_ddcs_ref.m_indirection_state_stack.size() == old_PVD_ddcs_ref.m_indirection_state_stack.size()) {
+											for (size_t j = 0; j < PVD_ddcs_ref.m_indirection_state_stack.size(); j += 1) {
+												auto cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR,
+													CDDeclIndirection(*param_PVD, j), CDDeclIndirection(*old_param_PVD, j));
+												state1.m_conversion_state_change_action_map.insert(cr_shptr);
+												state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+												state1.m_native_array2_contingent_replacement_map.insert(cr_shptr);
+
+												auto cr_shptr2 = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR,
+													CDDeclIndirection(*old_param_PVD, j), CDDeclIndirection(*param_PVD, j));
+												state1.m_conversion_state_change_action_map.insert(cr_shptr2);
+												state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr2);
+												state1.m_native_array2_contingent_replacement_map.insert(cr_shptr2);
+											}
+										} else {
+											int q = 3;
+										}
+									}
+
+									auto [old_FND_ddcs_ref, old_FND_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*old_FND, &Rewrite);
+									auto [rhs_FND_ddcs_ref, rhs_FND_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_FND, &Rewrite);
+									if (rhs_FND_ddcs_ref.m_indirection_state_stack.size() == old_FND_ddcs_ref.m_indirection_state_stack.size()) {
+										for (size_t j = 0; j < rhs_FND_ddcs_ref.m_indirection_state_stack.size(); j += 1) {
+											auto cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR,
+												CDDeclIndirection(*rhs_FND, j), CDDeclIndirection(*old_FND, j));
+											state1.m_conversion_state_change_action_map.insert(cr_shptr);
+											state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
+											state1.m_native_array2_contingent_replacement_map.insert(cr_shptr);
+
+											auto cr_shptr2 = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR,
+												CDDeclIndirection(*old_FND, j), CDDeclIndirection(*rhs_FND, j));
+											state1.m_conversion_state_change_action_map.insert(cr_shptr2);
+											state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr2);
+											state1.m_native_array2_contingent_replacement_map.insert(cr_shptr2);
+										}
+									} else {
+										int q = 3;
+									}
+
+								} else {
+									int q = 3;
+								}
+
+								int q = 5;
+							}
 							lhs_pointee_indirection_state_ref.m_function_type_state.m_function_decl_ptr = rhs_FND;
 							update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 
@@ -15972,6 +16035,33 @@ namespace convm1 {
 
 				auto function_decl1 = CE->getDirectCallee();
 				const auto num_args = CE->getNumArgs();
+
+				if (!function_decl1) {
+					/* The call expression did not report having an associated function declaration. This may be because 
+					the call expression is the invocation of a function pointer. If so, we'll check to see if we've 
+					associated a function declaration with the function pointer (as the result of some assignment expression 
+					or whatever). If so, we'll use that function declaration. */
+					auto ce_res2 = infer_array_type_info_from_stmt(*CE, "", state1);
+
+					if (ce_res2.ddecl_cptr && ce_res2.ddecl_conversion_state_ptr) {
+						auto& indirection_state_stack_ref = (*(ce_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack;
+						if (indirection_state_stack_ref.size() > ce_res2.indirection_level) {
+							auto pointee_indirection_level = 1 + ce_res2.indirection_level;
+							if (indirection_state_stack_ref.size() > pointee_indirection_level) {
+								auto& indirection_state_ref = indirection_state_stack_ref.at(pointee_indirection_level);
+								if (indirection_state_ref.m_function_type_state.m_function_decl_ptr) {
+									function_decl1 = indirection_state_ref.m_function_type_state.m_function_decl_ptr;
+								}
+							} else {
+								auto& direct_type_state_ref = indirection_state_stack_ref.m_direct_type_state;
+								if (direct_type_state_ref.m_function_type_state.m_function_decl_ptr) {
+									function_decl1 = direct_type_state_ref.m_function_type_state.m_function_decl_ptr;
+								}
+							}
+						}
+					}
+				}
+
 				if (function_decl1) {
 					const std::string function_name = function_decl1->getNameAsString();
 					const std::string function_qname = function_decl1->getQualifiedNameAsString();
