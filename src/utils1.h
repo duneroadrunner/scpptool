@@ -394,6 +394,7 @@ bool errors_suppressed_by_location(const clang::ast_matchers::MatchFinder::Match
 void ltrim(std::string &s);
 // trim from end (in place)
 void rtrim(std::string &s);
+inline void lrtrim(std::string &s) { ltrim(s); rtrim(s); }
 
 std::string with_whitespace_removed(const std::string_view str);
 

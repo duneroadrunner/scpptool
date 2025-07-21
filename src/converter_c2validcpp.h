@@ -4235,10 +4235,22 @@ namespace convc2validcpp {
 							if (state1.m_pp_macro_definitions.end() != found_macro_iter) {
 								std::string macro_def_text = Rewrite.getRewrittenText(found_macro_iter->second.definition_SR());
 
+								/* trim leading and trailing whitespace */
+								std::string trimmed_macro_def_body_str = found_macro_iter->second.m_macro_def_body_str;
+								lrtrim(trimmed_macro_def_body_str);
+								std::string trimmed_source_text_as_if_expanded = source_text_as_if_expanded;
+								lrtrim(trimmed_source_text_as_if_expanded);
+
+								if (string_begins_with(trimmed_macro_def_body_str, "\\") && !string_begins_with(trimmed_source_text_as_if_expanded, "\\")) {
+									/* We've encountered this. */
+									trimmed_macro_def_body_str = trimmed_macro_def_body_str.substr(1);
+									lrtrim(trimmed_macro_def_body_str);
+								}
+
 								bool is_essentially_the_whole_macro = false;
-								if (found_macro_iter->second.m_macro_def_body_str == source_text_as_if_expanded) {
+								if (trimmed_macro_def_body_str == trimmed_source_text_as_if_expanded) {
 									is_essentially_the_whole_macro = true;
-								} else if (found_macro_iter->second.m_macro_def_body_str == ("(" + source_text_as_if_expanded + ")")) {
+								} else if (trimmed_macro_def_body_str == ("(" + source_text_as_if_expanded + ")")) {
 									is_essentially_the_whole_macro = true;
 								}
 
@@ -4251,7 +4263,10 @@ namespace convc2validcpp {
 									would prefer not to modify the definition of a macro if it's not necessary. */
 									retval.m_range_is_essentially_the_entire_body_of_a_macro = true;
 
-									if (filtered_out_by_location<options_t<converter_mode_t> >(SM, found_macro_iter->second.definition_SR().getBegin())) {
+									/* In the converter_mode1 version we want to avoid promoting elements from "filtered out" locations 
+									to non-"filtered out" locations, because it might result in the conversion of non-portable elements. 
+									But here in the convc2validcpp version we don't really have such criteria. */
+									if (false && filtered_out_by_location<options_t<converter_mode_t> >(SM, found_macro_iter->second.definition_SR().getBegin())) {
 										/* Unless the macro definition is not elegible for conversion. In this case we probably don't 
 										want to return the invocation range that might be elegible for conversion. The macro might be 
 										a system or installed 3rd party library macro whose definition might be platform dependent. */
@@ -11166,7 +11181,32 @@ namespace convc2validcpp {
 
 			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-			RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+			auto& SM = Rewrite.getSourceMgr();
+			auto b10 = SM.isMacroArgExpansion(RHS->getSourceRange().getBegin());
+			auto b10b = SM.isMacroArgExpansion(RHS->getSourceRange().getEnd());
+			if (b10 && b10b) {
+				/* The RHS expression seems like it might be an argument to a function macro. If the macro is some 
+				kind of "system" macro that can't be changed, then the RHS expression may have to be adjusted to 
+				accommodate that. */
+				int q = 5;
+			} else {
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+			}
+
+			bool vld_is_filtered_out = false;
+			if (VLD) {
+				auto VLD_SR = cm1_adj_nice_source_range(VLD->getSourceRange(), state1, Rewrite);
+				if ((!VLD_SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, VLD_SR.getBegin())) {
+					vld_is_filtered_out = true;
+				}
+			}
+			bool rhs_is_filtered_out = false;
+			if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR.getBegin())) {
+				if (vld_is_filtered_out) {
+					//return void();
+				}
+				rhs_is_filtered_out = true;
+			}
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
