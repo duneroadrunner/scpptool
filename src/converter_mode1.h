@@ -4585,10 +4585,22 @@ namespace convm1 {
 							{
 								std::string macro_def_text = Rewrite.getRewrittenText(found_macro_iter->second.definition_SR());
 
+								/* trim leading and trailing whitespace */
+								std::string trimmed_macro_def_body_str = found_macro_iter->second.m_macro_def_body_str;
+								lrtrim(trimmed_macro_def_body_str);
+								std::string trimmed_source_text_as_if_expanded = adjusted_source_text_as_if_expanded;
+								lrtrim(trimmed_source_text_as_if_expanded);
+
+								if (string_begins_with(trimmed_macro_def_body_str, "\\") && !string_begins_with(trimmed_source_text_as_if_expanded, "\\")) {
+									/* We've encountered this. */
+									trimmed_macro_def_body_str = trimmed_macro_def_body_str.substr(1);
+									lrtrim(trimmed_macro_def_body_str);
+								}
+
 								bool is_essentially_the_whole_macro = false;
-								if (found_macro_iter->second.m_macro_def_body_str == adjusted_source_text_as_if_expanded) {
+								if (trimmed_macro_def_body_str == trimmed_source_text_as_if_expanded) {
 									is_essentially_the_whole_macro = true;
-								} else if (found_macro_iter->second.m_macro_def_body_str == ("(" + adjusted_source_text_as_if_expanded + ")")) {
+								} else if (trimmed_macro_def_body_str == ("(" + adjusted_source_text_as_if_expanded + ")")) {
 									is_essentially_the_whole_macro = true;
 								}
 
