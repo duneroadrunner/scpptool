@@ -20293,7 +20293,10 @@ namespace convm1 {
         ScopeTypePointerFunctionParameters = options.ScopeTypePointerFunctionParameters || options.ScopeTypeFunctionParameters;
 		AddressableVars = options.AddressableVars;
 
-		std::cout << "\nNote, this program attempts to modify the specified source files in place, and any directly or indirectly `#include`d files, which may include headers from 3rd party libraries or other files you may not expect. So be careful not to run this program with write permissions to files you can't risk being modified. \n";
+		std::cout << "\nNote, this program attempts to modify the specified source files in place";
+		std::cout << ", and any directly or indirectly `#include`d files, which may include headers from 3rd party libraries or other files you may not expect. ";
+		std::cout << "So be careful not to run this program with write permissions to files you can't risk being modified. ";
+		std::cout << "(Running this program in a discardable, easily restorable container with an isolated filesystem would be ideal.) \n";
 		std::cout << "Continue [y/n]? \n";
 		int ich2 = 0;
 		if (SuppressPrompts) {

@@ -11190,7 +11190,7 @@ namespace convc2validcpp {
 				accommodate that. */
 				int q = 5;
 			} else {
-				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
 			}
 
 			bool vld_is_filtered_out = false;
@@ -11376,9 +11376,29 @@ namespace convc2validcpp {
 				}
 			}
 			if (rhs_needs_hard_cast_to_lhs) {
-				std::string RHS_ii_text = Rewrite.getRewrittenText(SR);
-				RHS_ii_text = "(" + LHS_qtype_str + ")(" + RHS_ii_text + ")";
-				CExprTextYieldingReplacementAction(Rewrite, MR, RHS_ii, RHS_ii_text).do_replacement(state1);
+				bool RHS_ii_is_filtered_out = false;
+				auto RHS_ii_SR = cm1_adjusted_source_range(RHS_ii->getSourceRange(), state1, Rewrite);
+				if ((!RHS_ii_SR.isValid()) || filtered_out_by_location(MR, RHS_ii_SR.getBegin())) {
+					RHS_ii_is_filtered_out = true;
+				}
+				/* If RHS_ii is "filtered out" then we'll have to use RHS. */
+				auto RHS2 = RHS_ii_is_filtered_out ? RHS : RHS_ii;
+				auto RHS2SR = RHS_ii_is_filtered_out ? SR : RHS_ii_SR;
+
+				const std::string cast_wrapper_prefix = "(" + LHS_qtype_str + ")(";
+				const std::string cast_wrapper_suffix = ")";
+
+				auto& ecs_ref = state1.get_expr_conversion_state_ref(*RHS2, Rewrite);
+				const auto l_text_modifier = CWrapExprTextModifier(cast_wrapper_prefix, cast_wrapper_suffix);
+				bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+					&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+				if (!seems_to_be_already_applied) {
+					auto shptr2 = std::make_shared<CWrapExprTextModifier>(cast_wrapper_prefix, cast_wrapper_suffix);
+					ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+					ecs_ref.update_current_text();
+
+					state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, RHS2SR, state1, RHS2);
+				}
 			}
 
 			if (false) {
@@ -16200,6 +16220,26 @@ namespace convc2validcpp {
         ScopeTypePointerFunctionParameters = options.ScopeTypePointerFunctionParameters || options.ScopeTypeFunctionParameters;
 		AddressableVars = options.AddressableVars;
 
+		std::cout << "\nNote, this program attempts to modify the specified source files in place";
+		std::cout << ", and any directly or indirectly `#include`d files, which may include headers from 3rd party libraries or other files you may not expect. ";
+		std::cout << "So be careful not to run this program with write permissions to files you can't risk being modified. ";
+		std::cout << "(Running this program in a discardable, easily restorable container with an isolated filesystem would be ideal.) \n";
+		std::cout << "Continue [y/n]? \n";
+		int ich2 = 0;
+		if (SuppressPrompts) {
+			ich2 = int('Y');
+		} else {
+			do {
+				ich2 = std::getchar();
+				//std::putchar(ich2);
+			} while ((int('y') != ich2) && (int('n') != ich2) && (int('Y') != ich2) && (int('N') != ich2));
+		}
+		if (((int('y') != ich2) && (int('Y') != ich2)) || (DoNotReplaceOriginalSource)) {
+			std::cout << "\n\nOperation cancelled. Source files were not replaced/modified. \n";
+			typedef decltype(Tool.run(newFrontendActionFactory<MyFrontendActionPass1>().get())) return_t;
+			return return_t{-1};
+		}
+
 		int Status = Tool.buildASTs(Misc1::s_multi_tu_state_ref().ast_units);
 
 		int ASTStatus = 0;
@@ -16217,7 +16257,7 @@ namespace convc2validcpp {
 
 		auto retval = Tool.run(newFrontendActionFactory<MyFrontendActionPass1>().get());
 
-		std::cout << "\nThe specified and dependent source files will be replaced/modified (including any directly or indirectly `#include`d files, which may include headers from 3rd party libraries if the program has write access to them). Make sure you have appropriate backup copies and that this program is running with appropriate write permissions before proceeding. \n";
+		std::cout << "\nThe specified and dependent source files will now be replaced/modified. Make sure you have appropriate backup copies before proceeding!!! \n";
 		std::cout << "Continue [y/n]? \n";
 		int ich = 0;
 		if (SuppressPrompts) {
