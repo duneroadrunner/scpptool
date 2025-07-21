@@ -1,5 +1,5 @@
 
-Dec 2024
+Jul 2025
 
 ### Overview
 
@@ -1178,19 +1178,19 @@ While more code will require modification to satisfy the (non-"flow (or path) se
 
 To be clear, "flow (or path) sensitive" analyzers like the lifetime profile checker can avoid some run-time checks that a non-"flow (or path) sensitive" analyzer like scpptool can't. This is the case, for example, when it comes to ensuring that contents of dynamic containers aren't moved or deallocated when there are outstanding references to that content. But we find that in practice these run-time checks tend not to occur inside (performance sensitive) inner loops, and thus have negligible effect on performance.
 
-In some sense, the flow-sensitive versus non-flow-sensitive analysis tradeoff can be thought of as paralleling the dynamic versus static typing tradeoff. Typically (or historically?) with statically-typed languages, the structure of objects are (required to be) determined and fixed at compile-time, where dynamic typing basically just refers to the absence such requirements, right? So in a sense, by definition, static typing is strictly less expressively powerful than dynamic typing.
+In some sense, the flow-sensitive versus non-flow-sensitive analysis tradeoff can be thought of as paralleling the dynamic versus static typing tradeoff. Typically (or historically?) with statically-typed languages, the structure of objects are (required to be) determined and fixed at compile-time, while dynamic typing basically just refers to the absence such requirements, right? So in a sense, by definition, static typing is strictly less expressively powerful than dynamic typing.
 
 (One example of the difference in expressivity is the presence of `eval()` functions that can execute dynamically generated code strings in some dynamically-typed languages, and the general absence of such capability in statically-typed languages.)
 
 But the argument for static typing is that, while technically not quite as expressive, statically-typed languages retain generally adequate functionality, while being more maintainable and scalable. 
 
-Analogously, the newer crop of languages with compile-time lifetime safety enforcement can be categorized, for example, as requiring the lifetime restrictions of references, and their nullability, to be determined and fixed in their declaration (i.e. non-flow-sensitive), or not having such requirement (i.e. flow-sensitive). 
+Analogously, the newer crop of languages with compile-time lifetime safety enforcement can be categorized, for example, as requiring the lifetime restrictions of references, and their nullability, to be determined and fixed in their declaration (i.e. non-flow-sensitive), or not having such requirement (i.e. flow-sensitive). (By "references" we mean the languages' compile-time-safety-enforced zero-overhead native pointers and references.)
 
 Requiring the determination to be made in the declaration technically reduces the expressivity of the compile-time-safety-enforced elements, but as argued earlier, the expressiveness lost is of the "brittle" kind. Similar to the argument for static typing, the argument is that non-flow-sensitive code should be easier to understand, and more maintainable and scalable. 
 
-And analogous to how static typing often enables better run-time performance, it should generally be faster to execute non-flow-sensitive analysis than flow-sensitive analysis (at compile-time). 
+Interestingly, the Rust language does require nullability of references (that are dereferenceable in the safe subset) to be determined and fixed in their declaration (by the presence or absence of an `Option` wrapper), but not the restrictions on the lifetime of their target(s). Whereas, for example, the lifetime profile checker requires neither to be determined and fixed in the declaration. (I.e. Unlike Rust (and scpptool), it endeavors to accomplish compile-time null safety enforcement of pointers.)
 
-Interestingly, the Rust language does require nullability of references to be determined and fixed in their declaration (by the presence or absence of an `Option` wrapper, much like scpptool), but not the restrictions on the lifetime of their target(s). Whereas, for example, the lifetime profile checker requires neither to be determined and fixed in the declaration. 
+And analogous to how static typing often enables better run-time performance, it should generally be faster to execute non-flow-sensitive analysis than flow-sensitive analysis (at compile-time). 
 
 So we've made an argument for non-"flow (or path) sensitive" analysis being the better trade-off, but still, it is a trade-off, and so ultimately a judgment call based on which properties one values more.
 
