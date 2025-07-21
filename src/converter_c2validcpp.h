@@ -13,6 +13,7 @@
 
 /*Standard headers*/
 #include <cstddef>
+#include <linux/limits.h>
 #include <string>
 #include <iostream>
 #include <string>
@@ -13441,7 +13442,17 @@ namespace convc2validcpp {
 									if (string_begins_with(direct_type_str, struct_space_str)) {
 										direct_type_str = direct_type_str.substr(struct_space_str.length());
 									}
+									static const std::string enum_space_str = "enum ";
+									bool is_an_enum = false;
+									if (string_begins_with(direct_type_str, enum_space_str)) {
+										is_an_enum = true;
+										direct_type_str = direct_type_str.substr(enum_space_str.length());
+									}
 									new_namespace_qualified_direct_type_str += direct_type_str;
+
+									if (is_an_enum) {
+										new_namespace_qualified_direct_type_str = enum_space_str + new_namespace_qualified_direct_type_str;
+									}
 
 									bool vetoed_flag = false;
 									if (std::string::npos != new_namespace_qualified_direct_type_str.find("unnamed enum at")) {
@@ -13451,62 +13462,25 @@ namespace convc2validcpp {
 										vetoed_flag = true;
 									}
 									if ((!vetoed_flag)) {
-										if (false) {
-											auto& maybe_typeLoc = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_maybe_typeLoc;
-											if (maybe_typeLoc.has_value()) {
-												auto& typeLoc = maybe_typeLoc.value();
-												auto direct_type_raw_SR = typeLoc.getSourceRange();
-												auto direct_type_SR = write_once_source_range(cm1_adj_nice_source_range(direct_type_raw_SR, state1, Rewrite));
-												if (direct_type_SR.isValid()) {
-													IF_DEBUG(auto text1 = Rewrite.getRewrittenText(direct_type_SR));
-													state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, direct_type_SR, new_namespace_qualified_direct_type_str);
-												}
-											}
-										} else {
-											if (SR.isValid()) {
-												auto current_DD_text = Rewrite.getRewrittenText(SR);
-												if (std::string::npos == current_DD_text.find("::")) {
-													ddcs_ref.set_current_direct_non_function_qtype_str(new_namespace_qualified_direct_type_str);
+										if (SR.isValid()) {
+											auto current_DD_text = Rewrite.getRewrittenText(SR);
+											if (std::string::npos == current_DD_text.find("::")) {
+												ddcs_ref.set_current_direct_non_function_qtype_str(new_namespace_qualified_direct_type_str);
 
-													std::string new_cpp_DD_text;
-													//auto res = generate_declaration_replacement_code(DD, Rewrite, &state1, state1.m_ddecl_conversion_state_map);
-													//new_cpp_DD_text = res.m_replacement_code;
-													new_cpp_DD_text = current_DD_text;
-													replace_whole_instances_of_given_string(new_cpp_DD_text, ddcs_ref.m_indirection_state_stack.m_direct_type_state.original_type_source_text(), new_namespace_qualified_direct_type_str);
+												std::string new_cpp_DD_text;
+												//auto res = generate_declaration_replacement_code(DD, Rewrite, &state1, state1.m_ddecl_conversion_state_map);
+												//new_cpp_DD_text = res.m_replacement_code;
+												new_cpp_DD_text = current_DD_text;
+												replace_whole_instances_of_given_string(new_cpp_DD_text, ddcs_ref.m_indirection_state_stack.m_direct_type_state.original_type_source_text(), new_namespace_qualified_direct_type_str);
 
-													std::string new_DD_text = "\n#ifdef __cplusplus \n" + new_cpp_DD_text + "\n#else /*__cplusplus*/ \n" + current_DD_text + "\n#endif /*__cplusplus*/ \n";
+												std::string new_DD_text = "\n#ifdef __cplusplus \n" + new_cpp_DD_text + "\n#else /*__cplusplus*/ \n" + current_DD_text + "\n#endif /*__cplusplus*/ \n";
 
-													state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_DD_text);
-												}
+												state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_DD_text);
 											}
 										}
 									}
-									int q = 5;
 								}
 							}
-						}
-
-						directType = qtype.getTypePtr();
-						do {
-							if (directType->isPointerType()) {
-								directType = directType->getPointeeOrArrayElementType();
-								continue;
-							} else if (directType->isArrayType()) {
-								directType = directType->getPointeeOrArrayElementType();
-								continue;
-							}
-							break;
-						} while (true);
-
-						const auto* RD = directType->getAsRecordDecl();
-						if (RD) {
-							auto name = RD->getQualifiedNameAsString();
-							auto* parent_RD = Tget_immediately_containing_element_of_type<clang::RecordDecl>(RD, *(MR.Context));
-							if (parent_RD) {
-								auto parent_name = parent_RD->getQualifiedNameAsString();
-								int q = 5;
-							}
-							int q = 5;
 						}
 					}
 
@@ -13989,27 +13963,121 @@ namespace convc2validcpp {
 							break;
 						}
 					}
-					auto D = DRE->getDecl();
-					if (D) {
-						const auto D_qtype = D->getType();
-						IF_DEBUG(auto D_qtype_str = D_qtype.getAsString();)
-						auto *ECD = dyn_cast<const clang::EnumConstantDecl>(D);
-						if (ECD) {
-							const auto ECD_qtype = D->getType();
-							IF_DEBUG(auto ECD_qtype_str = ECD_qtype.getAsString();)
-							const auto name = ECD->getNameAsString();
-							const auto qname = ECD->getQualifiedNameAsString();
-							const std::string original_source_text_str = Rewrite.getRewrittenText(SR);
-							if (original_source_text_str == name) {
-								state1.add_pending_straight_text_replacement_expression_update(Rewrite, SR, E, qname);
+
+					const auto ECD = dyn_cast<const clang::EnumConstantDecl>(DRE->getDecl());
+					if (ECD) {
+						const std::string enum_const_name = ECD->getNameAsString();
+						auto& ecs_ref = state1.get_expr_conversion_state_ref(*DRE, Rewrite);
+						const std::string dre_text = ecs_ref.m_original_source_text_str;
+						if (dre_text == enum_const_name) {
+
+							if (std::string::npos == dre_text.find("::")) {
+								/* enum const name does not seem to be namespace qualified. We'll check if it needs to be under C++. */
+
+								{
+									clang::Decl const * definition_D = NonParenImpNoopCastParentOfType<clang::EnumDecl>(ECD, *(MR.Context));
+
+									auto nested_containing_structs = [&MR](clang::Decl const * definition_D) {
+										std::vector<clang::RecordDecl const *> retval;
+										auto parent_RD = NonImplicitParentOfType<clang::RecordDecl const>(definition_D, *(MR.Context));
+										while (parent_RD) {
+											retval.push_back(parent_RD);
+											parent_RD = NonImplicitParentOfType<clang::RecordDecl const>(parent_RD, *(MR.Context));
+										}
+										std::reverse(retval.begin(), retval.end());
+										return retval;
+									};
+
+									auto nested_containing_structs_of_def = nested_containing_structs(definition_D);
+
+									if (1 <= nested_containing_structs_of_def.size()) {
+										/* The type seems to have been declared inside the body of a struct. So in C++, depending where it 
+										is used, it may need to be namespace qualified. So we'll try to obtain a corresponding list of 
+										nested structs containing the declaration which uses the type. Then we can try to determine if the 
+										declaration that uses the type is in the same namespace as the declaration of the type itself. In 
+										which case we may not need to add namespace qualification to the type usage. */
+
+										auto get_declcontext = [](const clang::Expr* ptr, clang::ASTContext& Ctx) {
+											clang::Decl const* retval = nullptr;
+											if (!ptr) { return retval; }
+											auto last_ancestor_E = ptr;
+											auto E = NonParenImpNoopCastParentOfType<clang::Expr>(ptr, Ctx);
+											while (E && (E != last_ancestor_E)) {
+												last_ancestor_E = E;
+												E = NonParenImpNoopCastParentOfType<clang::Expr>(E, Ctx);
+											}
+											retval = NonParenImpNoopCastParentOfType<clang::Decl>(last_ancestor_E, Ctx);
+											return retval;
+										};
+
+										auto containing_D = get_declcontext(DRE, *(MR.Context));
+										auto nested_containing_structs_of_decl = nested_containing_structs(containing_D);
+
+										while ((nested_containing_structs_of_def.size() >= 1) && (nested_containing_structs_of_decl.size() >= 1)) {
+											/* We don't need to qualify the type usage with namespaces that the declaration that uses the type 
+											and declaration of the type itself have in common. So we'll test for common containing namespaces 
+											and discard them. */
+											if (nested_containing_structs_of_def.front() != nested_containing_structs_of_decl.front()) {
+												break;
+											}
+											nested_containing_structs_of_def.erase(nested_containing_structs_of_def.begin());
+											nested_containing_structs_of_decl.erase(nested_containing_structs_of_decl.begin());
+										}
+										if (1 <= nested_containing_structs_of_def.size()) {
+											std::string new_namespace_qualified_enum_const_name;
+											for (auto& containing_RD : nested_containing_structs_of_def) {
+												if (!containing_RD) { assert(false); break; }
+												auto struct_name = containing_RD->getQualifiedNameAsString();
+												new_namespace_qualified_enum_const_name += struct_name + "::";
+											}
+
+											auto l_enum_const_name = enum_const_name;
+											static const std::string struct_space_str = "struct ";
+											if (string_begins_with(l_enum_const_name, struct_space_str)) {
+												l_enum_const_name = l_enum_const_name.substr(struct_space_str.length());
+											}
+											static const std::string enum_space_str = "enum ";
+											bool is_an_enum = false;
+											if (string_begins_with(l_enum_const_name, enum_space_str)) {
+												is_an_enum = true;
+												l_enum_const_name = l_enum_const_name.substr(enum_space_str.length());
+											}
+											new_namespace_qualified_enum_const_name += l_enum_const_name;
+
+											if (is_an_enum) {
+												new_namespace_qualified_enum_const_name = enum_space_str + new_namespace_qualified_enum_const_name;
+											}
+
+											bool vetoed_flag = false;
+											if (std::string::npos != new_namespace_qualified_enum_const_name.find("unnamed enum at")) {
+												vetoed_flag = true;
+											}
+											if (std::string::npos != new_namespace_qualified_enum_const_name.find(" (unnamed ")) {
+												vetoed_flag = true;
+											}
+											if ((!vetoed_flag)) {
+												std::string new_cpp_DRE_text;
+												new_cpp_DRE_text = ecs_ref.current_text();
+												if (std::string::npos == new_cpp_DRE_text.find("::")) {
+													replace_whole_instances_of_given_string(new_cpp_DRE_text, enum_const_name, new_namespace_qualified_enum_const_name);
+
+													std::string new_DRE_text = "\n#ifdef __cplusplus \n" + new_cpp_DRE_text + "\n#else /*__cplusplus*/ \n" + dre_text + "\n#endif /*__cplusplus*/ \n";
+
+													state1.add_pending_straight_text_replacement_expression_update(*DRE, Rewrite, new_DRE_text);
+												}
+											}
+											int q = 5;
+										}
+									}
+								}
 							}
+
 							int q = 5;
 						}
-					} else {
 						int q = 5;
 					}
 				}
-
+				
 				auto SL = dyn_cast<const clang::StringLiteral>(E);
 				if (SL) {
 					const auto str = std::string(SL->getString());
@@ -14214,6 +14282,56 @@ namespace convc2validcpp {
 					int q = 7;
 				}
 			}
+		}
+
+	private:
+		Rewriter &Rewrite;
+		CTUState& m_state1;
+	};
+
+	class MCSSSStmt : public MatchFinder::MatchCallback
+	{
+	public:
+		MCSSSStmt (Rewriter &Rewrite, CTUState& state1) :
+			Rewrite(Rewrite), m_state1(state1) {}
+
+		virtual void run(const MatchFinder::MatchResult &MR)
+		{
+			const auto* ST = MR.Nodes.getNodeAs<clang::Stmt>("mcsssstmt1");
+
+			if ((ST != nullptr))
+			{
+				auto SR = cm1_adj_nice_source_range(ST->getSourceRange(), m_state1, Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ST, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
+				if (suppress_check_flag) {
+					return;
+				}
+
+				auto CS = llvm::dyn_cast<clang::CaseStmt>(ST);
+				if (CS) {
+					int q = 5;
+				}
+
+			}
+		}
+
+		virtual void onEndOfTranslationUnit()
+		{
 		}
 
 	private:
@@ -14780,7 +14898,7 @@ namespace convc2validcpp {
 		HandlerForSSSSetToNull2(R, tu_state()), HandlerForSSSCompareWithNull2(R, tu_state()), HandlerForSSSMemset(R, tu_state()), HandlerForSSSMemcpy(R, tu_state()),
 		HandlerForSSSConditionalInitializer(R, tu_state()), HandlerForSSSAssignment(R, tu_state()), HandlerForSSSArgToParameterPassingArray2(R, tu_state()),
 		HandlerForSSSArgToReferenceParameterPassing(R, tu_state()), HandlerForSSSReturnValue(R, tu_state()), HandlerForSSSFRead(R, tu_state()), HandlerForSSSFWrite(R, tu_state()), 
-		HandlerForSSSAddressOf(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForMisc1(R, tu_state(), CI)
+		HandlerForSSSAddressOf(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForSSSStmt(R, tu_state()), HandlerForMisc1(R, tu_state(), CI)
 	{
 #if 0
 		Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerForMisc1);
@@ -15029,6 +15147,8 @@ namespace convc2validcpp {
 
 		Matcher.addMatcher(decl().bind("mcsssdeclutil1"), &HandlerForSSSDeclUtil);
 
+		Matcher.addMatcher(stmt().bind("mcsssstmt1"), &HandlerForSSSStmt);
+
 	}
 
 	void HandleTranslationUnit(ASTContext &Context) override 
@@ -15063,6 +15183,7 @@ namespace convc2validcpp {
 	MCSSSFWrite HandlerForSSSFWrite;
 	MCSSSAddressOf HandlerForSSSAddressOf;
 	MCSSSDeclUtil HandlerForSSSDeclUtil;
+	MCSSSStmt HandlerForSSSStmt;
 	Misc1 HandlerForMisc1;
 
 	MatchFinder Matcher;
