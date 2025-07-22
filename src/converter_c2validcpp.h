@@ -14382,8 +14382,126 @@ namespace convc2validcpp {
 					return;
 				}
 
-				auto CS = llvm::dyn_cast<clang::CaseStmt>(ST);
-				if (CS) {
+				auto& state1 = m_state1;
+
+				auto GTST = llvm::dyn_cast<clang::GotoStmt>(ST);
+				if (GTST) {
+					const auto LBLD = GTST->getLabel();
+					if (LBLD) {
+						const auto LBLST = LBLD->getStmt();
+						if (LBLST) {
+							const auto parent_ST = NonParenImpNoopCastParentOfType<clang::Stmt>(LBLST, *(MR.Context));
+							if (parent_ST) {
+								clang::Stmt const* last_GT_ancestor_ST = GTST;
+								auto GT_ancestor_ST = NonParenImpNoopCastParentOfType<clang::Stmt>(GTST, *(MR.Context));
+								while (GT_ancestor_ST && (parent_ST != GT_ancestor_ST)) {
+									last_GT_ancestor_ST = GT_ancestor_ST;
+									GT_ancestor_ST = NonParenImpNoopCastParentOfType<clang::Stmt>(GT_ancestor_ST, *(MR.Context));
+								}
+								if (GT_ancestor_ST) {
+									bool last_GT_ancestor_ST_encountered = false;
+									bool LBLST_encountered = false;
+									bool found_a_declstmt_between_goto_and_label = false;
+									for (const auto& child : parent_ST->children()) {
+										if (child) {
+											if (!last_GT_ancestor_ST_encountered) {
+												if (child == last_GT_ancestor_ST) {
+													last_GT_ancestor_ST_encountered = true;
+												}
+											} else if (child == LBLST) {
+												LBLST_encountered = true;
+												break;
+											} else {
+												auto DS = llvm::dyn_cast<clang::DeclStmt>(child);
+												if (DS) {
+													found_a_declstmt_between_goto_and_label = true;
+												}
+											}
+										}
+									}
+									const auto last_GT_ancestor_ST_SR = write_once_source_range(cm1_adj_nice_source_range(last_GT_ancestor_ST->getSourceRange(), state1, Rewrite));
+									const auto LBLST_SR = write_once_source_range(cm1_adj_nice_source_range(LBLST->getSourceRange(), state1, Rewrite));
+									if (last_GT_ancestor_ST_SR.isValid() && LBLST_SR.isValid() && (last_GT_ancestor_ST_SR.getEnd() < LBLST_SR.getBegin())
+										&& LBLST_encountered && found_a_declstmt_between_goto_and_label) {
+
+										/* Ok, we've verified that the destination label's parent statement also contains the goto statement. 
+										And we've identified the statement in the same scope as the label that contains the goto statement 
+										(which may be the goto statement itself). And we've confirmed that the label occurs after the goto 
+										statement and that there is at least one declaration statement between the goto statement and the 
+										label. Since C++11 doesn't allow goto statements that would skip over variable initialization, 
+										we're going to enclose all the code between this statement and the label statement in a new scope. */
+
+										std::string last_GT_ancestor_ST_text1 = Rewrite.getRewrittenText(last_GT_ancestor_ST_SR);
+										std::string LBLST_text1 = Rewrite.getRewrittenText(LBLST_SR);
+
+										auto last_token_of_last_GT_ancestor_ST_SL = last_GT_ancestor_ST_SR.getEnd();
+										auto last_token_of_last_GT_ancestor_ST_SR = write_once_source_range(clang::SourceRange{ last_token_of_last_GT_ancestor_ST_SL, last_token_of_last_GT_ancestor_ST_SL});;
+										std::string last_token_of_last_GT_ancestor_ST_text1 = Rewrite.getRewrittenText(last_token_of_last_GT_ancestor_ST_SR);
+										bool abort_flag = false;
+										bool look_for_semicolon_flag = false;
+										if (GT_ancestor_ST != GTST) {
+											auto CMPNDST = llvm::dyn_cast<clang::CompoundStmt>(GT_ancestor_ST);
+											if (!CMPNDST) {
+												abort_flag = true;
+											} else if ("}" != last_token_of_last_GT_ancestor_ST_text1) {
+												/* Sometimes compound statements don't end with a curly brace. For example, `if` statements for 
+												which the curly braces are omitted such as: `if (!ssl_ctx) goto error;` 
+												The problem is that in such cases, libclang doesn't even include the terminating semicolon as part 
+												of the compound statement. So we have to manually include it. */
+												if (";" != last_token_of_last_GT_ancestor_ST_text1) {
+													look_for_semicolon_flag = true;
+												}
+												int q = 5;
+											}
+										}
+										if ((GT_ancestor_ST == GTST) || look_for_semicolon_flag) {
+											/* The statement in the same scope as the destination label statement containing the goto statement 
+											is the goto statement itself in this case. In this case the statement won't include the terminating 
+											semicolon delimeter. So we'll try to find it and use the semicolon as the last token. */
+											last_token_of_last_GT_ancestor_ST_SL = last_token_of_last_GT_ancestor_ST_SL.getLocWithOffset(+last_token_of_last_GT_ancestor_ST_text1.length());
+											while (last_token_of_last_GT_ancestor_ST_SL.isValid()) {
+												last_token_of_last_GT_ancestor_ST_SR = write_once_source_range(clang::SourceRange{ last_token_of_last_GT_ancestor_ST_SL, last_token_of_last_GT_ancestor_ST_SL});
+												last_token_of_last_GT_ancestor_ST_text1 = Rewrite.getRewrittenText(last_token_of_last_GT_ancestor_ST_SR);
+												if ((1 <= last_token_of_last_GT_ancestor_ST_text1.length()) && ((!std::isspace(last_token_of_last_GT_ancestor_ST_text1.front())) || (!std::isspace(last_token_of_last_GT_ancestor_ST_text1.back())))) {
+													break;
+												}
+												last_token_of_last_GT_ancestor_ST_SL = last_token_of_last_GT_ancestor_ST_SL.getLocWithOffset(+1);
+											}
+											if (!last_token_of_last_GT_ancestor_ST_SL.isValid()) {
+												abort_flag = true;
+											} else {
+												if (";" != last_token_of_last_GT_ancestor_ST_text1) {
+													abort_flag = true;
+												}
+											}
+										}
+										if (!abort_flag) {
+											auto new_last_token_of_last_GT_ancestor_ST_text1 = last_token_of_last_GT_ancestor_ST_text1 + " \n{";
+											state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, last_token_of_last_GT_ancestor_ST_SR, new_last_token_of_last_GT_ancestor_ST_text1);
+
+											auto first_token_of_LBLST_SR = rewritable_source_range(LBLST_SR);
+											first_token_of_LBLST_SR.setEnd(first_token_of_LBLST_SR.getBegin());
+											std::string first_token_of_LBLST_text1 = Rewrite.getRewrittenText(first_token_of_LBLST_SR);
+
+											state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, first_token_of_LBLST_SR, first_token_of_LBLST_SR.getBegin(), "} \n");
+										} else {
+											int q = 5;
+										}
+									} else {
+										int q = 5;
+									}
+								} else {
+									int q = 7;
+								}
+							} else {
+								int q = 7;
+							}
+						} else {
+							int q = 3;
+						}
+					} else {
+						int q = 3;
+					}
 					int q = 5;
 				}
 
