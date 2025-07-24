@@ -173,6 +173,8 @@ namespace convm1 {
 		return typeLoc;
 	}
 
+	class CDDeclConversionState;
+
 	class CFunctionTypeState {
 	public:
 		//CFunctionTypeState() = default;
@@ -207,6 +209,7 @@ namespace convm1 {
 		}
 		std::vector<clang::QualType> m_param_qtypes_original;
 		std::vector<clang::QualType> m_param_qtypes_current;
+		std::vector<std::shared_ptr<CDDeclConversionState> > m_param_conversion_state_shptrs;
 		bool m_current_qtypes_are_current = false;
 		std::string m_params_current_str;
 		const clang::FunctionDecl* m_function_decl_ptr = nullptr;
@@ -14131,6 +14134,37 @@ namespace convm1 {
 						}
 
 					}
+				}
+				if (DD->getType()->isFunctionPointerType()) {
+					auto found_it = state1.m_ddecl_conversion_state_map.find(DD);
+					if (state1.m_ddecl_conversion_state_map.end() != found_it) {
+						auto& ddcs_ref = found_it->second;
+						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+							clang::FunctionDecl const * function_decl_ptr = nullptr;
+							if (2 <= ddcs_ref.m_indirection_state_stack.size()) {
+								function_decl_ptr = ddcs_ref.m_indirection_state_stack.at(1).m_function_type_state.m_function_decl_ptr;
+							} else {
+								function_decl_ptr = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state.m_function_decl_ptr;
+							}
+							if (function_decl_ptr) {
+								if (is_non_modifiable(*function_decl_ptr, Ctx, Rewrite, state1, E)) {
+									/* Currently we, don't maintain conversion states for the parameters of the target of a function 
+									pointer. If the the function pointer is know to have been assigned a function value with an associated 
+									DeclaratorDecl, then currently we use just presume that the the converted types of the function 
+									pointer target are the same as those of the assigned function value (whose parameters will have 
+									associated conversion states where necessary). So in order to maintain consistency, if the assigned 
+									function value is deemed non-modifiable, then we need to report the function pointer (target) as 
+									non-modifiable as well. */
+									return true;
+								}
+							}
+						} else {
+							int q = 3;
+						}
+						//m_function_type_state
+						//m_function_decl_ptr
+					}
+					/*** lef off here ***/
 				}
 			}
 		} while (false);
