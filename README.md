@@ -1188,7 +1188,7 @@ Analogously, the newer crop of languages with compile-time lifetime safety enfor
 
 Requiring the determination to be made in the declaration technically reduces the expressivity of the compile-time-safety-enforced elements, but as argued earlier, the expressiveness lost is of the "brittle" kind. Similar to the argument for static typing, the argument is that non-flow-sensitive code should be easier to understand, and more maintainable and scalable. 
 
-Interestingly, the Rust language does require nullability of references (that are dereferenceable in the safe subset) to be determined and fixed in their declaration (by the presence or absence of an `Option` wrapper), but not the restrictions on the lifetime of their target(s). Whereas, for example, the lifetime profile checker requires neither to be determined and fixed in the declaration. (I.e. Unlike Rust (and scpptool), it endeavors to accomplish compile-time null safety enforcement of pointers.)
+Interestingly, the Rust language does require nullability of references (that are dereferenceable in the safe subset) to be determined and fixed in their declaration (by the presence or absence of an `Option` wrapper), but not the restrictions on the lifetime of their target(s). Whereas, for example, the lifetime profile checker requires neither to be determined and fixed in the declaration. (I.e. Unlike Rust (and scpptool), it endeavors to accomplish compile-time null safety enforcement of (nullable) pointers.)
 
 And analogous to how static typing often enables better run-time performance, it should generally be faster to execute non-flow-sensitive analysis than flow-sensitive analysis (at compile-time). 
 
