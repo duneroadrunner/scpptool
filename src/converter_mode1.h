@@ -4047,8 +4047,17 @@ namespace convm1 {
 
 	class CCastExprConversionState : public CExprConversionState {
 	public:
-		CCastExprConversionState(const clang::Expr& cast_expr_cref, Rewriter &Rewrite, CTUState& state1, const clang::Expr& arg_expr_cref, std::string_view prefix, std::string_view suffix)
-			: CExprConversionState(cast_expr_cref, Rewrite, state1), m_arg_text_info(IgnoreParenImpCasts(&arg_expr_cref), Rewrite, state1), m_arg_expr_cptr(&arg_expr_cref), m_prefix(prefix), m_suffix(suffix) {}
+		/* Generally, parentheses enclosing the precasted expression are redundant as a new set of parentheses 
+		will be added. But if the value of the precasted expression is a macro argument then the location of 
+		the source text of the precasted expression may different depending on whether it is considered to 
+		include the enclosing parentheses or not. In some cases, it may help to improve rendering reliablility 
+		to include the enclosing parentheses (which are more likely to be located in the macro definition body, 
+		than a function macro argument). */
+		enum class EIgnoreOriginalPrecastedExprParentheses { Yes, No };
+
+		CCastExprConversionState(const clang::Expr& cast_expr_cref, Rewriter &Rewrite, CTUState& state1, const clang::Expr& arg_expr_cref, std::string_view prefix, std::string_view suffix, EIgnoreOriginalPrecastedExprParentheses ignore_parens = EIgnoreOriginalPrecastedExprParentheses::Yes)
+			: CExprConversionState(cast_expr_cref, Rewrite, state1), m_arg_text_info((EIgnoreOriginalPrecastedExprParentheses::Yes == ignore_parens) ? IgnoreParenImpCasts(&arg_expr_cref) : IgnoreImplicit(&arg_expr_cref), Rewrite, state1)
+			, m_arg_expr_cptr((EIgnoreOriginalPrecastedExprParentheses::Yes == ignore_parens) ? IgnoreParenImpCasts(&arg_expr_cref) : IgnoreImplicit(&arg_expr_cref)), m_prefix(prefix), m_suffix(suffix) {}
 
 		virtual void update_current_text(std::optional<CExprTextInfoContext> maybe_context = {}) override {
 			auto new_maybe_context = maybe_context.has_value() ? maybe_context : maybe_default_context();
@@ -7499,11 +7508,16 @@ namespace convm1 {
 								auto ILE = dyn_cast<const clang::InitListExpr>(init_EX);
 								if (ILE) {
 									std::string new_init_prefix_str;
+									std::string l_non_const_current_direct_qtype_str = ddcs_ref.non_const_current_direct_qtype_str();
+									static const std::string struct_space_str = "struct ";
+									if (string_begins_with(l_non_const_current_direct_qtype_str, struct_space_str)) {
+										l_non_const_current_direct_qtype_str = l_non_const_current_direct_qtype_str.substr(struct_space_str.length());
+									}
 									if ("Dual" == ConvertMode) {
 										new_init_prefix_str = "MSE_LH_IF_ENABLED("
-											+ ddcs_ref.non_const_current_direct_qtype_str() + ") ";
+											+ l_non_const_current_direct_qtype_str + ") ";
 									} else {
-										new_init_prefix_str = ddcs_ref.non_const_current_direct_qtype_str() + " ";
+										new_init_prefix_str = l_non_const_current_direct_qtype_str + " ";
 									}
 									if (state1_ptr) {
 										auto& state1 = *state1_ptr;
@@ -14615,7 +14629,7 @@ namespace convm1 {
 					}
 				}
 			} else if (precasted_expr_QT->isPointerType() || precasted_expr_QT->isArrayType()) {
-				/* This seems to be a cast from a pointer to something other that a pointer. */
+				/* This seems to be a cast from a pointer to something other than a pointer. */
 				std::string csce_QT_str = csce_QT.getAsString();
 				/* We have encountered casts to void in the wild. */
 				if ("void" != csce_QT_str) {
@@ -14637,7 +14651,7 @@ namespace convm1 {
 							}
 							static const std::string new_cast_suffix = ")";
 
-							auto& ecs_ref = state1.get_expr_conversion_state_ref<CCastExprConversionState>(*CSCE, Rewrite, *precasted_expr_ptr, new_cast_prefix, new_cast_suffix);
+							auto& ecs_ref = state1.get_expr_conversion_state_ref<CCastExprConversionState>(*CSCE, Rewrite, *precasted_expr_ptr, new_cast_prefix, new_cast_suffix, CCastExprConversionState::EIgnoreOriginalPrecastedExprParentheses::No);
 							ecs_ref.update_current_text();
 
 							if (CSCESR.isValid() && (!there_seems_to_be_a_contending_pending_code_modification_action)) {
