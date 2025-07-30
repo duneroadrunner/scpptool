@@ -386,6 +386,27 @@ inline bool filtered_out_by_location(const clang::ast_matchers::MatchFinder::Mat
   return filtered_out_by_location<TOptions>(SM, SL);
 }
 
+template<typename TOptions = options_t<> >
+inline bool filtered_out_by_location(const clang::SourceManager &SM, clang::SourceRange SR) {
+	auto res1 = evaluate_filtering_by_location<TOptions>(SM, SR.getBegin());
+	if (res1.m_do_not_process) {
+		res1 = evaluate_filtering_by_location<TOptions>(SM, SR.getEnd());
+	}
+	return res1.m_do_not_process;
+}
+template<typename TOptions = options_t<> >
+inline bool filtered_out_by_location(clang::ASTContext const& Ctx, clang::SourceRange SR) {
+  const clang::SourceManager &SM = Ctx.getSourceManager();
+  return filtered_out_by_location<TOptions>(SM, SR);
+}
+template<typename TOptions = options_t<> >
+inline bool filtered_out_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceRange SR) {
+  clang::ASTContext *const ASTC = MR.Context;
+  assert(MR.Context);
+  const clang::SourceManager &SM = ASTC->getSourceManager();
+  return filtered_out_by_location<TOptions>(SM, SR);
+}
+
 bool errors_suppressed_by_location(const clang::SourceManager &SM, clang::SourceLocation SL);
 bool errors_suppressed_by_location(clang::ASTContext const& Ctx, clang::SourceLocation SL);
 bool errors_suppressed_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceLocation SL);
@@ -649,7 +670,17 @@ inline auto NonParenImpNoopCastParentStmt(const clang::Expr* ptr, clang::ASTCont
 	return NonParenImpNoopCastParentOfType<clang::Stmt>(ptr, Ctx);
 }
 
-/* This function just returns the immediate parent node, ignoring "Implicit" or "Paren(thesis)"
+/* This function just returns the given clang::Expr if it is not an "Implicit" or "Paren(thesis)"
+expression. Otherwise it returns the first ancestor that satisfies that criteria. */
+inline auto NonParenImpThisOrParent(const clang::Expr* ptr, clang::ASTContext& Ctx) -> const clang::Expr* {
+	if (!ptr) { return ptr; }
+	while (ptr && (IgnoreParenImpCasts(ptr)->IgnoreParens() != ptr)) {
+		ptr = Tget_immediately_containing_element_of_type<clang::Expr>(ptr, Ctx);
+	}
+	return ptr;
+}
+
+/* This function just returns the immediate parent node, ignoring "Implicit""
 expressions, if that parent is the specified type. Otherwise it returns nullptr. */
 template <typename ContainingElementT, typename NodeT>
 inline auto NonImplicitParentOfType(const NodeT* ptr, clang::ASTContext& Ctx) {

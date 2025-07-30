@@ -63,7 +63,7 @@
 #include "llvm/IR/Function.h"
 
 #define RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1 \
-				if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR.getBegin())) { \
+				if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR)) { \
 					return void(); \
 				}
 
@@ -996,7 +996,7 @@ namespace convm1 {
 		auto b1 = SL.isMacroID();
 		auto b2 = SLE.isMacroID();
 
-		if (true && (b1 || b2) && (!filtered_out_by_location(SM, SL))) {
+		if (true && (b1 || b2) && (!filtered_out_by_location(SM, sr))) {
 			if (state1_ptr) {
 				auto& state1 = *state1_ptr;
 				const auto adj_sr = cm1_adjusted_source_range(sr, state1, Rewrite);
@@ -3084,9 +3084,17 @@ namespace convm1 {
 		void clear_ReplaceText_supression_mode() {
 			m_ReplaceText_supression_mode = false;
 		}
-		bool ReplaceText(Rewriter &Rewrite, clang::SourceRange range, std::string_view NewStr) const {
-			if (!m_ReplaceText_supression_mode) {
-				return Rewrite.ReplaceText(range, NewStr);
+		bool ReplaceText(Rewriter &Rewrite, clang::SourceRange SR, std::string_view NewStr) const {
+			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+#ifndef NDEBUG
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
+
+			if ((!m_ReplaceText_supression_mode) && SR.isValid()) {
+				return Rewrite.ReplaceText(SR, NewStr);
 			}
 			return false;
 		}
@@ -4483,7 +4491,7 @@ namespace convm1 {
 								DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, expansion_SR, Rewrite);
 								std::string macro_name2 = Rewrite.getRewrittenText( { expansion_SR.getBegin(), expansion_SR.getBegin() } );
 								found_macro_iter = state1.m_pp_macro_definitions.find(macro_name2);
-								if ((state1.m_pp_macro_definitions.end() != found_macro_iter) && (!filtered_out_by_location(SM, macro_SR.getBegin()))) {
+								if ((state1.m_pp_macro_definitions.end() != found_macro_iter) && (!filtered_out_by_location(SM, macro_SR))) {
 									/* Ok, we seem to have obtained the associated recognized macro. */
 
 									macro_name = macro_name2;
@@ -4736,7 +4744,7 @@ namespace convm1 {
 							auto macro_arg_expansion_SPSLE = SM.getSpellingLoc(SLE_macro_arg_expansion_start);
 							auto macro_arg_expansion_SR = clang::SourceRange{ macro_arg_expansion_SPSL, macro_arg_expansion_SPSLE };
 							std::string macro_arg_expansion_text1 = Rewrite.getRewrittenText(macro_arg_expansion_SR);
-							if (("" != macro_arg_expansion_text1) && (!filtered_out_by_location(SM, first_macro_SL))) {
+							if (("" != macro_arg_expansion_text1) && (!filtered_out_by_location(SM, clang::SourceRange{ first_macro_SL, first_macro_SLE }))) {
 								adjusted_source_text_as_if_expanded = macro_arg_expansion_text1;
 								l_SPSR_source_text = macro_arg_expansion_text1;
 							}
@@ -4759,7 +4767,7 @@ namespace convm1 {
 				contains the element, and consists of only an expression. (As opposed to, for
 				example, a declaration, or more than one statement.) */
 				for (const auto& macro2_SR : nested_macro_ranges) {
-					if (!filtered_out_by_location(SM, macro2_SR.getBegin())) {
+					if (!filtered_out_by_location(SM, macro2_SR)) {
 						auto [adjusted_macro_SPSR, macro_name, macro_args] = macro_spelling_range_extended_to_include_any_arguments(macro2_SR);
 						DEBUG_SOURCE_LOCATION_STR(adjusted_macro_SPSR1_debug_source_location_str, adjusted_macro_SPSR, Rewrite);
 
@@ -4797,7 +4805,7 @@ namespace convm1 {
 								would prefer not to modify the definition of a macro if it's not necessary. */
 								retval.m_range_is_essentially_the_entire_body_of_a_macro = true;
 
-								if (filtered_out_by_location<options_t<converter_mode_t> >(SM, found_macro_iter->second.definition_SR().getBegin())) {
+								if (filtered_out_by_location<options_t<converter_mode_t> >(SM, found_macro_iter->second.definition_SR())) {
 									/* Unless the macro definition is not elegible for conversion. In this case we probably don't 
 									want to return the invocation range that might be elegible for conversion. The macro might be 
 									a system or installed 3rd party library macro whose definition might be platform dependent. */
@@ -7996,7 +8004,7 @@ namespace convm1 {
 
 		IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 
-		if (filtered_out_by_location<options_t<converter_mode_t> >(SM, SR.getBegin())) {
+		if (filtered_out_by_location<options_t<converter_mode_t> >(SM, SR)) {
 			return void();
 		}
 
@@ -8553,7 +8561,7 @@ namespace convm1 {
 
 		IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 
-		if (filtered_out_by_location<options_t<converter_mode_t> >(SM, SR.getBegin())) {
+		if (filtered_out_by_location<options_t<converter_mode_t> >(SM, SR)) {
 			return void();
 		}
 
@@ -12919,7 +12927,7 @@ namespace convm1 {
 											state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, SR, state1, CE);
 
 										} else {
-											if ((!callee_SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, callee_SR.getBegin())) {
+											if ((!callee_SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, callee_SR.getBegin()) && filtered_out_by_location<options_t<converter_mode_t> >(MR, callee_SR.getEnd())) {
 												int q = 5;
 												return void();
 											}
@@ -14189,40 +14197,36 @@ namespace convm1 {
 				non_modifiable_flag = true;
 				break;
 			}
-			if (filtered_out_by_location<options_t<converter_mode_t> >(Ctx, decl.getSourceRange().getBegin())) {
-				if (filtered_out_by_location<options_t<converter_mode_t> >(Ctx, decl.getSourceRange().getEnd())) {
-					auto FND = dyn_cast<const clang::FunctionDecl>(&decl);
-					if (FND) {
-						IF_DEBUG(const auto qfname_str = FND->getQualifiedNameAsString();)
+			auto SR = decl.getSourceRange();
+			if (filtered_out_by_location<options_t<converter_mode_t> >(Ctx, SR)) {
+				auto FND = dyn_cast<const clang::FunctionDecl>(&decl);
+				if (FND) {
+					IF_DEBUG(const auto qfname_str = FND->getQualifiedNameAsString();)
 
-						/* So technically, the fact that the Begin and End of the item's range are in a "filtered out" location 
-						out doesn't *necessarily* mean that the whole item is in a "filtered out" location, though we'll 
-						generally presume it to be. But in this case the item is a function declaration, so we'll just check if 
-						all the parameter declarations are also "filtered out" by location. */
-						bool an_arg_is_modifiable = false;
-						const auto num_params = FND->getNumParams();
-						for (size_t i = 0; num_params > i; i += 1) {
-							auto PVD = FND->getParamDecl(i);
-							if (PVD && !is_non_modifiable(*PVD, Ctx, Rewrite, state1)) {
-								an_arg_is_modifiable = true;
-								break;
-							}
-						}
-						if (!an_arg_is_modifiable) {
-							non_modifiable_flag = true;
+					/* So technically, the fact that the Begin and End of the item's range are in a "filtered out" location 
+					out doesn't *necessarily* mean that the whole item is in a "filtered out" location, though we'll 
+					generally presume it to be. But in this case the item is a function declaration, so we'll just check if 
+					all the parameter declarations are also "filtered out" by location. */
+					bool an_arg_is_modifiable = false;
+					const auto num_params = FND->getNumParams();
+					for (size_t i = 0; num_params > i; i += 1) {
+						auto PVD = FND->getParamDecl(i);
+						if (PVD && !is_non_modifiable(*PVD, Ctx, Rewrite, state1)) {
+							an_arg_is_modifiable = true;
 							break;
-						} else {
-							int q = 5;
 						}
-					} else {
+					}
+					if (!an_arg_is_modifiable) {
 						non_modifiable_flag = true;
 						break;
+					} else {
+						int q = 5;
 					}
 				} else {
-					int q = 5;
+					non_modifiable_flag = true;
+					break;
 				}
 			}
-			auto SR = decl.getSourceRange();
 			if (!(SR.isValid())) {
 				non_modifiable_flag = true;
 				break;
@@ -14888,6 +14892,16 @@ namespace convm1 {
 			}
 #endif /*!NDEBUG*/
 
+			auto& SM = Rewrite.getSourceMgr();
+
+			/* In some cases, updates to the precasted expression might need to be rendered separately from the 
+			(parent) cast expression because it's possible that the precasted expression source text is at a 
+			location that is modifiable, while the source text of the cast expression may not be. But since 
+			subexpressions are (supposed to be) handled(/rendered) subsequent to the handling of any containing 
+			expressions, we would need to delay the updating(/rendering) of the precasted expression until after 
+			any rendering of the cast expression is finished. */
+			clang::Expr const* adjusted_precasted_expr_ptr_that_needs_rendering = nullptr;
+
 			if (!(lhs_res2.ddecl_conversion_state_ptr)) {
 				int q = 3;
 				return;
@@ -14950,25 +14964,43 @@ namespace convm1 {
 								}
 							} else { assert(false); }
 
-							auto& precasted_expr_ptr_ecs_ref = state1.get_expr_conversion_state_ref(*precasted_expr_ptr, Rewrite);
+							{
+								auto& precasted_expr_ptr_ecs_ref = state1.get_expr_conversion_state_ref(*precasted_expr_ptr, Rewrite);
+							}
 
-							std::shared_ptr<CExprTextModifier> shptr1;
+							auto adjusted_precasted_expr_ptr = precasted_expr_ptr;
+							auto precasted_expr_SR = write_once_source_range(cm1_adj_nice_source_range(precasted_expr_ptr->getSourceRange(), state1, Rewrite));
+							DEBUG_SOURCE_LOCATION_STR(precasted_expr_debug_source_location_str, precasted_expr_SR, Rewrite);
+							DEBUG_SOURCE_TEXT_STR(precasted_expr_debug_source_text, precasted_expr_SR, Rewrite);
+							if ((!precasted_expr_SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(SM, precasted_expr_SR)) {
+								/* We've encountered situations where the direct precasted expression is at a "filtered out" location, 
+								but the precasted expression when ignoring parntheses (and implicit expressions) is at a location 
+								that is not filtered out. */
+								auto precasted_expr_ptr_ii = state1.m_ast_context_ptr ? IgnoreParenImpNoopCasts(precasted_expr_ptr, *(state1.m_ast_context_ptr)) 
+									: IgnoreParenImpCasts(precasted_expr_ptr);
+								adjusted_precasted_expr_ptr = precasted_expr_ptr_ii;
+							}
+							auto adjusted_precasted_expr_SR = write_once_source_range(cm1_adj_nice_source_range(adjusted_precasted_expr_ptr->getSourceRange(), state1, Rewrite));
+							DEBUG_SOURCE_LOCATION_STR(adjusted_precasted_expr_debug_source_location_str, adjusted_precasted_expr_SR, Rewrite);
+							DEBUG_SOURCE_TEXT_STR(adjusted_precasted_expr_debug_source_text, adjusted_precasted_expr_SR, Rewrite);
+							if (adjusted_precasted_expr_SR.isValid() && (!filtered_out_by_location<options_t<converter_mode_t> >(SM, adjusted_precasted_expr_SR))) {
 
-							if (is_pointer_to_pointer) {
-								{
+								auto& adjusted_precasted_expr_ptr_ecs_ref = state1.get_expr_conversion_state_ref(*adjusted_precasted_expr_ptr, Rewrite);
+
+								std::shared_ptr<CExprTextModifier> shptr1;
+
+								if (is_pointer_to_pointer) {
 									shptr1 = std::make_shared<CUnsafeMakeTemporaryArrayOfRawPointersFromExprTextModifier>();
-									for  (auto& expr_text_modifier_shptr_ref : precasted_expr_ptr_ecs_ref.m_expr_text_modifier_stack) {
+									for  (auto& expr_text_modifier_shptr_ref : adjusted_precasted_expr_ptr_ecs_ref.m_expr_text_modifier_stack) {
 										if ("unsafe make temporary array of raw pointers from" == expr_text_modifier_shptr_ref->species_str()) {
 											/* already applied */
 											shptr1 = nullptr;
 											break;
 										}
 									}
-								}
-							} else {
-								{
+								} else {
 									shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
-									for  (auto& expr_text_modifier_shptr_ref : precasted_expr_ptr_ecs_ref.m_expr_text_modifier_stack) {
+									for  (auto& expr_text_modifier_shptr_ref : adjusted_precasted_expr_ptr_ecs_ref.m_expr_text_modifier_stack) {
 										if ("unsafe make raw pointer from" == expr_text_modifier_shptr_ref->species_str()) {
 											/* already applied */
 											shptr1 = nullptr;
@@ -14976,12 +15008,20 @@ namespace convm1 {
 										}
 									}
 								}
-							}
-							if (shptr1) {
-								precasted_expr_ptr_ecs_ref.m_expr_text_modifier_stack.push_back(shptr1);
-								precasted_expr_ptr_ecs_ref.update_current_text();
+								if (shptr1) {
+									adjusted_precasted_expr_ptr_ecs_ref.m_expr_text_modifier_stack.push_back(shptr1);
+									adjusted_precasted_expr_ptr_ecs_ref.update_current_text();
 
-								//state1.add_pending_expression_update(*precasted_expr_ptr, Rewrite);
+									/* Here we're updating just the precasted expression rather than whole cast expression because 
+									it may be the case that the precasted expression source text is at location that is modifiable, 
+									while the rest of the cast expression isn't. But we'll defer rendering the changes to the end of 
+									the function so that we don't interfere with any potential rendering of the whole cast expression 
+									that might occur later in this function. */
+									adjusted_precasted_expr_ptr_that_needs_rendering = adjusted_precasted_expr_ptr;
+									//state1.add_pending_expression_update(*adjusted_precasted_expr_ptr, Rewrite);
+								}
+							} else {
+								int q = 5;
 							}
 						}
 					}
@@ -15034,29 +15074,44 @@ namespace convm1 {
 					new_cast_suffix = ")";
 				}
 
-				auto& ecs_ref1 = state1.get_expr_conversion_state_ref<CCastExprConversionState>(*CSCE, Rewrite, *precasted_expr_ptr, new_cast_prefix, new_cast_suffix);
-				auto expr_text_modifier_stack1 = ecs_ref1.m_expr_text_modifier_stack;
-				/* Here we make sure that any existing "conversion state" associated with this cast expression 
-				is overwritten by our new one. */
-				auto& ecs_ref = state1.set_expr_conversion_state_ref<CCastExprConversionState>(*CSCE, Rewrite, *precasted_expr_ptr, new_cast_prefix, new_cast_suffix);
-				/* But we'll restore any previously present "text modifiers", as they may be associated with modifications 
-				that are (technically) distinct from the cast operation. (For example, a text modifier might wrap the 
-				expression in a make_raw_pointer_from() call.) */
-				ecs_ref.m_expr_text_modifier_stack = expr_text_modifier_stack1;
-				ecs_ref.update_current_text();
+				if (CSCESR.isValid() && (!filtered_out_by_location<options_t<converter_mode_t> >(SM, CSCESR))) {
+					auto& ecs_ref1 = state1.get_expr_conversion_state_ref<CCastExprConversionState>(*CSCE, Rewrite, *precasted_expr_ptr, new_cast_prefix, new_cast_suffix);
+					auto expr_text_modifier_stack1 = ecs_ref1.m_expr_text_modifier_stack;
+					/* Here we make sure that any existing "conversion state" associated with this cast expression 
+					is overwritten by our new one. */
+					auto& ecs_ref = state1.set_expr_conversion_state_ref<CCastExprConversionState>(*CSCE, Rewrite, *precasted_expr_ptr, new_cast_prefix, new_cast_suffix);
+					/* But we'll restore any previously present "text modifiers", as they may be associated with modifications 
+					that are (technically) distinct from the cast operation. (For example, a text modifier might wrap the 
+					expression in a make_raw_pointer_from() call.) */
+					ecs_ref.m_expr_text_modifier_stack = expr_text_modifier_stack1;
+					ecs_ref.update_current_text();
 
-				if (CSCESR.isValid()) {
-					//state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CSCESR, state1, CSCE);
+					if (CSCESR.isValid()) {
+						//state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CSCESR, state1, CSCE);
 
-					auto& current_text_ref = ecs_ref.current_text();
-					if (current_text_ref != ecs_ref.m_original_source_text_str) {
-						state1.m_pending_code_modification_actions.ReplaceText(Rewrite, CSCESR, current_text_ref);
+						auto& current_text_ref = ecs_ref.current_text();
+						if (current_text_ref != ecs_ref.m_original_source_text_str) {
+							state1.m_pending_code_modification_actions.ReplaceText(Rewrite, CSCESR, current_text_ref);
+
+							/* We've just rendered the whole (updated) cast expression, which presumably includes an up-to-date 
+							precasted expression, so we won't need to render any updates to the precasted expression separately. */
+							adjusted_precasted_expr_ptr_that_needs_rendering = nullptr;
+						}
 					}
+					//finished_cast_handling_flag = true;
+				} else {
+					int q = 5;
 				}
-				//finished_cast_handling_flag = true;
 			} else {
 				/* unexpected */
 				int q = 3;
+			}
+			if (adjusted_precasted_expr_ptr_that_needs_rendering) {
+				/* Because the precasted expression is a subexpression of the cast expression being handled here, 
+				it will be handled subsequent to the handling (that we're about to complete) of this expression. 
+				So it's not too late to add its update(/rendering) action to the queue (instead of directly 
+				executing the rendering here). */
+				state1.add_pending_expression_update(*adjusted_precasted_expr_ptr_that_needs_rendering, Rewrite);
 			}
 		}
 
@@ -15084,18 +15139,26 @@ namespace convm1 {
 				accommodate that. */
 				int q = 5;
 			} else {
-				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+				auto CSCE = dyn_cast<const clang::CStyleCastExpr>(IgnoreParenImpCasts(RHS));
+				if (CSCE) {
+					const auto sub_EX_ii = IgnoreParenImpNoopCasts(CSCE->getSubExpr(), *(MR.Context));
+					const auto SR = write_once_source_range(cm1_adj_nice_source_range(sub_EX_ii->getSourceRange(), state1, Rewrite));
+					/* Note that we're shadowing SR, which is used in the RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1 macro. */
+					RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+				} else {
+					RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+				}
 			}
 
 			bool vld_is_filtered_out = false;
 			if (VLD) {
 				auto VLD_SR = cm1_adj_nice_source_range(VLD->getSourceRange(), state1, Rewrite);
-				if ((!VLD_SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, VLD_SR.getBegin())) {
+				if ((!VLD_SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, VLD_SR)) {
 					vld_is_filtered_out = true;
 				}
 			}
 			bool rhs_is_filtered_out = false;
-			if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR.getBegin())) {
+			if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR)) {
 				if (vld_is_filtered_out) {
 					//return void();
 				}
@@ -15377,7 +15440,7 @@ namespace convm1 {
 
 					auto DRE = given_or_descendant_DeclRefExpr(RHS_ii, *(MR.Context));
 
-					if ((nullptr != DRE) && rhs_source_range.isValid()
+					if ((nullptr != DRE) && rhs_source_range.isValid() && (!filtered_out_by_location<options_t<converter_mode_t> >(MR, rhs_source_range))
 						&& LHS_qtype->isPointerType()) {
 
 						if (!LHS_qtype->isFunctionPointerType()) {
@@ -15803,8 +15866,6 @@ namespace convm1 {
 						}
 					}
 				}
-
-				/*** left off here ***/
 				return;
 			}
 
@@ -16218,7 +16279,7 @@ namespace convm1 {
 							auto arg_EX_qtype = arg_EX->getType();
 							IF_DEBUG(std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();)
 							assert(arg_EX->getType().getTypePtrOrNull());
-							auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+							auto arg_EX_ii = IgnoreParenImpCasts(arg_EX);
 							auto arg_EX_ii_qtype = arg_EX_ii->getType();
 							IF_DEBUG(std::string arg_EX_ii_qtype_str = arg_EX_ii_qtype.getAsString();)
 							assert(arg_EX_ii->getType().getTypePtrOrNull());
@@ -16230,7 +16291,7 @@ namespace convm1 {
 				//RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 				/* In this case we only filter out the element if the call expression and all of its arguments would 
 				be individually filtered out. */
-				if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR.getBegin())) {
+				if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR)) {
 					bool an_arg_is_not_filtered_out = false;
 					auto function_decl1 = CE->getDirectCallee();
 					const auto num_args = CE->getNumArgs();
@@ -16239,12 +16300,26 @@ namespace convm1 {
 						const auto num_args = CE->getNumArgs();
 						size_t arg_index = 0;
 						for (; (num_args > arg_index); arg_index += 1) {
-							auto arg_EX_ii = get_arg_EX_ii(arg_index);
-							auto arg_EX_ii_SR = cm1_adj_nice_source_range(arg_EX_ii->getSourceRange(), state1, Rewrite);
+							const auto arg_EX_ii = get_arg_EX_ii(arg_index);
+							const auto arg_EX_ii_SR = cm1_adj_nice_source_range(arg_EX_ii->getSourceRange(), state1, Rewrite);
 							if (arg_EX_ii_SR.isValid()) {
-								if (!filtered_out_by_location<options_t<converter_mode_t> >(MR, arg_EX_ii_SR.getBegin())) {
+								const auto arg_EX_iinoop = IgnoreParenImpNoopCasts(arg_EX_ii, *(MR.Context));
+								const auto arg_EX_iinoop_SR = (arg_EX_iinoop == arg_EX_ii) ? arg_EX_ii_SR : cm1_adj_nice_source_range(arg_EX_iinoop->getSourceRange(), state1, Rewrite);
+								if (!filtered_out_by_location<options_t<converter_mode_t> >(MR, arg_EX_iinoop_SR)) {
 									an_arg_is_not_filtered_out = true;
 									break;
+								} else {
+									auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_EX_ii);
+									if (CSCE) {
+										const auto sub_EX_iinoop = IgnoreParenImpNoopCasts(CSCE->getSubExpr(), *(MR.Context));
+										if (sub_EX_iinoop) {
+											const auto sub_EX_iinoop_SR = cm1_adj_nice_source_range(sub_EX_iinoop->getSourceRange(), state1, Rewrite);
+											if (!filtered_out_by_location<options_t<converter_mode_t> >(MR, sub_EX_iinoop_SR)) {
+												an_arg_is_not_filtered_out = true;
+												break;
+											}
+										}
+									}
 								}
 							}
 						}
@@ -16405,7 +16480,7 @@ namespace convm1 {
 										} else {
 											l_arg_EX_ii_SR = cm1_adj_nice_source_range(arg_EX_ii_cref.getSourceRange(), state1, Rewrite);
 										}
-										if (filtered_out_by_location<options_t<converter_mode_t> >(Rewrite.getSourceMgr(), l_arg_EX_ii_SR.getBegin())) {
+										if (filtered_out_by_location<options_t<converter_mode_t> >(Rewrite.getSourceMgr(), l_arg_EX_ii_SR)) {
 											return true;
 										}
 									}
@@ -16413,10 +16488,18 @@ namespace convm1 {
 								};
 
 							if (is_unmodifiable_raw_pointer_type(*arg_EX_ii, arg_EX_ii_SR)) {
-								/* This argument corresponding to a pointer parameter that cannot be converted to a safe pointer, 
-								seems to be the direct return value of a function that also cannot be converted to return a safe 
-								pointer. So we'll just leave this passing of a raw pointer as is. */
-								continue;
+								auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_EX_ii);
+								if (CSCE) {
+									const auto sub_EX_ii = IgnoreParenImpNoopCasts(CSCE->getSubExpr(), *(MR.Context));
+									const auto sub_EX_ii_SR = write_once_source_range(cm1_adj_nice_source_range(sub_EX_ii->getSourceRange(), state1, Rewrite));
+									if (is_unmodifiable_raw_pointer_type(*sub_EX_ii, sub_EX_ii_SR)) {
+										continue;
+									}
+								} else {
+									/* This argument seems to be a pointer parameter that cannot be converted to a safe pointer. 
+									So we'll just leave this passing of a raw pointer as is. */
+									continue;
+								}
 							}
 							auto CO = dyn_cast<const clang::ConditionalOperator>(arg_EX_ii);
 							if (CO) {
@@ -16431,8 +16514,10 @@ namespace convm1 {
 								}
 							}
 
-							if ((nullptr != param_VD) && arg_EX_ii_SR.isValid()
-								&& param_VD->getType()->isPointerType() && (!param_VD->getType()->isFunctionPointerType())) {
+							auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_EX_ii);
+
+							if ((nullptr != param_VD) && arg_EX_ii_SR.isValid() && param_VD->getType()->isPointerType() 
+								&& (!param_VD->getType()->isFunctionPointerType()) && (!CSCE)) {
 
 								assert(nullptr != arg_EX_ii);
 								bool is_pointer_to_pointer = false;
@@ -17808,7 +17893,8 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+				//RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+				/* Filtering out by location will be done a little further down. */
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -17829,17 +17915,53 @@ namespace convm1 {
 					const auto qtype = DD->getType();
 					const std::string qtype_str = DD->getType().getAsString();
 
-					if (is_non_modifiable(*DD, *(MR.Context), Rewrite, state1)) {
-						int q = 5;
-						return;
-					}
-
 					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
 					clang::Expr const* init_EX = nullptr;
 					auto VD = dyn_cast<const clang::VarDecl>(D);
 					auto FD = dyn_cast<const clang::FieldDecl>(D);
 					auto FND = dyn_cast<const clang::FunctionDecl>(DD);
+
+					if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR)
+						|| is_non_modifiable(*DD, *(MR.Context), Rewrite, state1)) {
+						/* If there is an initializer, and it would not be "filtered out", then we at least need to make 
+						sure the initialization expression is processed.   */
+
+						if (VD) {
+							init_EX = VD->getInit();
+						} else if (FD) {
+							init_EX = FD->getInClassInitializer();
+						}
+						if (init_EX) {
+							auto init_EX_ii = IgnoreParenImpNoopCasts(init_EX, *(MR.Context));
+							auto SR = cm1_adj_nice_source_range(init_EX_ii->getSourceRange(), state1, Rewrite);
+
+							RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+							DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+
+							RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+
+							DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+#ifndef NDEBUG
+							if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+								int q = 5;
+							}
+#endif /*!NDEBUG*/
+
+							auto suppress_check_flag = state1.m_suppress_check_region_set.contains(init_EX_ii, Rewrite, *(MR.Context));
+							if (suppress_check_flag) {
+								return;
+							}
+							if (filtered_out_by_location<options_t<converter_mode_t> >(*(MR.Context), init_EX_ii->getSourceRange())) {
+								return;
+							}
+							MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_EX/*RHS*/, DD, MCSSSAssignment::EIsAnInitialization::Yes);
+						}
+						return;
+					}
+
 					if (VD) {
 						const auto storage_duration = VD->getStorageDuration();
 						const auto var_qualified_name = VD->getQualifiedNameAsString();
@@ -18668,19 +18790,30 @@ namespace convm1 {
 
 				if (E_qtype->isPointerType()) {
 					auto& Ctx = *(MR.Context);
-					auto parent_E_ii = NonParenImpNoopCastThisOrParent(Tget_immediately_containing_element_of_type<clang::Expr>(E, Ctx), Ctx);
-					if (parent_E_ii) {
+
+					auto is_filtered_out = [&](auto& Node) {
+						auto suppress_check_flag = state1.m_suppress_check_region_set.contains(&Node, Rewrite, *(MR.Context));
+						if (suppress_check_flag) {
+							return true;
+						} else if (filtered_out_by_location<options_t<converter_mode_t> >(*(MR.Context), Node.getSourceRange())) {
+							return true;
+						}
+						return false;
+					};
+
+					auto parent_E_iinoop = NonParenImpNoopCastThisOrParent(Tget_immediately_containing_element_of_type<clang::Expr>(E, Ctx), Ctx);
+					if (parent_E_iinoop) {
 						/* For some reason our matcher for pointer arithmetic seems to be unreliable.
 						So here we identify some of the cases of pointer arithmetic that our matcher
 						has been observed to miss. */
 						bool pointer_arithmetic_flag = false;
-						auto ASE = dyn_cast<const clang::ArraySubscriptExpr>(parent_E_ii);
+						auto ASE = dyn_cast<const clang::ArraySubscriptExpr>(parent_E_iinoop);
 						if (ASE) {
 							pointer_arithmetic_flag = true;
 						} else {
-							auto UO = dyn_cast<const clang::UnaryOperator>(parent_E_ii);
-							auto BO = dyn_cast<const clang::BinaryOperator>(parent_E_ii);
-							auto CAO = dyn_cast<const clang::CompoundAssignOperator>(parent_E_ii);
+							auto UO = dyn_cast<const clang::UnaryOperator>(parent_E_iinoop);
+							auto BO = dyn_cast<const clang::BinaryOperator>(parent_E_iinoop);
+							auto CAO = dyn_cast<const clang::CompoundAssignOperator>(parent_E_iinoop);
 							if (CAO && (!BO)) {
 								int q = 5;
 							}
@@ -18712,6 +18845,25 @@ namespace convm1 {
 							auto DRE = given_or_descendant_DeclRefExpr(E, *(MR.Context));
 							if (DRE) {
 								MCSSSPointerArithmetic2::s_handler1(MR, Rewrite, state1, E, DRE);
+							}
+						}
+					}
+					{
+						auto parent_VLD = Tget_immediately_containing_element_of_type<clang::ValueDecl>(NonParenImpNoopCastThisOrParent(E, Ctx), Ctx);
+						if (parent_VLD) {
+							if (is_filtered_out(*parent_VLD)) {
+								auto parent_VLD_SR = cm1_adj_nice_source_range(parent_VLD->getSourceRange(), state1, Rewrite);
+								if (parent_VLD_SR.isValid()) {
+									DEBUG_SOURCE_LOCATION_STR(parent_VLD_debug_source_location_str, parent_VLD_SR, Rewrite);
+
+									DEBUG_SOURCE_TEXT_STR(parent_VLD_debug_source_text, parent_VLD_SR, Rewrite);
+
+#ifndef NDEBUG
+									if (std::string::npos != parent_VLD_debug_source_location_str.find(g_target_debug_source_location_str1)) {
+										int q = 5;
+									}
+#endif /*!NDEBUG*/
+								}
 							}
 						}
 					}
@@ -19192,7 +19344,7 @@ namespace convm1 {
 						if (!SR.isValid()) {
 							continue;
 						}
-						if (filtered_out_by_location<options_t<converter_mode_t> >(localRewriter.getSourceMgr(), SR.getBegin())) {
+						if (filtered_out_by_location<options_t<converter_mode_t> >(localRewriter.getSourceMgr(), SR)) {
 							continue;
 						}
 
@@ -19786,7 +19938,7 @@ namespace convm1 {
 		auto& SM = (*this).m_Rewriter_ref.getSourceMgr();
 		IF_DEBUG(std::string debug_source_location_str = Range.getBegin().printToString(SM);)
 
-		if (filtered_out_by_location<options_t<converter_mode_t> >(SM, Range.getBegin())) {
+		if (filtered_out_by_location<options_t<converter_mode_t> >(SM, Range)) {
 			return;
 		}
 
