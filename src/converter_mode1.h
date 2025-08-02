@@ -12797,6 +12797,65 @@ namespace convm1 {
 		CTUState& m_state1;
 	};
 
+	inline auto an_arg_is_not_filtered_out(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+		, clang::CallExpr const& call_expr) {
+		auto CE = &call_expr;
+
+		auto get_arg_EX_ii = [&](const size_t arg_index) {
+				clang::Expr const* retval = nullptr;
+				const auto num_args = CE->getNumArgs();
+				if (num_args > arg_index) {
+					auto arg_EX = CE->getArg(arg_index);
+					auto arg_EX_qtype = arg_EX->getType();
+					IF_DEBUG(std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();)
+					assert(arg_EX->getType().getTypePtrOrNull());
+					auto arg_EX_ii = IgnoreParenImpCasts(arg_EX);
+					auto arg_EX_ii_qtype = arg_EX_ii->getType();
+					IF_DEBUG(std::string arg_EX_ii_qtype_str = arg_EX_ii_qtype.getAsString();)
+					assert(arg_EX_ii->getType().getTypePtrOrNull());
+					retval = arg_EX_ii;
+				}
+				return retval;
+			};
+
+		bool l_an_arg_is_not_filtered_out = false;
+		auto SR = cm1_adj_nice_source_range(CE->getSourceRange(), state1, Rewrite);
+		if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR)) {
+			auto function_decl1 = CE->getDirectCallee();
+			const auto num_args = CE->getNumArgs();
+			if (function_decl1) {
+				const std::string function_qname = function_decl1->getQualifiedNameAsString();
+				const auto num_args = CE->getNumArgs();
+				size_t arg_index = 0;
+				for (; (num_args > arg_index); arg_index += 1) {
+					const auto arg_EX_ii = get_arg_EX_ii(arg_index);
+					const auto arg_EX_ii_SR = cm1_adj_nice_source_range(arg_EX_ii->getSourceRange(), state1, Rewrite);
+					if (arg_EX_ii_SR.isValid()) {
+						const auto arg_EX_iinoop = IgnoreParenImpNoopCasts(arg_EX_ii, *(MR.Context));
+						const auto arg_EX_iinoop_SR = (arg_EX_iinoop == arg_EX_ii) ? arg_EX_ii_SR : cm1_adj_nice_source_range(arg_EX_iinoop->getSourceRange(), state1, Rewrite);
+						if (!filtered_out_by_location<options_t<converter_mode_t> >(MR, arg_EX_iinoop_SR)) {
+							l_an_arg_is_not_filtered_out = true;
+							break;
+						} else {
+							auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_EX_ii);
+							if (CSCE) {
+								const auto sub_EX_iinoop = IgnoreParenImpNoopCasts(CSCE->getSubExpr(), *(MR.Context));
+								if (sub_EX_iinoop) {
+									const auto sub_EX_iinoop_SR = cm1_adj_nice_source_range(sub_EX_iinoop->getSourceRange(), state1, Rewrite);
+									if (!filtered_out_by_location<options_t<converter_mode_t> >(MR, sub_EX_iinoop_SR)) {
+										l_an_arg_is_not_filtered_out = true;
+										break;
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		return l_an_arg_is_not_filtered_out;
+	}
+
 	class MCSSSFree2 : public MatchFinder::MatchCallback
 	{
 	public:
@@ -12813,7 +12872,14 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+				//RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+				if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR)) {
+					/* In this case we only filter out the element if the call expression and all of its arguments would 
+					be individually filtered out. */
+					if (!an_arg_is_not_filtered_out(MR, Rewrite, state1, *CE)) {
+						return;
+					}
+				}
 
 #ifndef NDEBUG
 				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
@@ -12831,7 +12897,7 @@ namespace convm1 {
 
 				auto function_decl = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
-				if (function_decl && (1 == num_args)) {
+				if (function_decl && (1 <= num_args)) {
 					auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
 					if (alloc_function_info1.m_seems_to_be_some_kind_of_free) {
 						auto arg_iter = CE->arg_begin();
@@ -12888,18 +12954,24 @@ namespace convm1 {
 
 									if (ConvertToSCPP) {
 										bool use_the_more_surgical_replacement_method = false;
+										bool is_filtered_out_macro = false;
 										auto rawSR = CE->getSourceRange();
 										if (rawSR.isValid() && rawSR.getBegin().isMacroID()) {
 											auto adj_SR = cm1_adjusted_source_range(rawSR, state1, Rewrite);
 											if (!(adj_SR.m_macro_expansion_range_substituted_with_macro_invocation_range)) {
-												/* The `free()` call expression may be part of (but not the whole of) the definition body of a macro. The macro may be a macro 
-												function and the argument of the `free()` call expression may be passed as an argument to the macro function. In such cases, 
-												the source range of the argument will be reported, by default, as the one at the site of instantiation of the function macro, 
-												while in order to replace the entire `free()` call expression, the source range of the argument in the definition body of the 
-												macro would need to be used instead. For that we'd need to create and use a custom version of CCallExprConversionState that 
-												uses the desired argument source range. Because it's easier, for now we're just going to avoid overwriting the argument (in 
-												the definition body) and just overwrite the function name. */
-												use_the_more_surgical_replacement_method = true;
+												is_filtered_out_macro = adj_SR.m_range_is_essentially_the_entire_body_of_a_macro && filtered_out_by_location<options_t<converter_mode_t> >(MR, adj_SR);
+												if (!is_filtered_out_macro) {
+													/* The `free()` call expression may be part of (but not the whole of) the definition body of a macro. The macro may be a macro 
+													function and the argument of the `free()` call expression may be passed as an argument to the macro function. In such cases, 
+													the source range of the argument will be reported, by default, as the one at the site of instantiation of the function macro, 
+													while in order to replace the entire `free()` call expression, the source range of the argument in the definition body of the 
+													macro would need to be used instead. For that we'd need to create and use a custom version of CCallExprConversionState that 
+													uses the desired argument source range. Because it's easier, for now we're just going to avoid overwriting the argument (in 
+													the definition body) and just overwrite the function name. */
+													use_the_more_surgical_replacement_method = true;
+												} else {
+													int q = 5;
+												}
 											}
 										}
 										if (!use_the_more_surgical_replacement_method) {
@@ -12921,13 +12993,51 @@ namespace convm1 {
 											}
 											arg_expr_cptrs.push_back(arg_E_ic);
 
-											auto& ecs = state1.get_expr_conversion_state_ref<CCallExprConversionState>(*CE, Rewrite, arg_expr_cptrs, callee_name_replacement_text);
-											ecs.update_current_text();
+											std::optional<CExprTextInfoContext> maybe_ti_render_context;
+											auto arg_containing_SR = SR;
+											if (is_filtered_out_macro) {
+												/* This call expression seems to be (essentially the entirety of) the body of a macro defined in a 
+												"filtered out" location. Even if the invocation of the macro occurs in a location that is not deemed 
+												to be "filtered out", for most elements, we would consider the element non-modifiable, as elements in 
+												the body of a "filtered out" macro might be platform-dependent. But we make an exception for macro 
+												invocation that are suspected of essentially being (m)alloc()- or free()-like calls. (Presumably we 
+												decided to make this exception due to the significant safety implications?) 
+												The problem is that we can't modify code at the/any "filtered out" location. But if we intend to just 
+												replace the entire expression and the expression constitutes essentially the entirety of the macro 
+												body, then we can just replace the (not "filtered out") macro invocation with the replacement 
+												expression. So we have to determine the source range of the macro invocation to be replaced. But the 
+												call expression could be contained in any number of nested macro invocations. The one we want to 
+												replace would presumably be the most deeply nested one that encompasses the associated macro argument. 
+												(That macro argument presumably being in a non-"filtered out" location.) So we'll look through the set 
+												of (potentially) nested macro invocations for the appropriate one. */
+												const auto adj_SR = cm1_adjusted_source_range(CE->getSourceRange(), state1, Rewrite);
+												const auto arg_E_ic_adj_SR = cm1_adjusted_source_range(arg_E_ic->getSourceRange(), state1, Rewrite);
+												for (auto& adjusted_source_text_info : adj_SR.m_adjusted_source_text_infos) {
+													if ((adjusted_source_text_info.m_macro_invocation_range.getBegin() <= arg_E_ic_adj_SR.getBegin()) 
+														&& (arg_E_ic_adj_SR.getEnd() <= adjusted_source_text_info.m_macro_invocation_range.getEnd())) {
 
-											state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, SR, state1, CE);
+														/* We seem to have found the (potentially nested) macro invocation (that encompasses the macro 
+														argument) that we want to replace. So we'll note its source range. */
+														arg_containing_SR = adjusted_source_text_info.m_macro_invocation_range;
+														break;
+													}
+												}
+												/* In the case of (potentially) nested macro invocations, we can supply a "context" that can indicate 
+												to the function that renders the replacement text, which level of nesting we'll be replacing. This 
+												information is sometimes needed to produce the appropriate replacement text. */
+												maybe_ti_render_context = CExprTextInfoContext{ arg_E_ic_adj_SR };
+											}
+
+											auto& ecs = state1.get_expr_conversion_state_ref<CCallExprConversionState>(*CE, Rewrite, arg_expr_cptrs, callee_name_replacement_text);
+											ecs.update_current_text(maybe_ti_render_context);
+
+											state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, write_once_source_range(arg_containing_SR), state1, CE);
 
 										} else {
 											if ((!callee_SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, callee_SR.getBegin()) && filtered_out_by_location<options_t<converter_mode_t> >(MR, callee_SR.getEnd())) {
+												DEBUG_SOURCE_LOCATION_STR(callee_debug_source_location_str, callee_SR, Rewrite);
+												auto adj_SRPlus = cm1_adjusted_source_range(CE->getSourceRange(), state1, Rewrite);
+												DEBUG_SOURCE_LOCATION_STR(adj_debug_source_location_str, adj_SRPlus, Rewrite);
 												int q = 5;
 												return void();
 											}
@@ -16271,6 +16381,12 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
 				auto get_arg_EX_ii = [&](const size_t arg_index) {
 						clang::Expr const* retval = nullptr;
 						const auto num_args = CE->getNumArgs();
@@ -16289,42 +16405,10 @@ namespace convm1 {
 					};
 
 				//RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
-				/* In this case we only filter out the element if the call expression and all of its arguments would 
-				be individually filtered out. */
 				if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR)) {
-					bool an_arg_is_not_filtered_out = false;
-					auto function_decl1 = CE->getDirectCallee();
-					const auto num_args = CE->getNumArgs();
-					if (function_decl1) {
-						const std::string function_qname = function_decl1->getQualifiedNameAsString();
-						const auto num_args = CE->getNumArgs();
-						size_t arg_index = 0;
-						for (; (num_args > arg_index); arg_index += 1) {
-							const auto arg_EX_ii = get_arg_EX_ii(arg_index);
-							const auto arg_EX_ii_SR = cm1_adj_nice_source_range(arg_EX_ii->getSourceRange(), state1, Rewrite);
-							if (arg_EX_ii_SR.isValid()) {
-								const auto arg_EX_iinoop = IgnoreParenImpNoopCasts(arg_EX_ii, *(MR.Context));
-								const auto arg_EX_iinoop_SR = (arg_EX_iinoop == arg_EX_ii) ? arg_EX_ii_SR : cm1_adj_nice_source_range(arg_EX_iinoop->getSourceRange(), state1, Rewrite);
-								if (!filtered_out_by_location<options_t<converter_mode_t> >(MR, arg_EX_iinoop_SR)) {
-									an_arg_is_not_filtered_out = true;
-									break;
-								} else {
-									auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_EX_ii);
-									if (CSCE) {
-										const auto sub_EX_iinoop = IgnoreParenImpNoopCasts(CSCE->getSubExpr(), *(MR.Context));
-										if (sub_EX_iinoop) {
-											const auto sub_EX_iinoop_SR = cm1_adj_nice_source_range(sub_EX_iinoop->getSourceRange(), state1, Rewrite);
-											if (!filtered_out_by_location<options_t<converter_mode_t> >(MR, sub_EX_iinoop_SR)) {
-												an_arg_is_not_filtered_out = true;
-												break;
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-					if (!an_arg_is_not_filtered_out) {
+					/* In this case we only filter out the element if the call expression and all of its arguments would 
+					be individually filtered out. */
+					if (!an_arg_is_not_filtered_out(MR, Rewrite, state1, *CE)) {
 						return;
 					}
 				}
@@ -18646,7 +18730,28 @@ namespace convm1 {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
+				{
+					auto *CE = dyn_cast<const clang::CallExpr>(E);
+					if (CE) {
+						auto SR = cm1_adj_nice_source_range(CE->getSourceRange(), state1, Rewrite);
+						if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR)) {
+							/* In this case we only filter out the element if the call expression and all of its arguments would 
+							be individually filtered out. */
+							if (!an_arg_is_not_filtered_out(MR, Rewrite, state1, *CE)) {
+								return;
+							}
+							int q = 5;
+						}
+					} else {
+						RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+					}
+				}
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -18763,7 +18868,7 @@ namespace convm1 {
 					MCSSSArgToReferenceParameterPassing::s_handler1(MR, Rewrite, state1, CE);
 					MCSSSFunctionCall1::modifier(MR, Rewrite, state1, CE);
 
-					if ((1 == CE->getNumArgs()) && (CE->getArg(0)->getType()->isPointerType())) {
+					if ((1 <= CE->getNumArgs()) && (CE->getArg(0)->getType()->isPointerType())) {
 						auto arg_EX = CE->getArg(0);
 						auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
 
@@ -18803,6 +18908,30 @@ namespace convm1 {
 
 					auto parent_E_iinoop = NonParenImpNoopCastThisOrParent(Tget_immediately_containing_element_of_type<clang::Expr>(E, Ctx), Ctx);
 					if (parent_E_iinoop) {
+
+						/* For some reason this expression matcher seems to be unreliable. This has been observed to include 
+						certain call expressions. While this matcher might not match the call expression directly, it may 
+						match one or more of its argument expressions. We try ot identify if such is the case here. */
+						auto CE = dyn_cast<const clang::CallExpr>(parent_E_iinoop);
+						if (CE) {
+							if (filtered_out_by_location<options_t<converter_mode_t> >(*(MR.Context), CE->getSourceRange())) {
+								MCSSSArgToParameterPassingArray2::s_handler1(MR, Rewrite, state1, CE);
+								MCSSSArgToReferenceParameterPassing::s_handler1(MR, Rewrite, state1, CE);
+								MCSSSFunctionCall1::modifier(MR, Rewrite, state1, CE);
+
+								if ((1 <= CE->getNumArgs()) && (CE->getArg(0)->getType()->isPointerType())) {
+									auto arg_EX = CE->getArg(0);
+									auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+
+									auto DRE = given_or_descendant_DeclRefExpr(arg_EX_ii, *(MR.Context));
+
+									if (DRE) {
+										MCSSSFree2::s_handler1(MR, Rewrite, state1, CE, DRE);
+									}
+								}
+							}
+						}
+
 						/* For some reason our matcher for pointer arithmetic seems to be unreliable.
 						So here we identify some of the cases of pointer arithmetic that our matcher
 						has been observed to miss. */
