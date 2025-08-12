@@ -2409,29 +2409,66 @@ namespace convm1 {
 	public:
 	struct do_not_set_up_child_dependencies_t {};
 		CExprConversionState(do_not_set_up_child_dependencies_t, const clang::Expr& expr, Rewriter &Rewrite, CTUState& state1) : m_expr_cptr(&expr), Rewrite(Rewrite), m_state1(state1) {
+#ifndef NDEBUG
+			auto SR = cm1_adj_nice_source_range((expr).getSourceRange(), state1, Rewrite);
+			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
+
 			m_SR_plus = cm1_adjusted_source_range(expr.getSourceRange(), state1, Rewrite);
 			auto& expr_SR = m_SR_plus;
 			if (expr_SR.isValid()) {
-				bool use_adjusted_source_text_as_if_expanded = false;
 				auto rawSR = expr.getSourceRange();
 				if (rawSR.isValid()) {
-					auto SL = rawSR.getBegin();
-					if (SL.isMacroID()) {
-						if ("" != expr_SR.m_adjusted_source_text_as_if_expanded) {
-							auto& SM = Rewrite.getSourceMgr();
-							auto b10 = SM.isMacroArgExpansion(SL);
-							auto b13 = SM.isMacroBodyExpansion(SL);
-							if (true == expr_SR.m_macro_expansion_range_substituted_with_macro_invocation_range) {
-								/* The source range was adjusted to refer to the invocation site of the macro rather than the definition site. So the text we
-								want is what the text at the definition site would look like after it has been expanded at the invocation site. */
-								use_adjusted_source_text_as_if_expanded = true;
+					const bool b3 = rawSR.getBegin().isMacroID();
+					const bool b4 = rawSR.getEnd().isMacroID();
+					if (b3 && b4) {
+						const auto sr2 = source_range_with_both_ends_in_the_same_macro_body(rawSR, Rewrite);
+						if (sr2 == rawSR) {
+							auto const& E_SRPlus = m_SR_plus;
+							if (2 <= E_SRPlus.m_adjusted_source_text_infos.size()) {
+								/* So, this expression seems to correspond to (the entirety of) a macro invocation. */
+								std::optional<size_t> maybe_found_index;
+								for (size_t i = 0; E_SRPlus.m_adjusted_source_text_infos.size() - 1 > i; i += 1) {
+									size_t j = E_SRPlus.m_adjusted_source_text_infos.size() - 2 - i;
+									auto const& adjusted_source_text_info_cref = E_SRPlus.m_adjusted_source_text_infos.at(j);
+									auto const& md_SR_cref = adjusted_source_text_info_cref.m_macro_definition_range;
+									if ((md_SR_cref.getBegin() <= expr_SR.getBegin()) && (expr_SR.getEnd() <= md_SR_cref.getEnd())) {
+										maybe_found_index = j;
+										break;
+									}
+								}
+								if (maybe_found_index.has_value()) {
+									auto const& found_index = maybe_found_index.value();
+									auto const& adjusted_source_text_info_cref = E_SRPlus.m_adjusted_source_text_infos.at(found_index);
+									auto const& md_SR_cref = adjusted_source_text_info_cref.m_macro_definition_range;
+									if (md_SR_cref.isValid()) {
+										auto& SM = Rewrite.getSourceMgr();
+										bool filtered_out_flag = filtered_out_by_location<options_t<converter_mode_t> >(SM, md_SR_cref);
+										if (filtered_out_flag) {
+											/* The definition of the (least deeply nested invoked) macro seems to be in a "filtered out" 
+											location (like a system header file). This would generally imply that the definition cannot be 
+											modified, and also that it may be platform-specific/non-portable. Since the expression corresponds 
+											to the entire macro, it can be represented in source text by either the invocation of the macro, 
+											or the macro definition text (replacing any macro parameters with their corresponding macro 
+											arguments). But in cases like this where the macro definition is in a "filtered out" location, 
+											we'd want to use the macro invocation. So here we store the source range of the macro invocation 
+											for use when(ever) the updated source text representation is rendered. */
+											auto const& updatable_SR_cref = E_SRPlus.m_adjusted_source_text_infos.at(found_index + 1).m_macro_invocation_range;
+											m_original_source_text_str = Rewrite.getRewrittenText(updatable_SR_cref);
+											m_maybe_override_SR_due_to_being_a_macro_whose_definition_is_in_a_filtered_out_location = updatable_SR_cref;
+										}
+									}
+								} else {
+									int q = 3;
+								}
 							}
 						}
 					}
 				}
-				if (false && use_adjusted_source_text_as_if_expanded) {
-					m_original_source_text_str = expr_SR.m_adjusted_source_text_as_if_expanded;
-				} else {
+				if ("" == m_original_source_text_str) {
 					m_original_source_text_str = Rewrite.getRewrittenText(expr_SR);
 					if ("" == m_original_source_text_str) {
 						auto nice_SR = cm1_adj_nice_source_range(expr.getSourceRange(), state1, Rewrite);
@@ -2539,6 +2576,7 @@ namespace convm1 {
 		std::string m_original_source_text_str;
 		std::string m_current_text_str;
 		CSourceRangePlus m_SR_plus;
+		std::optional<clang::SourceRange> m_maybe_override_SR_due_to_being_a_macro_whose_definition_is_in_a_filtered_out_location;
 		Rewriter &Rewrite;
 		CTUState& m_state1;
 	};
@@ -3854,8 +3892,26 @@ namespace convm1 {
 		bool b1 = whole_rawSR.getBegin().isMacroID();
 		bool b2 = whole_rawSR.getEnd().isMacroID();
 
+		std::optional<clang::SourceRange> maybe_whole_SR;
+		if (m_maybe_override_SR_due_to_being_a_macro_whose_definition_is_in_a_filtered_out_location.has_value()) {
+			/* When querying for the source range of an expression generated by a macro invocation, the returned 
+			source range may sometimes correspond to the "spelling" location in the macro definition. But in 
+			this case it seems to have been determined that the expression corresponds to (the entirety of) a 
+			macro whose definition is in a "filtered out" location (like a system header). */
+			auto const& whole_SRPlus = m_SR_plus;
+			if (b1 && b2 && (2 <= whole_SRPlus.m_adjusted_source_text_infos.size())) {
+				/* In this case we'd want to avoid using the macro definition text, instead preferring the macro 
+				invocation text. So here we make sure the that we're using the invocation text.  */
+				maybe_whole_SR = m_maybe_override_SR_due_to_being_a_macro_whose_definition_is_in_a_filtered_out_location;
+			} else {
+				/* unexpected */
+				int q = 3;
+				assert(false);
+			}
+		}
+
 		{
-			auto whole_SR = write_once_source_range(cm1_adj_nice_source_range(m_expr_cptr->getSourceRange(), m_state1, Rewrite));
+			auto whole_SR = maybe_whole_SR.has_value() ? maybe_whole_SR.value() : write_once_source_range(m_SR_plus);
 			if (!(whole_SR.isValid())) {
 				return false;
 			}
@@ -3874,16 +3930,36 @@ namespace convm1 {
 						};
 						std::vector<CExprBasicInfo> l_descendants_contained_in_range;
 
-						auto rawSR = E->getSourceRange();
-						bool b3 = rawSR.getBegin().isMacroID();
-						bool b4 = rawSR.getEnd().isMacroID();
+						const auto rawSR = E->getSourceRange();
+						const bool b3 = rawSR.getBegin().isMacroID();
+						const bool b4 = rawSR.getEnd().isMacroID();
 
 						auto OSR = write_once_source_range(cm1_adj_nice_source_range(E->getSourceRange(), m_state1, Rewrite));
 						if (OSR.isValid()) {
-							bool b5 = OSR.getBegin().isMacroID();
-							bool b6 = OSR.getEnd().isMacroID();
+							const bool b5 = OSR.getBegin().isMacroID();
+							const bool b6 = OSR.getEnd().isMacroID();
 
-							if ((OSR.getBegin() < whole_SR.getBegin()) || (whole_SR.getEnd() < OSR.getEnd())) {
+							bool not_contained_in_range_flag = ((OSR.getBegin() < whole_SR.getBegin()) || (whole_SR.getEnd() < OSR.getEnd()));
+							bool not_considered_an_updatable_visible_child = not_contained_in_range_flag;
+							if ((!not_considered_an_updatable_visible_child) && b3 && b4) {
+								const auto sr2 = source_range_with_both_ends_in_the_same_macro_body(rawSR, Rewrite);
+								if (sr2 == rawSR) {
+									auto E_SRPlus = cm1_adjusted_source_range(sr2, m_state1, Rewrite);
+									if (2 <= E_SRPlus.m_adjusted_source_text_infos.size()) {
+										auto const& adjusted_source_text_info_cref = E_SRPlus.m_adjusted_source_text_infos.at(E_SRPlus.m_adjusted_source_text_infos.size() - 2);
+										auto const& md_SR_cref = adjusted_source_text_info_cref.m_macro_definition_range;
+										if (md_SR_cref.isValid()) {
+											auto& SM = Rewrite.getSourceMgr();
+											bool filtered_out_flag = filtered_out_by_location<options_t<converter_mode_t> >(SM, md_SR_cref);
+											if (filtered_out_flag) {
+												not_considered_an_updatable_visible_child = true;
+											}
+										}
+									}
+								}
+							}
+
+							if (not_considered_an_updatable_visible_child) {
 								/* The source range of this element does not seem to be contained inside the source range of the parent 
 								expression. This can happen, for example, when macros are involved. But it's possible that some of the 
 								element' descendants actually are contained in the source range of the parent expression. (Macro 
