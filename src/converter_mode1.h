@@ -14950,10 +14950,15 @@ namespace convm1 {
 						} else {
 							int q = 3;
 						}
-						//m_function_type_state
-						//m_function_decl_ptr
 					}
-					/*** lef off here ***/
+				} else if (DD->getType()->isPointerType()) {
+					auto pointee_qtype = DD->getType()->getPointeeType();
+					auto pointee_qtype_str = pointee_qtype.getAsString();
+					if (pointee_qtype->isIncompleteType() && ("void" != pointee_qtype_str) && ("const void" != pointee_qtype_str)) {
+						/* A pointer might be converted to a (safe) iterator. But safe iterators (currently) do not support 
+						incomplete element types. */
+						return true;
+					}
 				}
 			}
 		} while (false);
@@ -19439,6 +19444,14 @@ namespace convm1 {
 
 				if (E_qtype->isPointerType()) {
 					auto& Ctx = *(MR.Context);
+
+#ifndef NDEBUG
+					auto pointee_qtype = E_qtype->getPointeeType();
+					auto pointee_qtype_str = pointee_qtype.getAsString();
+					if (pointee_qtype->isIncompleteType() && ("void" != pointee_qtype_str) && ("const void" != pointee_qtype_str)) {
+						int q = 5;
+					}
+#endif /*!NDEBUG*/
 
 					auto is_filtered_out = [&](auto& Node) {
 						auto suppress_check_flag = state1.m_suppress_check_region_set.contains(&Node, Rewrite, *(MR.Context));
