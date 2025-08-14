@@ -8624,28 +8624,55 @@ namespace convm1 {
 		} else {
 			std::string replacement_code;
 
-			auto rd_map_iter = state1.m_recdecl_map.find(SR.getBegin());
-			if (state1.m_recdecl_map.end() != rd_map_iter) {
-				auto RD = (*rd_map_iter).second;
-
-				auto res1 = state1.m_recdecl_conversion_state_map.insert(*RD, Rewrite, state1);
-				auto rdcs_map_iter = res1.first;
-				auto& rdcs_ref = (*rdcs_map_iter).second;
-				////bool update_declaration_flag = res1.second;
-
-				std::string rd_name = rdcs_ref.recdecl_ptr()->getNameAsString();
-				if ("" != rd_name) {
-					if (rdcs_ref.recdecl_ptr()->isThisDeclarationADefinition()) {
-						/* Some declarations combine a (named) struct definition with one or more variable definitions.
-						For example, somethng like "struct abc_t { int m_a; } acb1;". In these cases we'll separate the
-						the definition and declaration to something like "struct abc_t { int m_a; }; abc_t acb1;". */
-						replacement_code += rdcs_ref.m_current_text_str + "; ";
+			{
+				auto& qtype = QT;
+				auto* RD = qtype->getAsRecordDecl();
+				auto l_type_ptr = qtype.getTypePtr();
+				while (!RD) {
+					if (l_type_ptr->isArrayType()) {
+						auto element_type = l_type_ptr->getPointeeOrArrayElementType();
+						RD = element_type->getAsRecordDecl();
+						l_type_ptr = element_type;
+					} else if (l_type_ptr->isPointerType()) {
+						auto pointee_qtype = l_type_ptr->getPointeeType();
+						RD = pointee_qtype->getAsRecordDecl();
+						l_type_ptr = pointee_qtype.getTypePtr();
+					} else {
+						break;
 					}
-				} else {
-					/* We are unable to handle this case at the moment. */
-					return;
 				}
-				int q = 5;
+				if (RD) {
+					/* The type (or some indirection of the type) is some kind of struct (or class). */
+					RD = RD->getDefinition();
+				}
+				if (RD) {
+					auto RDSR = cm1_adj_nice_source_range(RD->getSourceRange(), state1, Rewrite);
+					DEBUG_SOURCE_LOCATION_STR(RD_debug_source_location_str, RDSR, Rewrite);
+					if (RDSR.isValid() && (SR.getBegin() <= RDSR.getBegin()) && (RDSR.getEnd() <= SR.getEnd())) {
+						/* The record type itself seems to have been defined within this variable declaration statement. */
+						DEBUG_SOURCE_TEXT_STR(RD_debug_source_text, RDSR, Rewrite);
+
+						auto res1 = state1.m_recdecl_conversion_state_map.insert(*RD, Rewrite, state1);
+						auto rdcs_map_iter = res1.first;
+						auto& rdcs_ref = (*rdcs_map_iter).second;
+						//bool update_declaration_flag = res1.second;
+
+						std::string rd_name = rdcs_ref.recdecl_ptr()->getNameAsString();
+						if ("" != rd_name) {
+							if (rdcs_ref.recdecl_ptr()->isThisDeclarationADefinition()) {
+								/* Some declarations combine a (named) struct definition with one or more variable definitions.
+								For example, somethng like "struct abc_t { int m_a; } acb1;". In these cases we'll separate the
+								the definition and declaration to something like "struct abc_t { int m_a; }; abc_t acb1;". */
+								replacement_code += rdcs_ref.m_current_text_str + "; ";
+							}
+						} else {
+							/* We are unable to handle this case at the moment. */
+							return;
+						}
+						int q = 5;
+					}
+
+				}
 			}
 
 			/* Here we're checking for and noting any unsupported types. */
@@ -12257,14 +12284,14 @@ namespace convm1 {
 
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
-			const DeclaratorDecl* DD = MR.Nodes.getNodeAs<clang::DeclaratorDecl>("mcsssvardecl");
+			const VarDecl* VD = MR.Nodes.getNodeAs<clang::VarDecl>("mcsssvardecl");
 			const Expr* RHS = MR.Nodes.getNodeAs<clang::Expr>("mcsssvardecl2");
 			const clang::CStyleCastExpr* CCE = MR.Nodes.getNodeAs<clang::CStyleCastExpr>("mcsssvardecl3");
 			//const DeclStmt* DS = MR.Nodes.getNodeAs<clang::DeclStmt>("mcsssvardecl4");
 
-			if ((DD != nullptr))
+			if ((VD != nullptr))
 			{
-				auto SR = cm1_adj_nice_source_range(DD->getSourceRange(), m_state1, Rewrite);
+				auto SR = cm1_adj_nice_source_range(VD->getSourceRange(), m_state1, Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
@@ -12279,20 +12306,20 @@ namespace convm1 {
 				}
 #endif /*!NDEBUG*/
 
-				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(DD, Rewrite, *(MR.Context));
+				auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(VD, Rewrite, *(MR.Context));
 				//auto suppress_check_flag = m_state1.m_suppress_check_region_set.contains(ISR);
 				if (suppress_check_flag) {
 					return;
 				}
 
-				if (is_non_modifiable(*DD, *(MR.Context), Rewrite, m_state1)) {
+				if (is_non_modifiable(*VD, *(MR.Context), Rewrite, m_state1)) {
 					int q = 5;
 					return;
 				}
 
-				std::string variable_name = DD->getNameAsString();
+				std::string variable_name = VD->getNameAsString();
 
-				auto qualified_name = DD->getQualifiedNameAsString();
+				auto qualified_name = VD->getQualifiedNameAsString();
 				static const std::string mse_namespace_str1 = "mse::";
 				static const std::string mse_namespace_str2 = "::mse::";
 				if ((0 == qualified_name.compare(0, mse_namespace_str1.size(), mse_namespace_str1))
@@ -12300,11 +12327,12 @@ namespace convm1 {
 					int q = 5;
 					//return;
 				} else {
-					auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
-					auto qtype = DD->getType();
+					auto qtype = VD->getType();
+					IF_DEBUG(std::string qtype_str = VD->getType().getAsString();)
+
+					auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*VD, &Rewrite);
 
 					if (AddressableVars) {
-						IF_DEBUG(std::string qtype_str = DD->getType().getAsString();)
 						if (qtype->isEnumeralType() || qtype->isPointerType() || qtype->isArrayType()) {
 						} else {
 							if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
@@ -12319,7 +12347,7 @@ namespace convm1 {
 
 					if (nullptr != RHS) {
 						auto rhs_res2 = infer_array_type_info_from_stmt(*RHS, "", (*this).m_state1);
-						bool lhs_is_an_indirect_type = is_an_indirect_type(DD->getType());
+						bool lhs_is_an_indirect_type = is_an_indirect_type(VD->getType());
 						bool rhs_is_an_indirect_type = is_an_indirect_type(RHS->getType());
 						if (lhs_is_an_indirect_type != rhs_is_an_indirect_type) {
 							int q = 5;
@@ -12374,7 +12402,7 @@ namespace convm1 {
 											static const std::string void_str = "void";
 											auto void_pos = (*rhs_res2.ddecl_conversion_state_ptr).current_initialization_expr_str(Rewrite, &m_state1, CExprTextInfoContext{ SR, &Rewrite, &m_state1 }).find(void_str);
 											if (std::string::npos != void_pos) {
-												clang::Expr const* pInitExpr = get_init_expr_if_any(DD);
+												clang::Expr const* pInitExpr = get_init_expr_if_any(VD);
 												if (pInitExpr) {
 													if (!(ddcs_ref.m_maybe_initialization_expr_text_info.has_value())) {
 														ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(pInitExpr, Rewrite, m_state1));
@@ -12429,8 +12457,7 @@ namespace convm1 {
 							}
 						}
 
-						auto VD = dyn_cast<const clang::VarDecl>(DD);
-						if (VD && (qtype->isArrayType()) && (1 <= ddcs_ref.m_indirection_state_stack.size())) {
+						if ((qtype->isArrayType()) && (1 <= ddcs_ref.m_indirection_state_stack.size())) {
 							auto& outermost_indirection_state = ddcs_ref.m_indirection_state_stack.at(0);
 							if (VD->hasInit() && ("" == outermost_indirection_state.m_array_size_expr) && ("inferred array" == ddcs_ref.m_indirection_state_stack.at(0).current_species())) {
 								/* So this appears to be a native array declaration without an explicit array size argument, but with
@@ -12442,8 +12469,8 @@ namespace convm1 {
 
 								ddcs_ref.set_indirection_current(0, "dynamic array");
 								//retval.update_declaration_flag = true;
-								m_state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(m_state1, CDDeclIndirection(*DD, 0));
-								update_declaration(*DD, Rewrite, m_state1);
+								m_state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(m_state1, CDDeclIndirection(*VD, 0));
+								update_declaration(*VD, Rewrite, m_state1);
 							}
 						}
 						if (VD) {
@@ -12499,11 +12526,11 @@ namespace convm1 {
 									* be of an (array) type that can be assigned to the lhs. */
 									std::shared_ptr<CArray2ReplacementAction> cr_shptr;
 									if (1 > (0 + i)) {
-										cr_shptr = std::make_shared<CAssignmentTargetConstrainsSourceArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0 + i), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i));
+										cr_shptr = std::make_shared<CAssignmentTargetConstrainsSourceArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*VD, 0 + i), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i));
 									} else {
 										/* Levels of indirection beyond the first one must be of the same type,
 										* not just of "compatible" types. */
-										cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0 + i), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i));
+										cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*VD, 0 + i), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i));
 									}
 									m_state1.m_conversion_state_change_action_map.insert(cr_shptr);
 
@@ -12529,11 +12556,11 @@ namespace convm1 {
 									/* Here we're establishing the constraint in the opposite direction as well. */
 									std::shared_ptr<CArray2ReplacementAction> cr_shptr;
 									if (1 > (0 + i)) {
-										cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i), CDDeclIndirection(*DD, 0 + i));
+										cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i), CDDeclIndirection(*VD, 0 + i));
 									} else {
 										/* Levels of indirection beyond the first one must be of the same type,
 										* not just of "compatible" types. */
-										cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i), CDDeclIndirection(*DD, 0 + i));
+										cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i), CDDeclIndirection(*VD, 0 + i));
 									}
 									m_state1.m_conversion_state_change_action_map.insert(cr_shptr);
 
@@ -12554,7 +12581,7 @@ namespace convm1 {
 					}
 
 #ifndef NDEBUG
-					auto PVD = llvm::dyn_cast<const clang::ParmVarDecl>(DD);
+					auto PVD = llvm::dyn_cast<const clang::ParmVarDecl>(VD);
 					if (PVD) {
 						auto DC = PVD->getDeclContext();
 						auto decl_kind = DC->getDeclKind();
@@ -12576,7 +12603,7 @@ namespace convm1 {
 					}
 #endif /*!NDEBUG*/
 
-					update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), m_state1);
+					update_declaration_if_not_suppressed(*VD, Rewrite, *(MR.Context), m_state1);
 				}
 			}
 		}
