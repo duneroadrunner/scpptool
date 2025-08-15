@@ -14911,6 +14911,10 @@ namespace convm1 {
 						IF_DEBUG(std::string cannonical_qtype_str = cannonical_qtype.getAsString();)
 
 						auto definition_type_SL = definition_TypeLoc(tsi->getTypeLoc()).getBeginLoc();
+						if (!(definition_type_SL.isValid())) {
+							non_modifiable_flag = true;
+							break;
+						}
 
 						auto definition_type_SR = clang::SourceRange(definition_type_SL, definition_type_SL);
 						DEBUG_SOURCE_LOCATION_STR(definition_debug_source_location_str, definition_type_SR, Rewrite);
@@ -16977,10 +16981,20 @@ namespace convm1 {
 
 				//RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
 				if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR)) {
-					/* In this case we only filter out the element if the call expression and all of its arguments would 
-					be individually filtered out. */
-					if (!an_arg_is_not_filtered_out(MR, Rewrite, state1, *CE)) {
-						return;
+					bool function_decl_is_not_filtered_out = false;
+					auto function_decl1 = CE->getDirectCallee();
+					if (function_decl1) {
+						auto fnd_SR = cm1_adj_nice_source_range(function_decl1->getSourceRange(), state1, Rewrite);
+						function_decl_is_not_filtered_out = !filtered_out_by_location<options_t<converter_mode_t> >(MR, fnd_SR);
+					}
+					if (!function_decl_is_not_filtered_out) {
+						/* In this case we only filter out the element if the call expression and all of its arguments would 
+						be individually filtered out. */
+						if (!an_arg_is_not_filtered_out(MR, Rewrite, state1, *CE)) {
+							return;
+						}
+					} else {
+						int q = 5;
 					}
 				}
 
