@@ -11273,9 +11273,7 @@ namespace convc2validcpp {
 
 			bool rhs_needs_hard_cast_to_lhs = false;
 
-			if ((("void *" == RHS_ii_qtype_str) || ("const void *" == RHS_ii_qtype_str))
-				&& ("void *" != LHS_qtype_str) && ("const void *" != LHS_qtype_str)) {
-
+			if (is_void_star_or_const_void_star(RHS_ii_qtype) && (!(is_void_star_or_const_void_star(LHS_qtype)))) {
 				auto* CSCE = dyn_cast<const clang::CStyleCastExpr>(RHS_ii);
 				if (CSCE) {
 					auto SE = CSCE->getSubExpr();

@@ -6407,7 +6407,7 @@ namespace convm1 {
 							retval.m_action_species = "other_untranslatable_indirect_type";
 						} else {
 							l_changed_from_original = true;
-							if (is_a_function_parameter || (("native array" != indirection_state_ref.original_species()) && (!has_external_storage))) {
+							if (is_a_function_parameter || (("native array" != indirection_state_ref.original_species()) && ((!has_external_storage) || ("" == size_text)))) {
 								if ("FasterAndStricter" == ConvertMode) {
 									prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
 									suffix_str = "> ";
@@ -9572,11 +9572,7 @@ namespace convm1 {
 #endif /*!NDEBUG*/
 
 		auto is_void_star = [](clang::QualType const& qtype) {
-			std::string qtype_str = qtype.getAsString();
-			if (("void *" == qtype_str) || ("const void *" == qtype_str)) {
-				return true;
-			}
-			return false;
+			return is_void_star_or_const_void_star(qtype);
 		};
 		if (is_void_star(trgt_indirection.m_ddecl_cptr->getType()) || is_void_star(src_indirection.m_ddecl_cptr->getType())) {
 			/* `void *` elements do not provide the reliable information needed to infer constraints on other 
@@ -9687,11 +9683,7 @@ namespace convm1 {
 		auto src_indirection_level = src_indirection.m_indirection_level;
 
 		auto is_void_star = [](clang::QualType const& qtype) {
-			std::string qtype_str = qtype.getAsString();
-			if (("void *" == qtype_str) || ("const void *" == qtype_str)) {
-				return true;
-			}
-			return false;
+			return is_void_star_or_const_void_star(qtype);
 		};
 		if (is_void_star(trgt_indirection.m_ddecl_cptr->getType()) || is_void_star(src_indirection.m_ddecl_cptr->getType())) {
 			/* `void *` elements do not provide the reliable information needed to infer constraints on other 
@@ -9829,11 +9821,7 @@ namespace convm1 {
 			}
 
 			auto is_void_star = [](clang::QualType const& qtype) {
-				std::string qtype_str = qtype.getAsString();
-				if (("void *" == qtype_str) || ("const void *" == qtype_str)) {
-					return true;
-				}
-				return false;
+				return is_void_star_or_const_void_star(qtype);
 			};
 			if (is_void_star(lhs_indirection.m_ddecl_cptr->getType()) || is_void_star(rhs_indirection.m_ddecl_cptr->getType())) {
 				/* `void *` elements do not provide the reliable information needed to infer constraints on other 
@@ -10618,16 +10606,14 @@ namespace convm1 {
 								related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info = false;
 							}
 							if (related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info) {
-								std::string CSCE_qtype_str = CSCE_qtype.getAsString();
-								if (("void *" == CSCE_qtype_str) || ("const void *" == CSCE_qtype_str)) {
+								if (is_void_star_or_const_void_star(CSCE_qtype)) {
 									/* If the cast expression is a `void *`, it could be legitimate to cast to a pointer with more levels 
 									of indirection than the one apparent one thet `void *` does. */
 									related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info = false;
 								}
 							}
 							if (!related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info) {
-								std::string related_ddecl_qtype_str = res1.ddecl_cptr->getType().getAsString();
-								if (("void *" == related_ddecl_qtype_str) || ("const void *" == related_ddecl_qtype_str)) {
+								if (is_void_star_or_const_void_star(res1.ddecl_cptr->getType())) {
 									/* While the fact that the related ddecl is a `void *` prevents us from concluding that its degree of 
 									indirection is mismatched with that of our cast expression, it also means that meaningful information 
 									about the original type of the value it holds is not available. */
@@ -10665,14 +10651,12 @@ namespace convm1 {
 								related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info = false;
 							}
 							if (related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info) {
-								std::string CSCE_qtype_str = CSCE_qtype.getAsString();
-								if (("void *" == CSCE_qtype_str) || ("const void *" == CSCE_qtype_str)) {
+								if (is_void_star_or_const_void_star(CSCE_qtype)) {
 									related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info = false;
 								}
 							}
 							if (!related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info) {
-								std::string related_ddecl_qtype_str = containing_VD->getType().getAsString();
-								if (("void *" == related_ddecl_qtype_str) || ("const void *" == related_ddecl_qtype_str)) {
+								if (is_void_star_or_const_void_star(containing_VD->getType())) {
 									/* While the fact that the related ddecl is a `void *` prevents us from concluding that its degree of 
 									indirection is mismatched with that of our cast expression, it also means that meaningful information 
 									about the original type of the value it holds is not available. */
@@ -11898,7 +11882,7 @@ namespace convm1 {
 		auto num_params = function_decl->getNumParams();
 		if (function_decl && (1 <= num_params)) {
 			std::string return_type_str = definition_qtype(function_decl->getReturnType()).getAsString();
-			bool return_type_is_void_star = ("void *" == return_type_str);
+			bool return_type_is_void_star = is_void_star_or_const_void_star(definition_qtype(function_decl->getReturnType()));
 			const std::string function_name = function_decl->getNameAsString();
 
 			/* Preliminary observations seem to confirm the net benefits of this one-element cache. But 
@@ -12739,8 +12723,7 @@ namespace convm1 {
 			{
 				const Expr* E2 = MR.Nodes.getNodeAs<clang::Expr>("b");
 				if (E2) {
-					auto qtype_str = E2->getType().getAsString();
-					if ("void *" == qtype_str) {
+					if (is_void_star_or_const_void_star(E2->getType())) {
 						/* The expression seems to be (something like) "(void*)0". We'll replace the
 						whole expression (not just the "0" part). */
 						E = E2;
@@ -14102,14 +14085,14 @@ namespace convm1 {
 								if (arg1_E) {
 									auto* const arg1_ii_E = IgnoreParenImpNoopCasts(arg1_E, *(MR.Context));
 									const auto arg1_ii_qtype = arg1_ii_E->getType();
-									const auto arg1_ii_qtype_str = arg1_ii_qtype.getAsString();
-									if (("void *" == arg1_ii_qtype_str) || ("const void *" == arg1_ii_qtype_str)) {
+									IF_DEBUG(const auto arg1_ii_qtype_str = arg1_ii_qtype.getAsString();)
+									if (is_void_star_or_const_void_star(arg1_ii_qtype)) {
 										auto* const arg2_E = CE->getArg(1);
 										if (arg2_E) {
 											auto* const arg2_ii_E = IgnoreParenImpNoopCasts(arg2_E, *(MR.Context));
 											const auto arg2_ii_qtype = arg2_ii_E->getType();
-											const auto arg2_ii_qtype_str = arg2_ii_qtype.getAsString();
-											if (("void *" == arg2_ii_qtype_str) || ("const void *" == arg2_ii_qtype_str)) {
+											IF_DEBUG(const auto arg2_ii_qtype_str = arg2_ii_qtype.getAsString();)
+											if (is_void_star_or_const_void_star(arg2_ii_qtype)) {
 												/* So library functions like memcmp() and memcpy() are generally expected to be replaced with safe 
 												implementations. But the safe implementations don't support the case when the pointer arguments 
 												passed are both `void *`. In such case, we don't expect the (unsafe) function to be replaced. */
@@ -15038,14 +15021,14 @@ namespace convm1 {
 										if (arg1_E) {
 											auto* const arg1_ii_E = IgnoreParenImpNoopCasts(arg1_E, Ctx);
 											const auto arg1_ii_qtype = arg1_ii_E->getType();
-											const auto arg1_ii_qtype_str = arg1_ii_qtype.getAsString();
-											if (("void *" == arg1_ii_qtype_str) || ("const void *" == arg1_ii_qtype_str)) {
+											IF_DEBUG(const auto arg1_ii_qtype_str = arg1_ii_qtype.getAsString();)
+											if (is_void_star_or_const_void_star(arg1_ii_qtype)) {
 												auto* const arg2_E = CE->getArg(1);
 												if (arg2_E) {
 													auto* const arg2_ii_E = IgnoreParenImpNoopCasts(arg2_E, Ctx);
 													const auto arg2_ii_qtype = arg2_ii_E->getType();
-													const auto arg2_ii_qtype_str = arg2_ii_qtype.getAsString();
-													if (("void *" == arg2_ii_qtype_str) || ("const void *" == arg2_ii_qtype_str)) {
+													IF_DEBUG(const auto arg2_ii_qtype_str = arg2_ii_qtype.getAsString();)
+													if (is_void_star_or_const_void_star(arg2_ii_qtype)) {
 														/* So library functions like memcmp() and memcpy() are generally expected to be replaced with safe 
 														implementations. But the safe implementations don't support the case when the pointer arguments 
 														passed are both `void *`. In such case, we don't expect the (unsafe) function to be replaced. */
@@ -15994,8 +15977,8 @@ namespace convm1 {
 					auto cast_operation_SR = write_once_source_range(cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite));
 
 					if (precasted_expr_qtype->isPointerType()) {
-						const std::string precasted_expr_qtype_str = precasted_expr_qtype.getAsString();
-						if (("const void *" == precasted_expr_qtype_str) || ("void *" == precasted_expr_qtype_str)) {
+						IF_DEBUG(const std::string precasted_expr_qtype_str = precasted_expr_qtype.getAsString();)
+						if (is_void_star_or_const_void_star(precasted_expr_qtype)) {
 							/* At this point, `void *` (or rather, its replacement) doesn't preserve "xscope" eligibility information, 
 							so we'll mark any object that is assigned a value from a `void *` as ineligible for "xscope" status. */
 							if (lhs_res2.ddecl_conversion_state_ptr) {
@@ -16425,9 +16408,8 @@ namespace convm1 {
 								}
 							}
 
-							auto RHS_ii_qtype_str = RHS_ii->getType().getAsString();
-							if ((("void *" == RHS_ii_qtype_str) || ("const void *" == RHS_ii_qtype_str)) 
-								&& !(("void *" == RHS_qtype_str) || ("const void *" == RHS_qtype_str))) {
+							IF_DEBUG(auto RHS_ii_qtype_str = RHS_ii->getType().getAsString();)
+							if (is_void_star_or_const_void_star(RHS_ii->getType()) && !is_void_star_or_const_void_star(RHS_qtype)) {
 								/* RHS expression seems to consist of an ("non-modifiable") void pointer being converted to something 
 								else. (Presumably some non-void pointer.) Being non-modifiable, presumably we're going to wrap it in 
 								a function call that (unsafely) creates a "safe" iterator interface wrapping for the raw pointer. But 
@@ -16697,9 +16679,9 @@ namespace convm1 {
 						auto lhs_ddecl_indirection = CDDeclIndirection(lhs_ddecl_ref, lhs_res2.indirection_level);
 
 						auto LHS_qtype = LHS ? LHS->getType() : VLD->getType();
-						auto LHS_qtype_str = LHS_qtype.getAsString();
+						IF_DEBUG(auto LHS_qtype_str = LHS_qtype.getAsString();)
 						bool is_initialization_of_native_array = (bool(VLD) && VLD->getType()->isArrayType());
-						if (!(("void *" == LHS_qtype_str) || ("const void *" == LHS_qtype_str) || is_initialization_of_native_array)) {
+						if (!(is_void_star_or_const_void_star(LHS_qtype) || is_initialization_of_native_array)) {
 							/* Here we're establishing and "enforcing" the constraint that the lhs value must
 							* be of an (array) type that can be assigned the rhs string literal. */
 							if (!lhs_indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
@@ -17223,8 +17205,8 @@ namespace convm1 {
 									auto& arg_EX_ii_ecs_ref = state1.get_expr_conversion_state_ref(*arg_EX_ii, Rewrite);
 
 									std::shared_ptr<CExprTextModifier> shptr1;
-									auto arg_EX_ii_qtype_str = arg_EX_ii_qtype.getAsString();
-									if (true || (("void *" != arg_EX_ii_qtype_str) && ("const void *" != arg_EX_ii_qtype_str))) {
+									IF_DEBUG(auto arg_EX_ii_qtype_str = arg_EX_ii_qtype.getAsString();)
+									if (true || (!is_void_star_or_const_void_star(arg_EX_ii_qtype))) {
 
 										if (is_pointer_to_pointer) {
 											if ((!string_begins_with(function_qname, "mse::")) && (!string_begins_with(arg_function_qname_if_any, "mse::"))) {
@@ -17256,8 +17238,8 @@ namespace convm1 {
 									} else {
 										/* mse::us::lh::make_raw_pointer_from() now supoorts making a `void*` from an 
 										mse::void_star_replacement, so this branch shouldn't be needed anymore. Right? */
-										auto param_VD_qtype_str = param_VD_qtype.getAsString();
-										if (("void *" != param_VD_qtype_str) && ("const void *" != param_VD_qtype_str)) {
+										IF_DEBUG(auto param_VD_qtype_str = param_VD_qtype.getAsString();)
+										if (!is_void_star_or_const_void_star(param_VD_qtype)) {
 											shptr1 = std::make_shared<CUnsafeCastExprTextModifier>(param_VD_qtype);
 											for  (auto& expr_text_modifier_shptr_ref : arg_EX_ii_ecs_ref.m_expr_text_modifier_stack) {
 												if ("unsafe cast" == expr_text_modifier_shptr_ref->species_str()) {
@@ -17338,8 +17320,8 @@ namespace convm1 {
 
 										if (ConvertToSCPP) {
 											std::shared_ptr<CExprTextModifier> shptr1;
-											auto arg_EX_qtype_str = arg_EX_qtype.getAsString();
-											if (("void *" != arg_EX_qtype_str) && ("const void *" != arg_EX_qtype_str)) {
+											IF_DEBUG(auto arg_EX_qtype_str = arg_EX_qtype.getAsString();)
+											if (!is_void_star_or_const_void_star(arg_EX_qtype)) {
 												if ((!string_begins_with(function_qname, "mse::")) && (!string_begins_with(arg_function_qname_if_any, "mse::"))) {
 													shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
 													for  (auto& expr_text_modifier_shptr_ref : arg_ecs_ref.m_expr_text_modifier_stack) {

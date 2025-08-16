@@ -1655,6 +1655,26 @@ inline bool is_FILE_star_or_const_FILE_star(const clang::QualType& qtype) {
 	return retval;
 }
 
+inline bool is_void_or_const_void(clang::QualType qtype) {
+	bool retval = false;
+	qtype = get_cannonical_type(qtype);
+	static const std::string void_str = "void";
+	static const std::string const_void_str = "const void";
+	std::string qtype_str = qtype.getAsString();
+	if ((void_str == qtype_str) || (const_void_str == qtype_str)) {
+		retval = true;
+	}
+	return retval;
+}
+inline bool is_void_star_or_const_void_star(const clang::QualType& qtype) {
+	bool retval = false;
+	if (qtype->isPointerType()) {
+		const auto direct_type = qtype->getPointeeType();
+		retval = is_void_or_const_void(direct_type);
+	}
+	return retval;
+}
+
 #if MU_UTIL_LLVM_MAJOR <= 12
 #define SCPP_IMPL_DYNTYPEDNODE clang::ast_type_traits::DynTypedNode
 #elif MU_UTIL_LLVM_MAJOR > 12
