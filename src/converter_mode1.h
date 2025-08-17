@@ -10737,14 +10737,30 @@ namespace convm1 {
 				std::string new_cast_suffix;
 				bool preconversion_expression_is_void_star = false;
 				bool converted_expression_is_void_star = false;
+				bool apparent_const_correctness_violation = false;
+				bool seems_to_be_a_benign_cast = (CSCE->getType() == IgnoreParenImpCasts(CSCE->getSubExpr())->getType());
 				if (CSCE->getType()->isPointerType() && CSCE->getSubExpr()->getType()->isPointerType()) {
-					const std::string og_converted_pointee_qtype_str = CSCE->getType()->getPointeeType().getAsString();
-					const std::string og_preconversion_pointee_qtype_str = CSCE->getSubExpr()->getType()->getPointeeType().getAsString();
-					preconversion_expression_is_void_star = ("void" == og_preconversion_pointee_qtype_str) || ("const void" == og_preconversion_pointee_qtype_str);
-					converted_expression_is_void_star = ("void" == og_converted_pointee_qtype_str) || ("const void" == og_converted_pointee_qtype_str);
+					const auto og_converted_pointee_qtype = CSCE->getType()->getPointeeType();
+					const auto og_preconversion_pointee_qtype = IgnoreParenImpCasts(CSCE->getSubExpr())->getType()->getPointeeType();
+					const std::string og_converted_pointee_qtype_str = og_converted_pointee_qtype.getAsString();
+					const std::string og_preconversion_pointee_qtype_str = og_preconversion_pointee_qtype.getAsString();
+					if ((!og_converted_pointee_qtype.isConstQualified()) && og_preconversion_pointee_qtype.isConstQualified()) {
+						apparent_const_correctness_violation = true;
+					} else if (og_converted_pointee_qtype == og_preconversion_pointee_qtype.withConst()) {
+						seems_to_be_a_benign_cast |= true;
+					}
+
+					bool preconversion_expression_is_const_void_star = ("const void" == og_preconversion_pointee_qtype_str);
+					bool preconversion_expression_is_nonconst_void_star = ("void" == og_preconversion_pointee_qtype_str);
+					preconversion_expression_is_void_star = preconversion_expression_is_const_void_star || preconversion_expression_is_nonconst_void_star;
+					bool converted_expression_is_const_void_star = ("const void" == og_converted_pointee_qtype_str);
+					bool converted_expression_is_nonconst_void_star = ("void" == og_converted_pointee_qtype_str);
+					converted_expression_is_void_star = converted_expression_is_const_void_star || converted_expression_is_nonconst_void_star;
 				}
 				if (new_cast_prefix.empty()) {
-					if (preconversion_expression_is_void_star || converted_expression_is_void_star) {
+					if (((preconversion_expression_is_void_star || converted_expression_is_void_star) && (!apparent_const_correctness_violation))
+						|| seems_to_be_a_benign_cast) {
+
 						if ("Dual" == ConvertMode) {
 							new_cast_prefix = "MSE_LH_CAST("
 								+ replacement_qtype_str + ", ";
@@ -13524,7 +13540,7 @@ namespace convm1 {
 											auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_E_ii);
 											if (CSCE) {
 												auto precasted_expr_as_written_ptr = CSCE->getSubExprAsWritten();
-												auto precasted_expr_ptr = CSCE->getSubExpr();
+												auto precasted_expr_ptr = IgnoreParenImpCasts(CSCE->getSubExpr());
 												assert(precasted_expr_ptr);
 												if (precasted_expr_as_written_ptr != precasted_expr_ptr) {
 													int q = 5;
@@ -15722,10 +15738,10 @@ namespace convm1 {
 				bool preconversion_expression_is_void_star = false;
 				bool converted_expression_is_void_star = false;
 				bool apparent_const_correctness_violation = false;
-				bool seems_to_be_a_benign_cast = (CSCE->getType() == CSCE->getSubExpr()->getType());
-				if (CSCE->getType()->isPointerType() && CSCE->getSubExpr()->getType()->isPointerType()) {
+				bool seems_to_be_a_benign_cast = (CSCE->getType() == IgnoreParenImpCasts(CSCE->getSubExpr())->getType());
+				if (CSCE->getType()->isPointerType() && IgnoreParenImpCasts(CSCE->getSubExpr())->getType()->isPointerType()) {
 					const auto og_converted_pointee_qtype = CSCE->getType()->getPointeeType();
-					const auto og_preconversion_pointee_qtype = CSCE->getSubExpr()->getType()->getPointeeType();
+					const auto og_preconversion_pointee_qtype = IgnoreParenImpCasts(CSCE->getSubExpr())->getType()->getPointeeType();
 					const std::string og_converted_pointee_qtype_str = og_converted_pointee_qtype.getAsString();
 					const std::string og_preconversion_pointee_qtype_str = og_preconversion_pointee_qtype.getAsString();
 					if ((!og_converted_pointee_qtype.isConstQualified()) && og_preconversion_pointee_qtype.isConstQualified()) {
