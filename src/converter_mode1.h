@@ -2324,8 +2324,8 @@ namespace convm1 {
 	public:
 		CUnsafeMakeTemporaryArrayOfRawPointersFromExprTextModifier() :
 			CWrapExprTextModifier(("Dual" == ConvertMode)
-				? "MSE_LH_UNSAFE_MAKE_TEMPORARY_ARRAY_OF_RAW_POINTERS_FROM("
-				: "mse::us::lh::make_temporary_array_of_raw_pointers_from("
+				? "MSE_LH_UNSAFE_MAKE_TEMPORARY_RAW_POINTER_TO_POINTER_PROXY_FROM("
+				: "mse::us::lh::make_temporary_raw_pointer_to_pointer_proxy_from("
 				, ")") {}
 		virtual ~CUnsafeMakeTemporaryArrayOfRawPointersFromExprTextModifier() {}
 		virtual std::string species_str() const {
@@ -4416,11 +4416,19 @@ namespace convm1 {
 	}
 
 	static clang::SourceLocation get_previous_non_whitespace_SL(clang::SourceLocation SL, Rewriter &Rewrite) {
+		auto& SM = Rewrite.getSourceMgr();
+		const auto FID1 = SM.getFileID(SL);
 		int offset2 = 0;
 		bool exit_flag = false;
 		while (!exit_flag) {
 			offset2 -= 1;
-			clang::SourceRange SR2 { SL.getLocWithOffset(offset2), SL.getLocWithOffset(offset2) };
+			auto SL2 = SL.getLocWithOffset(offset2);
+			const auto FID2 = SM.getFileID(SL2);
+			if ((!SL2.isValid()) || (!FID2.isValid()) || (FID1 != FID2)) {
+				exit_flag = true;
+				break;
+			}
+			clang::SourceRange SR2 { SL2, SL2 };
 			auto text2 = Rewrite.getRewrittenText(SR2);
 			for (const auto& ch : text2) {
 				if (!std::isspace(ch)) {
@@ -4433,11 +4441,19 @@ namespace convm1 {
 	}
 
 	static clang::SourceLocation get_next_non_whitespace_SL(clang::SourceLocation SL, Rewriter &Rewrite) {
+		auto& SM = Rewrite.getSourceMgr();
+		const auto FID1 = SM.getFileID(SL);
 		int offset2 = 0;
 		bool exit_flag = false;
 		while (!exit_flag) {
 			offset2 += 1;
-			clang::SourceRange SR2 { SL.getLocWithOffset(offset2), SL.getLocWithOffset(offset2) };
+			const auto SL2 = SL.getLocWithOffset(offset2);
+			const auto FID2 = SM.getFileID(SL2);
+			if ((!SL2.isValid()) || (!FID2.isValid()) || (FID1 != FID2)) {
+				exit_flag = true;
+				break;
+			}
+			clang::SourceRange SR2 { SL2, SL2 };
 			auto text2 = Rewrite.getRewrittenText(SR2);
 			for (const auto& ch : text2) {
 				if (!std::isspace(ch)) {
@@ -15953,6 +15969,17 @@ namespace convm1 {
 				if (rhs_res2.ddecl_conversion_state_ptr) {
 					rhs_res2.ddecl_conversion_state_ptr->m_maybe_is_non_modifiable = RHS_decl_is_non_modifiable;
 				}
+			}
+
+			if (lhs_is_an_indirect_type && (EIsAnInitialization::No == is_an_initialization) && lhs_res2.ddecl_conversion_state_ptr) {
+				auto& ddcs = *(lhs_res2.ddecl_conversion_state_ptr);
+				if (ddcs.m_indirection_state_stack.size() > lhs_res2.indirection_level) {
+					auto& indirection_state_ref = ddcs.m_indirection_state_stack.at(lhs_res2.indirection_level);
+					/* Currently, the indirect scope types we might consider converting to don't support assignemnt 
+					(outsied of initialization). */
+					indirection_state_ref.set_xscope_eligibility(false);
+				}
+				int q = 5;
 			}
 
 			auto rhsii_EX = RHS->IgnoreParenImpCasts();
