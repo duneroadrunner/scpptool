@@ -2489,6 +2489,21 @@ namespace convm1 {
 		virtual void update_current_text(std::optional<CExprTextInfoContext> maybe_context = {}) {
 			auto new_maybe_context = maybe_context.has_value() ? maybe_context : maybe_default_context();
 
+#ifndef NDEBUG
+			if (maybe_context.has_value() && maybe_context.value().m_Rewrite_ptr && maybe_context.value().m_state1_ptr) {
+				auto& Rewrite = *(maybe_context.value().m_Rewrite_ptr);
+				auto& state1 = *(maybe_context.value().m_state1_ptr);
+				auto SR = cm1_adj_nice_source_range((*m_expr_cptr).getSourceRange(), state1, Rewrite);
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+					int q = 5;
+				}
+			}
+			if ("ossl_check_const_GENERAL_NAME_sk_type(sk)" == m_original_source_text_str) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
+
 			if (m_child_text_infos.size() + 1 == m_non_child_dependent_text_fragments.size()) {
 				std::string working_text;
 				for (size_t i = 0; i < m_child_text_infos.size(); i += 1) {
@@ -3470,7 +3485,14 @@ namespace convm1 {
 		is true, any existing state will be unconditionally overwitten with a newly constructed one. */
 		template<typename TExprConversionState = CExprConversionState, typename TExpr, typename... TArgs>
 		TExprConversionState& get_expr_conversion_state_ref_helper1(bool overwrite, TExpr const& expr, Rewriter &Rewrite, TArgs&&... args) {
-			auto* EX = &expr;
+
+			using TExprCPtr = std::conditional_t<std::is_same_v<CExprConversionState, TExprConversionState>, clang::Expr const*, TExpr const*>;
+			TExprCPtr EX = &expr;
+
+			if constexpr (std::is_same_v<clang::Expr const*, TExprCPtr>) {
+				EX = IgnoreImplicit(EX);
+			}
+
 			auto& state1 = (*this);
 
 #ifndef NDEBUG
@@ -3532,7 +3554,14 @@ namespace convm1 {
 		template<typename TExprConversionState = CExprConversionState, typename TExpr>
 		std::optional<TExprConversionState*> get_pointer_to_preexisting_expr_conversion_state_if_available(TExpr const& expr, Rewriter* Rewrite_ptr = nullptr) {
 			std::optional<TExprConversionState*> retval;
-			auto* EX = &expr;
+
+			using TExprCPtr = std::conditional_t<std::is_same_v<CExprConversionState, TExprConversionState>, clang::Expr const*, TExpr const*>;
+			TExprCPtr EX = &expr;
+
+			if constexpr (std::is_same_v<clang::Expr const*, TExprCPtr>) {
+				EX = IgnoreImplicit(EX);
+			}
+
 			auto& state1 = (*this);
 
 #ifndef NDEBUG
@@ -3784,6 +3813,10 @@ namespace convm1 {
 #endif /*!NDEBUG*/
 
 		auto iter = m_state1.m_expr_conversion_state_map.find(m_expr_cptr);
+		if (m_state1.m_expr_conversion_state_map.end() == iter) {
+			auto E_ii = IgnoreImplicit(m_expr_cptr);
+			iter = m_state1.m_expr_conversion_state_map.find(E_ii);
+		}
 		if (m_state1.m_expr_conversion_state_map.end() != iter) {
 			return (*iter).second->current_text(maybe_context);
 		}
@@ -3920,9 +3953,9 @@ namespace convm1 {
 			for (auto child_iter : children_iters) {
 				if (child_iter) {
 					static_assert(std::is_convertible<decltype(*child_iter), clang::Stmt const&>::value, "");
-					auto E = dyn_cast<const clang::Expr>(&(*child_iter));
+					auto E = IgnoreImplicit(dyn_cast<const clang::Expr>(&(*child_iter)));
 					if (E) {
-						IF_DEBUG(std::string qtype_str = E->getType().getAsString();)
+						IF_DEBUG(std::string E_qtype_str = E->getType().getAsString();)
 						struct CExprBasicInfo {
 							CExprBasicInfo(const clang::Expr* E, COrderedSourceRange OSR) : m_E(E), m_OSR(OSR) {}
 							const clang::Expr* m_E;
@@ -3976,9 +4009,9 @@ namespace convm1 {
 										for (auto child_iter : children_iters) {
 											if (child_iter) {
 												static_assert(std::is_convertible<decltype(*child_iter), clang::Stmt const&>::value, "");
-												auto l_E = dyn_cast<const clang::Expr>(&(*child_iter));
+												auto l_E = IgnoreImplicit(dyn_cast<const clang::Expr>(&(*child_iter)));
 												if (l_E) {
-													IF_DEBUG(std::string qtype_str = l_E->getType().getAsString();)
+													IF_DEBUG(std::string l_E_qtype_str = l_E->getType().getAsString();)
 													auto rawSR = l_E->getSourceRange();
 													bool b3 = rawSR.getBegin().isMacroID();
 													bool b4 = rawSR.getEnd().isMacroID();
@@ -4086,7 +4119,7 @@ namespace convm1 {
 							}
 							for (auto& visible_descendant : l_descendants_contained_in_range) {
 								auto l_E = visible_descendant.m_E;
-								IF_DEBUG(std::string qtype_str = l_E->getType().getAsString();)
+								IF_DEBUG(std::string l_E_qtype_str = l_E->getType().getAsString();)
 								auto l_OSR = visible_descendant.m_OSR;
 
 								std::string child_original_source_text_str;
@@ -4190,6 +4223,8 @@ namespace convm1 {
 			auto parent_E = NonImplicitParentOfType<clang::Expr>(m_expr_cptr, *(m_state1.m_ast_context_ptr));
 			auto E1 = parent_E;
 			while (E1) {
+				IF_DEBUG(auto E1_qtype_str = E1->getType().getAsString();)
+
 				auto excs_iter = m_state1.m_expr_conversion_state_map.find(E1);
 				if (m_state1.m_expr_conversion_state_map.end() != excs_iter) {
 					has_ancestor_with_conversion_state = true;
@@ -7684,7 +7719,7 @@ namespace convm1 {
 
 			if (!ddcs_ref.m_original_initialization_has_been_noted) {
 				if (VD->hasInit()) {
-					auto pInitExpr = VD->getInit();
+					auto pInitExpr = IgnoreImplicit(VD->getInit());
 					if (pInitExpr) {
 						auto init_expr_source_range = state1_ptr
 						? cm1_adj_nice_source_range(pInitExpr->getSourceRange(), *state1_ptr, Rewrite)
@@ -7823,7 +7858,7 @@ namespace convm1 {
 
 				if (!ddcs_ref.m_original_initialization_has_been_noted) {
 					if (FD->hasInClassInitializer()) {
-						auto pInitExpr = FD->getInClassInitializer();
+						auto pInitExpr = IgnoreImplicit(FD->getInClassInitializer());
 						if (pInitExpr) {
 							auto init_expr_source_range = state1_ptr
 								? cm1_adj_nice_source_range(pInitExpr->getSourceRange(), *state1_ptr, Rewrite)
@@ -7855,7 +7890,7 @@ namespace convm1 {
 						}
 					} else {
 						if (qtype.getTypePtr()->isScalarType()) {
-							const auto* init_EX = FD->getInClassInitializer();
+							const auto* init_EX = IgnoreImplicit(FD->getInClassInitializer());
 							if (!init_EX) {
 								const auto parent_RD = FD->getParent();
 
@@ -8049,9 +8084,9 @@ namespace convm1 {
 
 							const clang::Expr* init_EX = nullptr;
 							if (VD) {
-								init_EX = VD->getInit();
+								init_EX = IgnoreImplicit(VD->getInit());
 							} else if (FD) {
-								init_EX = FD->getInClassInitializer();
+								init_EX = IgnoreImplicit(FD->getInClassInitializer());
 							}
 
 							if (init_EX) {
@@ -8213,9 +8248,9 @@ namespace convm1 {
 
 					const clang::Expr* init_EX = nullptr;
 					if (VD) {
-						init_EX = VD->getInit();
+						init_EX = IgnoreImplicit(VD->getInit());
 					} else if (FD) {
-						init_EX = FD->getInClassInitializer();
+						init_EX = IgnoreImplicit(FD->getInClassInitializer());
 					}
 
 					if (init_EX) {
@@ -9024,7 +9059,7 @@ namespace convm1 {
 								if (!(PVD2->getType()->getPointeeType().isConstQualified())) {
 									/* This parameter is of non-const reference type, so it's
 									initialization value (if any) must be of the same type. */
-									auto init_EX2 = PVD2->getInit();
+									auto init_EX2 = IgnoreImplicit(PVD2->getInit());
 									if (init_EX2) {
 										auto DRE2 = dyn_cast<const clang::DeclRefExpr>(init_EX2->IgnoreParenImpCasts());
 										if (DRE2) {
@@ -9074,7 +9109,7 @@ namespace convm1 {
 				if (!(VD->getType()->getPointeeType().isConstQualified())) {
 					/* This variable is of non-const reference type, so it's
 					initialization value (if any) must be of the same type. */
-					auto init_EX2 = VD->getInit();
+					auto init_EX2 = IgnoreImplicit(VD->getInit());
 					if (init_EX2) {
 						auto DRE2 = dyn_cast<const clang::DeclRefExpr>(init_EX2->IgnoreParenImpCasts());
 						if (DRE2) {
@@ -10182,11 +10217,11 @@ namespace convm1 {
 		if (VD || FD) {
 			if (VD) {
 				if (VD->hasInit()) {
-					pInitExpr = VD->getInit();
+					pInitExpr = IgnoreImplicit(VD->getInit());
 				}
 			} else {
 				if (FD->hasInClassInitializer()) {
-					pInitExpr = FD->getInClassInitializer();
+					pInitExpr = IgnoreImplicit(FD->getInClassInitializer());
 				}
 			}
 		}
@@ -10220,7 +10255,7 @@ namespace convm1 {
 				initializer_info_str.replace(void_pos, void_str.length(), current_direct_qtype_str);
 			}
 
-			clang::Expr const* pInitExpr = get_init_expr_if_any(DD);
+			clang::Expr const* pInitExpr = IgnoreImplicit(get_init_expr_if_any(DD));
 			if (pInitExpr) {
 				ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(pInitExpr, Rewrite, state1));
 
@@ -10687,7 +10722,7 @@ namespace convm1 {
 
 									auto VD = dyn_cast<const clang::VarDecl>(containing_VD);
 									if (VD && VD->hasInit()) {
-										const auto init_E = VD->getInit();
+										const auto init_E = IgnoreImplicit(VD->getInit());
 										assert(init_E);
 										/* So this cast expression has seems to have an ancestor variable declaration that has an initialization 
 										expression. So that cast expression that we are generating the replacement code for is likely a 
@@ -11766,9 +11801,8 @@ namespace convm1 {
 						}
 					}
 
-					clang::Expr const* pInitExpr = get_init_expr_if_any(m_var_DD);
-					const auto pInitExpr_ii = state1.m_ast_context_ptr ? IgnoreParenImpNoopCasts(pInitExpr, *(state1.m_ast_context_ptr)) : IgnoreParenImpCasts(pInitExpr);
-					if (pInitExpr_ii == CO) {
+					clang::Expr const* pInitExpr = IgnoreImplicit(get_init_expr_if_any(m_var_DD));
+					if (pInitExpr == CO) {
 						/* m_var_DD's initalization expression is this conditional operator. */
 						if (pInitExpr && (!ddcs_ref.m_maybe_initialization_expr_text_info.has_value())) {
 							ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(pInitExpr, m_Rewrite, state1));
@@ -12418,7 +12452,7 @@ namespace convm1 {
 											static const std::string void_str = "void";
 											auto void_pos = (*rhs_res2.ddecl_conversion_state_ptr).current_initialization_expr_str(Rewrite, &m_state1, CExprTextInfoContext{ SR, &Rewrite, &m_state1 }).find(void_str);
 											if (std::string::npos != void_pos) {
-												clang::Expr const* pInitExpr = get_init_expr_if_any(VD);
+												clang::Expr const* pInitExpr = IgnoreImplicit(get_init_expr_if_any(VD));
 												if (pInitExpr) {
 													if (!(ddcs_ref.m_maybe_initialization_expr_text_info.has_value())) {
 														ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(pInitExpr, Rewrite, m_state1));
@@ -12491,7 +12525,7 @@ namespace convm1 {
 						}
 						if (VD) {
 							if (VD->hasInit()) {
-								auto pInitExpr = VD->getInit();
+								auto pInitExpr = IgnoreImplicit(VD->getInit());
 								if (pInitExpr) {
 									auto init_expr_source_range = cm1_adj_nice_source_range(pInitExpr->getSourceRange(), m_state1, Rewrite);
 
@@ -16559,9 +16593,11 @@ namespace convm1 {
 							if (num_int_items <= num_fields) {
 								size_t init_item_index = 0;
 								for (auto iter = field_range.begin(); (field_range.end() != iter) && (num_int_items > init_item_index); ++iter) {
-									auto init_item_E = ILE->getInit(init_item_index);
+									clang::Expr const* init_item_E = nullptr;
+									init_item_E = ILE->getInit(init_item_index);
 									auto FD = *iter;
 									if (FD && init_item_E) {
+										IF_DEBUG(std::string init_item_qtype_str = init_item_E->getType().getAsString();)
 										/* recursion */
 										MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_item_E/*RHS*/, FD/*VLD*/, is_an_initialization);
 									} else {
@@ -18625,13 +18661,13 @@ namespace convm1 {
 						sure the initialization expression is processed.   */
 
 						if (VD) {
-							init_EX = VD->getInit();
+							init_EX = IgnoreImplicit(VD->getInit());
 						} else if (FD) {
-							init_EX = FD->getInClassInitializer();
+							init_EX = IgnoreImplicit(FD->getInClassInitializer());
 						}
 						if (init_EX) {
-							auto init_EX_ii = IgnoreParenImpNoopCasts(init_EX, *(MR.Context));
-							auto SR = cm1_adj_nice_source_range(init_EX_ii->getSourceRange(), state1, Rewrite);
+							auto init_EX_iinoop = IgnoreParenImpNoopCasts(init_EX, *(MR.Context));
+							auto SR = cm1_adj_nice_source_range(init_EX_iinoop->getSourceRange(), state1, Rewrite);
 
 							RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
@@ -18647,11 +18683,11 @@ namespace convm1 {
 							}
 #endif /*!NDEBUG*/
 
-							auto suppress_check_flag = state1.m_suppress_check_region_set.contains(init_EX_ii, Rewrite, *(MR.Context));
+							auto suppress_check_flag = state1.m_suppress_check_region_set.contains(init_EX_iinoop, Rewrite, *(MR.Context));
 							if (suppress_check_flag) {
 								return;
 							}
-							if (filtered_out_by_location<options_t<converter_mode_t> >(*(MR.Context), init_EX_ii->getSourceRange())) {
+							if (filtered_out_by_location<options_t<converter_mode_t> >(*(MR.Context), init_EX_iinoop->getSourceRange())) {
 								return;
 							}
 							MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_EX/*RHS*/, DD, MCSSSAssignment::EIsAnInitialization::Yes);
@@ -18778,7 +18814,7 @@ namespace convm1 {
 						}
 
 						if (qtype.getTypePtr()->isScalarType()) {
-							init_EX = VD->getInit();
+							init_EX = IgnoreImplicit(VD->getInit());
 							if (!init_EX) {
 								auto PVD = dyn_cast<const ParmVarDecl>(VD);
 								if (!PVD) {
@@ -18819,7 +18855,7 @@ namespace convm1 {
 							}
 						}
 
-						init_EX = VD->getInit();
+						init_EX = IgnoreImplicit(VD->getInit());
 						if (init_EX) {
 
 							auto individual_declarator_decls = IndividualDeclaratorDecls(DD);
@@ -18977,7 +19013,7 @@ namespace convm1 {
 						if (false && (qtype.getTypePtr()->isPointerType() || qtype.getTypePtr()->isReferenceType())) {
 							/* These are handled in MCSSSRecordDecl2. */
 						} else if (qtype.getTypePtr()->isScalarType()) {
-							init_EX = FD->getInClassInitializer();
+							init_EX = IgnoreImplicit(FD->getInClassInitializer());
 							if (!init_EX) {
 								const auto parent_RD = FD->getParent();
 
@@ -19109,11 +19145,16 @@ namespace convm1 {
 					}
 
 					if (init_EX) {
-						auto init_EX_ii = IgnoreParenImpNoopCasts(init_EX, *(MR.Context));
-						auto ILE = dyn_cast<const clang::InitListExpr>(init_EX_ii);
+						/* We want to try to ensure that the init expression's conversion state is established as early as 
+						possible and before any child expression's conversion state as the conversion state constructor 
+						relies on any relevant ancestor conversion states having been already established. */
+						auto& ecs_ref = state1.get_expr_conversion_state_ref(*init_EX, Rewrite);
+
+						auto init_EX_iinoop = IgnoreParenImpNoopCasts(init_EX, *(MR.Context));
+						auto ILE = dyn_cast<const clang::InitListExpr>(init_EX_iinoop);
 						if (ILE) {
 							/* A (native) array with initializer list (including aggregate initialization). */
-							MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_EX_ii/*RHS*/, DD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
+							MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_EX_iinoop/*RHS*/, DD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
 						}
 					}
 
@@ -19639,6 +19680,17 @@ namespace convm1 {
 					}
 				}
 
+				auto ILE = dyn_cast<const clang::InitListExpr>(E);
+				if (ILE) {
+					/* We've observed cases where if the parent of an expression is a (nested) clang::InitListExpr, 
+					then trying to determine the parent in our standard way yields a different parent expression than 
+					we were expecting. But we only use that determination of the parent to ensure that an "expression 
+					conversion state" has been established for the parent. Given that we've observed that mechanism 
+					to be unreliable, as a work-around we'll just make sure that every clang::InitListExpr has an 
+					"expression conversion state". */
+					auto& ecs_ref = state1.get_expr_conversion_state_ref(*E, Rewrite);
+				}
+
 				auto CO = dyn_cast<const clang::ConditionalOperator>(E);
 				if (CO) {
 					int q = 5;
@@ -19792,7 +19844,7 @@ namespace convm1 {
 								const auto field_qtype = field->getType();
 								IF_DEBUG(auto field_qtype_str = field_qtype.getAsString();)
 								if (field_qtype.getTypePtr()->isPointerType()) {
-									const auto ICIEX = field->getInClassInitializer();
+									const auto ICIEX = IgnoreImplicit(field->getInClassInitializer());
 									if (!ICIEX) {
 										unverified_pointer_fields.push_back(field);
 									} else if (is_nullptr_literal(ICIEX, *(MR.Context))) {
@@ -19833,7 +19885,7 @@ namespace convm1 {
 											if (FD == *iter) {
 												l_unverified_pointer_fields.erase(iter);
 
-												const auto CIEX = constructor_initializer->getInit();
+												const auto CIEX = IgnoreImplicit(constructor_initializer->getInit());
 												if (!CIEX) {
 													/* unexpected*/
 													int q = 3;
