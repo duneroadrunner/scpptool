@@ -5234,11 +5234,55 @@ namespace checker {
 					return;
 				}
 				auto qtype = MR.Context->getTypeDeclType(RD);
+				IF_DEBUG(auto qtype_str = qtype.getAsString();)
 				auto Type_ptr = qtype.getTypePtr();
 				//auto Type_ptr = RD->getTypeForDecl();
 				if (Type_ptr) {
 					auto CXXRD = Type_ptr->getAsCXXRecordDecl();
 					if (RD->isThisDeclarationADefinition()) {
+
+						if (qtype->isUnionType()) {
+							const std::string error_desc = std::string("Definition of union types require ")
+								+ "a 'check suppression' directive.";
+							state1.register_error(*MR.SourceManager, SR, error_desc);
+
+							/* We add this definition of a union type to the set of "checks suppressed" regions. Besides 
+							suppressing redundant error messages, this prevents the auto-conversion feature from (undesirably) 
+							converting the elements of the union definition. */
+							auto l_ISR = instantiation_source_range(RD->getSourceRange(), Rewrite);
+							state1.m_suppress_check_region_set.emplace(l_ISR);
+							state1.m_suppress_check_region_set.insert(RD);
+
+							/* We'll do the same for the definition of types of the any members owned by this union type. We 
+							do this to prevent the auto-conversion feature from (undesirably) indirectly converting the elements 
+							of the union definition. We probably wouldn't do this otherwise. */
+
+							auto mark_type_definition_if_any_as_check_suppressed = [&Rewrite, &state1](clang::QualType qtype, std::optional<clang::Decl const *>, std::optional<clang::CXXBaseSpecifier const *>) {
+								//auto TDT = clang::dyn_cast<const clang::TypedefType>(qtype);
+								auto* TypedefType_cptr = qtype->getAs<const clang::TypedefType>();
+								if (TypedefType_cptr) {
+									auto* TypedefNameDecl_cptr = TypedefType_cptr->getDecl();
+									if (TypedefNameDecl_cptr) {
+										auto l_ISR = instantiation_source_range(TypedefNameDecl_cptr->getSourceRange(), Rewrite);
+										state1.m_suppress_check_region_set.emplace(l_ISR);
+										state1.m_suppress_check_region_set.insert(TypedefNameDecl_cptr);
+									}
+								} else {
+									auto* RD = qtype->getAsRecordDecl();
+									if (RD) {
+										auto l_ISR = instantiation_source_range(RD->getSourceRange(), Rewrite);
+										state1.m_suppress_check_region_set.emplace(l_ISR);
+										state1.m_suppress_check_region_set.insert(RD);
+									}
+								}
+								int q = 5;
+							};
+							apply_to_all_owned_types(qtype, mark_type_definition_if_any_as_check_suppressed);
+							int q = 5;
+
+							return;
+						}
+
 						bool is_lambda = false;
 
 						bool has_xscope_tag_base = false;
@@ -14067,7 +14111,6 @@ namespace checker {
 							return;
 						}
 					}
-
 
 					check_for_unannotated_reference_objects_in_dynamic_containers(*DD, qtype, m_state1, &MR, &Rewrite);
 
