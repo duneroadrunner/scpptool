@@ -6532,8 +6532,15 @@ namespace convm1 {
 								prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
 								suffix_str = "> ";
 							} else {
-								if (indirection_state_ref.xscope_eligibility())
-								{
+								if (is_void_star) {
+									std::string new_qtype_str;
+									if ("Dual" == ConvertMode) {
+										new_qtype_str = og_direct_type_was_const_void_type ? "MSE_LH_CONST_VOID_STAR " : "MSE_LH_VOID_STAR ";
+									} else {
+										new_qtype_str = og_direct_type_was_const_void_type ? "mse::lh::const_void_star_replacement " : "mse::lh::void_star_replacement ";
+									}
+									direct_type_state_ref.set_current_non_function_qtype_str(new_qtype_str);
+								} else if (indirection_state_ref.xscope_eligibility()) {
 									if ("Dual" == ConvertMode) {
 										prefix_str = "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(";
 										suffix_str = ") ";
@@ -8035,6 +8042,7 @@ namespace convm1 {
 			bool is_char_type = false;
 			bool is_FILE_type = false;
 			bool is_void_type = false;
+			bool is_union_type = false;
 			if (("char" == direct_qtype_str) || ("const char" == direct_qtype_str)) {
 				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 					is_char_type = true;
@@ -8046,6 +8054,12 @@ namespace convm1 {
 			} else if (("void" == direct_qtype_str) || ("const void" == direct_qtype_str)) {
 				if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 					is_void_type = true;
+				}
+			} else {
+				auto& direct_type_state_ref = ddcs_ref.direct_type_state_ref();
+				if (direct_type_state_ref.current_qtype_if_any().has_value()) {
+					auto direct_qtype = direct_type_state_ref.current_qtype_if_any().value();
+					is_union_type = direct_qtype->isUnionType();
 				}
 			}
 
@@ -8060,7 +8074,7 @@ namespace convm1 {
 				return false;
 			};
 
-			if ((true || !is_char_type) && (!is_FILE_type) && (!is_void_type)) {
+			if ((true || !is_char_type) && (!is_FILE_type) && (!is_void_type) && (!is_union_type)) {
 				if ((REGOBJ_TEST1_FLAG || ("pointer target" == ddcs_ref.direct_type_state_ref().current_pointer_target_state()))) {
 					bool b1 = !seems_to_already_be_addressable(ddcs_ref.current_direct_qtype_str());
 					if (b1) {
@@ -14020,61 +14034,84 @@ namespace convm1 {
 		std::string NewFunctionQName;
 		std::string NewDualModeFunctionQName;
 		std::optional<size_t> m_maybe_num_parameters;
+		typedef size_t bitfield1_t;
+		bitfield1_t m_necessarily_an_iterator_param_bit_field = 0;
 		std::vector<std::pair<std::string, std::string> > m_string_options;
+
+		bool is_necessarily_an_iterator_by_param_bit_mask(const bitfield1_t param_bit_mask) const {
+			return (0 == (m_necessarily_an_iterator_param_bit_field & param_bit_mask));
+		}
+
+		typedef size_t param_zero_based_index1_t;
+		static const param_zero_based_index1_t RETVAL_INDEX = ((sizeof(param_zero_based_index1_t))*8 - 1);
+
+		bool is_necessarily_an_iterator_by_param_zbindex(const param_zero_based_index1_t param_zero_based_index) const {
+			auto bitmask = (bitfield1_t{1} >> param_zero_based_index);
+			return is_necessarily_an_iterator_by_param_bit_mask(bitmask);
+		}
+
+		static const bitfield1_t NONE = 0;
+		static const bitfield1_t _1ST = (bitfield1_t{1} >> (1 - 1));
+		static const bitfield1_t _2ND = (bitfield1_t{1} >> (2 - 1));
+		static const bitfield1_t _3RD = (bitfield1_t{1} >> (3 - 1));
+		static const bitfield1_t _4TH = (bitfield1_t{1} >> (4 - 1));
+		static const bitfield1_t RETVAL = (bitfield1_t{1} >> ((sizeof(bitfield1_t))*8 - 1));
+		static const bitfield1_t ALL = bitfield1_t(-1);
 	};
 	static std::vector<CFConversionInfo> const& s_function_conversion_infos() {
+		using FCI = CFConversionInfo;
 		static std::vector<CFConversionInfo> sl_function_conversion_infos = {
-			{ "memset", "mse::lh::memset", "MSE_LH_MEMSET", {3} }
-			, { "memcpy", "mse::lh::memcpy", "MSE_LH_MEMCPY", {3} }
-			, { "memcmp", "mse::lh::memcmp", "MSE_LH_MEMCMP", {3} }
-			, { "memchr", "mse::lh::memchr", "MSE_LH_MEMCHR", {3} }
-			, { "strcpy", "mse::lh::strcpy", "MSE_LH_STRCPY", {2} }
-			, { "strcmp", "mse::lh::strcmp", "MSE_LH_STRCMP", {2} }
-			, { "strncmp", "mse::lh::strncmp", "MSE_LH_STRNCMP", {3} }
-			, { "strchr", "mse::lh::strchr", "MSE_LH_STRCMP", {2} }
-			, { "strlen", "mse::lh::strlen", "MSE_LH_STRLEN", {1} }
-			, { "strnlen_s", "mse::lh::strnlen_s", "MSE_LH_STRNLEN_S", {2} }
-			, { "strtol", "mse::lh::strtol", "MSE_LH_STRTOL", {3} }
-			, { "strtoll", "mse::lh::strtoll", "MSE_LH_STRTOLL", {3} }
-			, { "strtoul", "mse::lh::strtoul", "MSE_LH_STRTOUL", {3} }
-			, { "strtoull", "mse::lh::strtoull", "MSE_LH_STRTOULL", {3} }
-			, { "strtoimax", "mse::lh::strtoimax", "MSE_LH_STRTOIMAX", {3} }
-			, { "strtoumax", "mse::lh::strtoumax", "MSE_LH_STRTOUMAX", {3} }
-			, { "strtof", "mse::lh::strtof", "MSE_LH_STRTOF", {2} }
-			, { "strtod", "mse::lh::strtod", "MSE_LH_STRTOD", {2} }
-			, { "strtold", "mse::lh::strtold", "MSE_LH_STRTOLD", {2} }
-			, { "strtok", "mse::lh::strtok", "MSE_LH_STRTOK", {2} }
-			, { "strtok_r", "mse::lh::strtok_r", "MSE_LH_STRTOK_R", {3} }
-			, { "fread", "mse::lh::fread", "MSE_LH_FREAD", {4} }
-			, { "fwrite", "mse::lh::fwrite", "MSE_LH_FWRITE", {4} }
-			, { "getline", "mse::lh::getline", "MSE_LH_GETLINE", {3} }
-			, { "iconv", "MSE_LH_ICONV", "MSE_LH_ICONV", {5} }
-			, { "strndup", "mse::lh::strndup", "MSE_LH_STRNDUP", {2} }
-			, { "strdup", "mse::lh::strdup", "MSE_LH_STRDUP", {1} }
-			, { "xstrdup", "mse::lh::strdup", "MSE_LH_STRDUP", {1} }
+			{ "memset", "mse::lh::memset", "MSE_LH_MEMSET", {3}, FCI::NONE }
+			, { "memcpy", "mse::lh::memcpy", "MSE_LH_MEMCPY", {3}, FCI::NONE }
+			, { "memcmp", "mse::lh::memcmp", "MSE_LH_MEMCMP", {3}, FCI::NONE }
+			, { "memchr", "mse::lh::memchr", "MSE_LH_MEMCHR", {3}, FCI::ALL }
+			, { "strcpy", "mse::lh::strcpy", "MSE_LH_STRCPY", {2}, FCI::ALL }
+			, { "strcmp", "mse::lh::strcmp", "MSE_LH_STRCMP", {2}, FCI::ALL }
+			, { "strncmp", "mse::lh::strncmp", "MSE_LH_STRNCMP", {3}, FCI::ALL }
+			, { "strchr", "mse::lh::strchr", "MSE_LH_STRCMP", {2}, FCI::ALL }
+			, { "strlen", "mse::lh::strlen", "MSE_LH_STRLEN", {1}, FCI::ALL }
+			, { "strnlen_s", "mse::lh::strnlen_s", "MSE_LH_STRNLEN_S", {2}, FCI::ALL }
+			, { "strtol", "mse::lh::strtol", "MSE_LH_STRTOL", {3}, FCI::ALL }
+			, { "strtoll", "mse::lh::strtoll", "MSE_LH_STRTOLL", {3}, FCI::ALL }
+			, { "strtoul", "mse::lh::strtoul", "MSE_LH_STRTOUL", {3}, FCI::ALL }
+			, { "strtoull", "mse::lh::strtoull", "MSE_LH_STRTOULL", {3}, FCI::ALL }
+			, { "strtoimax", "mse::lh::strtoimax", "MSE_LH_STRTOIMAX", {3}, FCI::ALL }
+			, { "strtoumax", "mse::lh::strtoumax", "MSE_LH_STRTOUMAX", {3}, FCI::ALL }
+			, { "strtof", "mse::lh::strtof", "MSE_LH_STRTOF", {2}, FCI::ALL }
+			, { "strtod", "mse::lh::strtod", "MSE_LH_STRTOD", {2}, FCI::ALL }
+			, { "strtold", "mse::lh::strtold", "MSE_LH_STRTOLD", {2}, FCI::ALL }
+			, { "strtok", "mse::lh::strtok", "MSE_LH_STRTOK", {2}, FCI::ALL }
+			, { "strtok_r", "mse::lh::strtok_r", "MSE_LH_STRTOK_R", {3}, FCI::ALL }
+			, { "fread", "mse::lh::fread", "MSE_LH_FREAD", {4}, FCI::_1ST }
+			, { "fwrite", "mse::lh::fwrite", "MSE_LH_FWRITE", {4}, FCI::_1ST }
+			, { "getline", "mse::lh::getline", "MSE_LH_GETLINE", {3}, FCI::_1ST }
+			, { "iconv", "MSE_LH_ICONV", "MSE_LH_ICONV", {5}, FCI::NONE }
+			, { "strndup", "mse::lh::strndup", "MSE_LH_STRNDUP", {2}, FCI::ALL }
+			, { "strdup", "mse::lh::strdup", "MSE_LH_STRDUP", {1}, FCI::ALL }
+			, { "xstrdup", "mse::lh::strdup", "MSE_LH_STRDUP", {1}, FCI::ALL }
 
-			, { "std::memset", "mse::lh::memset", "MSE_LH_MEMSET", {3} }
-			, { "std::memcpy", "mse::lh::memcpy", "MSE_LH_MEMCPY", {3} }
-			, { "std::memcmp", "mse::lh::memcmp", "MSE_LH_MEMCMP", {3} }
-			, { "std::memchr", "mse::lh::memchr", "MSE_LH_MEMCHR", {3} }
-			, { "std::strcpy", "mse::lh::strcpy", "MSE_LH_STRCPY", {2} }
-			, { "std::strcmp", "mse::lh::strcmp", "MSE_LH_STRCMP", {2} }
-			, { "std::strncmp", "mse::lh::strncmp", "MSE_LH_STRNCMP", {3} }
-			, { "std::strchr", "mse::lh::strchr", "MSE_LH_STRCMP", {2} }
-			, { "std::strlen", "mse::lh::strlen", "MSE_LH_STRLEN", {1} }
-			, { "std::strnlen_s", "mse::lh::strnlen_s", "MSE_LH_STRNLEN_S", {2} }
-			, { "std::strtol", "mse::lh::strtol", "MSE_LH_STRTOL", {3} }
-			, { "std::strtoll", "mse::lh::strtoll", "MSE_LH_STRTOLL", {3} }
-			, { "std::strtoul", "mse::lh::strtoul", "MSE_LH_STRTOUL", {3} }
-			, { "std::strtoull", "mse::lh::strtoull", "MSE_LH_STRTOULL", {3} }
-			, { "std::strtoimax", "mse::lh::strtoimax", "MSE_LH_STRTOIMAX", {3} }
-			, { "std::strtoumax", "mse::lh::strtoumax", "MSE_LH_STRTOUMAX", {3} }
-			, { "std::strtof", "mse::lh::strtof", "MSE_LH_STRTOF", {2} }
-			, { "std::strtod", "mse::lh::strtod", "MSE_LH_STRTOD", {2} }
-			, { "std::strtold", "mse::lh::strtold", "MSE_LH_STRTOLD", {2} }
-			, { "std::strtok", "mse::lh::strtok", "MSE_LH_STRTOK", {2} }
-			, { "std::fread", "mse::lh::fread", "MSE_LH_FREAD", {4} }
-			, { "std::fwrite", "mse::lh::fwrite", "MSE_LH_FWRITE", {4} }
+			, { "std::memset", "mse::lh::memset", "MSE_LH_MEMSET", {3}, FCI::NONE }
+			, { "std::memcpy", "mse::lh::memcpy", "MSE_LH_MEMCPY", {3}, FCI::NONE }
+			, { "std::memcmp", "mse::lh::memcmp", "MSE_LH_MEMCMP", {3}, FCI::NONE }
+			, { "std::memchr", "mse::lh::memchr", "MSE_LH_MEMCHR", {3}, FCI::ALL }
+			, { "std::strcpy", "mse::lh::strcpy", "MSE_LH_STRCPY", {2}, FCI::ALL }
+			, { "std::strcmp", "mse::lh::strcmp", "MSE_LH_STRCMP", {2}, FCI::ALL }
+			, { "std::strncmp", "mse::lh::strncmp", "MSE_LH_STRNCMP", {3}, FCI::ALL }
+			, { "std::strchr", "mse::lh::strchr", "MSE_LH_STRCMP", {2}, FCI::ALL }
+			, { "std::strlen", "mse::lh::strlen", "MSE_LH_STRLEN", {1}, FCI::ALL }
+			, { "std::strnlen_s", "mse::lh::strnlen_s", "MSE_LH_STRNLEN_S", {2}, FCI::ALL }
+			, { "std::strtol", "mse::lh::strtol", "MSE_LH_STRTOL", {3}, FCI::ALL }
+			, { "std::strtoll", "mse::lh::strtoll", "MSE_LH_STRTOLL", {3}, FCI::ALL }
+			, { "std::strtoul", "mse::lh::strtoul", "MSE_LH_STRTOUL", {3}, FCI::ALL }
+			, { "std::strtoull", "mse::lh::strtoull", "MSE_LH_STRTOULL", {3}, FCI::ALL }
+			, { "std::strtoimax", "mse::lh::strtoimax", "MSE_LH_STRTOIMAX", {3}, FCI::ALL }
+			, { "std::strtoumax", "mse::lh::strtoumax", "MSE_LH_STRTOUMAX", {3}, FCI::ALL }
+			, { "std::strtof", "mse::lh::strtof", "MSE_LH_STRTOF", {2}, FCI::ALL }
+			, { "std::strtod", "mse::lh::strtod", "MSE_LH_STRTOD", {2}, FCI::ALL }
+			, { "std::strtold", "mse::lh::strtold", "MSE_LH_STRTOLD", {2}, FCI::ALL }
+			, { "std::strtok", "mse::lh::strtok", "MSE_LH_STRTOK", {2}, FCI::ALL }
+			, { "std::fread", "mse::lh::fread", "MSE_LH_FREAD", {4}, FCI::_1ST }
+			, { "std::fwrite", "mse::lh::fwrite", "MSE_LH_FWRITE", {4}, FCI::_1ST }
 		};
 		return sl_function_conversion_infos;
 	}
@@ -16357,9 +16394,16 @@ namespace convm1 {
 											indirection_state_ref.set_is_known_to_have_malloc_target(true);
 											state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_ddecl_indirection);
 										}
+
+										if (fc_info.is_necessarily_an_iterator_by_param_bit_mask(CFConversionInfo::RETVAL)) {
+											if (!indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
+												indirection_state_ref.set_is_known_to_be_used_as_an_array_iterator(true);
+												state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_ddecl_indirection);
+												state1.m_array2_contingent_replacement_map.execute_matching_actions(state1, lhs_ddecl_indirection);
+											}
+										}
 									}
 								}
-
 							}
 						} else {
 							/* This might be the invocation of a function call via function pointer. */
@@ -17516,6 +17560,9 @@ namespace convm1 {
 						auto fdecl_source_range = cm1_adj_nice_source_range(function_decl->getSourceRange(), state1, Rewrite);
 						auto fdecl_source_location_str = fdecl_source_range.getBegin().printToString(*MR.SourceManager);
 
+						std::optional<size_t> maybe_function_conversion_index;
+						bool function_conversion_index_has_been_evaluated = false;
+
 						for (size_t arg_index = 0; (CE->getNumArgs() > arg_index) && (function_decl->getNumParams() > arg_index); arg_index += 1) {
 							auto param_VD = function_decl->getParamDecl(arg_index);
 							auto arg_EX = CE->getArg(arg_index);
@@ -17530,6 +17577,34 @@ namespace convm1 {
 							if ((nullptr != param_VD) && (nullptr != arg_EX) && arg_source_range.isValid()) {
 								bool arg_is_an_indirect_type = is_an_indirect_type(arg_EX->getType());
 								if (arg_is_an_indirect_type) {
+									if (!function_conversion_index_has_been_evaluated) {
+										maybe_function_conversion_index = s_function_conversion_index_if_any(function_qname);
+										function_conversion_index_has_been_evaluated = true;
+									}
+									if (maybe_function_conversion_index.has_value()) {
+										auto& fc_info = s_function_conversion_infos().at(maybe_function_conversion_index.value());
+										if (fc_info.m_maybe_num_parameters.has_value()) {
+											if (num_args == fc_info.m_maybe_num_parameters.value()) {
+												if (fc_info.is_necessarily_an_iterator_by_param_zbindex(arg_index)) {
+													auto rhs_res2 = infer_array_type_info_from_stmt(*arg_EX, "", state1);
+													if (rhs_res2.ddecl_conversion_state_ptr && rhs_res2.ddecl_conversion_state_ptr->m_ddecl_cptr) {
+														auto& rhs_ddecl_ref = *rhs_res2.ddecl_conversion_state_ptr;
+														if (1 <= rhs_ddecl_ref.m_indirection_state_stack.size()) {
+															auto& indirection_state_ref = rhs_ddecl_ref.m_indirection_state_stack.at(rhs_res2.indirection_level);
+															auto rhs_ddecl_indirection = CDDeclIndirection(*(rhs_res2.ddecl_conversion_state_ptr->m_ddecl_cptr), rhs_res2.indirection_level);
+
+															if (!indirection_state_ref.is_known_to_be_used_as_an_array_iterator()) {
+																indirection_state_ref.set_is_known_to_be_used_as_an_array_iterator(true);
+																state1.m_conversion_state_change_action_map.execute_matching_actions(state1, rhs_ddecl_indirection);
+																state1.m_array2_contingent_replacement_map.execute_matching_actions(state1, rhs_ddecl_indirection);
+															}
+														}
+													}
+												}
+											}
+										}
+									}
+
 									static const std::array strtox_function_names = { "strtol", "strtoul", "strtoll", "strtoull", "strtoimax", "strtoumax", "strtof", "strtod", "strtold" };
 									static const std::string strtox_common_prefix = "strto";
 									if (string_begins_with(function_qname, strtox_common_prefix)) {
