@@ -13039,7 +13039,7 @@ namespace convm1 {
 			Rewrite(Rewrite), m_state1(state1) {}
 
 		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
-			, const Expr* LHS, const CallExpr* CE, const BinaryOperator* BO = nullptr, const DeclRefExpr* DRE = nullptr, const MemberExpr* ME = nullptr) {
+			, const Expr* LHS, const CallExpr* CE, const BinaryOperator* BO = nullptr, const DeclRefExpr* DRE = nullptr, const MemberExpr* ME = nullptr, std::optional<clang::QualType> maybe_lhs_qtype = {}) {
 			const bool is_binary_assignment_operation = ((BO != nullptr) && (BO->isAssignmentOp()));
 			/* If BO is provided, then we expect that it will correspond to an assignment 
 			operator. In which case we'd expect LHS to be null as the "left hand side" 
@@ -13055,7 +13055,7 @@ namespace convm1 {
 				int q = 3;
 			}
 
-			if ((LHS != nullptr) && (CE != nullptr)/* && (DRE != nullptr)*/)
+			if (((LHS != nullptr) || maybe_lhs_qtype.has_value()) && (CE != nullptr)/* && (DRE != nullptr)*/)
 			{
 				auto SR = cm1_adj_nice_source_range(is_binary_assignment_operation ? BO->getSourceRange() : CE->getSourceRange(), state1, Rewrite);
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
@@ -13085,7 +13085,7 @@ namespace convm1 {
 					* this is an instance of an array being allocated. */
 					std::string num_elements_text/* = before_str + after_str*/;
 					std::string element_type_str;
-					auto lhs_QT = LHS->getType();
+					auto lhs_QT = LHS ? LHS->getType() : maybe_lhs_qtype.value();
 
 					const clang::Type* lhs_TP = lhs_QT.getTypePtr();
 					auto lhs_type_str = lhs_QT.getAsString();
@@ -13114,6 +13114,43 @@ namespace convm1 {
 						if (("void" == lhs_element_type_str) | ("const void" == lhs_element_type_str)) {
 							/* The assignee of the *alloc() function seems to be a void pointer. Without being able to deduce 
 							the intended type of the allocated memory, there's nothing we can really do to make it (type) safe. */
+
+							const auto num_args = CE->getNumArgs();
+							if ((alloc_function_info1.m_seems_to_be_some_kind_of_realloc) && (num_args > 0)) {
+								auto arg_EX = CE->getArg(0);
+								auto arg_EX_qtype = arg_EX->getType();
+								IF_DEBUG(std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();)
+								assert(arg_EX->getType().getTypePtrOrNull());
+								auto arg_EX_ii = IgnoreParenImpCasts(arg_EX);
+								auto arg_EX_ii_qtype = arg_EX_ii->getType();
+								IF_DEBUG(std::string arg_EX_ii_qtype_str = arg_EX_ii_qtype.getAsString();)
+								assert(arg_EX_ii->getType().getTypePtrOrNull());
+
+								auto& arg_EX_ii_ecs_ref = state1.get_expr_conversion_state_ref(*arg_EX_ii, Rewrite);
+
+								std::shared_ptr<CExprTextModifier> shptr1;
+								if (is_void_star_or_const_void_star(arg_EX_ii_qtype)) {
+									/* If we're not going to replace the use of the realloc() function in this call expression (with a 
+									void* argument), then we should make sure the first (pointer) argument remains a raw pointer (that 
+									can be assigned to the presumed void* parameter).  */
+
+									shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
+									for  (auto& expr_text_modifier_shptr_ref : arg_EX_ii_ecs_ref.m_expr_text_modifier_stack) {
+										if (CUnsafeMakeRawPointerFromExprTextModifier().species_str() == expr_text_modifier_shptr_ref->species_str()) {
+											/* already applied */
+											shptr1 = nullptr;
+											break;
+										}
+									}
+								}
+								if (shptr1) {
+									arg_EX_ii_ecs_ref.m_expr_text_modifier_stack.push_back(shptr1);
+									arg_EX_ii_ecs_ref.update_current_text();
+
+									state1.add_pending_expression_update(*arg_EX_ii, Rewrite);
+								}
+							}
+
 							return;
 						} else if (target_type.getAsString() != lhs_element_type_str) {
 							adjusted_num_bytes_str += " / sizeof(" + target_type.getAsString() + ") * sizeof(" + lhs_element_type_str + ")";
@@ -13122,17 +13159,20 @@ namespace convm1 {
 					if ("" != lhs_element_type_str) {
 						bool is_char_star = (("char" == lhs_element_type_str) || ("const char" == lhs_element_type_str));
 
-						auto lhs_source_range = cm1_adj_nice_source_range(LHS->getSourceRange(), state1, Rewrite);
-						auto lhs_source_text = Rewrite.getRewrittenText(lhs_source_range);
-
-						auto res2 = infer_array_type_info_from_stmt(*LHS, "malloc target", state1);
-
-						const clang::DeclaratorDecl* DD = res2.ddecl_cptr;
+						std::optional<CArrayInferenceInfo> maybe_res2;
+						if (LHS) {
+							maybe_res2 = infer_array_type_info_from_stmt(*LHS, "malloc target", state1);
+						}
 
 						auto maybe_replacement_SR = std::optional<clang::SourceRange>{};
-						if (DD && is_binary_assignment_operation) {
+						if ((maybe_res2.has_value() && maybe_res2.value().ddecl_cptr) && is_binary_assignment_operation) {
+							auto& res2 = maybe_res2.value();
+							auto DD = res2.ddecl_cptr;
 							/* In the case of a binary assignment operation, we will replace the text of whole 
 							operation, not just the malloc call. */
+							auto lhs_source_range = cm1_adj_nice_source_range(LHS->getSourceRange(), state1, Rewrite);
+							auto lhs_source_text = Rewrite.getRewrittenText(lhs_source_range);
+
 							std::string variable_name;
 							std::string bo_replacement_code;
 
@@ -18186,42 +18226,27 @@ namespace convm1 {
 
 				auto function_decl1 = FND;
 				auto num_params = FND->getNumParams();
-				if (function_decl1) {
-					const std::string function_name = function_decl1->getNameAsString();
-					const auto lc_function_name = tolowerstr(function_name);
-
-					static const std::string free_str = "free";
-					bool ends_with_free = ((lc_function_name.size() >= free_str.size())
-							&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
-
-					auto alloc_info = analyze_malloc_resemblance(*function_decl1, state1, Rewrite);
-
-					bool begins_with__builtin_ = string_begins_with(function_name, "__builtin_");
-
-					if (ends_with_free || alloc_info.m_seems_to_be_some_kind_of_malloc_or_realloc || begins_with__builtin_) {
-						return void();
-					}
+				{
+					IF_DEBUG(const std::string function_name = function_decl1->getNameAsString();)
 
 					auto retval_EX = RS->getRetValue();
 
 					bool rhs_is_an_indirect_type = is_an_indirect_type(retval_EX->getType());
+					if (rhs_is_an_indirect_type) {
+						auto adjusted_RHS_ii = IgnoreParenImpNoopCasts(RS->getRetValue(), *(MR.Context));
+						auto CSCE = dyn_cast<clang::CStyleCastExpr>(adjusted_RHS_ii);
+						if (CSCE) {
+							adjusted_RHS_ii = IgnoreParenImpNoopCasts(CSCE->getSubExpr(), *(MR.Context));
+						}
 
-					auto retvalii_EX = RS->getRetValue()->IgnoreImplicit();
-					if (rhs_is_an_indirect_type && (retvalii_EX->getStmtClass() == clang::Stmt::StmtClass::CStyleCastExprClass)) {
-						auto CSCE = llvm::cast<const clang::CStyleCastExpr>(retvalii_EX);
+						auto CE = dyn_cast<clang::CallExpr>(adjusted_RHS_ii);
+						if (adjusted_RHS_ii->getType()->isPointerType() && CE) {
+							MCSSSMalloc2::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, CE, nullptr/*BO*/, nullptr/*DRE*/, nullptr/*ME*/, FND->getReturnType());
+						}
 						if (CSCE) {
 							handle_c_style_cast_without_context(MR, Rewrite, state1, CSCE);
 							auto cast_operation_SR = cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite);
-						} else { assert(false); }
-					}
-
-					int lhs_indirection_level_adjustment = 0;
-					auto rhs_res3 = leading_addressof_operator_info_from_stmt(*retval_EX);
-					if (rhs_res3.without_leading_addressof_operator_expr_cptr) {
-						assert(rhs_res3.leading_addressof_operator_detected && rhs_res3.addressof_unary_operator_cptr);
-
-						retval_EX = rhs_res3.without_leading_addressof_operator_expr_cptr;
-						lhs_indirection_level_adjustment += 1;
+						}
 					}
 
 					auto rhs_res2 = infer_array_type_info_from_stmt(*(retval_EX), "", state1);
@@ -19750,7 +19775,7 @@ namespace convm1 {
 						}
 						auto CE = dyn_cast<clang::CallExpr>(adjusted_RHS_ii);
 						if (adjusted_RHS_ii->getType()->isPointerType() && CE) {
-							MCSSSMalloc2::s_handler1(MR, Rewrite, state1, BO, CE);
+							MCSSSMalloc2::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, CE, BO);
 						}
 					}
 				}
