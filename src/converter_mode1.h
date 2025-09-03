@@ -11926,9 +11926,24 @@ namespace convm1 {
 	/**********************************************************************************************************************/
 
 	struct CAllocFunctionInfo {
-		bool m_seems_to_be_some_kind_of_malloc_or_realloc = false;
+		bool seems_to_be_some_kind_of_malloc_or_realloc_or_dup() const { return m_seems_to_be_some_kind_of_malloc_or_realloc_or_dup; }
+		void set_seems_to_be_some_kind_of_malloc_or_realloc_or_dup(bool b) { m_seems_to_be_some_kind_of_malloc_or_realloc_or_dup = b; }
+		bool seems_to_be_some_kind_of_alloc() const { return m_seems_to_be_some_kind_of_alloc; }
+		void set_seems_to_be_some_kind_of_alloc(bool b) { m_seems_to_be_some_kind_of_alloc = b; }
+		bool seems_to_be_some_kind_of_realloc() const { return m_seems_to_be_some_kind_of_realloc; }
+		void set_seems_to_be_some_kind_of_realloc(bool b) { m_seems_to_be_some_kind_of_realloc = b; }
+		bool seems_to_be_some_kind_of_free() const { return m_seems_to_be_some_kind_of_free; }
+		void set_seems_to_be_some_kind_of_free(bool b) { m_seems_to_be_some_kind_of_free = b; }
+		bool seems_to_be_some_kind_of_memdup() const { return m_seems_to_be_some_kind_of_memdup; }
+		void set_seems_to_be_some_kind_of_memdup(bool b) { m_seems_to_be_some_kind_of_memdup = b; }
+
+		private:
+		bool m_seems_to_be_some_kind_of_malloc_or_realloc_or_dup = false;
+		bool m_seems_to_be_some_kind_of_alloc = false;
 		bool m_seems_to_be_some_kind_of_realloc = false;
 		bool m_seems_to_be_some_kind_of_free = false;
+		bool m_seems_to_be_some_kind_of_memdup = false;
+		public:
 		std::string m_num_bytes_arg_source_text;
 		std::string m_realloc_or_free_pointer_arg_source_text;
 		std::string m_realloc_or_free_pointer_arg_adjusted_source_text;
@@ -11978,17 +11993,22 @@ namespace convm1 {
 			retval.m_num_params = num_params;
 			static const std::string alloc_str = "alloc";
 			static const std::string realloc_str = "realloc";
+			static const std::string memdup_str = "memdup";
 			const auto lc_function_name = tolowerstr(function_name);
 
 			bool ends_with_alloc = ((lc_function_name.size() >= alloc_str.size())
 					&& (0 == lc_function_name.compare(lc_function_name.size() - alloc_str.size(), alloc_str.size(), alloc_str)));
 			bool ends_with_realloc = (ends_with_alloc && (lc_function_name.size() >= realloc_str.size())
 					&& (0 == lc_function_name.compare(lc_function_name.size() - realloc_str.size(), realloc_str.size(), realloc_str)));
+			bool ends_with_memdup = (lc_function_name.size() >= memdup_str.size()
+					&& (0 == lc_function_name.compare(lc_function_name.size() - memdup_str.size(), memdup_str.size(), memdup_str)));
 
 			bool contains_alloc = (std::string::npos != lc_function_name.find(alloc_str));
 			bool contains_realloc = (std::string::npos != lc_function_name.find(realloc_str));
+			bool contains_memdup = (std::string::npos != lc_function_name.find(memdup_str));
+			bool contains_realloc_or_memdup = contains_realloc || contains_memdup;
 
-			bool not_yet_ruled_out1 = (contains_alloc && (1 <= num_params)) || (contains_realloc && (2 <= num_params));
+			bool not_yet_ruled_out1 = ((1 <= num_params) && contains_alloc) || ((2 <= num_params) && contains_realloc_or_memdup);
 			//not_yet_ruled_out1 = (not_yet_ruled_out1 && return_type_is_void_star);
 			if (not_yet_ruled_out1 && !return_type_is_void_star) {
 				not_yet_ruled_out1 = false;
@@ -12034,7 +12054,7 @@ namespace convm1 {
 					}
 					std::string l_param_source_text = Rewrite.getRewrittenText(param_source_range);
 					clang::ValueDecl const * DD = nullptr;
-					if (contains_realloc && param->getType()->isPointerType()) {
+					if (contains_realloc_or_memdup && param->getType()->isPointerType()) {
 						realloc_pointer_param_source_text = l_param_source_text;
 					} else if (param_qtype->isIntegerType()) {
 						num_bytes_param_source_text = l_param_source_text;
@@ -12044,19 +12064,22 @@ namespace convm1 {
 				}
 
 				if (!num_bytes_param_source_text.empty()) {
-					retval.m_seems_to_be_some_kind_of_malloc_or_realloc = true;
+					retval.set_seems_to_be_some_kind_of_malloc_or_realloc_or_dup(true);
 					retval.m_num_bytes_arg_source_text = num_bytes_param_source_text;
-					if (contains_realloc && (2 <= num_params)) {
-						retval.m_seems_to_be_some_kind_of_realloc = true;
+					if (contains_realloc_or_memdup && (2 <= num_params)) {
+						retval.set_seems_to_be_some_kind_of_realloc(contains_realloc);
+						retval.set_seems_to_be_some_kind_of_memdup(contains_memdup);
 						retval.m_realloc_or_free_pointer_arg_source_text = realloc_pointer_param_source_text;
 						retval.m_realloc_or_free_pointer_arg_adjusted_source_text = realloc_pointer_param_source_text;
 						retval.m_realloc_or_free_pointer_arg_DD = realloc_pointer_param_DD;
+					} else {
+						retval.set_seems_to_be_some_kind_of_alloc(true);
 					}
 					s_encountered_alloc_infos_ref().push_back(CAllocFunctionCacheItemInfo{ retval, function_decl});
 				}
 			}
 
-			if (!(retval.m_seems_to_be_some_kind_of_malloc_or_realloc)) {
+			if (!(retval.seems_to_be_some_kind_of_malloc_or_realloc_or_dup())) {
 				bool return_type_is_void = ("void" == return_type_str);
 
 				static const std::string free_str = "free";
@@ -12114,7 +12137,7 @@ namespace convm1 {
 							}
 						}
 						if (prefix_match) {
-							retval.m_seems_to_be_some_kind_of_free = true;
+							retval.set_seems_to_be_some_kind_of_free(true);
 
 							retval.m_realloc_or_free_pointer_arg_source_text = free_pointer_param_source_text;
 							retval.m_realloc_or_free_pointer_arg_adjusted_source_text = free_pointer_param_source_text;
@@ -12137,7 +12160,7 @@ namespace convm1 {
 		auto num_args = CE->getNumArgs();
 		if (function_decl && (1 <= num_args)) {
 			auto res2 = analyze_malloc_resemblance(*function_decl, state1, Rewrite);
-			if (res2.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+			if (res2.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
 				std::string realloc_pointer_arg_source_text;
 				std::string realloc_pointer_arg_adjusted_source_text;
 				clang::ValueDecl const * realloc_pointer_arg_DD = nullptr;
@@ -12159,7 +12182,7 @@ namespace convm1 {
 						l_arg_source_text = arg_source_range.m_adjusted_source_text_as_if_expanded;
 					}
 					clang::ValueDecl const * DD = nullptr;
-					if (res2.m_seems_to_be_some_kind_of_realloc && arg->getType()->isPointerType() && (!realloc_pointer_arg_DD)) {
+					if ((res2.seems_to_be_some_kind_of_realloc() || res2.seems_to_be_some_kind_of_memdup()) && arg->getType()->isPointerType() && (!realloc_pointer_arg_DD)) {
 						realloc_pointer_arg_source_text = l_arg_source_text;
 						realloc_pointer_arg_adjusted_source_text = l_arg_source_text;
 
@@ -12251,19 +12274,22 @@ namespace convm1 {
 						}
 					}
 					if (true || asterisk_found) {
-						retval.m_seems_to_be_some_kind_of_malloc_or_realloc = true;
+						retval.set_seems_to_be_some_kind_of_malloc_or_realloc_or_dup(true);
 						retval.m_num_bytes_arg_source_text = num_bytes_arg_source_text;
 						if ((!(realloc_pointer_arg_source_text.empty())) && (2 <= num_args)) {
-							retval.m_seems_to_be_some_kind_of_realloc = true;
+							retval.set_seems_to_be_some_kind_of_realloc(res2.seems_to_be_some_kind_of_realloc());
+							retval.set_seems_to_be_some_kind_of_memdup(res2.seems_to_be_some_kind_of_memdup());
 							retval.m_realloc_or_free_pointer_arg_source_text = realloc_pointer_arg_source_text;
 							retval.m_realloc_or_free_pointer_arg_adjusted_source_text = realloc_pointer_arg_adjusted_source_text;
 							retval.m_realloc_or_free_pointer_arg_DD = realloc_pointer_arg_DD;
+						} else {
+							retval.set_seems_to_be_some_kind_of_alloc(res2.seems_to_be_some_kind_of_alloc());
 						}
 					}
 				} else {
 					int q = 3;
 				}
-			} else if (res2.m_seems_to_be_some_kind_of_free) {
+			} else if (res2.seems_to_be_some_kind_of_free()) {
 				std::string free_pointer_arg_source_text;
 				std::string free_pointer_arg_adjusted_source_text;
 				clang::ValueDecl const * free_pointer_arg_DD = nullptr;
@@ -12327,7 +12353,7 @@ namespace convm1 {
 				}
 
 				if (!free_pointer_arg_source_text.empty()) {
-					retval.m_seems_to_be_some_kind_of_free = true;
+					retval.set_seems_to_be_some_kind_of_free(true);
 
 					retval.m_realloc_or_free_pointer_arg_source_text = free_pointer_arg_source_text;
 					retval.m_realloc_or_free_pointer_arg_adjusted_source_text = free_pointer_arg_adjusted_source_text;
@@ -12432,7 +12458,7 @@ namespace convm1 {
 								if (llvm::isa<const clang::CallExpr>(casted_expr_ptr->IgnoreParenCasts())) {
 									auto CE = llvm::cast<const clang::CallExpr>(casted_expr_ptr->IgnoreParenCasts());
 									auto alloc_function_info1 = analyze_malloc_resemblance(*CE, m_state1, Rewrite);
-									if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+									if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
 										/* This seems to be some kind of malloc/realloc function. These case should not be
 										* handled here. They are handled elsewhere. */
 										return;
@@ -12514,7 +12540,7 @@ namespace convm1 {
 						if (llvm::isa<const clang::CallExpr>(RHS->IgnoreParenCasts())) {
 							auto CE = llvm::cast<const clang::CallExpr>(RHS->IgnoreParenCasts());
 							auto alloc_function_info1 = analyze_malloc_resemblance(*CE, m_state1, Rewrite);
-							if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+							if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
 								/* This seems to be some kind of malloc/realloc function. These case should not be
 								* handled here. They are handled elsewhere. */
 								return;
@@ -13079,7 +13105,7 @@ namespace convm1 {
 				}
 
 				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
-				if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+				if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
 					/* The argument is in the form "something * sizeof(something_else)" or
 					* "sizeof(something) * something_else". So we're just going to assume that
 					* this is an instance of an array being allocated. */
@@ -13116,7 +13142,7 @@ namespace convm1 {
 							the intended type of the allocated memory, there's nothing we can really do to make it (type) safe. */
 
 							const auto num_args = CE->getNumArgs();
-							if ((alloc_function_info1.m_seems_to_be_some_kind_of_realloc) && (num_args > 0)) {
+							if ((alloc_function_info1.seems_to_be_some_kind_of_realloc()) && (num_args > 0)) {
 								auto arg_EX = CE->getArg(0);
 								auto arg_EX_qtype = arg_EX->getType();
 								IF_DEBUG(std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();)
@@ -13206,7 +13232,7 @@ namespace convm1 {
 								update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), state1);
 							}
 
-							if (alloc_function_info1.m_seems_to_be_some_kind_of_realloc) {
+							if (alloc_function_info1.seems_to_be_some_kind_of_realloc()) {
 								if ("Dual" == ConvertMode) {
 									bo_replacement_code = lhs_source_text;
 									bo_replacement_code += " = MSE_LH_REALLOC(";
@@ -13221,6 +13247,24 @@ namespace convm1 {
 								} else {
 									bo_replacement_code = lhs_source_text;
 									bo_replacement_code += " = mse::lh::reallocate(";
+									bo_replacement_code += alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text + ", ";
+									bo_replacement_code += adjusted_num_bytes_str + ")";
+								}
+							} else if (alloc_function_info1.seems_to_be_some_kind_of_memdup()) {
+								if ("Dual" == ConvertMode) {
+									bo_replacement_code = lhs_source_text;
+									bo_replacement_code += " = MSE_LH_MEMDUP(";
+									bo_replacement_code += lhs_element_type_str + ", ";
+									bo_replacement_code += alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text + ", ";
+									bo_replacement_code += adjusted_num_bytes_str + ")";
+								} else if ("FasterAndStricter" == ConvertMode) {
+									bo_replacement_code = lhs_source_text;
+									bo_replacement_code += " = mse::lh::memdup(";
+									bo_replacement_code += alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text + ", ";
+									bo_replacement_code += adjusted_num_bytes_str + ")";
+								} else {
+									bo_replacement_code = lhs_source_text;
+									bo_replacement_code += " = mse::lh::memdup(";
 									bo_replacement_code += alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text + ", ";
 									bo_replacement_code += adjusted_num_bytes_str + ")";
 								}
@@ -13274,7 +13318,7 @@ namespace convm1 {
 							DEBUG_SOURCE_TEXT_STR(CE_debug_source_text, CE_source_range, Rewrite);
 							auto replacement_SR = CE_source_range;
 
-							if (alloc_function_info1.m_seems_to_be_some_kind_of_realloc) {
+							if (alloc_function_info1.seems_to_be_some_kind_of_realloc()) {
 								if ("Dual" == ConvertMode) {
 									replacement_code_str += "MSE_LH_REALLOC(";
 									replacement_code_str += lhs_element_type_str + ", ";
@@ -13286,6 +13330,21 @@ namespace convm1 {
 									replacement_code_str += adjusted_num_bytes_str + ")";
 								} else {
 									replacement_code_str += "mse::lh::reallocate(";
+									replacement_code_str += alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text + ", ";
+									replacement_code_str += adjusted_num_bytes_str + ")";
+								}
+							} else if (alloc_function_info1.seems_to_be_some_kind_of_memdup()) {
+								if ("Dual" == ConvertMode) {
+									replacement_code_str += "MSE_LH_MEMDUP(";
+									replacement_code_str += lhs_element_type_str + ", ";
+									replacement_code_str += alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text + ", ";
+									replacement_code_str += adjusted_num_bytes_str + ")";
+								} else if ("FasterAndStricter" == ConvertMode) {
+									replacement_code_str += "mse::lh::memdup(";
+									replacement_code_str += alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text + ", ";
+									replacement_code_str += adjusted_num_bytes_str + ")";
+								} else {
+									replacement_code_str += "mse::lh::memdup(";
 									replacement_code_str += alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text + ", ";
 									replacement_code_str += adjusted_num_bytes_str + ")";
 								}
@@ -13547,7 +13606,7 @@ namespace convm1 {
 				auto num_args = CE->getNumArgs();
 				if (function_decl && (1 <= num_args)) {
 					auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
-					if (alloc_function_info1.m_seems_to_be_some_kind_of_free) {
+					if (alloc_function_info1.seems_to_be_some_kind_of_free()) {
 						auto arg_iter = CE->arg_begin();
 						assert((*arg_iter)->getType().getTypePtrOrNull());
 						auto arg_source_range = cm1_adj_nice_source_range((*arg_iter)->getSourceRange(), state1, Rewrite);
@@ -15194,7 +15253,7 @@ namespace convm1 {
 					}
 				}
 				auto res1 = analyze_malloc_resemblance(*FND, state1, Rewrite);
-				if (res1.m_seems_to_be_some_kind_of_malloc_or_realloc || res1.m_seems_to_be_some_kind_of_free) {
+				if (res1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup() || res1.seems_to_be_some_kind_of_free()) {
 					/* malloc() and free() calls will presumably be converted. */
 					return false;
 				}
@@ -15260,7 +15319,7 @@ namespace convm1 {
 						const std::string function_name = function_decl1->getNameAsString();
 
 						auto res1 = analyze_malloc_resemblance(*function_decl1, state1, Rewrite);
-						if (res1.m_seems_to_be_some_kind_of_malloc_or_realloc || res1.m_seems_to_be_some_kind_of_free) {
+						if (res1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup() || res1.seems_to_be_some_kind_of_free()) {
 							/* This case should be handled as part of the replacement of the parent *alloc() or *free() function. */
 							return;
 						}
@@ -15942,23 +16001,52 @@ namespace convm1 {
 
 			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-			auto& SM = Rewrite.getSourceMgr();
-			auto b10 = SM.isMacroArgExpansion(RHS->getSourceRange().getBegin());
-			auto b10b = SM.isMacroArgExpansion(RHS->getSourceRange().getEnd());
-			if (b10 && b10b) {
-				/* The RHS expression seems like it might be an argument to a function macro. If the macro is some 
-				kind of "system" macro that can't be changed, then the RHS expression may have to be adjusted to 
-				accommodate that. */
+			auto b3 = RHS->getSourceRange().getBegin().isMacroID();
+			auto b4 = RHS->getSourceRange().getEnd().isMacroID();
+
+			DEBUG_SOURCE_LOCATION_STR(debug_raw_source_location_str, RHS->getSourceRange(), Rewrite);
+#ifndef NDEBUG
+			if (std::string::npos != debug_raw_source_location_str.find(g_target_debug_source_location_str1)) {
 				int q = 5;
-			} else {
-				auto CSCE = dyn_cast<const clang::CStyleCastExpr>(IgnoreParenImpCasts(RHS));
-				if (CSCE) {
-					const auto sub_EX_ii = IgnoreParenImpNoopCasts(CSCE->getSubExpr(), *(MR.Context));
-					const auto SR = write_once_source_range(cm1_adj_nice_source_range(sub_EX_ii->getSourceRange(), state1, Rewrite));
-					/* Note that we're shadowing SR, which is used in the RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1 macro. */
-					RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+			}
+#endif /*!NDEBUG*/
+
+			if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR)) {
+				/* If the rhs source range is in a "filtered out" location there still might situations where we 
+				might still want to process it.  */
+				auto& SM = Rewrite.getSourceMgr();
+				auto b10 = SM.isMacroArgExpansion(RHS->getSourceRange().getBegin());
+				auto b10b = SM.isMacroArgExpansion(RHS->getSourceRange().getEnd());
+				if (b10 && b10b) {
+					/* The RHS expression seems like it might be an argument to a function macro. If the macro is some 
+					kind of "system" macro that can't be changed, then the RHS expression may have to be adjusted to 
+					accommodate that. */
+					int q = 5;
 				} else {
-					RETURN_IF_FILTERED_OUT_BY_LOCATION_CONV1;
+					auto SR2 = SR;
+					auto CSCE = dyn_cast<const clang::CStyleCastExpr>(IgnoreParenImpCasts(RHS));
+					if (CSCE) {
+						const auto sub_EX_ii = IgnoreParenImpNoopCasts(CSCE->getSubExpr(), *(MR.Context));
+						SR2 = write_once_source_range(cm1_adj_nice_source_range(sub_EX_ii->getSourceRange(), state1, Rewrite));
+					}
+					if ((SR == SR2) || ((!SR2.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR2))) {
+						if (b3 && b4) {
+							bool one_of_the_nested_macro_invocations_is_not_filtered_out = false;
+							auto SRPlus = cm1_adjusted_source_range(RHS->getSourceRange(), state1, Rewrite);
+							for (auto& adjusted_source_text_info : SRPlus.m_adjusted_source_text_infos) {
+								auto const& SR3 = adjusted_source_text_info.m_macro_invocation_range;
+								if (SR3.isValid() && !filtered_out_by_location<options_t<converter_mode_t> >(MR, SR3)) {
+									one_of_the_nested_macro_invocations_is_not_filtered_out = true;
+									break;
+								}
+							}
+							if (!one_of_the_nested_macro_invocations_is_not_filtered_out) {
+								return;
+							}
+						} else {
+							return;
+						}
+					}
 				}
 			}
 
@@ -16157,7 +16245,7 @@ namespace convm1 {
 						auto precasted_CE = llvm::dyn_cast<const clang::CallExpr>(precasted_expr_ptr->IgnoreParenCasts());
 						if (precasted_CE) {
 							auto alloc_function_info1 = analyze_malloc_resemblance(*precasted_CE, state1, Rewrite);
-							if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+							if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
 								/* This case is handled elsewhere. */
 								finished_cast_handling_flag = true;
 								break;
@@ -16399,7 +16487,7 @@ namespace convm1 {
 			if (llvm::isa<const clang::CallExpr>(RHS->IgnoreParenCasts()) && rhs_is_an_indirect_type) {
 				auto CE = llvm::cast<const clang::CallExpr>(RHS->IgnoreParenCasts());
 				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
-				if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+				if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
 					/* This seems to be some kind of malloc/realloc function. These case should not be
 					* handled here. They are handled elsewhere. */
 					return;
@@ -17196,7 +17284,7 @@ namespace convm1 {
 
 					do {
 						auto res1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
-						if (res1.m_seems_to_be_some_kind_of_malloc_or_realloc || res1.m_seems_to_be_some_kind_of_free) {
+						if (res1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup() || res1.seems_to_be_some_kind_of_free()) {
 							/* malloc()/realloc() calls, including the passed arguments, are expected to be entirely replaced 
 							in another part of the code, so presumably there's no point in trying to address them here. */
 							return;
@@ -17975,7 +18063,7 @@ namespace convm1 {
 				}
 
 				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
-				if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+				if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
 					/* The argument is in the form "something * sizeof(something_else)" or
 					* "sizeof(something) * something_else". So we're just going to assume that
 					* this is an instance of an array being allocated. */
@@ -18043,7 +18131,7 @@ namespace convm1 {
 							std::string array_initializer_info_str;
 							std::string pointer_initializer_info_str;
 
-							if (alloc_function_info1.m_seems_to_be_some_kind_of_realloc) {
+							if (alloc_function_info1.seems_to_be_some_kind_of_realloc()) {
 								array_initializer_info_str = "MSE_LH_REALLOC(" + element_type_str + ", " + alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text;
 								array_initializer_info_str += ", " + adjusted_num_bytes_str + ")";
 
@@ -18060,6 +18148,34 @@ namespace convm1 {
 
 								/* We're going to assume here that any "realloc()"ed memory is a (dynamic)
 								array. */
+								pointer_initializer_info_str = array_initializer_info_str;
+
+								if (alloc_function_info1.m_realloc_or_free_pointer_arg_DD) {
+									auto VLD = dyn_cast<const clang::ValueDecl>(DD);
+									auto first_arg_ii = IgnoreParenImpNoopCasts(CE->getArg(0), *(MR.Context));
+									IF_DEBUG(std::string first_arg_ii_qtype_str = first_arg_ii->getType().getAsString();)
+									auto first_arg_SR = first_arg_ii->getSourceRange();
+									DEBUG_SOURCE_LOCATION_STR(first_arg_ii_debug_source_location_str, first_arg_SR, Rewrite);
+									DEBUG_SOURCE_TEXT_STR(first_arg_ii_debug_source_text, first_arg_SR, Rewrite);
+									if (VLD) {
+										MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, first_arg_ii/*RHS*/, VLD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
+									}
+								}
+							} else if (alloc_function_info1.seems_to_be_some_kind_of_memdup()) {
+								array_initializer_info_str = "MSE_LH_MEMDUP(" + element_type_str + ", " + alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text;
+								array_initializer_info_str += ", " + adjusted_num_bytes_str + ")";
+
+								if ("Dual" == ConvertMode) {
+									array_initializer_info_str = "MSE_LH_MEMDUP(" + element_type_str + ", " + alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text;
+									array_initializer_info_str += ", " + adjusted_num_bytes_str + ")";
+								} else if ("FasterAndStricter" == ConvertMode) {
+									array_initializer_info_str = "mse::lh::memdup(" + alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text;
+									array_initializer_info_str += ", " + adjusted_num_bytes_str + ")";
+								} else {
+									array_initializer_info_str = "mse::lh::memdup(" + alloc_function_info1.m_realloc_or_free_pointer_arg_adjusted_source_text;
+									array_initializer_info_str += ", " + adjusted_num_bytes_str + ")";
+								}
+
 								pointer_initializer_info_str = array_initializer_info_str;
 
 								if (alloc_function_info1.m_realloc_or_free_pointer_arg_DD) {
@@ -18153,7 +18269,7 @@ namespace convm1 {
 				}
 
 				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, m_state1, Rewrite);
-				if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+				if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
 					/* The argument is in the form "something * sizeof(something_else)" or
 					* "sizeof(something) * something_else". So we're just going to assume that
 					* this is an instance of an array being allocated. */
@@ -19547,7 +19663,7 @@ namespace convm1 {
 						auto *CE = dyn_cast<const clang::CallExpr>(precasted_CE);
 						if (CE && precasted_CE_qtype->isPointerType() && E_qtype->isPointerType()) {
 							auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
-							if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+							if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
 								auto DD = NonParenImpNoopCastParentOfType<clang::DeclaratorDecl>(CSCE, *(MR.Context));
 								if (DD) {
 									/* This case is handled elsewhere. */
