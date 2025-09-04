@@ -7617,7 +7617,7 @@ namespace convm1 {
 					to explicitly specify the type probably isn't going to work. One strategy might be to 
 					give the type a name, but for now I think we're just gonna bail. */
 					//initializer_info_str += "0" + comment1_str;
-					initializer_info_str = "";
+					initializer_info_str = "{}";
 				} else {
 					static const auto enum_space_str = std::string("enum ");
 					if (string_begins_with(qtype_str, enum_space_str)) {
@@ -7643,7 +7643,7 @@ namespace convm1 {
 			}
 			retval = initializer_info_str;
 		} else {
-			retval = qtype_str + "()";
+			retval = "{}";
 		}
 
 		return retval;
@@ -7767,7 +7767,7 @@ namespace convm1 {
 					if (qtype.getTypePtr()->isScalarType()) {
 						auto PVD = dyn_cast<const ParmVarDecl>(VD);
 						if (!PVD) {
-							if (!VD->isExternallyDeclarable()) {
+							if (!VD->hasExternalStorage()) {
 								{
 									/* Here we're adding a missing initialization value to the variable declaration. */
 									auto l_DD = VD;
@@ -18124,6 +18124,11 @@ namespace convm1 {
 							if ((target_type.getAsString() != element_type_str) && ("void" != element_type_str)) {
 								adjusted_num_bytes_str += " / sizeof(" + target_type.getAsString() + ") * sizeof(" + element_type_str + ")";
 							}
+						}
+						if ("void" == element_type_str) {
+							element_type_str = "char";
+						} else if ("const void" == element_type_str) {
+							element_type_str = "const char";
 						}
 						if ("" != element_type_str) {
 							bool is_char_star = (("char" == element_type_str) || ("const char" == element_type_str));
