@@ -13183,21 +13183,17 @@ namespace convm1 {
 						assert(nullptr != ATP);
 						auto element_type = ATP->getElementType();
 						auto type_str = generate_qtype_replacement_code(element_type, Rewrite, &state1);
-						if (true || (("char" != type_str) && ("const char" != type_str))) {
-							lhs_element_type_str = type_str;
-						}
+						lhs_element_type_str = type_str;
 						adjusted_num_bytes_str = "(" + alloc_function_info1.m_num_bytes_arg_source_text + ")";
-						if ((element_type.getAsString() != lhs_element_type_str) && ("void" != lhs_element_type_str)) {
+						if ((element_type.getAsString() != lhs_element_type_str) && ("void" != lhs_element_type_str) && ("const void" != lhs_element_type_str)) {
 							adjusted_num_bytes_str += " / sizeof(" + element_type.getAsString() + ") * sizeof(" + lhs_element_type_str + ")";
 						}
 					} else if (lhs_TP->isPointerType()) {
 						auto target_type = lhs_TP->getPointeeType();
 						auto type_str = generate_qtype_replacement_code(target_type, Rewrite, &state1);
-						if (true || (("char" != type_str) && ("const char" != type_str))) {
-							lhs_element_type_str = type_str;
-						}
+						lhs_element_type_str = type_str;
 						adjusted_num_bytes_str = "(" + alloc_function_info1.m_num_bytes_arg_source_text + ")";
-						if (("void" == lhs_element_type_str) | ("const void" == lhs_element_type_str)) {
+						if (("void" == lhs_element_type_str) || ("const void" == lhs_element_type_str)) {
 							/* The assignee of the *alloc() function seems to be a void pointer. Without being able to deduce 
 							the intended type of the allocated memory, there's nothing we can really do to make it (type) safe. */
 
@@ -13243,11 +13239,38 @@ namespace convm1 {
 						}
 					}
 					if ("" != lhs_element_type_str) {
-						bool is_char_star = (("char" == lhs_element_type_str) || ("const char" == lhs_element_type_str));
+						bool is_char_lhs_element_type = (("char" == lhs_element_type_str) || ("const char" == lhs_element_type_str));
 
 						std::optional<CArrayInferenceInfo> maybe_res2;
 						if (LHS) {
 							maybe_res2 = infer_array_type_info_from_stmt(*LHS, "malloc target", state1);
+							if (maybe_res2.has_value()) {
+								auto& lhs_res2 = maybe_res2.value();
+								if (lhs_res2.ddecl_conversion_state_ptr && lhs_res2.ddecl_cptr) {
+									auto& lhs_ddcs_ref = *lhs_res2.ddecl_conversion_state_ptr;
+
+									bool is_byte_lhs_element_type = (("char" == lhs_element_type_str) || ("const char" == lhs_element_type_str))
+										|| (("unsigned char" == lhs_element_type_str) || ("const unsigned char" == lhs_element_type_str))
+										|| (("int8_t" == lhs_element_type_str) || ("const int8_t" == lhs_element_type_str));
+
+									if (is_byte_lhs_element_type && (lhs_res2.indirection_level < lhs_ddcs_ref.m_indirection_state_stack.size())) {
+										/* If the type of the pointer this allocation is being assigned to is a pointer to one of the common 
+										"one-byte" types, then we're going to assume that the allocation is intended to be a buffer of such 
+										one-byte elements. In the unusual case that that is not the intent, the converted code should 
+										generally still work, as the returned iterator can be used as just a pointer. There'd just be a 
+										little bit of unnecessary overhead. */
+										auto& indirection_state_ref = lhs_ddcs_ref.m_indirection_state_stack.at(0);
+										auto lhs_ddecl_indirection = CDDeclIndirection(*(lhs_res2.ddecl_cptr), lhs_res2.indirection_level);
+										if (!indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+											indirection_state_ref.set_is_known_to_be_used_as_an_iterator(true);
+											state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_ddecl_indirection);
+											state1.m_array2_contingent_replacement_map.execute_matching_actions(state1, lhs_ddecl_indirection);
+										}
+									}
+
+									//auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+								}
+							}
 						}
 
 						auto maybe_replacement_SR = std::optional<clang::SourceRange>{};
@@ -13358,7 +13381,7 @@ namespace convm1 {
 									&& (nullptr != res2.ddecl_conversion_state_ptr)) {
 								auto cr_shptr = std::make_shared<CMallocArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, res2.indirection_level), BO, bo_replacement_code);
 
-								if (true || ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_point_to_an_array(res2.indirection_level) || is_char_star)) {
+								if (true || ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_point_to_an_array(res2.indirection_level) || is_char_lhs_element_type)) {
 									(*cr_shptr).do_replacement(state1);
 								} else {
 									//state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
@@ -14207,6 +14230,17 @@ namespace convm1 {
 		bool is_necessarily_an_iterator_by_param_zbindex(const param_zero_based_index1_t param_zero_based_index) const {
 			auto bitmask = (bitfield1_t{1} << param_zero_based_index);
 			return is_necessarily_an_iterator_by_param_bit_mask(bitmask);
+		}
+		bool is_likely_an_iterator_by_param_zbindex(const param_zero_based_index1_t param_zero_based_index) const {
+			auto bitmask = (bitfield1_t{1} << param_zero_based_index);
+			if (is_necessarily_an_iterator_by_param_bit_mask(bitmask)) {
+				return true;
+			} else if (("memset" == OriginalFunctionQName) || ("std::memset" == OriginalFunctionQName)
+				|| ("memcpy" == OriginalFunctionQName) || ("std::memcpy" == OriginalFunctionQName)
+				|| ("memcmp" == OriginalFunctionQName) || ("std::memcmp" == OriginalFunctionQName)) {
+				return true;
+			}
+			return false;
 		}
 
 		static const bitfield1_t NONE = 0;
@@ -17789,7 +17823,7 @@ namespace convm1 {
 										auto& fc_info = s_function_conversion_infos().at(maybe_function_conversion_index.value());
 										if (fc_info.m_maybe_num_parameters.has_value()) {
 											if (num_args == fc_info.m_maybe_num_parameters.value()) {
-												if (fc_info.is_necessarily_an_iterator_by_param_zbindex(arg_index)) {
+												if (fc_info.is_likely_an_iterator_by_param_zbindex(arg_index)) {
 													auto [param_ddcs_ref, param_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*param_VD, &Rewrite);
 													if (param_ddcs_ref.m_indirection_state_stack.size() >= 1) {
 														auto& indirection_state_ref = param_ddcs_ref.m_indirection_state_stack.at(0);
