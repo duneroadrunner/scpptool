@@ -2829,7 +2829,7 @@ namespace convc2validcpp {
 					preceeding_char_is_alpha_numerickish = false;
 				}
 				if (i + int(old_string.length()) < int(text.length())) {
-					succeeding_char_is_alpha_numerickish = is_alpha_numerickish(i + int(old_string.length()));
+					succeeding_char_is_alpha_numerickish = is_alpha_numerickish(text[i + int(old_string.length())]);
 				} else {
 					succeeding_char_is_alpha_numerickish = false;
 				}
@@ -2904,6 +2904,30 @@ namespace convc2validcpp {
 		typedef std::map<COrderedSourceRange, std::list<CCodeModificationActionAndID> > base_class;
 		using base_class::base_class;
 
+		void set_ReplaceText_supression_mode(bool mode) {
+			m_ReplaceText_supression_mode = mode;
+		}
+		void clear_ReplaceText_supression_mode() {
+			m_ReplaceText_supression_mode = false;
+		}
+		bool ReplaceText(Rewriter &Rewrite, clang::SourceRange SR, std::string_view NewStr) const {
+			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+#ifndef NDEBUG
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+				int q = 5;
+			}
+			if (std::string::npos != NewStr.find("idx")) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
+
+			if ((!m_ReplaceText_supression_mode) && SR.isValid()) {
+				return Rewrite.ReplaceText(SR, NewStr);
+			}
+			return false;
+		}
+
 		std::pair<base_class::iterator, bool> add_replacement_action(const COrderedSourceRange& OSR, const CCodeModificationActionAndID& modifier) {
 			auto iter1 = base_class::find(OSR);
 			if (base_class::end() != iter1) {
@@ -2965,7 +2989,7 @@ namespace convc2validcpp {
 						}
 #endif /*!NDEBUG*/
 
-						Rewrite.ReplaceText(OSR, new_text);
+						this->ReplaceText(Rewrite, OSR, new_text);
 						this->m_already_modified_regions.insert(OSR);
 
 #ifndef NDEBUG
@@ -3069,7 +3093,7 @@ namespace convc2validcpp {
 #endif /*!NDEBUG*/
 
 								//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, OSR, replacement_code);
-								auto res2 = Rewrite.ReplaceText(OSR, replacement_code);
+								auto res2 = this->ReplaceText(Rewrite, OSR, replacement_code);
 								this->m_already_modified_regions.insert(OSR);
 							}
 						}
@@ -3097,7 +3121,7 @@ namespace convc2validcpp {
 #endif /*!NDEBUG*/
 
 							//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, OSR, replacement_code);
-							auto res2 = Rewrite.ReplaceText(OSR, replacement_code);
+							auto res2 = this->ReplaceText(Rewrite, OSR, replacement_code);
 							this->m_already_modified_regions.insert(OSR);
 						}
 					}
@@ -3116,6 +3140,7 @@ namespace convc2validcpp {
 
 		COrderedRegionSet m_already_modified_regions;
 		std::unordered_set<decltype(std::declval<clang::TypeLoc>().getOpaqueData())> m_already_modified_typeLocs;
+		bool m_ReplaceText_supression_mode = false;
 	};
 
 
@@ -3784,7 +3809,8 @@ namespace convc2validcpp {
 						auto& ecs_ref = *((*iter).second);
 						auto& current_text_ref = ecs_ref.current_text();
 						if (current_text_ref != ecs_ref.m_original_source_text_str) {
-							Rewrite.ReplaceText(OSR, current_text_ref);
+							//Rewrite.ReplaceText(OSR, current_text_ref);
+							state1.m_pending_code_modification_actions.ReplaceText(Rewrite, OSR, current_text_ref);
 							this->m_already_modified_regions.insert(OSR);
 						}
 					}
@@ -6974,8 +7000,23 @@ namespace convc2validcpp {
 
 					if (ConvertC2ValidCpp && last_decl_source_range.isValid() && (3 <= replacement_code.size())
 							&& changed_from_original) {
-						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, last_decl_source_range, replacement_code);
-						//auto res2 = Rewrite.ReplaceText(last_decl_source_range, replacement_code);
+
+						DEBUG_SOURCE_LOCATION_STR(debug_last_decl_source_location_str, last_decl_source_range, Rewrite);
+						DEBUG_SOURCE_TEXT_STR(debug_last_decl_source_text1, last_decl_source_range, Rewrite);
+#ifndef NDEBUG
+						if (std::string::npos != debug_last_decl_source_location_str.find(g_target_debug_source_location_str1)) {
+							int q = 5;
+						}
+#endif /*!NDEBUG*/
+
+						if (last_decl_source_range.is_rewritable()) {
+							state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, last_decl_source_range, replacement_code);
+						} else {
+							/* If the source range is not rewritable then this may be the one and only chance to write anything 
+							to the source range, so we cannot queue the modification for later execution, we must execute the 
+							modification here and now. */
+							auto res2 = state1.m_pending_code_modification_actions.ReplaceText(Rewrite, last_decl_source_range, replacement_code);
+						}
 					} else {
 						int q = 7;
 					}
@@ -11176,7 +11217,7 @@ namespace convc2validcpp {
 				return;
 			}
 
-			auto SR = cm1_adj_nice_source_range(RHS->getSourceRange(), state1, Rewrite);
+			auto SR = write_once_source_range(cm1_adj_nice_source_range(RHS->getSourceRange(), state1, Rewrite));
 			RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
 			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
@@ -11297,7 +11338,7 @@ namespace convc2validcpp {
 						int q = 5;
 					}
 				}
-				if (is_named_enumeral_type) {
+				if (true || is_named_enumeral_type) {
 					rhs_needs_hard_cast_to_lhs = true;
 				}
 			} else if ((RHS_ii_qtype->isPointerType()) && (LHS_qtype->isPointerType())) {
@@ -11375,25 +11416,42 @@ namespace convc2validcpp {
 			}
 			if (rhs_needs_hard_cast_to_lhs) {
 				bool RHS_ii_is_filtered_out = false;
-				auto RHS_ii_SR = cm1_adjusted_source_range(RHS_ii->getSourceRange(), state1, Rewrite);
+				auto RHS_ii_SR = write_once_source_range(cm1_adjusted_source_range(RHS_ii->getSourceRange(), state1, Rewrite));
 				if ((!RHS_ii_SR.isValid()) || filtered_out_by_location(MR, RHS_ii_SR.getBegin())) {
 					RHS_ii_is_filtered_out = true;
 				}
 				/* If RHS_ii is "filtered out" then we'll have to use RHS. */
 				auto RHS2 = RHS_ii_is_filtered_out ? RHS : RHS_ii;
 				auto RHS2SR = RHS_ii_is_filtered_out ? SR : RHS_ii_SR;
-
-				const std::string cast_wrapper_prefix = "(" + LHS_qtype_str + ")(";
-				const std::string cast_wrapper_suffix = ")";
-
 				auto& ecs_ref = state1.get_expr_conversion_state_ref(*RHS2, Rewrite);
-				const auto l_text_modifier = CWrapExprTextModifier(cast_wrapper_prefix, cast_wrapper_suffix);
-				bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
-					&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+				std::string cast_wrapper_prefix = "(" + LHS_qtype_str + ")(";
+				std::string cast_wrapper_suffix = ")";
+				bool seems_to_be_already_applied = false;
+
+				if (std::string::npos != LHS_qtype_str.find("unnamed " /*"unnamed enum at"*/)) {
+					/* The explicit lhs type is not available, so we're going to use decltype(lhs) instead. */
+					std::string current_RHS2_text = ecs_ref.current_text();
+					auto& lhs_ecs_ref = state1.get_expr_conversion_state_ref(*LHS, Rewrite);
+					static const std::string start_of_potential_cast_wrapper_prefix = "\n#ifdef __cplusplus \n(decltype(";
+					if ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && string_begins_with(current_RHS2_text, start_of_potential_cast_wrapper_prefix)) {
+						seems_to_be_already_applied = true;
+					} else {
+						cast_wrapper_prefix = start_of_potential_cast_wrapper_prefix + lhs_ecs_ref.current_text() + "))(";
+						cast_wrapper_suffix = ") \n#else /*__cplusplus*/ \n" + current_RHS2_text + "\n#endif /*__cplusplus*/ \n";
+					}
+				}
+
+				if (!seems_to_be_already_applied) {
+					const auto l_text_modifier = CWrapExprTextModifier(cast_wrapper_prefix, cast_wrapper_suffix);
+					seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+						&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+				}
 				if (!seems_to_be_already_applied) {
 					auto shptr2 = std::make_shared<CWrapExprTextModifier>(cast_wrapper_prefix, cast_wrapper_suffix);
 					ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
 					ecs_ref.update_current_text();
+
+					std::string current_text2 = ecs_ref.current_text();
 
 					state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, RHS2SR, state1, RHS2);
 				}
@@ -15731,30 +15789,28 @@ namespace convc2validcpp {
 					}
 #endif /*!NDEBUG*/
 
-					if (action.first.is_rewritable()) {
-						/* Execute and discard all source code text modification functions associated with this source range. */
-						auto sub_it = action.second.begin();
-						while (action.second.size() >= 1) {
-							/* Note that we may cause the container to be modified as we're iterating over it. (So we can't use
-							a "traditional" loop.) */
+					/* If the range can only be reliably modified once, then we want to suppress any attempts to modify 
+					the range until the last modification action is (about to be) executed. */
+					m_tu_state.m_pending_code_modification_actions.set_ReplaceText_supression_mode(!(action.first.is_rewritable()));
 
-							auto& modification_function = *sub_it;
-							modification_function();
-							action.second.erase(sub_it);
-							sub_it = action.second.begin();
+					/* Execute and discard all source code text modification functions associated with this source range. */
+					auto sub_it = action.second.begin();
+					while (action.second.size() >= 1) {
+						/* Note that we may cause the container to be modified as we're iterating over it. (So we can't use
+						a "traditional" loop.) */
+
+						if (1 == action.second.size()) {
+							/* This appears to be the last modification action, so we want to disengage any suppression of modification 
+							to the source range due to the range reliably supporting only one modification. */
+							m_tu_state.m_pending_code_modification_actions.clear_ReplaceText_supression_mode();
 						}
-					} else
-					{
-						/* This source range is marked as supporting only one text replacement operation before
-						becoming "stale"/"invalid". So here we execute only the last associated source code text
-						modification function (and hope that any other ones, if present, are redundant). */
-						if (!m_tu_state.m_pending_code_modification_actions.m_already_modified_regions.contains(action.first)) {
-							auto& modification_function = action.second.back();
-							modification_function();
-						} else {
-							int q = 5;
-						}
+
+						auto& modification_function = *sub_it;
+						modification_function();
+						action.second.erase(sub_it);
+						sub_it = action.second.begin();
 					}
+					m_tu_state.m_pending_code_modification_actions.clear_ReplaceText_supression_mode();
 				}
 
 				auto res1 = m_tu_state.m_pending_code_modification_actions.erase(retained_it);
