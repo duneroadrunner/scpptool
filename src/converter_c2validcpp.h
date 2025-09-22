@@ -12,6 +12,7 @@
 #include "checker.h"
 
 /*Standard headers*/
+#include <cassert>
 #include <cstddef>
 #include <linux/limits.h>
 #include <string>
@@ -3320,6 +3321,9 @@ namespace convc2validcpp {
 
 		/* This container holds information about definitions of preprocessor macros. */
 		CPPMacroDefinitions m_pp_macro_definitions;
+
+		/* This container holds the locations where the IF_CPP() and IF_CPP_ELSE() macros have been inserted. */
+		std::set<clang::SourceLocation> m_if_cpp_macro_use_locations;
 
 		/* This value seems to be required for certain AST traversing operations. We put
 		it here so that we don't have to pass it around separately, but we're not totally
@@ -11431,13 +11435,24 @@ namespace convc2validcpp {
 				if (std::string::npos != LHS_qtype_str.find("unnamed " /*"unnamed enum at"*/)) {
 					/* The explicit lhs type is not available, so we're going to use decltype(lhs) instead. */
 					std::string current_RHS2_text = ecs_ref.current_text();
-					auto& lhs_ecs_ref = state1.get_expr_conversion_state_ref(*LHS, Rewrite);
-					static const std::string start_of_potential_cast_wrapper_prefix = "\n#ifdef __cplusplus \n(decltype(";
+					static const std::string start_of_potential_cast_wrapper_prefix = "IF_CPP_ELSE(((decltype(";
 					if ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && string_begins_with(current_RHS2_text, start_of_potential_cast_wrapper_prefix)) {
 						seems_to_be_already_applied = true;
 					} else {
-						cast_wrapper_prefix = start_of_potential_cast_wrapper_prefix + lhs_ecs_ref.current_text() + "))(";
-						cast_wrapper_suffix = ") \n#else /*__cplusplus*/ \n" + current_RHS2_text + "\n#endif /*__cplusplus*/ \n";
+						std::string lhs_expression_text;
+						if (LHS) {
+							auto& lhs_ecs_ref = state1.get_expr_conversion_state_ref(*LHS, Rewrite);
+							lhs_expression_text = lhs_ecs_ref.current_text();
+						} else if (VLD) {
+							lhs_expression_text = VLD->getNameAsString();
+						} else { assert(false); }
+						if ("" != lhs_expression_text) {
+							cast_wrapper_prefix = start_of_potential_cast_wrapper_prefix + lhs_expression_text + "))(";
+							cast_wrapper_suffix = ")), (" + current_RHS2_text + "))";
+							state1.m_if_cpp_macro_use_locations.insert(RHS2SR.getBegin());
+						} else {
+							int q = 3;
+						}
 					}
 				}
 
@@ -13589,7 +13604,8 @@ namespace convc2validcpp {
 												new_cpp_DD_text = current_DD_text;
 												replace_whole_instances_of_given_string(new_cpp_DD_text, ddcs_ref.m_indirection_state_stack.m_direct_type_state.original_type_source_text(), new_namespace_qualified_direct_type_str);
 
-												std::string new_DD_text = "\n#ifdef __cplusplus \n" + new_cpp_DD_text + "\n#else /*__cplusplus*/ \n" + current_DD_text + "\n#endif /*__cplusplus*/ \n";
+												std::string new_DD_text = "IF_CPP_ELSE(" + new_cpp_DD_text + ", " + current_DD_text + ")";
+												state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
 
 												state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_DD_text);
 											}
@@ -14175,9 +14191,12 @@ namespace convc2validcpp {
 												std::string new_cpp_DRE_text;
 												new_cpp_DRE_text = ecs_ref.current_text();
 												if (std::string::npos == new_cpp_DRE_text.find("::")) {
+
 													replace_whole_instances_of_given_string(new_cpp_DRE_text, enum_const_name, new_namespace_qualified_enum_const_name);
 
-													std::string new_DRE_text = "\n#ifdef __cplusplus \n" + new_cpp_DRE_text + "\n#else /*__cplusplus*/ \n" + dre_text + "\n#endif /*__cplusplus*/ \n";
+													const std::string new_DRE_text = "IF_CPP_ELSE((" + new_cpp_DRE_text + "), (" + dre_text + "))";
+													const auto DRE_SR = write_once_source_range(cm1_adj_nice_source_range(DRE->getSourceRange(), state1, Rewrite));
+													state1.m_if_cpp_macro_use_locations.insert(DRE_SR.getBegin());
 
 													state1.add_pending_straight_text_replacement_expression_update(*DRE, Rewrite, new_DRE_text);
 												}
@@ -15816,6 +15835,25 @@ namespace convc2validcpp {
 				auto res1 = m_tu_state.m_pending_code_modification_actions.erase(retained_it);
 
 				rit = m_tu_state.m_pending_code_modification_actions.rbegin();
+			}
+
+			std::set<clang::FileID> files_that_use_the_if_cpp_macro;
+			for (auto const& SL : m_tu_state.m_if_cpp_macro_use_locations) {
+				files_that_use_the_if_cpp_macro.insert(SM.getFileID(SL));
+			}
+			for (auto const& file_id : files_that_use_the_if_cpp_macro) {
+				static const std::string if_cpp_def_str = "\n#ifndef IF_CPP \n#ifdef __cplusplus \n#define IF_CPP(x) x \n#else /*__cplusplus*/ \n#define IF_CPP(x) \n#endif /*__cplusplus*/ \n#endif /*!defined(IF_CPP)*/ \n"
+					"\n#ifndef IF_CPP_ELSE \n#ifdef __cplusplus \n#define IF_CPP_ELSE(x, y) x \n#else /*__cplusplus*/ \n#define IF_CPP_ELSE(x, y) y \n#endif /*__cplusplus*/ \n#endif /*!defined(IF_CPP_ELSE)*/ \n";
+				const auto maybe_file_text = SM.getBufferDataOrNone(file_id);
+				if (maybe_file_text.has_value()) {
+					std::string file_text = std::string(maybe_file_text.value());
+					if (std::string::npos == file_text.find("#ifndef IF_CPP ")) {
+						/* The IF_CPP() macro is reportedly used in the conversion of this file, so we'll add some code 
+						at the beginning of the file to define that macro if it hasn't already been defined. */
+						const auto beginning_of_file_SL = SM.getLocForStartOfFile(file_id);
+						Rewrite.InsertTextBefore(beginning_of_file_SL, if_cpp_def_str);
+					}
+				}
 			}
 
 			TheRewriter.getEditBuffer(TheRewriter.getSourceMgr().getMainFileID()).write(llvm::outs());
