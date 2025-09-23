@@ -19501,6 +19501,48 @@ namespace convm1 {
 						}
 					}
 
+					if (qtype->isPointerType() && !is_void_star_or_const_void_star(qtype)) {
+						auto maybe_typeLoc = typeLoc_if_available(*DD);
+						if (maybe_typeLoc.has_value()) {
+							auto& typeLoc = maybe_typeLoc.value();
+							auto type_rawSR = typeLoc.getSourceRange();
+							if (type_rawSR.getBegin().isMacroID() && type_rawSR.getEnd().isMacroID()) {
+								auto& SM = Rewrite.getSourceMgr();
+								auto b18 = SM.isMacroBodyExpansion(type_rawSR.getBegin());
+								auto b19 = SM.isMacroBodyExpansion(type_rawSR.getEnd());
+								if (b18) {
+									/* The type seems to be located in the body of a macro. Because this macro could be also used 
+									for other declarations, it might be safer to use the most general type. */
+									if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
+										auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(0);
+										auto ddecl_indirection = CDDeclIndirection(*DD, 0/*indirection level*/);
+
+										/* Here we're indicating that the (pointer) type should be converted to a type that supports both 
+										malloc()ed and non-malloc()ed targets. */
+										if (!indirection_state_ref.is_known_to_have_malloc_target()) {
+											indirection_state_ref.set_is_known_to_have_malloc_target(true);
+											state1.m_conversion_state_change_action_map.execute_matching_actions(state1, ddecl_indirection);
+											if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+												state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, ddecl_indirection);
+											}
+										}
+										if (!indirection_state_ref.is_known_to_have_non_malloc_target()) {
+											indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
+											state1.m_conversion_state_change_action_map.execute_matching_actions(state1, ddecl_indirection);
+											if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+												state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, ddecl_indirection);
+											}
+										}
+
+									} else {
+										/* unexpected */
+										int q = 3;
+									}
+								}
+							}
+						}
+					}
+
 					const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 					if (CXXRD) {
 						auto name = CXXRD->getQualifiedNameAsString();
