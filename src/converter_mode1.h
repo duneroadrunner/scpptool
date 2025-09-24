@@ -10819,10 +10819,12 @@ namespace convm1 {
 					const auto og_preconversion_pointee_qtype = IgnoreParenImpCasts(CSCE->getSubExpr())->getType()->getPointeeType();
 					const std::string og_converted_pointee_qtype_str = og_converted_pointee_qtype.getAsString();
 					const std::string og_preconversion_pointee_qtype_str = og_preconversion_pointee_qtype.getAsString();
-					if ((!og_converted_pointee_qtype.isConstQualified()) && og_preconversion_pointee_qtype.isConstQualified()) {
-						apparent_const_correctness_violation = true;
-					} else if (og_converted_pointee_qtype == og_preconversion_pointee_qtype.withConst()) {
-						seems_to_be_a_benign_cast |= true;
+					if ((!MSE_TYPE_IS_NULL_OR_AUTO(og_converted_pointee_qtype)) && (!MSE_TYPE_IS_NULL_OR_AUTO(og_preconversion_pointee_qtype))) {
+						if ((!og_converted_pointee_qtype.isConstQualified()) && og_preconversion_pointee_qtype.isConstQualified()) {
+							apparent_const_correctness_violation = true;
+						} else if (og_converted_pointee_qtype == og_preconversion_pointee_qtype.withConst()) {
+							seems_to_be_a_benign_cast |= true;
+						}
 					}
 
 					bool preconversion_expression_is_const_void_star = ("const void" == og_preconversion_pointee_qtype_str);
