@@ -64,6 +64,13 @@
 #endif /*MU_UTIL_LLVM_MAJOR*/
 
 
+inline std::string getRewrittenTextOrEmpty(clang::Rewriter& Rewrite, clang::SourceRange const& SR1) {
+	if (SR1.isValid() && (SR1.getBegin() <= SR1.getEnd())) {
+		return Rewrite.getRewrittenText(SR1);
+	}
+	return "";
+};
+
 #define PP_CONCAT(a, b) a##b
 #define DECLARE_CACHED_CONST_STRING(name, init_value) \
 							thread_local std::string PP_CONCAT(s_, name); \

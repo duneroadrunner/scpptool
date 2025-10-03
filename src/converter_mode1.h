@@ -921,21 +921,23 @@ namespace convm1 {
 						immediate parent macro invocation reported (by clang) is not always actually the immediate parent macro invocation. Sometimes it 
 						seems to report the immediate parent macro as the grandparent macro. */
 
-						if ((ranges_of_begin_iter->first == l_ranges_of_end_iter->first) && (nested_macro_ranges_of_begin.front().first != nested_macro_ranges_of_end.front().first)) {
-							/* The begin and end source locations we ended up with seem to be the same, while the original begin
-							and end locations were not the same. It's possible we could settled on a common macro one nesting 
+						if ((ranges_of_begin_iter->first == l_ranges_of_end_iter->first)/* && (nested_macro_ranges_of_begin.front().first != nested_macro_ranges_of_end.front().first)*/) {
+							/* The begin and end source locations we ended up with seem to be the same. If the original begin
+							and end locations were not the same, it's possible we could have settled on a common macro one nesting 
 							level (or more) shallower than intended as a result of the aforementioned apparent phenoma of clang 
 							reporting the immediate parent macro as the grandparent macro. So here we check for this and revert 
-							to using the macro one nesting level (or more) deeper if appropriate. */
+							to using the macro one nesting level (or more) deeper if appropriate. 
+							If the original begin and end locations were the same, then we'll prefer the range in the most deeply 
+							nested macro that contains the begin/end location. */
 							if ((nested_macro_ranges_of_begin.begin() != ranges_of_begin_iter) && (nested_macro_ranges_of_end.begin() != l_ranges_of_end_iter)) {
 								auto test_ranges_of_begin_iter1 = ranges_of_begin_iter - 1;
 								auto test_ranges_of_end_iter1 = l_ranges_of_end_iter - 1;
 								while (test_ranges_of_begin_iter1->second == test_ranges_of_end_iter1->second) {
+									ranges_of_begin_iter = test_ranges_of_begin_iter1;
+									l_ranges_of_end_iter = test_ranges_of_end_iter1;
 									if (test_ranges_of_begin_iter1->first != test_ranges_of_end_iter1->first) {
 										/* We found a deeper level of macro nesting where the begin and end source locations are still different 
 										but still seem to be contained in in the body of a common macro. */
-										ranges_of_begin_iter = test_ranges_of_begin_iter1;
-										l_ranges_of_end_iter = test_ranges_of_end_iter1;
 										break;
 									}
 									if ((nested_macro_ranges_of_begin.begin() != test_ranges_of_begin_iter1) && (nested_macro_ranges_of_end.begin() != test_ranges_of_end_iter1)) {
@@ -3089,7 +3091,7 @@ namespace convm1 {
 					preceeding_char_is_alpha_numerickish = false;
 				}
 				if (i + int(old_string.length()) < int(text.length())) {
-					succeeding_char_is_alpha_numerickish = is_alpha_numerickish(i + int(old_string.length()));
+					succeeding_char_is_alpha_numerickish = is_alpha_numerickish(text[i + int(old_string.length())]);
 				} else {
 					succeeding_char_is_alpha_numerickish = false;
 				}
@@ -16083,7 +16085,7 @@ namespace convm1 {
 				return;
 			}
 
-			auto SR = cm1_adj_nice_source_range(RHS->getSourceRange(), state1, Rewrite);
+			auto SR = write_once_source_range(cm1_adj_nice_source_range(RHS->getSourceRange(), state1, Rewrite));
 			RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
 			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
