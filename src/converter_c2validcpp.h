@@ -17630,7 +17630,7 @@ namespace convc2validcpp {
 		auto MNTSL = MacroNameTok.getLocation();
 		auto MNTSLE = MacroNameTok.getEndLoc();
 		auto MacroNameTokSR = COrderedSourceRange(MNTSL, MNTSLE);
-		std::string macro_nametok_text = m_Rewriter_ref.getRewrittenText(MacroNameTokSR);
+		std::string macro_nametok_text = getRewrittenTextOrEmpty(m_Rewriter_ref, MacroNameTokSR);
 		bool is_function_macro = false;
 		//std::string macro_name = MacroNameTok.getName();
 		std::string macro_name = macro_nametok_text;
@@ -17667,7 +17667,7 @@ namespace convc2validcpp {
 		auto macro_def = MD->getDefinition();
 		auto MDSL = macro_def.getMacroInfo()->getDefinitionLoc();
 		auto MDSLE = macro_def.getMacroInfo()->getDefinitionEndLoc();
-		std::string macro_def_text = m_Rewriter_ref.getRewrittenText({ MDSL, MDSLE });
+		std::string macro_def_text = getRewrittenTextOrEmpty(m_Rewriter_ref, { MDSL, MDSLE });
 		std::string_view macro_def_body_sv;
 		{
 			std::string::size_type search_start_pos = 0;
@@ -17707,7 +17707,7 @@ namespace convc2validcpp {
 		auto ppmdi = CPPMacroDefinitionInfo(MacroNameTok, *MD, is_function_macro, macro_def_body_sv, std::move(parameter_names));
 		auto iter1 = (*this).m_tu_state_ptr->m_pp_macro_definitions.find(macro_name);
 		if ((*this).m_tu_state_ptr->m_pp_macro_definitions.end() != iter1) {
-			IF_DEBUG(std::string found_macro_text = m_Rewriter_ref.getRewrittenText(iter1->second.definition_SR());)
+			IF_DEBUG(std::string found_macro_text = getRewrittenTextOrEmpty(m_Rewriter_ref, iter1->second.definition_SR());)
 			if (ppmdi.m_MacroNameTok.getName() != iter1->second.m_MacroNameTok.getName()) {
 				int q = 5;
 			} else {
@@ -17725,9 +17725,9 @@ namespace convc2validcpp {
 		auto MNTSL = MacroNameTok.getLocation();
 		auto MNTSLE = MacroNameTok.getEndLoc();
 		auto MacroNameTokSR = COrderedSourceRange(MNTSL, MNTSLE);
-		std::string macro_nametok_text = m_Rewriter_ref.getRewrittenText(MacroNameTokSR);
+		std::string macro_nametok_text = getRewrittenTextOrEmpty(m_Rewriter_ref, MacroNameTokSR);
 		std::string macro_name = MacroNameTok.getName();
-		std::string macro_text = m_Rewriter_ref.getRewrittenText(Range);
+		std::string macro_text = getRewrittenTextOrEmpty(m_Rewriter_ref, Range);
 
 		auto& SM = (*this).m_Rewriter_ref.getSourceMgr();
 		IF_DEBUG(std::string debug_source_location_str = Range.getBegin().printToString(SM);)
@@ -17759,7 +17759,7 @@ namespace convc2validcpp {
 		auto MacroDefSR = COrderedSourceRange(MDSL, MDSLE);
 
 #ifndef NDEBUG
-		std::string macro_def_text = m_Rewriter_ref.getRewrittenText({ MDSL, MDSLE });
+		std::string macro_def_text = getRewrittenTextOrEmpty(m_Rewriter_ref, { MDSL, MDSLE });
 
 		if (string_begins_with(macro_nametok_text, "MACRO")) {
 			int q = 5;
@@ -17770,7 +17770,7 @@ namespace convc2validcpp {
 
 		auto iter1 = (*this).m_tu_state_ptr->m_pp_macro_instances.find(MacroNameTokSR.getBegin());
 		if ((*this).m_tu_state_ptr->m_pp_macro_instances.end() != iter1) {
-			IF_DEBUG(std::string found_macro_text = m_Rewriter_ref.getRewrittenText(iter1->second.instance_SR());)
+			IF_DEBUG(std::string found_macro_text = getRewrittenTextOrEmpty(m_Rewriter_ref, iter1->second.instance_SR());)
 			if (ppmii.m_MacroNameTok.getName() != iter1->second.m_MacroNameTok.getName()) {
 				int q = 5;
 			} else {
