@@ -5726,6 +5726,13 @@ namespace convm1 {
 										}
 										break;
 									}
+
+									auto CSCE = dyn_cast<const clang::CStyleCastExpr>(parent_E);
+									if (CSCE) {
+										int q = 5;
+									}
+
+									int q = 5;
 								} while (false);
 
 								if (maybe_E_token_SR.has_value() && maybe_E_token_SR.value().isValid()) {
@@ -16246,8 +16253,12 @@ namespace convm1 {
 			Rewrite(Rewrite), m_state1(state1) {}
 
 		static void s_c_style_cast_of_rhs(Rewriter &Rewrite, CTUState& state1, clang::CStyleCastExpr const& CSCE_ref
-			, clang::QualType const& lhs_qtype, CArrayInferenceInfo const& lhs_res2, bool LHS_decl_is_non_modifiable, bool RHS_decl_is_non_modifiable) {
+			, clang::QualType const& lhs_qtype, CArrayInferenceInfo const& lhs_res2, bool LHS_decl_is_non_modifiable, bool RHS_decl_is_non_modifiable
+			, const clang::Expr* LHS, const clang::ValueDecl* VLD = nullptr) {
 
+			if ((!LHS) && (!VLD)) {
+				return;
+			}
 			auto* CSCE = &CSCE_ref;
 
 			auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
@@ -16290,6 +16301,111 @@ namespace convm1 {
 
 				auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_LHS, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
 				new_LHS_qtype_str = res3.m_complete_type_str;
+
+				bool use_decltype = false;
+				bool decltype_vetoed = false;
+				if (VLD) {
+					auto PVD = dyn_cast<const clang::ParmVarDecl>(VLD);
+					if (PVD) {
+						decltype_vetoed = true;
+					}
+				}
+				std::optional<CSourceRangePlus> maybe_assignment_expression_SR_plus;
+				if (!decltype_vetoed) {
+					auto CSCE_rawSR = CSCE->getSourceRange();
+					assert(LHS || VLD);
+					auto LHS_rawSR = LHS ? LHS->getSourceRange() : VLD->getSourceRange();
+					if (LHS_rawSR.getBegin().isMacroID() && LHS_rawSR.getEnd().isMacroID()
+						&& CSCE_rawSR.getBegin().isMacroID() && CSCE_rawSR.getEnd().isMacroID()) {
+
+						auto assignment_expr_SR = clang::SourceRange{ LHS_rawSR.getBegin(), CSCE_rawSR.getEnd() };
+						if (assignment_expr_SR.isValid()) {
+							auto SR_plus = cm1_adjusted_source_range(assignment_expr_SR, state1, Rewrite);
+							if (1 <= SR_plus.m_adjusted_source_text_infos.size()) {
+								/* The range that contains the LHS and CSCE seems to be contained in the body of a macro. Distinct 
+								invocations of a macro can result in different generated code. Certainly if the macro is a function 
+								macro invoked with different arguments, but sometimes even when it isn't. We've run into cases where 
+								the type of the LHS of an assignment operation in the body of a macro varies over (multiple distinct) 
+								macro invocations. In such cases, we can (try to) use decltype() to refer to the (varying) type of 
+								the LHS. */
+								use_decltype = true;
+								maybe_assignment_expression_SR_plus = SR_plus;
+							}
+						}
+					}
+				}
+				if (use_decltype) {
+					auto& ecs_ref = state1.get_expr_conversion_state_ref(*CSCE, Rewrite);
+					std::string current_CSCE2_text = ecs_ref.current_text();
+
+					std::string lhs_expression_text;
+					bool conficting_macro_parameter_named_type_flag = false;
+					if (LHS) {
+						auto& lhs_ecs_ref = state1.get_expr_conversion_state_ref(*LHS, Rewrite);
+
+						std::optional<CExprTextInfoContext> maybe_context;
+						if (maybe_assignment_expression_SR_plus.has_value()) {
+							auto const& assignment_expression_SR_plus = maybe_assignment_expression_SR_plus.value();
+							/* The assignment expression seems to be contained in the body of a macro. */
+							maybe_context = CExprTextInfoContext{ assignment_expression_SR_plus };
+
+							if (("" == lhs_expression_text) && maybe_context.has_value()) {
+								/* This element is being rendered as a component of a containing element. The representation of that 
+								containing element may be in the definition body of a macro. And the representation of this element 
+								may be in the body of another macro that is invoked in the body of the containing macro. In such 
+								case the representation of this element will presumably be used in the body of the containing macro, 
+								so we'll try to return a representation that is valid in the containing macro. The 
+								arg_ecs_ref.m_SR_plus value actually (hopefully) stores representations valid for each containing 
+								macro at various levels of (macro invocation) nesting. So we'll try to find one that seems to 
+								correspond to the element associated with the context. */
+
+								auto maybe_text_info_cptr = cpointer_targeting_the_source_text_info_record_corresponding_to_the_given_context_if_any(lhs_ecs_ref.m_SR_plus, maybe_context.value());
+								if (maybe_text_info_cptr.has_value()) {
+									const auto text_info_cptr = maybe_text_info_cptr.value();
+									lhs_expression_text = text_info_cptr->m_text;
+
+									/* Here we're just determining and noting whether or not the macro has a parameter named "type". */
+									for (size_t index = 0; lhs_ecs_ref.m_SR_plus.m_adjusted_source_text_infos.size() > (index + 1); index += 1) {
+										if (&(lhs_ecs_ref.m_SR_plus.m_adjusted_source_text_infos.at(index)) == text_info_cptr) {
+											auto const& macro_name = lhs_ecs_ref.m_SR_plus.m_adjusted_source_text_infos.at(index + 1).m_macro_name;
+
+											auto found_macro_iter = state1.m_pp_macro_definitions.find(macro_name);
+											if ((state1.m_pp_macro_definitions.end() != found_macro_iter)) {
+												auto& macro_params = found_macro_iter->second.m_parameter_names;
+												for (auto const& macro_param : macro_params) {
+													if ("type" == macro_param) {
+														conficting_macro_parameter_named_type_flag = true;
+														break;
+													}
+												}
+											}
+
+											break;
+										}
+									}
+								}
+							}
+						}
+						if ("" == lhs_expression_text) {
+							lhs_expression_text = lhs_ecs_ref.current_text(maybe_context);
+						}
+					} else if (VLD) {
+						lhs_expression_text = VLD->getNameAsString();
+					} else { assert(false); }
+
+					if ("" != lhs_expression_text) {
+						if (!conficting_macro_parameter_named_type_flag) {
+							new_LHS_qtype_str = " typename std::remove_reference<decltype(" + lhs_expression_text + ")>::type ";
+						} else {
+							/* We've actually encountered a situation where a macro parameter was named "type" which broke our attempt 
+							to use std::remove_reference<>::type in the conversion. */
+							new_LHS_qtype_str = " std::remove_reference_t<decltype(" + lhs_expression_text + ")> ";
+							//new_LHS_qtype_str = " decltype(" + lhs_expression_text + ") ";
+						}
+					} else {
+						int q = 3;
+					}
+				}
 
 				if (0 == indirection_state_stack_of_LHS.size()) {
 					/* The type of the LHS expression does not seem to be indirect. So the LHS type is the 
@@ -16760,9 +16876,9 @@ namespace convm1 {
 
 					if ((!finished_cast_handling_flag) && lhs_res2.ddecl_conversion_state_ptr && ConvertToSCPP) {
 
-						auto lambda = [&Rewrite, &state1, lhs_qtype, lhs_res2, CSCE, LHS_decl_is_non_modifiable, RHS_decl_is_non_modifiable]() {
+						auto lambda = [&Rewrite, &state1, lhs_qtype, lhs_res2, CSCE, LHS_decl_is_non_modifiable, RHS_decl_is_non_modifiable, LHS, VLD]() {
 							if (CSCE) {
-								MCSSSAssignment::s_c_style_cast_of_rhs((Rewrite), state1, *CSCE, lhs_qtype, lhs_res2, LHS_decl_is_non_modifiable, RHS_decl_is_non_modifiable);
+								MCSSSAssignment::s_c_style_cast_of_rhs((Rewrite), state1, *CSCE, lhs_qtype, lhs_res2, LHS_decl_is_non_modifiable, RHS_decl_is_non_modifiable, LHS, VLD);
 							}
 						};
 
@@ -16778,6 +16894,9 @@ namespace convm1 {
 						of any ancestor expressions as they will automatically establish relationships with any pre-existing 
 						ancestors (but not descendants). */
 						auto& precasted_ecs_ref = state1.get_expr_conversion_state_ref(*precasted_expr_ptr, Rewrite);
+						if (LHS) {
+							auto& LHS_ecs_ref = state1.get_expr_conversion_state_ref(*LHS, Rewrite);
+						}
 					}
 				}
 				if (!finished_cast_handling_flag) {
