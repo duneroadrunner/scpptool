@@ -5709,19 +5709,17 @@ namespace convm1 {
 
 									auto PE = dyn_cast<const clang::ParenExpr>(parent_E);
 									if (PE) {
-										auto LP_SL = PE->getLParen();
-										if (LP_SL.isValid()) {
-											auto token_SL = get_next_non_whitespace_SL(LP_SL, Rewrite);
-											auto token_SLE = token_SL;
-
-											auto RP_SL = PE->getRParen();
-											if (RP_SL.isValid()) {
-												token_SLE = get_previous_non_whitespace_SL(RP_SL, Rewrite);
-												auto token_SR = clang::SourceRange{ token_SL, token_SLE };
-												if (token_SR.isValid() && (token_SR.getBegin() <= token_SR.getEnd())) {
-													maybe_E_token_SR = token_SR;
-													break;
-												}
+										auto PE_rawSR = clang::SourceRange{ PE->getLParen(), PE->getRParen() };
+										auto PE_SR_plus = cm1_adjusted_source_range(*PE, state1, Rewrite);
+										if (PE_SR_plus.isValid()) {
+											DEBUG_SOURCE_TEXT_STR(debug_PE_source_text, PE_SR_plus, Rewrite);
+											auto token_SL = get_next_non_whitespace_SL(PE_SR_plus.getBegin(), Rewrite);
+											auto token_SLE = get_previous_non_whitespace_SL(PE_SR_plus.getEnd(), Rewrite);
+											auto token_SR_plus = cm1_adjusted_source_range(clang::SourceRange{ token_SL, token_SLE }, state1, Rewrite);
+											if (token_SR_plus.isValid()) {
+												DEBUG_SOURCE_TEXT_STR(debug_token_source_text, token_SR_plus, Rewrite);
+												maybe_E_token_SR = token_SR_plus;
+												break;
 											}
 										}
 										break;
