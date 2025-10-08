@@ -14795,13 +14795,15 @@ namespace convm1 {
 								bool first_two_args_are_void_star = false;
 								auto* const arg1_E = CE->getArg(0);
 								if (arg1_E) {
-									auto* const arg1_ii_E = IgnoreParenImpNoopCasts(arg1_E, *(MR.Context));
+									//auto* const arg1_ii_E = IgnoreParenImpNoopCasts(arg1_E, *(MR.Context));
+									auto* const arg1_ii_E = IgnoreParenImpCasts(arg1_E);
 									const auto arg1_ii_qtype = arg1_ii_E->getType();
 									IF_DEBUG(const auto arg1_ii_qtype_str = arg1_ii_qtype.getAsString();)
 									if (is_void_star_or_const_void_star(arg1_ii_qtype)) {
 										auto* const arg2_E = CE->getArg(1);
 										if (arg2_E) {
-											auto* const arg2_ii_E = IgnoreParenImpNoopCasts(arg2_E, *(MR.Context));
+											//auto* const arg2_ii_E = IgnoreParenImpNoopCasts(arg2_E, *(MR.Context));
+											auto* const arg2_ii_E = IgnoreParenImpCasts(arg2_E);
 											const auto arg2_ii_qtype = arg2_ii_E->getType();
 											IF_DEBUG(const auto arg2_ii_qtype_str = arg2_ii_qtype.getAsString();)
 											if (is_void_star_or_const_void_star(arg2_ii_qtype)) {
@@ -15723,13 +15725,15 @@ namespace convm1 {
 										bool first_two_args_are_void_star = false;
 										auto* const arg1_E = CE->getArg(0);
 										if (arg1_E) {
-											auto* const arg1_ii_E = IgnoreParenImpNoopCasts(arg1_E, Ctx);
+											//auto* const arg1_ii_E = IgnoreParenImpNoopCasts(arg1_E, Ctx);
+											auto* const arg1_ii_E = IgnoreParenImpCasts(arg1_E);
 											const auto arg1_ii_qtype = arg1_ii_E->getType();
 											IF_DEBUG(const auto arg1_ii_qtype_str = arg1_ii_qtype.getAsString();)
 											if (is_void_star_or_const_void_star(arg1_ii_qtype)) {
 												auto* const arg2_E = CE->getArg(1);
 												if (arg2_E) {
-													auto* const arg2_ii_E = IgnoreParenImpNoopCasts(arg2_E, Ctx);
+													//auto* const arg2_ii_E = IgnoreParenImpNoopCasts(arg2_E, Ctx);
+													auto* const arg2_ii_E = IgnoreParenImpCasts(arg2_E);
 													const auto arg2_ii_qtype = arg2_ii_E->getType();
 													IF_DEBUG(const auto arg2_ii_qtype_str = arg2_ii_qtype.getAsString();)
 													if (is_void_star_or_const_void_star(arg2_ii_qtype)) {
@@ -15767,6 +15771,54 @@ namespace convm1 {
 		return is_non_modifiable(decl, *(MR.Context), Rewrite, state1, E);
 	}
 
+	inline static void handle_c_style_cast_without_context_modification_action(Rewriter&Rewrite, CTUState& state1, clang::CStyleCastExpr const* CSCE, clang::Expr const* precasted_expr_ptr, clang::SourceRange CSCESR, clang::SourceRange precasted_expr_SR, ESuppressModifications suppress_modifications = ESuppressModifications::No) {
+		auto SR = CSCESR;
+		RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, CSCESR, Rewrite);
+		DEBUG_SOURCE_TEXT_STR(debug_source_text1, CSCESR, Rewrite);
+#ifndef NDEBUG
+		if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+			int q = 5;
+		}
+#endif /*!NDEBUG*/
+
+		auto res = generate_c_style_cast_replacement_code(Rewrite, state1, CSCE);
+
+		auto adjusted_new_cast_prefix = res.m_new_cast_prefix;
+		if (true) {
+			auto preconversion_expression_start_offset = Rewrite.getSourceMgr().getFileOffset(precasted_expr_SR.getBegin()) - Rewrite.getSourceMgr().getFileOffset(CSCESR.getBegin());
+			const std::string og_whole_cast_expr_text = getRewrittenTextOrEmpty(Rewrite, CSCESR);
+			if ((og_whole_cast_expr_text.length() > preconversion_expression_start_offset) && (0 <= preconversion_expression_start_offset)) {
+				if (res.m_new_cast_prefix.length() < preconversion_expression_start_offset) {
+					/* Just adding some padding to the prefix so that "precasted" expression ends up at its original 
+					(relative) location. (Just in case some of our other hacks depend on it.) */
+					const auto length_diff1 = preconversion_expression_start_offset - res.m_new_cast_prefix.length();
+					std::string padding;
+					for (size_t i = 0; length_diff1 > i; i += 1) {
+						padding += ' ';
+					}
+					adjusted_new_cast_prefix = padding + adjusted_new_cast_prefix;
+				}
+			}
+
+			auto& cecs_ref = state1.get_expr_conversion_state_ref<CCastExprConversionState>(*CSCE, Rewrite, *precasted_expr_ptr, adjusted_new_cast_prefix, res.m_new_cast_suffix);
+			cecs_ref.m_arg_expr_cptr = precasted_expr_ptr;
+			cecs_ref.m_prefix = adjusted_new_cast_prefix;
+			cecs_ref.m_suffix = res.m_new_cast_suffix;
+
+			cecs_ref.update_current_text(CExprTextInfoContext{ CSCESR, &Rewrite, &state1 });
+
+			if (CSCESR.isValid()) {
+				//state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CSCESR, state1, CSCE);
+
+				auto& current_text_ref = cecs_ref.current_text(CExprTextInfoContext{ CSCESR, &Rewrite, &state1 });
+				if ((current_text_ref != cecs_ref.m_original_source_text_str) && (ESuppressModifications::No == suppress_modifications)) {
+					state1.m_pending_code_modification_actions.ReplaceText(Rewrite, CSCESR, current_text_ref);
+				}
+			}
+		}
+	}
+
 	inline static void handle_c_style_cast_without_context(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
 		, const clang::CStyleCastExpr* CSCE) {
 
@@ -15794,6 +15846,17 @@ namespace convm1 {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/
+
+			auto CE = NonImplicitParentOfType<clang::CallExpr>(CSCE, *(MR.Context));
+			if (CE) {
+				/* This case should be handle by the MCSSSArgToParameterPassingArray2 handler. */
+				//return;
+			}
+			auto BO = NonImplicitParentOfType<clang::BinaryOperator>(CSCE, *(MR.Context));
+			if (BO && (clang::BinaryOperator::Opcode::BO_Assign == BO->getOpcode())) {
+				/* This case should be handle by the MCSSSAssignment handler. */
+				//return;
+			}
 
 			bool there_seems_to_be_a_contending_pending_code_modification_action = false;
 			auto found_it = state1.m_pending_code_modification_actions.find(CSCESR);
@@ -15921,60 +15984,8 @@ namespace convm1 {
 					auto b1 = contains_explicit_pointer_cast_subexpression(*precasted_expr_ptr);
 
 					if (true || (!b1) || ("char" == non_const_csce_pointee_QT.getAsString())) {
-
 						auto lambda = [&Rewrite, &state1, CSCE, precasted_expr_ptr, CSCESR, precasted_expr_SR]() {
-							auto SR = CSCESR;
-							RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
-							DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, CSCESR, Rewrite);
-							DEBUG_SOURCE_TEXT_STR(debug_source_text1, CSCESR, Rewrite);
-#ifndef NDEBUG
-							if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
-								int q = 5;
-							}
-#endif /*!NDEBUG*/
-
-							auto res = generate_c_style_cast_replacement_code(Rewrite, state1, CSCE);
-
-							auto adjusted_new_cast_prefix = res.m_new_cast_prefix;
-							if (true) {
-								auto preconversion_expression_start_offset = Rewrite.getSourceMgr().getFileOffset(precasted_expr_SR.getBegin()) - Rewrite.getSourceMgr().getFileOffset(CSCESR.getBegin());
-								const std::string og_whole_cast_expr_text = getRewrittenTextOrEmpty(Rewrite, CSCESR);
-								if ((og_whole_cast_expr_text.length() > preconversion_expression_start_offset) && (0 <= preconversion_expression_start_offset)) {
-									if (res.m_new_cast_prefix.length() < preconversion_expression_start_offset) {
-										/* Just adding some padding to the prefix so that "precasted" expression ends up at its original 
-										(relative) location. (Just in case some of our other hacks depend on it.) */
-										const auto length_diff1 = preconversion_expression_start_offset - res.m_new_cast_prefix.length();
-										std::string padding;
-										for (size_t i = 0; length_diff1 > i; i += 1) {
-											padding += ' ';
-										}
-										adjusted_new_cast_prefix = padding + adjusted_new_cast_prefix;
-									}
-								}
-
-								auto& cecs_ref = state1.get_expr_conversion_state_ref<CCastExprConversionState>(*CSCE, Rewrite, *precasted_expr_ptr, adjusted_new_cast_prefix, res.m_new_cast_suffix);
-								cecs_ref.m_arg_expr_cptr = precasted_expr_ptr;
-								cecs_ref.m_prefix = adjusted_new_cast_prefix;
-								cecs_ref.m_suffix = res.m_new_cast_suffix;
-
-								std::optional<CExprTextInfoContext> maybe_ti_render_context;
-								if (SR.isValid() && SR.getBegin().isMacroID()) {
-									const auto adj_SR = cm1_adjusted_source_range(CSCE->getSourceRange(), state1, Rewrite);
-									auto precasted_expr_ic = precasted_expr_ptr->IgnoreParenCasts();
-									/*** left off here ***/
-									;
-								}
-								cecs_ref.update_current_text(CExprTextInfoContext{ CSCESR, &Rewrite, &state1 });
-
-								if (CSCESR.isValid()) {
-									//state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CSCESR, state1, CSCE);
-
-									auto& current_text_ref = cecs_ref.current_text(CExprTextInfoContext{ CSCESR, &Rewrite, &state1 });
-									if (current_text_ref != cecs_ref.m_original_source_text_str) {
-										state1.m_pending_code_modification_actions.ReplaceText(Rewrite, CSCESR, current_text_ref);
-									}
-								}
-							}
+							handle_c_style_cast_without_context_modification_action(Rewrite, state1, CSCE, precasted_expr_ptr, CSCESR, precasted_expr_SR);
 						};
 						//lambda();
 						if (CSCESR.isValid() && (!there_seems_to_be_a_contending_pending_code_modification_action)) {
@@ -18173,7 +18184,8 @@ namespace convm1 {
 									IF_DEBUG(arg_source_text = getRewrittenTextOrEmpty(Rewrite, arg_source_range);)
 								}
 
-								auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+								//auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+								auto arg_EX_ii = IgnoreParenImpCasts(arg_EX);
 
 								auto arg_EX_ii_SR = write_once_source_range(cm1_adj_nice_source_range(arg_EX_ii->getSourceRange(), state1, Rewrite));
 
@@ -18200,9 +18212,24 @@ namespace convm1 {
 									if (arg_EX->getType()->isPointerType()) {
 										assert(nullptr != arg_EX);
 
-										auto CO = dyn_cast<const clang::ConditionalOperator>(arg_EX_ii);
-										if (CO) {
-											MCSSSConditionalExpr::s_handler1(MR, Rewrite, state1, CO, {});
+										bool DD_is_not_modifiable = false;
+										auto DD = clang::dyn_cast<clang::DeclaratorDecl>(DRE->getDecl());
+										if (DD) {
+											DD_is_not_modifiable = is_non_modifiable(*DD, *(MR.Context), Rewrite, state1);
+										}
+										if (!DD_is_not_modifiable) {
+											auto CO = dyn_cast<const clang::ConditionalOperator>(arg_EX_ii);
+											if (CO) {
+												MCSSSConditionalExpr::s_handler1(MR, Rewrite, state1, CO, {});
+											}
+											auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_EX_ii);
+											if (CSCE) {
+												auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
+												assert(precasted_expr_ptr);
+												auto precasted_expr_SR = cm1_adj_nice_source_range(precasted_expr_ptr->getSourceRange(), state1, Rewrite);
+												auto CSCESR = write_once_source_range(cm1_adj_nice_source_range(CSCE->getSourceRange(), state1, Rewrite));
+												handle_c_style_cast_without_context_modification_action(Rewrite, state1, CSCE, precasted_expr_ptr, CSCESR, precasted_expr_SR, ESuppressModifications::Yes);
+											}
 										}
 
 										auto& arg_ecs_ref = state1.get_expr_conversion_state_ref(*arg_EX, Rewrite);
@@ -18210,7 +18237,7 @@ namespace convm1 {
 										if (ConvertToSCPP) {
 											std::shared_ptr<CExprTextModifier> shptr1;
 											IF_DEBUG(auto arg_EX_qtype_str = arg_EX_qtype.getAsString();)
-											if (!is_void_star_or_const_void_star(arg_EX_qtype)) {
+											if (true || !is_void_star_or_const_void_star(arg_EX_qtype)) {
 												if ((!string_begins_with(function_qname, "mse::")) && (!string_begins_with(arg_function_qname_if_any, "mse::"))) {
 													shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
 													for  (auto& expr_text_modifier_shptr_ref : arg_ecs_ref.m_expr_text_modifier_stack) {
@@ -20347,90 +20374,6 @@ namespace convm1 {
 
 				auto E_ii = IgnoreParenImpNoopCasts(E, *(MR.Context));
 
-				auto *CSCE = dyn_cast<const clang::CStyleCastExpr>(E);
-				if (CSCE) {
-					bool finished_cast_handling_flag = false;
-
-					auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
-					assert(precasted_expr_ptr);
-					auto precasted_CE = llvm::dyn_cast<const clang::CallExpr>(IgnoreParenImpNoopCasts(precasted_expr_ptr, *(MR.Context)));
-					if (precasted_CE) {
-						auto precasted_CE_qtype = precasted_CE->getType();
-						IF_DEBUG(auto precasted_CE_qtype_str = precasted_CE_qtype.getAsString();)
-						auto *CE = dyn_cast<const clang::CallExpr>(precasted_CE);
-						if (CE && precasted_CE_qtype->isPointerType() && E_qtype->isPointerType()) {
-							auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
-							if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
-								auto DD = NonParenImpNoopCastParentOfType<clang::DeclaratorDecl>(CSCE, *(MR.Context));
-								if (DD) {
-									/* This case is handled elsewhere. */
-									finished_cast_handling_flag = true;
-								} else {
-									auto BO = NonParenImpNoopCastParentOfType<clang::BinaryOperator>(CSCE, *(MR.Context));
-									if (BO) {
-										const auto opcode = BO->getOpcode();
-										const auto opcode_str= std::string(BO->getOpcodeStr());
-										if ("=" == opcode_str) {
-											/* This case is handled elsewhere. */
-											finished_cast_handling_flag = true;
-										}
-									}
-									if (!finished_cast_handling_flag) {
-										MCSSSMalloc2::s_handler1(MR, Rewrite, state1, CSCE, CE);
-
-										std::string blank_text;
-										auto cast_operation_SR = cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite);
-										if (cast_operation_SR.isValid()) {
-											std::string cast_operation_text = getRewrittenTextOrEmpty(Rewrite, cast_operation_SR);
-											/* We're going to "blank out"/erase the original source text of the C-style cast operation
-											(including the parenthesis) (but not the expression that was being casted). */
-											blank_text = cast_operation_text;
-											for (auto& ch : blank_text) {
-												ch = ' ';
-											}
-										} else {
-											int q = 3;
-										}
-										if (true) {
-											auto& sacecs_ref = state1.get_expr_conversion_state_ref<CSingleArgCallExprConversionState>(*CSCE, Rewrite, *CE, blank_text);
-											sacecs_ref.m_arg_expr_cptr = CE;
-											sacecs_ref.m_function_name = blank_text;
-											sacecs_ref.update_current_text();
-
-											auto CSCE_SR = cm1_adj_nice_source_range(CSCE->getSourceRange(), state1, Rewrite);
-											if (CSCE_SR.isValid()) {
-												state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CSCE_SR, state1, CSCE);
-												//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, CSCE_SR, (*csce_shptr_ref).current_text());
-											}
-										} else {
-											if (cast_operation_SR.isValid()) {
-												state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, blank_text);
-											} else {
-												int q = 3;
-											}
-										}
-
-										finished_cast_handling_flag = true;
-									}
-								}
-							}
-						}
-					}
-					if (!finished_cast_handling_flag) {
-						handle_c_style_cast_without_context(MR, Rewrite, state1, CSCE);
-						return;
-					}
-				}
-				auto *CXXSCE = dyn_cast<const clang::CXXStaticCastExpr>(E);
-				if (CXXSCE) {
-					handle_cxx_static_cast_without_context(MR, Rewrite, state1, CXXSCE);
-					return;
-				}
-				auto *CXXCCE = dyn_cast<const clang::CXXConstCastExpr>(E);
-				if (CXXCCE) {
-					handle_cxx_const_cast_without_context(MR, Rewrite, state1, CXXCCE);
-					return;
-				}
 				auto CE = dyn_cast<const clang::CallExpr>(E);
 				if (CE) {
 					MCSSSArgToParameterPassingArray2::s_handler1(MR, Rewrite, state1, CE);
@@ -20439,7 +20382,8 @@ namespace convm1 {
 
 					if ((1 <= CE->getNumArgs()) && (CE->getArg(0)->getType()->isPointerType())) {
 						auto arg_EX = CE->getArg(0);
-						auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+						//auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+						auto arg_EX_ii = IgnoreParenImpCasts(arg_EX);
 
 						auto DRE = given_or_descendant_DeclRefExpr(arg_EX_ii, *(MR.Context));
 
@@ -20498,7 +20442,8 @@ namespace convm1 {
 
 								if ((1 <= CE->getNumArgs()) && (CE->getArg(0)->getType()->isPointerType())) {
 									auto arg_EX = CE->getArg(0);
-									auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+									//auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+									auto arg_EX_ii = IgnoreParenImpCasts(arg_EX);
 
 									auto DRE = given_or_descendant_DeclRefExpr(arg_EX_ii, *(MR.Context));
 
@@ -20602,6 +20547,91 @@ namespace convm1 {
 					to be unreliable, as a work-around we'll just make sure that every clang::InitListExpr has an 
 					"expression conversion state". */
 					auto& ecs_ref = state1.get_expr_conversion_state_ref(*E, Rewrite);
+				}
+
+				auto *CSCE = dyn_cast<const clang::CStyleCastExpr>(E);
+				if (CSCE) {
+					bool finished_cast_handling_flag = false;
+
+					auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
+					assert(precasted_expr_ptr);
+					auto precasted_CE = llvm::dyn_cast<const clang::CallExpr>(IgnoreParenImpNoopCasts(precasted_expr_ptr, *(MR.Context)));
+					if (precasted_CE) {
+						auto precasted_CE_qtype = precasted_CE->getType();
+						IF_DEBUG(auto precasted_CE_qtype_str = precasted_CE_qtype.getAsString();)
+						auto *CE = dyn_cast<const clang::CallExpr>(precasted_CE);
+						if (CE && precasted_CE_qtype->isPointerType() && E_qtype->isPointerType()) {
+							auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
+							if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
+								auto DD = NonParenImpNoopCastParentOfType<clang::DeclaratorDecl>(CSCE, *(MR.Context));
+								if (DD) {
+									/* This case is handled elsewhere. */
+									finished_cast_handling_flag = true;
+								} else {
+									auto BO = NonParenImpNoopCastParentOfType<clang::BinaryOperator>(CSCE, *(MR.Context));
+									if (BO) {
+										const auto opcode = BO->getOpcode();
+										const auto opcode_str= std::string(BO->getOpcodeStr());
+										if ("=" == opcode_str) {
+											/* This case is handled elsewhere. */
+											finished_cast_handling_flag = true;
+										}
+									}
+									if (!finished_cast_handling_flag) {
+										MCSSSMalloc2::s_handler1(MR, Rewrite, state1, CSCE, CE);
+
+										std::string blank_text;
+										auto cast_operation_SR = cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite);
+										if (cast_operation_SR.isValid()) {
+											std::string cast_operation_text = getRewrittenTextOrEmpty(Rewrite, cast_operation_SR);
+											/* We're going to "blank out"/erase the original source text of the C-style cast operation
+											(including the parenthesis) (but not the expression that was being casted). */
+											blank_text = cast_operation_text;
+											for (auto& ch : blank_text) {
+												ch = ' ';
+											}
+										} else {
+											int q = 3;
+										}
+										if (true) {
+											auto& sacecs_ref = state1.get_expr_conversion_state_ref<CSingleArgCallExprConversionState>(*CSCE, Rewrite, *CE, blank_text);
+											sacecs_ref.m_arg_expr_cptr = CE;
+											sacecs_ref.m_function_name = blank_text;
+											sacecs_ref.update_current_text();
+
+											auto CSCE_SR = cm1_adj_nice_source_range(CSCE->getSourceRange(), state1, Rewrite);
+											if (CSCE_SR.isValid()) {
+												state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CSCE_SR, state1, CSCE);
+												//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, CSCE_SR, (*csce_shptr_ref).current_text());
+											}
+										} else {
+											if (cast_operation_SR.isValid()) {
+												state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, blank_text);
+											} else {
+												int q = 3;
+											}
+										}
+
+										finished_cast_handling_flag = true;
+									}
+								}
+							}
+						}
+					}
+					if (!finished_cast_handling_flag) {
+						handle_c_style_cast_without_context(MR, Rewrite, state1, CSCE);
+						return;
+					}
+				}
+				auto *CXXSCE = dyn_cast<const clang::CXXStaticCastExpr>(E);
+				if (CXXSCE) {
+					handle_cxx_static_cast_without_context(MR, Rewrite, state1, CXXSCE);
+					return;
+				}
+				auto *CXXCCE = dyn_cast<const clang::CXXConstCastExpr>(E);
+				if (CXXCCE) {
+					handle_cxx_const_cast_without_context(MR, Rewrite, state1, CXXCCE);
+					return;
 				}
 
 				auto CO = dyn_cast<const clang::ConditionalOperator>(E);

@@ -13112,13 +13112,15 @@ namespace convc2validcpp {
 										bool first_two_args_are_void_star = false;
 										auto* const arg1_E = CE->getArg(0);
 										if (arg1_E) {
-											auto* const arg1_ii_E = IgnoreParenImpNoopCasts(arg1_E, Ctx);
+											//auto* const arg1_ii_E = IgnoreParenImpNoopCasts(arg1_E, Ctx);
+											auto* const arg1_ii_E = IgnoreParenImpCasts(arg1_E);
 											const auto arg1_ii_qtype = arg1_ii_E->getType();
 											IF_DEBUG(const auto arg1_ii_qtype_str = arg1_ii_qtype.getAsString();)
 											if (is_void_star_or_const_void_star(arg1_ii_qtype)) {
 												auto* const arg2_E = CE->getArg(1);
 												if (arg2_E) {
-													auto* const arg2_ii_E = IgnoreParenImpNoopCasts(arg2_E, Ctx);
+													//auto* const arg2_ii_E = IgnoreParenImpNoopCasts(arg2_E, Ctx);
+													auto* const arg2_ii_E = IgnoreParenImpCasts(arg2_E);
 													const auto arg2_ii_qtype = arg2_ii_E->getType();
 													IF_DEBUG(const auto arg2_ii_qtype_str = arg2_ii_qtype.getAsString();)
 													if (is_void_star_or_const_void_star(arg2_ii_qtype)) {
@@ -14228,7 +14230,8 @@ namespace convc2validcpp {
 								IF_DEBUG(arg_source_text = getRewrittenTextOrEmpty(Rewrite, arg_source_range);)
 							}
 
-							auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+							//auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+							auto arg_EX_ii = IgnoreParenImpCasts(arg_EX);
 
 							auto DRE = given_or_descendant_DeclRefExpr(arg_EX_ii, *(MR.Context));
 
@@ -14282,7 +14285,8 @@ namespace convc2validcpp {
 									IF_DEBUG(arg_source_text = getRewrittenTextOrEmpty(Rewrite, arg_source_range);)
 								}
 
-								auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+								//auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+								auto arg_EX_ii = IgnoreParenImpCasts(arg_EX);
 
 								auto DRE = given_or_descendant_DeclRefExpr(arg_EX_ii, *(MR.Context));
 
@@ -16570,7 +16574,8 @@ namespace convc2validcpp {
 
 					if (false && (1 == CE->getNumArgs()) && (CE->getArg(0)->getType()->isPointerType())) {
 						auto arg_EX = CE->getArg(0);
-						auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+						//auto arg_EX_ii = IgnoreParenImpNoopCasts(arg_EX, *(MR.Context));
+						auto arg_EX_ii = IgnoreParenImpCasts(arg_EX);
 
 						auto DRE = given_or_descendant_DeclRefExpr(arg_EX_ii, *(MR.Context));
 
