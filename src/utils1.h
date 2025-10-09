@@ -9,6 +9,7 @@
 #define __UTILS1_H
 
 /*Standard headers*/
+#include <cstddef>
 #include <optional>
 #include <iostream>
 #include <string>
@@ -27,6 +28,10 @@
 #include <array>
 
 #include <fstream>
+
+#include <chrono>
+#include <source_location>
+#include <limits>
 
 /*Clang Headers*/
 #include "clang/AST/AST.h"
@@ -72,6 +77,17 @@ inline std::string getRewrittenTextOrEmpty(clang::Rewriter& Rewrite, clang::Sour
 };
 
 #define PP_CONCAT(a, b) a##b
+
+/*     Stringize a macro argument after it has been expanded. */
+#define STR_IMPL(x) #x          /* turns the token x into a string literal */
+#define STR(x)      STR_IMPL(x) /* expands x first, then stringizes it   */
+
+/*     Concatenate the file name (already a string literal) with the
+       stringized line number.  String literal concatenation in C/C++
+       automatically merges adjacent literals. */
+#define FILE_LINE   __FILE__ ":" STR(__LINE__)
+#define FILE_LINE_func    (std::string(__FILE__) + ":" + std::to_string(__LINE__) + ":" + __func__)
+
 #define DECLARE_CACHED_CONST_STRING(name, init_value) \
 							thread_local std::string PP_CONCAT(s_, name); \
 							if (PP_CONCAT(s_, name).empty()) { \
@@ -2315,6 +2331,81 @@ inline auto Tget_descendant_of_type(const NodeT* NodePtr, clang::ASTContext& con
 	}
 	return retval;
 }
+
+class CTimeUseStatsSession {
+	public:
+	typedef std::chrono::high_resolution_clock::duration duration_t;
+	struct CSiteStats {
+		size_t m_count = 0;
+		duration_t m_cummulative_duration = duration_t{};
+	};
+	struct CSiteNameAndStats {
+		std::string m_site_name;
+		size_t m_count = 0;
+		duration_t m_cummulative_duration = duration_t{};
+	};
+	std::vector<CSiteNameAndStats> sorted_by_descending_cummulative_duration() const {
+		std::vector<CSiteNameAndStats> retval;
+		for (auto& stats_record : m_stats_map) {
+			retval.push_back({ stats_record.first, stats_record.second.m_count, stats_record.second.m_cummulative_duration });
+		}
+		std::sort(retval.begin(), retval.end(), [](auto const& lhs, auto const& rhs) { return (lhs.m_cummulative_duration < rhs.m_cummulative_duration); });
+		std::reverse(retval.begin(), retval.end());
+		return retval;
+	}
+	std::string stats_text1() const {
+		std::string retval;
+		auto sorted_list = sorted_by_descending_cummulative_duration();
+		for (auto const& item : sorted_list) {
+			retval += std::to_string(item.m_cummulative_duration.count());
+			retval += ", " + std::to_string(item.m_count);
+			retval += ", " + item.m_site_name;
+			retval += " \n";
+		}
+		return retval;
+	}
+	std::map<std::string, CSiteStats> m_stats_map;
+};
+
+class CTimeUseStatsSiteStake {
+	public:
+	CTimeUseStatsSiteStake(CTimeUseStatsSession& time_use_stats_session_ref, const std::string site_name) : m_site_stats_ptr([&time_use_stats_session_ref, &site_name]() -> CTimeUseStatsSession::CSiteStats* {
+		auto& stats_map_ref = time_use_stats_session_ref.m_stats_map;
+		auto found_it = stats_map_ref.find(site_name);
+		if (stats_map_ref.end() == found_it) {
+			auto [new_it, flag] = stats_map_ref.insert_or_assign(site_name, CTimeUseStatsSession::CSiteStats{});
+			found_it = new_it;
+		}
+		assert(stats_map_ref.end() != found_it);
+		return &(found_it->second);
+	}()) {}
+	CTimeUseStatsSession::CSiteStats* m_site_stats_ptr = nullptr;
+};
+
+class CTimeUseStatsCollectionRAIIObj {
+	public:
+	CTimeUseStatsCollectionRAIIObj(CTimeUseStatsSiteStake const& site_stake) : m_site_stake(site_stake)
+		, m_t1(std::chrono::high_resolution_clock::now()) {}
+	~CTimeUseStatsCollectionRAIIObj() {
+		m_site_stake.m_site_stats_ptr->m_count += 1;
+		m_site_stake.m_site_stats_ptr->m_cummulative_duration += (std::chrono::high_resolution_clock::now() - m_t1);
+	}
+	CTimeUseStatsSiteStake m_site_stake;
+	std::chrono::high_resolution_clock::time_point m_t1;
+};
+
+#define IMPL_TIME_USE_STATS_SITE_STAKE_LABEL_(a) PP_CONCAT(time_use_stats_site_stake, a)
+#define IMPL_TIME_USE_STATS_SITE_STAKE_UNIQUE_NAME IMPL_TIME_USE_STATS_SITE_STAKE_LABEL_(__LINE__)
+#define IMPL_TIME_USE_STATS_COLLECTION_OBJ_LABEL_(a) PP_CONCAT(time_use_stats_collection_obj, a)
+#define IMPL_TIME_USE_STATS_COLLECTION_SITE_UNIQUE_NAME IMPL_TIME_USE_STATS_COLLECTION_OBJ_LABEL_(__LINE__)
+
+#ifdef TIME_USE_STATS_ENABLED
+	#define TIME_USE_STATS_COLLECTION_SITE(time_use_stats_session1) \
+		thread_local CTimeUseStatsSiteStake IMPL_TIME_USE_STATS_SITE_STAKE_UNIQUE_NAME(time_use_stats_session1, FILE_LINE_func); CTimeUseStatsCollectionRAIIObj IMPL_TIME_USE_STATS_COLLECTION_SITE_UNIQUE_NAME(IMPL_TIME_USE_STATS_SITE_STAKE_UNIQUE_NAME);
+#else // TIME_USE_STATS_ENABLED
+	#define TIME_USE_STATS_COLLECTION_SITE(time_use_stats_session1)
+#endif // TIME_USE_STATS_ENABLED
+
 
 struct Parse {
 	typedef decltype(std::declval<std::string_view>().length()) index_t;

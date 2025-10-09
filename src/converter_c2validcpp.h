@@ -4812,6 +4812,8 @@ namespace convc2validcpp {
 	or whatever). If so, then it will return the (macro) instantiation source range, otherwise it will
 	return the (macro) definition source range. */
 	static CSourceRangePlus cm1_adjusted_source_range(const clang::SourceRange& sr, CTUState& state1, clang::Rewriter &Rewrite, std::optional<CSourceRangeContext1> maybe_context/* = {}*/) {
+		TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
 		bool may_be_a_gnu_attr = false;
 		bool is_indicated_to_be_an_expression = false;
 		if (maybe_context.has_value()) {
@@ -4840,37 +4842,9 @@ namespace convc2validcpp {
 		auto b3 = SL.isMacroID();
 		auto b4 = SLE.isMacroID();
 
-		auto& SM = Rewrite.getSourceMgr();
-		auto FLSL = SM.getFileLoc(SL);
-		auto FLSLE = SM.getFileLoc(SLE);
-		auto b5 = FLSL.isMacroID();
-		auto b6 = FLSLE.isMacroID();
-		auto b6b = FLSL.isFileID();
-		auto FLSR = clang::SourceRange{ FLSL, FLSLE };
-
-		auto SPSL = SM.getSpellingLoc(SL);
-		auto SPSLE = SM.getSpellingLoc(SLE);
-		auto b7 = SPSL.isMacroID();
-		auto b8 = SPSLE.isMacroID();
-		auto b8b = SPSL.isFileID();
-		auto b8c = SPSLE.isFileID();
-		auto SPSR = clang::SourceRange{ SPSL, SPSLE };
-
 		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, sr, Rewrite);
 
-		std::string SPSR_source_text;
-		if ((SPSR).isValid() && (((SPSR).getBegin() < (SPSR).getEnd()) || ((SPSR).getBegin() == (SPSR).getEnd()))) {
-			SPSR_source_text = getRewrittenTextOrEmpty(Rewrite, SPSR);
-			if ("" != SPSR_source_text) {
-				retval.m_adjusted_source_text_as_if_expanded = SPSR_source_text;
-			}
-		}
-
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, sr, Rewrite);
-		DEBUG_SOURCE_TEXT_STR(debug_fl_source_text, FLSR.isValid() ? FLSR : sr, Rewrite);
-		DEBUG_SOURCE_TEXT_STR(debug_sp_source_text, SPSR.isValid() ? SPSR : sr, Rewrite);
-		DEBUG_SOURCE_TEXT_STR(debug_sl_source_text, SL.isValid() ? clang::SourceRange({ SPSL, SPSL }) : sr, Rewrite);
-		DEBUG_SOURCE_TEXT_STR(debug_sle_source_text, SLE.isValid() ? clang::SourceRange({ SPSLE, SPSLE }) : sr, Rewrite);
 
 #ifndef NDEBUG
 			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
@@ -4879,8 +4853,41 @@ namespace convc2validcpp {
 #endif /*!NDEBUG*/
 
 		if (b3 || b4) {
+			TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
 			/* The element is part of a macro instance. */
+
 			auto& SM = Rewrite.getSourceMgr();
+
+			auto FLSL = SM.getFileLoc(SL);
+			auto FLSLE = SM.getFileLoc(SLE);
+			auto b5 = FLSL.isMacroID();
+			auto b6 = FLSLE.isMacroID();
+			auto b6b = FLSL.isFileID();
+			auto FLSR = clang::SourceRange{ FLSL, FLSLE };
+
+			auto SPSL = SM.getSpellingLoc(SL);
+			auto SPSLE = SM.getSpellingLoc(SLE);
+			auto SPSR = clang::SourceRange{ SPSL, SPSLE };
+			auto b7 = SPSL.isMacroID();
+			auto b8 = SPSLE.isMacroID();
+			auto b8b = SPSL.isFileID();
+			auto b8c = SPSLE.isFileID();
+
+			std::string SPSR_source_text;
+			if ((SPSR).isValid() && (((SPSR).getBegin() < (SPSR).getEnd()) || ((SPSR).getBegin() == (SPSR).getEnd()))) {
+				TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
+				SPSR_source_text = getRewrittenTextOrEmpty(Rewrite, SPSR);
+				if ("" != SPSR_source_text) {
+					retval.m_adjusted_source_text_as_if_expanded = SPSR_source_text;
+				}
+			}
+
+			DEBUG_SOURCE_TEXT_STR(debug_fl_source_text, FLSR.isValid() ? FLSR : sr, Rewrite);
+			DEBUG_SOURCE_TEXT_STR(debug_sp_source_text, SPSR.isValid() ? SPSR : sr, Rewrite);
+			DEBUG_SOURCE_TEXT_STR(debug_sl_source_text, SL.isValid() ? clang::SourceRange({ SPSL, SPSL }) : sr, Rewrite);
+			DEBUG_SOURCE_TEXT_STR(debug_sle_source_text, SLE.isValid() ? clang::SourceRange({ SPSLE, SPSLE }) : sr, Rewrite);
 
 			auto b10 = SM.isMacroArgExpansion(SL);
 			auto b10b = SM.isMacroArgExpansion(SLE);
@@ -4912,6 +4919,8 @@ namespace convc2validcpp {
 			}
 
 			auto macro_spelling_range_extended_to_include_any_arguments = [&SM, &Rewrite, &state1](clang::SourceRange const& macro_SR) {
+					TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
 					auto adjusted_macro_SPSR = clang::SourceRange{ SM.getSpellingLoc(macro_SR.getBegin()), SM.getSpellingLoc(macro_SR.getEnd()) };
 					std::string macro_name;
 
@@ -5297,6 +5306,8 @@ namespace convc2validcpp {
 				contains the element, and consists of only an expression. (As opposed to, for
 				example, a declaration, or more than one statement.) */
 				for (const auto& macro2_SR : nested_macro_ranges) {
+					TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
 					if (!filtered_out_by_location(SM, macro2_SR)) {
 						auto [adjusted_macro_SPSR, macro_name, macro_args] = macro_spelling_range_extended_to_include_any_arguments(macro2_SR);
 						DEBUG_SOURCE_LOCATION_STR(adjusted_macro_SPSR1_debug_source_location_str, adjusted_macro_SPSR, Rewrite);
@@ -5684,23 +5695,28 @@ namespace convc2validcpp {
 
 									auto PE = dyn_cast<const clang::ParenExpr>(parent_E);
 									if (PE) {
-										auto LP_SL = PE->getLParen();
-										if (LP_SL.isValid()) {
-											auto token_SL = get_next_non_whitespace_SL(LP_SL, Rewrite);
-											auto token_SLE = token_SL;
-
-											auto RP_SL = PE->getRParen();
-											if (RP_SL.isValid()) {
-												token_SLE = get_previous_non_whitespace_SL(RP_SL, Rewrite);
-												auto token_SR = clang::SourceRange{ token_SL, token_SLE };
-												if (token_SR.isValid() && (token_SR.getBegin() <= token_SR.getEnd())) {
-													maybe_E_token_SR = token_SR;
-													break;
-												}
+										auto PE_rawSR = clang::SourceRange{ PE->getLParen(), PE->getRParen() };
+										auto PE_SR_plus = cm1_adjusted_source_range(*PE, state1, Rewrite);
+										if (PE_SR_plus.isValid()) {
+											DEBUG_SOURCE_TEXT_STR(debug_PE_source_text, PE_SR_plus, Rewrite);
+											auto token_SL = get_next_non_whitespace_SL(PE_SR_plus.getBegin(), Rewrite);
+											auto token_SLE = get_previous_non_whitespace_SL(PE_SR_plus.getEnd(), Rewrite);
+											auto token_SR_plus = cm1_adjusted_source_range(clang::SourceRange{ token_SL, token_SLE }, state1, Rewrite);
+											if (token_SR_plus.isValid()) {
+												DEBUG_SOURCE_TEXT_STR(debug_token_source_text, token_SR_plus, Rewrite);
+												maybe_E_token_SR = token_SR_plus;
+												break;
 											}
 										}
 										break;
 									}
+
+									auto CSCE = dyn_cast<const clang::CStyleCastExpr>(parent_E);
+									if (CSCE) {
+										int q = 5;
+									}
+
+									int q = 5;
 								} while (false);
 
 								if (maybe_E_token_SR.has_value() && maybe_E_token_SR.value().isValid()) {

@@ -24,6 +24,8 @@
 #include "scpptool.h"
 #include "utils1.h"
 
+thread_local CTimeUseStatsSession gtl_time_use_stats_session1;
+
 #include "checker.h"
 
 //define EXCLUDE_CONVERTER_MODE1
@@ -67,6 +69,7 @@ using namespace clang::tooling;
 /**********************************************************************************************************************/
 static llvm::cl::OptionCategory MatcherSampleCategory("TBD");
 
+
 cl::opt<bool> ConvertToSCPP("ConvertToSCPP", cl::desc("translate the source to a (memory) safe subset of the language"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> CTUAnalysis("CTUAnalysis", cl::desc("cross translation unit analysis"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> EnableNamespaceImport("EnableNamespaceImport", cl::desc("enable importing of namespaces from other translation units"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
@@ -106,120 +109,131 @@ class MyDiagConsumer : public DiagnosticConsumer {
 int main(int argc, const char **argv) 
 {
   int retval = -1;
+  {
+    TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
-  if (false) {
-    /* This is just here for use in creatng a "baseline" for address sanitizer errors. */
-    std::string code = "struct A{public: int i;}; void f(A & a){}";   
-    std::unique_ptr<clang::ASTUnit> ast(clang::tooling::buildASTFromCode(code));
-    // now you have the AST for the code snippet
-    //clang::ASTContext * pctx = &(ast->getASTContext());
-    //clang::TranslationUnitDecl * decl = pctx->getTranslationUnitDecl();
-  }
-
-#if MU_LLVM_MAJOR <= 12
-  CommonOptionsParser op(argc, argv, MatcherSampleCategory);
-#elif MU_LLVM_MAJOR > 12
-  auto op_result = CommonOptionsParser::create(argc, argv, MatcherSampleCategory);
-  if (auto E = op_result.takeError()) {
-    std::cerr << "\n" << toString(std::move(E)) << "\n";
-    exit(-1);
-  }
-  auto& op = *op_result;
-#endif /*MU_LLVM_MAJOR*/
-  ClangTool Tool(op.getCompilations(), op.getSourcePathList());
-
-  std::shared_ptr<DiagnosticConsumer> diag_consumer_shptr(new MyDiagConsumer());
-  //Tool.setDiagnosticConsumer(diag_consumer_shptr.get());
-
-  int num_exclusive_options = 0;
-  if (ConvertToSCPP) {
-    num_exclusive_options += 1;
-  }
-  if (ConvertC2ValidCpp) {
-    num_exclusive_options += 1;
-  }
-  if (ExpandPointerMacros) {
-    num_exclusive_options += 1;
-  }
-
-  if (1 < num_exclusive_options) {
-    llvm::errs() << "More than one mutually exclusive option indicated: The ConvertToSCPP, ConvertC2ValidCpp and ExpandPointerMacros options are mutually exclusive. You may only use one at a time.." << '\n';
-    return retval;
-  }
-
-  if (true) {
-    checker::Options options = {
-          CheckSystemHeader,
-          MainFileOnly,
-          CTUAnalysis,
-          EnableNamespaceImport,
-          SuppressPrompts
-      };
-    retval = checker::buildASTs_and_run(Tool, options);
-  }
-
-  if (ConvertToSCPP.getValue()) {
-#ifndef EXCLUDE_CONVERTER_MODE1
-
-    /* The "checker" pass, among other things, determined which regions of the code are indicated
-    to be excluded from the checks. The "convert" pass also needs this information. Rather than
-    re-compute it, we'll copy it from the stored "states" of the checker pass. */
-    for (const auto& checker_state : checker::g_final_tu_states) {
-      convm1::CTUState convm1_state;
-      convm1_state.m_suppress_check_region_set = checker_state.m_suppress_check_region_set;
-      convm1::g_prepared_initial_tu_states.push_back(convm1_state);
+    if (false) {
+      /* This is just here for use in creatng a "baseline" for address sanitizer errors. */
+      std::string code = "struct A{public: int i;}; void f(A & a){}";   
+      std::unique_ptr<clang::ASTUnit> ast(clang::tooling::buildASTFromCode(code));
+      // now you have the AST for the code snippet
+      //clang::ASTContext * pctx = &(ast->getASTContext());
+      //clang::TranslationUnitDecl * decl = pctx->getTranslationUnitDecl();
     }
-    std::reverse(convm1::g_prepared_initial_tu_states.begin(), convm1::g_prepared_initial_tu_states.end());
 
-    convm1::Options options = {
-          CheckSystemHeader,
-          MainFileOnly,
-          ConvertToSCPP,
-          CTUAnalysis,
-          EnableNamespaceImport,
-          SuppressPrompts,
-          DoNotReplaceOriginalSource,
-          MergeCommand,
-          DoNotResolveMergeConflicts,
-          ConvertMode,
-          ScopeTypeFunctionParameters,
-          ScopeTypePointerFunctionParameters,
-          AddressableVars
-      };
-    retval = convm1::buildASTs_and_run(Tool, options);
-#endif //!EXCLUDE_CONVERTER_MODE1
-  } else if (ConvertC2ValidCpp.getValue() || ExpandPointerMacros.getValue()) {
-#ifndef EXCLUDE_C2VALIDCPP
-
-    /* The "checker" pass, among other things, determined which regions of the code are indicated
-    to be excluded from the checks. The "convert" pass also needs this information. Rather than
-    re-compute it, we'll copy it from the stored "states" of the checker pass. */
-    for (const auto& checker_state : checker::g_final_tu_states) {
-      convc2validcpp::CTUState convm1_state;
-      convm1_state.m_suppress_check_region_set = checker_state.m_suppress_check_region_set;
-      convc2validcpp::g_prepared_initial_tu_states.push_back(convm1_state);
+  #if MU_LLVM_MAJOR <= 12
+    CommonOptionsParser op(argc, argv, MatcherSampleCategory);
+  #elif MU_LLVM_MAJOR > 12
+    auto op_result = CommonOptionsParser::create(argc, argv, MatcherSampleCategory);
+    if (auto E = op_result.takeError()) {
+      std::cerr << "\n" << toString(std::move(E)) << "\n";
+      exit(-1);
     }
-    std::reverse(convc2validcpp::g_prepared_initial_tu_states.begin(), convc2validcpp::g_prepared_initial_tu_states.end());
+    auto& op = *op_result;
+  #endif /*MU_LLVM_MAJOR*/
+    ClangTool Tool(op.getCompilations(), op.getSourcePathList());
 
-    convc2validcpp::Options options = {
-          CheckSystemHeader,
-          MainFileOnly,
-          ConvertC2ValidCpp,
-          ExpandPointerMacros,
-          CTUAnalysis,
-          EnableNamespaceImport,
-          SuppressPrompts,
-          DoNotReplaceOriginalSource,
-          MergeCommand,
-          DoNotResolveMergeConflicts,
-          ConvertMode,
-          ScopeTypeFunctionParameters,
-          ScopeTypePointerFunctionParameters,
-          AddressableVars
-      };
-    retval = convc2validcpp::buildASTs_and_run(Tool, options);
-#endif //!EXCLUDE_C2VALIDCPP
+    std::shared_ptr<DiagnosticConsumer> diag_consumer_shptr(new MyDiagConsumer());
+    //Tool.setDiagnosticConsumer(diag_consumer_shptr.get());
+
+    int num_exclusive_options = 0;
+    if (ConvertToSCPP) {
+      num_exclusive_options += 1;
+    }
+    if (ConvertC2ValidCpp) {
+      num_exclusive_options += 1;
+    }
+    if (ExpandPointerMacros) {
+      num_exclusive_options += 1;
+    }
+
+    if (1 < num_exclusive_options) {
+      llvm::errs() << "More than one mutually exclusive option indicated: The ConvertToSCPP, ConvertC2ValidCpp and ExpandPointerMacros options are mutually exclusive. You may only use one at a time.." << '\n';
+      return retval;
+    }
+
+    if (true) {
+      checker::Options options = {
+            CheckSystemHeader,
+            MainFileOnly,
+            CTUAnalysis,
+            EnableNamespaceImport,
+            SuppressPrompts
+        };
+      retval = checker::buildASTs_and_run(Tool, options);
+    }
+
+    if (ConvertToSCPP.getValue()) {
+  #ifndef EXCLUDE_CONVERTER_MODE1
+
+      /* The "checker" pass, among other things, determined which regions of the code are indicated
+      to be excluded from the checks. The "convert" pass also needs this information. Rather than
+      re-compute it, we'll copy it from the stored "states" of the checker pass. */
+      for (const auto& checker_state : checker::g_final_tu_states) {
+        convm1::CTUState convm1_state;
+        convm1_state.m_suppress_check_region_set = checker_state.m_suppress_check_region_set;
+        convm1::g_prepared_initial_tu_states.push_back(convm1_state);
+      }
+      std::reverse(convm1::g_prepared_initial_tu_states.begin(), convm1::g_prepared_initial_tu_states.end());
+
+      convm1::Options options = {
+            CheckSystemHeader,
+            MainFileOnly,
+            ConvertToSCPP,
+            CTUAnalysis,
+            EnableNamespaceImport,
+            SuppressPrompts,
+            DoNotReplaceOriginalSource,
+            MergeCommand,
+            DoNotResolveMergeConflicts,
+            ConvertMode,
+            ScopeTypeFunctionParameters,
+            ScopeTypePointerFunctionParameters,
+            AddressableVars
+        };
+
+  		TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
+      retval = convm1::buildASTs_and_run(Tool, options);
+  #endif //!EXCLUDE_CONVERTER_MODE1
+    } else if (ConvertC2ValidCpp.getValue() || ExpandPointerMacros.getValue()) {
+  #ifndef EXCLUDE_C2VALIDCPP
+
+      /* The "checker" pass, among other things, determined which regions of the code are indicated
+      to be excluded from the checks. The "convert" pass also needs this information. Rather than
+      re-compute it, we'll copy it from the stored "states" of the checker pass. */
+      for (const auto& checker_state : checker::g_final_tu_states) {
+        convc2validcpp::CTUState convm1_state;
+        convm1_state.m_suppress_check_region_set = checker_state.m_suppress_check_region_set;
+        convc2validcpp::g_prepared_initial_tu_states.push_back(convm1_state);
+      }
+      std::reverse(convc2validcpp::g_prepared_initial_tu_states.begin(), convc2validcpp::g_prepared_initial_tu_states.end());
+
+      convc2validcpp::Options options = {
+            CheckSystemHeader,
+            MainFileOnly,
+            ConvertC2ValidCpp,
+            ExpandPointerMacros,
+            CTUAnalysis,
+            EnableNamespaceImport,
+            SuppressPrompts,
+            DoNotReplaceOriginalSource,
+            MergeCommand,
+            DoNotResolveMergeConflicts,
+            ConvertMode,
+            ScopeTypeFunctionParameters,
+            ScopeTypePointerFunctionParameters,
+            AddressableVars
+        };
+      retval = convc2validcpp::buildASTs_and_run(Tool, options);
+  #endif //!EXCLUDE_C2VALIDCPP
+    }
   }
+
+  auto stats_text1 = gtl_time_use_stats_session1.stats_text1();
+#ifdef TIME_USE_STATS_ENABLED
+  std::cout << "\ntime use stats: \n" << stats_text1 << "\n";
+#endif // TIME_USE_STATS_ENABLED
 
   return retval;
 }

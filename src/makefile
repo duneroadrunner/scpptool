@@ -29,8 +29,8 @@ LLVM_CXX_FLAGS=$(shell $(LLVM_CONF) --cxxflags)
 LLVM_CXX_FLAGS+=\
 # -I$(shell $(LLVM_CONF) --src-root)/tools/clang/include\
 # -I$(shell $(LLVM_CONF) --obj-root)/tools/clang/include\
- -std=c++17
-# -stdlib=libstdc++ -std=c++17 -frtti -fexceptions
+ -std=c++20
+# -stdlib=libstdc++ -std=c++20 -frtti -fexceptions
 ifeq ($(CXX), clang++)
 LLVM_CXX_FLAGS+=-stdlib=libstdc++
 endif
