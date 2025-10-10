@@ -4812,7 +4812,7 @@ namespace convc2validcpp {
 	or whatever). If so, then it will return the (macro) instantiation source range, otherwise it will
 	return the (macro) definition source range. */
 	static CSourceRangePlus cm1_adjusted_source_range(const clang::SourceRange& sr, CTUState& state1, clang::Rewriter &Rewrite, std::optional<CSourceRangeContext1> maybe_context/* = {}*/) {
-		TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+		THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 		bool may_be_a_gnu_attr = false;
 		bool is_indicated_to_be_an_expression = false;
@@ -4853,7 +4853,7 @@ namespace convc2validcpp {
 #endif /*!NDEBUG*/
 
 		if (b3 || b4) {
-			TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+			THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 			/* The element is part of a macro instance. */
 
@@ -4876,7 +4876,7 @@ namespace convc2validcpp {
 
 			std::string SPSR_source_text;
 			if ((SPSR).isValid() && (((SPSR).getBegin() < (SPSR).getEnd()) || ((SPSR).getBegin() == (SPSR).getEnd()))) {
-				TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+				THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 				SPSR_source_text = getRewrittenTextOrEmpty(Rewrite, SPSR);
 				if ("" != SPSR_source_text) {
@@ -4919,7 +4919,7 @@ namespace convc2validcpp {
 			}
 
 			auto macro_spelling_range_extended_to_include_any_arguments = [&SM, &Rewrite, &state1](clang::SourceRange const& macro_SR) {
-					TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+					THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 					auto adjusted_macro_SPSR = clang::SourceRange{ SM.getSpellingLoc(macro_SR.getBegin()), SM.getSpellingLoc(macro_SR.getEnd()) };
 					std::string macro_name;
@@ -5306,7 +5306,7 @@ namespace convc2validcpp {
 				contains the element, and consists of only an expression. (As opposed to, for
 				example, a declaration, or more than one statement.) */
 				for (const auto& macro2_SR : nested_macro_ranges) {
-					TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+					THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 					if (!filtered_out_by_location(SM, macro2_SR)) {
 						auto [adjusted_macro_SPSR, macro_name, macro_args] = macro_spelling_range_extended_to_include_any_arguments(macro2_SR);

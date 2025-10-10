@@ -2332,6 +2332,14 @@ inline auto Tget_descendant_of_type(const NodeT* NodePtr, clang::ASTContext& con
 	return retval;
 }
 
+
+/* Some classes for rudimentary collection of statistics about the (cumulative) time used by selected sections 
+of code. The way to use it is to declare a thread_local CTimeUseStatsSession global variable. Then, in any scope 
+that you want to collect time use information for, invoke the THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE() 
+function macro with the previously declared CTimeUseStatsSession global variable that you declared as the 
+argument. When you're ready to output the time use statistics, the CTimeUseStatsSession::stats_text1() function 
+will give you a formatted string containing the results. */
+
 class CTimeUseStatsSession {
 	public:
 	typedef std::chrono::high_resolution_clock::duration duration_t;
@@ -2400,10 +2408,10 @@ class CTimeUseStatsCollectionRAIIObj {
 #define IMPL_TIME_USE_STATS_COLLECTION_SITE_UNIQUE_NAME IMPL_TIME_USE_STATS_COLLECTION_OBJ_LABEL_(__LINE__)
 
 #ifdef TIME_USE_STATS_ENABLED
-	#define TIME_USE_STATS_COLLECTION_SITE(time_use_stats_session1) \
-		thread_local CTimeUseStatsSiteStake IMPL_TIME_USE_STATS_SITE_STAKE_UNIQUE_NAME(time_use_stats_session1, FILE_LINE_func); CTimeUseStatsCollectionRAIIObj IMPL_TIME_USE_STATS_COLLECTION_SITE_UNIQUE_NAME(IMPL_TIME_USE_STATS_SITE_STAKE_UNIQUE_NAME);
+	#define THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(thread_local_time_use_stats_session1) \
+		thread_local CTimeUseStatsSiteStake IMPL_TIME_USE_STATS_SITE_STAKE_UNIQUE_NAME(thread_local_time_use_stats_session1, FILE_LINE_func); CTimeUseStatsCollectionRAIIObj IMPL_THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE_UNIQUE_NAME(IMPL_TIME_USE_STATS_SITE_STAKE_UNIQUE_NAME);
 #else // TIME_USE_STATS_ENABLED
-	#define TIME_USE_STATS_COLLECTION_SITE(time_use_stats_session1)
+	#define THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(thread_local_time_use_stats_session1)
 #endif // TIME_USE_STATS_ENABLED
 
 

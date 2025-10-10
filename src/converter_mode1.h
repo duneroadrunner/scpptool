@@ -3204,7 +3204,7 @@ namespace convm1 {
 #endif /*!NDEBUG*/
 
 			if ((!m_ReplaceText_supression_mode) && SR.isValid()) {
-				TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+				THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 				return Rewrite.ReplaceText(SR, NewStr);
 			}
@@ -4839,7 +4839,7 @@ namespace convm1 {
 	or whatever). If so, then it will return the (macro) instantiation source range, otherwise it will
 	return the (macro) definition source range. */
 	static CSourceRangePlus cm1_adjusted_source_range(const clang::SourceRange& sr, CTUState& state1, clang::Rewriter &Rewrite, std::optional<CSourceRangeContext1> maybe_context/* = {}*/) {
-		TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+		THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 		bool may_be_a_gnu_attr = false;
 		bool is_indicated_to_be_an_expression = false;
@@ -4880,7 +4880,7 @@ namespace convm1 {
 #endif /*!NDEBUG*/
 
 		if (b3 || b4) {
-			TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+			THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 			/* The element is part of a macro instance. */
 
@@ -4903,7 +4903,7 @@ namespace convm1 {
 
 			std::string SPSR_source_text;
 			if ((SPSR).isValid() && (((SPSR).getBegin() < (SPSR).getEnd()) || ((SPSR).getBegin() == (SPSR).getEnd()))) {
-				TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+				THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 				SPSR_source_text = getRewrittenTextOrEmpty(Rewrite, SPSR);
 				if ("" != SPSR_source_text) {
@@ -4946,7 +4946,7 @@ namespace convm1 {
 			}
 
 			auto macro_spelling_range_extended_to_include_any_arguments = [&SM, &Rewrite, &state1](clang::SourceRange const& macro_SR) {
-					TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+					THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 					auto adjusted_macro_SPSR = clang::SourceRange{ SM.getSpellingLoc(macro_SR.getBegin()), SM.getSpellingLoc(macro_SR.getEnd()) };
 					std::string macro_name;
@@ -5333,7 +5333,7 @@ namespace convm1 {
 				contains the element, and consists of only an expression. (As opposed to, for
 				example, a declaration, or more than one statement.) */
 				for (const auto& macro2_SR : nested_macro_ranges) {
-					TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+					THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 					if (!filtered_out_by_location(SM, macro2_SR)) {
 						auto [adjusted_macro_SPSR, macro_name, macro_args] = macro_spelling_range_extended_to_include_any_arguments(macro2_SR);
@@ -6367,7 +6367,7 @@ namespace convm1 {
 	static CTypeIndirectionPrefixAndSuffixItem type_indirection_prefix_and_suffix_modifier_and_code_generator(CIndirectionStateStack& indirection_state_stack,
 			Rewriter &Rewrite, EIsFunctionParam is_a_function_parameter_enum, std::optional<clang::StorageDuration> maybe_storage_duration = {}
 			, ESuppressModifications suppress_modifications_enum = ESuppressModifications::No, CTUState* state1_ptr = nullptr) {
-		TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+		THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 		CTypeIndirectionPrefixAndSuffixItem retval;
 
@@ -7998,7 +7998,7 @@ namespace convm1 {
 
 	static CDeclarationReplacementCodeItem declaration_modifier_helper1(const DeclaratorDecl* DD,
 			Rewriter &Rewrite, CTUState* state1_ptr, CDDeclConversionStateMap& ddecl_conversion_state_map, ESuppressModifications suppress_modifications = ESuppressModifications::No, std::string options_str = "") {
-		TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+		THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 		CDeclarationReplacementCodeItem retval;
 
@@ -8956,7 +8956,7 @@ namespace convm1 {
 	}
 
 	static void declaration_modifier(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1, std::string options_str = "") {
-		TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+		THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 		const DeclaratorDecl* DD = &ddecl;
 
@@ -9026,7 +9026,7 @@ namespace convm1 {
 #endif /*!NDEBUG*/
 
 				if (SR.getBegin() < return_type_source_range.getBegin()) {
-					TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+					THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 					/* FunctionDecl::getReturnTypeSourceRange() seems to not include prefix qualifiers, like
 					* "const". */
@@ -9036,7 +9036,7 @@ namespace convm1 {
 				auto res = generate_declaration_replacement_code(&ddecl, Rewrite, &state1, state1.m_ddecl_conversion_state_map, options_str);
 				changed_from_original |= res.m_changed_from_original;
 
-				TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+				THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 				auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(ddecl, &Rewrite);
 
@@ -9067,7 +9067,7 @@ namespace convm1 {
 				}
 			}
 		} else {
-			TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+			THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 			std::string replacement_code;
 
@@ -9219,7 +9219,7 @@ namespace convm1 {
 								int q = 3;
 							}
 						} else {
-							TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+							THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 							auto res = generate_declaration_replacement_code(ddecl_ptr, Rewrite, &state1, state1.m_ddecl_conversion_state_map, options_str);
 							changed_from_original |= res.m_changed_from_original;
@@ -20372,7 +20372,7 @@ namespace convm1 {
 
 			if ((E != nullptr))
 			{
-				TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+				THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 				auto SR = write_once_source_range(cm1_adj_nice_source_range(E->getSourceRange(), state1, Rewrite));
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;

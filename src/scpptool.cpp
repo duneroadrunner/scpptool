@@ -110,7 +110,7 @@ int main(int argc, const char **argv)
 {
   int retval = -1;
   {
-    TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+    THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
     if (false) {
       /* This is just here for use in creatng a "baseline" for address sanitizer errors. */
@@ -192,7 +192,7 @@ int main(int argc, const char **argv)
             AddressableVars
         };
 
-  		TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+  		THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
       retval = convm1::buildASTs_and_run(Tool, options);
   #endif //!EXCLUDE_CONVERTER_MODE1
