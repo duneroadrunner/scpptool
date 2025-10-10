@@ -7632,7 +7632,7 @@ namespace convm1 {
 							*/
 							) {
 
-							if ("native reference" != indirection_state_ref.current_species()) {
+							if (("native reference" != indirection_state_ref.current_species()) && ("native array" != indirection_state_ref.current_species())) {
 								if ("Dual" == ConvertMode) {
 									prefix_str = "MSE_LH_ADDRESSABLE_TYPE(" + prefix_str;
 									suffix_str = suffix_str + ")";
