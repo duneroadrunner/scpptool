@@ -6848,7 +6848,7 @@ namespace convm1 {
 								}
 
 								retval.m_action_species = "native array to MSE_LH_FIXED_ARRAY_TYPE";
-								if (1 == indirection_state_stack.size()) {
+								if (is_outermost_indirection) {
 									retval.m_just_a_native_array = true;
 									retval.m_native_array_size_text = size_text;
 								}
@@ -7566,7 +7566,7 @@ namespace convm1 {
 													}
 
 													retval.m_action_species = "native array to MSE_LH_FIXED_ARRAY_TYPE";
-													if (1 == indirection_state_stack.size()) {
+													if (is_outermost_indirection) {
 														retval.m_just_a_native_array = true;
 														retval.m_native_array_size_text = size_text;
 													}
@@ -8592,21 +8592,28 @@ namespace convm1 {
 					}
 				}
 				if (res4.m_just_a_native_array && (!res4.m_some_addressable_indirection)) {
-					if (const_qualifier_stripped_from_direct_qtype_str) {
-						replacement_code += "const ";
-					}
-					if ("Dual" == ConvertMode) {
-						replacement_code += "MSE_LH_FIXED_ARRAY_DECLARATION(" + direct_qtype_str;
-						replacement_code += ", " + res4.m_native_array_size_text;
-						replacement_code += ", " + variable_name + ")";
-					} else if ("FasterAndStricter" == ConvertMode) {
-						replacement_code += "mse::TXScopeObj<mse::nii_array<" + direct_qtype_str;
-						replacement_code += ", " + res4.m_native_array_size_text;
-						replacement_code += "> " + variable_name;
+					if (1 == ddcs_ref.m_indirection_state_stack.size()) {
+						if (const_qualifier_stripped_from_direct_qtype_str) {
+							replacement_code += "const ";
+						}
+						if ("Dual" == ConvertMode) {
+							replacement_code += "MSE_LH_FIXED_ARRAY_DECLARATION(" + direct_qtype_str;
+							replacement_code += ", " + res4.m_native_array_size_text;
+							replacement_code += ", " + variable_name + ")";
+						} else if ("FasterAndStricter" == ConvertMode) {
+							replacement_code += "mse::TXScopeObj<mse::nii_array<" + direct_qtype_str;
+							replacement_code += ", " + res4.m_native_array_size_text;
+							replacement_code += "> " + variable_name;
+						} else {
+							replacement_code += "mse::lh::TNativeArrayReplacement<" + direct_qtype_str;
+							replacement_code += ", " + res4.m_native_array_size_text;
+							replacement_code += "> " + variable_name;
+						}
 					} else {
-						replacement_code += "mse::lh::TNativeArrayReplacement<" + direct_qtype_str;
-						replacement_code += ", " + res4.m_native_array_size_text;
-						replacement_code += "> " + variable_name;
+						replacement_code += prefix_str + direct_qtype_str + suffix_str;
+						replacement_code += " ";
+						replacement_code += variable_name;
+						replacement_code += post_name_suffix_str;
 					}
 
 					const clang::Expr* init_EX = nullptr;
@@ -8639,7 +8646,24 @@ namespace convm1 {
 							if (add_std_array_intermediary) {
 
 								std::string initializer_prefix = "std::array<";
-								initializer_prefix += direct_qtype_str;
+								if (1 == ddcs_ref.m_indirection_state_stack.size()) {
+									initializer_prefix += direct_qtype_str;
+								} else if (1 < ddcs_ref.m_indirection_state_stack.size()) {
+									auto indirection_state_stack_of_array_element = ddcs_ref.m_indirection_state_stack;
+
+									indirection_state_stack_of_array_element.clear();
+									for (size_t i = 1; ddcs_ref.m_indirection_state_stack.size() > i; i += 1) {
+										indirection_state_stack_of_array_element.push_back(ddcs_ref.m_indirection_state_stack.at(i));
+									}
+
+									auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_array_element, Rewrite
+										, EIsFunctionParam::No, {}/*maybe_storage_duration*/, state1_ptr);
+
+									initializer_prefix += res3.m_complete_type_str;
+								} else {
+									int q = 3;
+									assert(false);
+								}
 								initializer_prefix += ", " + res4.m_native_array_size_text;
 								initializer_prefix += " > { ";
 								std::string initializer_suffix = " }";
@@ -8679,6 +8703,7 @@ namespace convm1 {
 								}
 								ddcs_ref.m_fallback_current_initialization_expr_str = ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr, CExprTextInfoContext{ decl_source_range, &Rewrite, state1_ptr });
 								initialization_expr_str = ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr, CExprTextInfoContext{ decl_source_range, &Rewrite, state1_ptr });
+								initializer_append_str = " = " + initialization_expr_str;
 							}
 						}
 					}
@@ -20075,11 +20100,12 @@ namespace convm1 {
 						relies on any relevant ancestor conversion states having been already established. */
 						auto& ecs_ref = state1.get_expr_conversion_state_ref(*init_EX, Rewrite);
 
-						auto init_EX_iinoop = IgnoreParenImpNoopCasts(init_EX, *(MR.Context));
-						auto ILE = dyn_cast<const clang::InitListExpr>(init_EX_iinoop);
+						//auto init_EX_ii = IgnoreParenImpNoopCasts(init_EX, *(MR.Context));
+						auto init_EX_ii = IgnoreParenImpCasts(init_EX);
+						auto ILE = dyn_cast<const clang::InitListExpr>(init_EX_ii);
 						if (ILE) {
 							/* A (native) array with initializer list (including aggregate initialization). */
-							MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_EX_iinoop/*RHS*/, DD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
+							MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_EX_ii/*RHS*/, DD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
 						}
 					}
 
