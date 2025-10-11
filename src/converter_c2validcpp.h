@@ -13494,7 +13494,8 @@ namespace convc2validcpp {
 			auto DD = lhs_res2.ddecl_cptr;
 			MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(RHS->getType());
 
-			auto RHS_ii = IgnoreParenImpNoopCasts(RHS, *(MR.Context));
+			//auto RHS_ii = IgnoreParenImpNoopCasts(RHS, *(MR.Context));
+			auto RHS_ii = IgnoreParenImpCasts(RHS);
 
 			std::optional<clang::QualType> maybe_VLD_effective_qtype;
 			if (VLD) {
