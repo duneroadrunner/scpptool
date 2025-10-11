@@ -8643,7 +8643,9 @@ namespace convm1 {
 									}
 								}
 							}
-							if (add_std_array_intermediary) {
+							if (false && add_std_array_intermediary) {
+								/* Since the library no longer uses recursion to emulate aggregate initialization, this branch is no 
+								longer needed to work around the associated limitations. */
 
 								std::string initializer_prefix = "std::array<";
 								if (1 == ddcs_ref.m_indirection_state_stack.size()) {
@@ -16815,7 +16817,8 @@ namespace convm1 {
 			auto DD = lhs_res2.ddecl_cptr;
 			MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(RHS->getType());
 
-			auto RHS_ii = IgnoreParenImpNoopCasts(RHS, *(MR.Context));
+			//auto RHS_ii = IgnoreParenImpNoopCasts(RHS, *(MR.Context));
+			auto RHS_ii = IgnoreParenImpCasts(RHS);
 
 			std::optional<clang::QualType> maybe_VLD_effective_qtype;
 			if (VLD) {
