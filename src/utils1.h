@@ -2563,7 +2563,15 @@ struct Parse {
 		else if ('\"' == first_ch) {
 			/* a string literal */
 			/* untested */
+			auto escaped_quote_pos = find_string("\\\"", sv1, start_pos + 1);
 			auto end_pos = find_string("\"", sv1, start_pos + 1);
+			while (escaped_quote_pos + 1 == end_pos) {
+				/* This code is makng the assumption that a quote character preceded by a backslash is an "escaped" 
+				quote. But technically you'd need to (recursively?) check if the backslash itself is escaped. 
+				TODO: address this*/
+				escaped_quote_pos = find_string("\\\"", sv1, end_pos + 1);
+				end_pos = find_string("\"", sv1, end_pos + 1);
+			}
             if (sv1.length() > end_pos) {
                 end_pos += 1;
             } else if (sv1.length() > start_pos) {

@@ -5228,7 +5228,13 @@ namespace convm1 {
 					bool SLE_isMacroArgExpansion_flag = SM.isMacroArgExpansion(first_macro_SLE, &SLE_macro_arg_expansion_start);
 
 					/* (Currently) we only can only handle cases where the given range covers the entire macro argument, 
-					so we're going to verify that the adjacent positions are not (an extended) part of the macro argument. */
+					so we want to verify that the adjacent positions are not (an extended) part of the macro argument. 
+					It is actually not immediately clear to us how to do this with perfect reliability, so for now we're 
+					just going to use a series of heuristics to try to identify cases to be excluded, and later in the 
+					function we'll verify that the heuristics were successful by trying to reconstruct the original 
+					argument from its reported ultimate expansion and checking that it matches the text of the given 
+					source range. */
+
 					auto first_macro_SPSL = SM.getSpellingLoc(first_macro_SL);
 					auto first_macro_SPSLE = SM.getSpellingLoc(first_macro_SLE);
 					if ((first_macro_SPSLE < first_macro_SPSL) && (first_macro_SL <= first_macro_SLE)) {
@@ -5250,82 +5256,162 @@ namespace convm1 {
 					if ((first_macro_SPSLE < first_macro_SPSLE2) && (first_macro_SPSL <= first_macro_SPSLE)) {
 						first_macro_SPSLE = first_macro_SPSLE2;
 					}
-					auto first_macro_SPSL_bumper = get_previous_non_whitespace_SL(first_macro_SPSL, Rewrite);
-					const std::string text7 = getRewrittenTextOrEmpty(Rewrite, { first_macro_SPSL_bumper, first_macro_SPSL_bumper });
-					bool first_macro_SPSL_bumper_is_open_paren_or_comma = (("(" == text7) || ("," == text7));
-					auto first_macro_SPSLE_bumper = get_next_non_whitespace_SL(first_macro_SPSLE, Rewrite);
-					const std::string text8 = getRewrittenTextOrEmpty(Rewrite, { first_macro_SPSLE_bumper, first_macro_SPSLE_bumper });
-					bool first_macro_SPSLE_bumper_is_close_paren_or_comma = ((")" == text8) || ("," == text8));
+					auto first_macro_SPSL_left_delimiter = get_previous_non_whitespace_SL(first_macro_SPSL, Rewrite);
+					const std::string text7 = getRewrittenTextOrEmpty(Rewrite, { first_macro_SPSL_left_delimiter, first_macro_SPSL_left_delimiter });
+					bool first_macro_SPSL_left_delimiter_is_open_paren_or_comma = (("(" == text7) || ("," == text7));
+					if (("(" == text7)) {
+						/* While the character is an open parenthesis, we'll additionally verify that it could be preceded by a macro name. */
+						first_macro_SPSL_left_delimiter_is_open_paren_or_comma = false;
+						auto first_macro_SPSL_left_delimiters_bumper = get_previous_non_whitespace_SL(first_macro_SPSL_left_delimiter, Rewrite);
+						const std::string text7b = getRewrittenTextOrEmpty(Rewrite, { first_macro_SPSL_left_delimiters_bumper, first_macro_SPSL_left_delimiters_bumper });
+						if (1 <= text7b.size())  {
+							first_macro_SPSL_left_delimiter_is_open_paren_or_comma = Parse::is_alnum_or_underscore(text7b.back());
+						}
+					}
+					auto first_macro_SPSLE_right_delimiter = get_next_non_whitespace_SL(first_macro_SPSLE, Rewrite);
+					const std::string text8 = getRewrittenTextOrEmpty(Rewrite, { first_macro_SPSLE_right_delimiter, first_macro_SPSLE_right_delimiter });
+					bool first_macro_SPSLE_right_delimiter_is_close_paren_or_comma = ((")" == text8) || ("," == text8));
 
 					if (true && SL_isMacroArgExpansion_flag && SLE_isMacroArgExpansion_flag && (SL_macro_arg_expansion_start == SLE_macro_arg_expansion_start)
-						&& (first_macro_SPSL_bumper_is_open_paren_or_comma) && (first_macro_SPSLE_bumper_is_close_paren_or_comma)) {
+						&& (first_macro_SPSL_left_delimiter_is_open_paren_or_comma) && (first_macro_SPSLE_right_delimiter_is_close_paren_or_comma)) {
 
 						/* The given range might cover a (whole) macro argument. */
 
-						auto macro_arg_expansion_SPSL = SM.getSpellingLoc(SL_macro_arg_expansion_start);
-						auto macro_arg_expansion_SPSLE = SM.getSpellingLoc(SLE_macro_arg_expansion_start);
-						auto macro_arg_expansion_SR = clang::SourceRange{ macro_arg_expansion_SPSL, macro_arg_expansion_SPSLE };
-						std::string macro_arg_expansion_text1 = getRewrittenTextOrEmpty(Rewrite, macro_arg_expansion_SR);
-						if (("" != macro_arg_expansion_text1)/* && (!filtered_out_by_location(SM, clang::SourceRange{ first_macro_SL, first_macro_SLE }))*/) {
-							/* If the range indeed covers a (whole) macro argument, then the value of macro_arg_expansion_text1 
-							should be a parameter of the macro. We check this here: */
+						bool enclosing_parentheses_smoke_test_passed = false;
+						do {
+							{
+								/* Here we'll search for the enclosing open parenthesis and check if it is (reported as being) part 
+								of the same macro argument. Our hypothesis is that if the given range (already) covers the entire 
+								macro argument, then any enclosing parenthesis should not be (reported as) part of the same argument. 
+								(The intuitive hypothesis would be that if the given range (already) covers the entire macro argument, 
+								then any element whatsoever outside of the range should not be (reported as) part of the same 
+								argument. But empirical observation seems to sugeest that this is not always the case.) */
+								int offset1 = 1;
+								auto first_macro_open_paren_SL = first_macro_SL.getLocWithOffset(-offset1);
+								auto first_macro_open_paren_SPSL = SM.getSpellingLoc(first_macro_open_paren_SL);
+								std::string first_macro_open_paren_text = getRewrittenTextOrEmpty(Rewrite, { first_macro_open_paren_SPSL, first_macro_open_paren_SPSL });
+								int depth = 0;
+								while (first_macro_open_paren_SL.isValid() && (("(" != first_macro_open_paren_text) || (1 <= depth)) 
+									&& (500/*arbitrary*/ > offset1)) {
 
-							DEBUG_SOURCE_TEXT_STR(last_macro1_source_text2, (clang::SourceRange{ SL_macro_arg_expansion_start, SLE_macro_arg_expansion_start }), Rewrite);
-							DEBUG_SOURCE_TEXT_STR(last_macro1_sp_source_text2, (clang::SourceRange{ SM.getSpellingLoc(SL_macro_arg_expansion_start), SM.getSpellingLoc(SLE_macro_arg_expansion_start) }), Rewrite);
-
-							auto macro1_SL = SM.getImmediateMacroCallerLoc(SL_macro_arg_expansion_start);
-							auto macro1_SLE = SM.getImmediateMacroCallerLoc(SLE_macro_arg_expansion_start);
-							DEBUG_SOURCE_TEXT_STR(macro1_source_text, (clang::SourceRange{ macro1_SL, macro1_SLE }), Rewrite);
-							auto macro1_SPSL = SM.getSpellingLoc(macro1_SL);
-							auto macro1_SPSLE = SM.getSpellingLoc(macro1_SLE);
-							auto macro1_SPSR = clang::SourceRange{ macro1_SPSL, macro1_SPSLE };
-							DEBUG_SOURCE_TEXT_STR(macro1_sp_source_text, macro1_SPSR, Rewrite);
-
-							std::string potential_macro_name = getRewrittenTextOrEmpty(Rewrite, macro1_SPSR);
-
-							const auto expansion_SR = SM.getExpansionRange(macro1_SL).getAsRange();
-							DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, expansion_SR, Rewrite);
-
-							//auto [adjusted_macro_SPSR, macro_name, macro_args] = macro_spelling_range_extended_to_include_any_arguments((clang::SourceRange{ SM.getSpellingLoc(expansion_SR.getBegin()), SM.getSpellingLoc(expansion_SR.getEnd()) }));
-							auto [adjusted_macro_SPSR, macro_name, macro_args] = macro_spelling_range_extended_to_include_any_arguments(macro1_SPSR);
-							DEBUG_SOURCE_LOCATION_STR(adjusted_macro_SPSR1_debug_source_location_str, adjusted_macro_SPSR, Rewrite);
-
-							auto found_macro_iter = state1.m_pp_macro_definitions.find(macro_name);
-							if ((state1.m_pp_macro_definitions.end() != found_macro_iter) && (1 <= macro_args.size())) {
-
-								bool matching_macro_arg_found = false;
-								for (auto const& macro_arg : macro_args) {
-									if (macro_arg == text9) {
-										matching_macro_arg_found = true;
-										break;
+									if ("(" == first_macro_open_paren_text) {
+										depth += 1;
+									} else if ("(" == first_macro_open_paren_text) {
+										depth -= 1;
 									}
+									offset1 += 1;
+									first_macro_open_paren_SL = first_macro_SL.getLocWithOffset(-offset1);
+									first_macro_open_paren_SPSL = SM.getSpellingLoc(first_macro_open_paren_SL);
+									first_macro_open_paren_text = getRewrittenTextOrEmpty(Rewrite, { first_macro_open_paren_SPSL, first_macro_open_paren_SPSL });
 								}
-								if (true || matching_macro_arg_found) {
-									auto& macro_params = found_macro_iter->second.m_parameter_names;
-									bool matching_macro_param_found = false;
-									for (auto const& macro_param : macro_params) {
-										if (macro_param == macro_arg_expansion_text1) {
-											matching_macro_param_found = true;
+								auto SL_open_paren_macro_arg_expansion_start = first_macro_open_paren_SL;
+								bool SL_open_paren_isMacroArgExpansion_flag = SM.isMacroArgExpansion(first_macro_open_paren_SL, &SL_open_paren_macro_arg_expansion_start);
+								if (SL_open_paren_isMacroArgExpansion_flag && (SL_macro_arg_expansion_start == SL_open_paren_macro_arg_expansion_start)) {
+									/* The enclosing open parenthesis seems to also be part of the same macro argument, indicating that 
+									the source range does not cover the entire macro argument. */
+									break;
+								}
+							}
+
+							{
+								/* And here we'll search for the enclosing close parenthesis and check if it is (reported as being) 
+								part of the same macro argument. */
+								int offset1 = 1;
+								auto first_macro_close_paren_SLE = first_macro_SLE.getLocWithOffset(+offset1);
+								auto first_macro_close_paren_SPSLE = SM.getSpellingLoc(first_macro_close_paren_SLE);
+								std::string first_macro_close_paren_text = getRewrittenTextOrEmpty(Rewrite, { first_macro_close_paren_SPSLE, first_macro_close_paren_SPSLE });
+								int depth = 0;
+								while (first_macro_close_paren_SLE.isValid() && ((")" != first_macro_close_paren_text) || (1 <= depth)) 
+									&& (500/*arbitrary*/ > offset1)) {
+
+									if ("(" == first_macro_close_paren_text) {
+										depth += 1;
+									} else if (")" == first_macro_close_paren_text) {
+										depth -= 1;
+									}
+									offset1 += 1;
+									first_macro_close_paren_SLE = first_macro_SLE.getLocWithOffset(+offset1);
+									first_macro_close_paren_SPSLE = SM.getSpellingLoc(first_macro_close_paren_SLE);
+									first_macro_close_paren_text = getRewrittenTextOrEmpty(Rewrite, { first_macro_close_paren_SPSLE, first_macro_close_paren_SPSLE });
+								}
+								auto SLE_close_paren_macro_arg_expansion_start = first_macro_close_paren_SLE;
+								bool SLE_close_paren_isMacroArgExpansion_flag = SM.isMacroArgExpansion(first_macro_close_paren_SLE, &SLE_close_paren_macro_arg_expansion_start);
+								if (SLE_close_paren_isMacroArgExpansion_flag && (SLE_macro_arg_expansion_start == SLE_close_paren_macro_arg_expansion_start)) {
+									/* The enclosing close parenthesis seems to also be part of the same macro argument, indicating that 
+									the source range does not cover the entire macro argument. */
+									break;
+								}
+							}
+
+							enclosing_parentheses_smoke_test_passed = true;
+						} while (false);
+
+						if (enclosing_parentheses_smoke_test_passed) {
+							auto macro_arg_expansion_SPSL = SM.getSpellingLoc(SL_macro_arg_expansion_start);
+							auto macro_arg_expansion_SPSLE = SM.getSpellingLoc(SLE_macro_arg_expansion_start);
+							auto macro_arg_expansion_SR = clang::SourceRange{ macro_arg_expansion_SPSL, macro_arg_expansion_SPSLE };
+							std::string macro_arg_expansion_text1 = getRewrittenTextOrEmpty(Rewrite, macro_arg_expansion_SR);
+							if (("" != macro_arg_expansion_text1)/* && (!filtered_out_by_location(SM, clang::SourceRange{ first_macro_SL, first_macro_SLE }))*/) {
+								/* If the range indeed covers a (whole) macro argument, then the value of macro_arg_expansion_text1 
+								should be a parameter of the macro. We check this here: */
+
+								DEBUG_SOURCE_TEXT_STR(last_macro1_source_text2, (clang::SourceRange{ SL_macro_arg_expansion_start, SLE_macro_arg_expansion_start }), Rewrite);
+								DEBUG_SOURCE_TEXT_STR(last_macro1_sp_source_text2, (clang::SourceRange{ SM.getSpellingLoc(SL_macro_arg_expansion_start), SM.getSpellingLoc(SLE_macro_arg_expansion_start) }), Rewrite);
+
+								auto macro1_SL = SM.getImmediateMacroCallerLoc(SL_macro_arg_expansion_start);
+								auto macro1_SLE = SM.getImmediateMacroCallerLoc(SLE_macro_arg_expansion_start);
+								DEBUG_SOURCE_TEXT_STR(macro1_source_text, (clang::SourceRange{ macro1_SL, macro1_SLE }), Rewrite);
+								auto macro1_SPSL = SM.getSpellingLoc(macro1_SL);
+								auto macro1_SPSLE = SM.getSpellingLoc(macro1_SLE);
+								auto macro1_SPSR = clang::SourceRange{ macro1_SPSL, macro1_SPSLE };
+								DEBUG_SOURCE_TEXT_STR(macro1_sp_source_text, macro1_SPSR, Rewrite);
+
+								std::string potential_macro_name = getRewrittenTextOrEmpty(Rewrite, macro1_SPSR);
+
+								const auto expansion_SR = SM.getExpansionRange(macro1_SL).getAsRange();
+								DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, expansion_SR, Rewrite);
+
+								//auto [adjusted_macro_SPSR, macro_name, macro_args] = macro_spelling_range_extended_to_include_any_arguments((clang::SourceRange{ SM.getSpellingLoc(expansion_SR.getBegin()), SM.getSpellingLoc(expansion_SR.getEnd()) }));
+								auto [adjusted_macro_SPSR, macro_name, macro_args] = macro_spelling_range_extended_to_include_any_arguments(macro1_SPSR);
+								DEBUG_SOURCE_LOCATION_STR(adjusted_macro_SPSR1_debug_source_location_str, adjusted_macro_SPSR, Rewrite);
+
+								auto found_macro_iter = state1.m_pp_macro_definitions.find(macro_name);
+								if ((state1.m_pp_macro_definitions.end() != found_macro_iter) && (1 <= macro_args.size())) {
+
+									bool matching_macro_arg_found = false;
+									for (auto const& macro_arg : macro_args) {
+										if (macro_arg == text9) {
+											matching_macro_arg_found = true;
 											break;
 										}
 									}
-									if (matching_macro_param_found) {
-										/* Ok, heuristically, it seems the range corresponds to a (whole) macro argument. So we'll assume 
-										here that it does, and do a check at the end to verify that the range text corresponds to our 
-										reconstruction of the text at the outer-most macro invocation (presumably a macro argument) that 
-										produced the argument expansion token text. That check could fail if either the range does not 
-										actually correspond to a whole macro argument, or if the macro argument does not expand to a whole 
-										token. */
-										presumed_macro_argument_flag = true;
-										last_macro1_SL = SL_macro_arg_expansion_start;
-										last_macro1_SLE = SLE_macro_arg_expansion_start;
-										adjusted_SPSR_source_text = macro_arg_expansion_text1;
-										adjusted_SPSR1 = macro_arg_expansion_SR;
+									if (true || matching_macro_arg_found) {
+										auto& macro_params = found_macro_iter->second.m_parameter_names;
+										bool matching_macro_param_found = false;
+										for (auto const& macro_param : macro_params) {
+											if (macro_param == macro_arg_expansion_text1) {
+												matching_macro_param_found = true;
+												break;
+											}
+										}
+										if (matching_macro_param_found) {
+											/* Ok, heuristically, it seems the range corresponds to a (whole) macro argument. So we'll assume 
+											here that it does, and do a check at the end to verify that the range text corresponds to our 
+											reconstruction of the text at the outer-most macro invocation (presumably a macro argument) that 
+											produced the argument expansion token text. That check could fail if either the range does not 
+											actually correspond to a whole macro argument, or if the macro argument does not expand to a whole 
+											token. */
+											presumed_macro_argument_flag = true;
+											last_macro1_SL = SL_macro_arg_expansion_start;
+											last_macro1_SLE = SLE_macro_arg_expansion_start;
+											adjusted_SPSR_source_text = macro_arg_expansion_text1;
+											adjusted_SPSR1 = macro_arg_expansion_SR;
+										} else {
+											int q = 5;
+										}
 									} else {
 										int q = 5;
 									}
-								} else {
-									int q = 5;
 								}
 							}
 						}
@@ -5414,52 +5500,86 @@ namespace convm1 {
 									}
 									if (!is_known_to_be_variadic) {
 										size_t param_index = 0;
-										bool param_match_flag = false;
 										auto arg_citer = macro_args.cbegin();
 										for (auto& macro_param : macro_params) {
 											if (trimmed_source_text_as_if_expanded == macro_param) {
 												/* So we're presuming that the given range corresponds to a whole macro argument. And we've just 
 												confirmed that the corresponding source range in the macro definition body is, in fact, just a 
 												parameter of the macro. */
-												param_match_flag = true;
-												retval.m_adjusted_source_text_as_if_expanded = *arg_citer;
+												adjusted_source_text_as_if_expanded = *arg_citer;
+												retval.m_adjusted_source_text_as_if_expanded = adjusted_source_text_as_if_expanded;
 												IF_DEBUG(std::string debug_text2 = getRewrittenTextOrEmpty(Rewrite, adjusted_macro_SPSR);)
 												if ((*arg_citer).m_maybe_source_range.has_value()) {
 													adjusted_macro_SPSR = (*arg_citer).m_maybe_source_range.value();
 													IF_DEBUG(std::string debug_text3 = getRewrittenTextOrEmpty(Rewrite, adjusted_macro_SPSR);)
 
-													/* We're going to presume that it's likely that any given transformation could be appropriately 
-													applied to the macro argument, rather than needing to be applied to the (corresponding macro 
-													parameter used in the) definition of the macro. We would prefer not to modify the definition 
-													of a macro if it's not necessary. */
-													retval.m_adjusted_source_text_infos.at(nesting_level).m_can_be_substituted_with_macro_invocation_text = true;
-													if (nested_macro_ranges.size() <= nesting_level + 1) {
-														retval.m_range_is_essentially_the_entire_body_of_a_macro = true;
-													}
-
-													bool return_the_macro_invocation_rather_than_the_definition = false;
-													if (filtered_out_by_location<options_t<converter_mode_t> >(SM, found_macro_iter->second.definition_SR())) {
-														/* Unless the macro definition is not elegible for conversion. In this case we probably don't 
-														want to return the invocation range that might be elegible for conversion. The macro might be 
-														a system or installed 3rd party library macro whose definition might be platform dependent. */
-	#ifndef NDEBUG
-														if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
-															int q = 5;
+													bool presumably_can_be_substituted_with_macro_invocation_text = true;
+													if (2 <= macro_params.size()) {
+														auto const& def_str = found_macro_iter->second.m_macro_def_body_str;
+														auto found_range = Parse::find_uncommented_token(macro_param, def_str);
+														const auto def_str_length = def_str.length();
+														if (def_str_length > found_range.end) {
+															auto found_range2 = Parse::find_uncommented_token(macro_param, def_str, found_range.end);
+															if (def_str_length > found_range2.begin) {
+																/* So here it seems that the parameter is used more than once in the macro body. This means that it's
+																possible, for example, for the first use of the parameter to require a conversion wrapper, but at the 
+																same time the second use of the parameter could be interacting with another parameter. This means 
+																that we can't necessarily hoist the conversion wrapper out to the argument corresponding to the 
+																parameter (which we would normally prefer to do) as that conversion wrapper may not be compatible 
+																with the interaction between the second use of the parameter with the other parameter. We've run into 
+																this issue in the wild. */
+																presumably_can_be_substituted_with_macro_invocation_text = false;
+															}
 														}
-	#endif /*!NDEBUG*/
-													} else {
+													}
+													if (presumably_can_be_substituted_with_macro_invocation_text) {
+														/* We're going to presume that it's likely that any given transformation could be appropriately 
+														applied to the macro argument, rather than needing to be applied to the (corresponding macro 
+														parameter used in the) definition of the macro. We would prefer not to modify the definition 
+														of a macro if it's not necessary. */
+														retval.m_adjusted_source_text_infos.at(nesting_level).m_can_be_substituted_with_macro_invocation_text = true;
 														if (nested_macro_ranges.size() <= nesting_level + 1) {
-															return_the_macro_invocation_rather_than_the_definition = true;
-															retval.m_macro_expansion_range_substituted_with_macro_invocation_range = true;
+															retval.m_range_is_essentially_the_entire_body_of_a_macro = true;
 														}
-													}
-													if (return_the_macro_invocation_rather_than_the_definition) {
-														IF_DEBUG(std::string debug_text1 = getRewrittenTextOrEmpty(Rewrite, adjusted_macro_SPSR);)
-														retval.set_source_range(adjusted_macro_SPSR);
-														//adjusted_source_text_as_if_expanded = getRewrittenTextOrEmpty(Rewrite, adjusted_macro_SPSR);
-														//retval.m_adjusted_source_text_as_if_expanded = adjusted_source_text_as_if_expanded;
+
+														bool return_the_macro_invocation_rather_than_the_definition = false;
+														if (filtered_out_by_location<options_t<converter_mode_t> >(SM, found_macro_iter->second.definition_SR())) {
+															/* Unless the macro definition is not elegible for conversion. In this case we probably don't 
+															want to return the invocation range that might be elegible for conversion. The macro might be 
+															a system or installed 3rd party library macro whose definition might be platform dependent. */
+		#ifndef NDEBUG
+															if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+																int q = 5;
+															}
+		#endif /*!NDEBUG*/
+														} else {
+															if (nested_macro_ranges.size() <= nesting_level + 1) {
+																return_the_macro_invocation_rather_than_the_definition = true;
+																retval.m_macro_expansion_range_substituted_with_macro_invocation_range = true;
+															}
+														}
+														if (return_the_macro_invocation_rather_than_the_definition) {
+															IF_DEBUG(std::string debug_text1 = getRewrittenTextOrEmpty(Rewrite, adjusted_macro_SPSR);)
+															retval.set_source_range(adjusted_macro_SPSR);
+															//adjusted_source_text_as_if_expanded = getRewrittenTextOrEmpty(Rewrite, adjusted_macro_SPSR);
+															//retval.m_adjusted_source_text_as_if_expanded = adjusted_source_text_as_if_expanded;
+														}
 													}
 												}
+											} else if (trimmed_source_text_as_if_expanded.length() > Parse::find_uncommented_token(macro_param, trimmed_source_text_as_if_expanded).begin) {
+												/* So while the macro_param is not identical to trimmed_source_text_as_if_expanded, it seems to be contained 
+												within it. */
+												auto found_range = Parse::find_uncommented_token(macro_param, trimmed_source_text_as_if_expanded);
+												while (found_range.begin < trimmed_source_text_as_if_expanded.length()) {
+													trimmed_source_text_as_if_expanded.replace(found_range.begin, (found_range.end - found_range.begin), *arg_citer);
+													retval.m_adjusted_source_text_as_if_expanded = trimmed_source_text_as_if_expanded;
+
+													found_range = Parse::find_uncommented_token(macro_param, trimmed_source_text_as_if_expanded, found_range.begin + (*arg_citer).length());
+												}
+												/* Since the macro argument at this level of nesting seems to correspond to only a subset of the more 
+												deeply nested range, it probably wouldn't be valid to use it for anything. So we'll just set to the 
+												default (invalid) value. */
+												adjusted_macro_SPSR = clang::SourceRange{};
 											}
 											++arg_citer;
 										}
@@ -5632,6 +5752,17 @@ namespace convm1 {
 							if (trimmed_SPSR_source_text == trimmed_last_text_info_text) {
 								bflag1 = true;
 								break;
+							} else if (trimmed_last_text_info_text.length() > Parse::find_uncommented_token(trimmed_SPSR_source_text, trimmed_last_text_info_text).begin) {
+								/* While trimmed_SPSR_source_text is not identical to trimmed_last_text_info_text, it seems to be contained 
+								within it. */
+								if (presumed_macro_argument_flag) {
+									/* If this is a macro argument, then presumably the info for one or more of the most deeply nested 
+									macro invocations should be valid, with the others having their macro invocation range set to an 
+									invalid default to prevent any presumption that they are valid. */
+									retval.set_source_range(SPSR);
+									bflag1 = true;
+									break;
+								}
 							}
 						}
 					}
@@ -5712,9 +5843,9 @@ namespace convm1 {
 									auto BO = dyn_cast<const clang::BinaryOperator>(parent_E);
 									if (BO) {
 										std::optional<clang::SourceLocation> maybe_E_token_SL;
-										if (BO->getLHS() == E) {
+										if (IgnoreImplicit(BO->getLHS()) == IgnoreImplicit(E)) {
 											maybe_E_token_SL = context_SR.getBegin();
-										} else if (BO->getRHS() == E) {
+										} else if (IgnoreImplicit(BO->getRHS()) == IgnoreImplicit(E)) {
 											maybe_E_token_SL = context_SR.getEnd();
 										}
 										if (maybe_E_token_SL.has_value()) {
@@ -18331,10 +18462,10 @@ namespace convm1 {
 
 								auto arg_EX_ii_SR = write_once_source_range(cm1_adj_nice_source_range(*arg_EX_ii, state1, Rewrite));
 
-								DEBUG_SOURCE_LOCATION_STR(arg_EX_ii_debug_source_location_str, arg_EX_ii_SR, Rewrite);
+								DEBUG_SOURCE_LOCATION_STR(arg_EX_ii_debug_source_location_str2, arg_EX_ii_SR, Rewrite);
 								DEBUG_SOURCE_TEXT_STR(arg_EX_ii_debug_source_text, arg_EX_ii_SR, Rewrite);
 #ifndef NDEBUG
-								if (std::string::npos != arg_EX_ii_debug_source_location_str.find(g_target_debug_source_location_str1)) {
+								if (std::string::npos != arg_EX_ii_debug_source_location_str2.find(g_target_debug_source_location_str1)) {
 									int q = 5;
 								}
 #endif /*!NDEBUG*/
