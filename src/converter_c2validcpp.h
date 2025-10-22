@@ -3281,7 +3281,12 @@ namespace convc2validcpp {
 #endif /*!NDEBUG*/
 
 			if ((!m_ReplaceText_supression_mode) && SR.isValid()) {
-				return Rewrite.ReplaceText(SR, NewStr);
+				auto& SM = Rewrite.getSourceMgr();
+				if (!filtered_out_by_location<options_t<converter_mode_t> >(SM, SR)) {
+					return Rewrite.ReplaceText(SR, NewStr);
+				} else {
+					int q = 5;
+				}
 			}
 			return false;
 		}
@@ -3649,7 +3654,7 @@ namespace convc2validcpp {
 			auto& state1 = *this;
 			auto& ecs_ref = state1.get_expr_conversion_state_ref<TExprConversionState>(expr, Rewrite, std::forward<TArgs>(args)...);
 
-			auto EXSR = write_once_source_range(cm1_adj_nice_source_range(EX->getSourceRange(), state1, Rewrite));
+			auto EXSR = write_once_source_range(cm1_adj_nice_source_range(*EX, state1, Rewrite));
 			if (EXSR.isValid()) {
 				return state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, EXSR, state1, EX);
 			}
@@ -3669,7 +3674,7 @@ namespace convc2validcpp {
 		void add_pending_straight_text_replacement_expression_update(clang::Expr const& expr, Rewriter &Rewrite, std::string_view new_text) {
 			auto* EX = &expr;
 			auto& state1 = (*this);
-			auto EXSR = write_once_source_range(cm1_adj_nice_source_range(EX->getSourceRange(), state1, Rewrite));
+			auto EXSR = write_once_source_range(cm1_adj_nice_source_range(*EX, state1, Rewrite));
 			if (EXSR.isValid()) {
 				add_pending_straight_text_replacement_expression_update(Rewrite, EXSR, EX, new_text);
 			}
@@ -4036,7 +4041,7 @@ namespace convc2validcpp {
 						const bool b3 = rawSR.getBegin().isMacroID();
 						const bool b4 = rawSR.getEnd().isMacroID();
 
-						auto OSR = write_once_source_range(cm1_adj_nice_source_range(E->getSourceRange(), m_state1, Rewrite));
+						auto OSR = write_once_source_range(cm1_adj_nice_source_range(*E, m_state1, Rewrite));
 						if (OSR.isValid()) {
 							const bool b5 = OSR.getBegin().isMacroID();
 							const bool b6 = OSR.getEnd().isMacroID();
@@ -4091,7 +4096,7 @@ namespace convc2validcpp {
 													const auto expansion_SR = SM.getExpansionRange(rawSR.getBegin()).getAsRange();
 
 													bool descendant_does_not_seem_to_be_within_ancestor_source_range = false;
-													auto l_OSR = write_once_source_range(cm1_adj_nice_source_range(l_E->getSourceRange(), state1, Rewrite));
+													auto l_OSR = write_once_source_range(cm1_adj_nice_source_range(*l_E, state1, Rewrite));
 													if (l_OSR.isValid()) {
 														bool b5 = l_OSR.getBegin().isMacroID();
 														bool b6 = l_OSR.getEnd().isMacroID();
@@ -4135,7 +4140,7 @@ namespace convc2validcpp {
 																may be essentially equivalent to (one or more of) the macro invocations that produced it. So 
 																we'll check for such macro invocations and whether or not they are located within the ancestor's 
 																source text range. */
-																auto SR_plus = cm1_adjusted_source_range(l_E->getSourceRange(), state1, Rewrite);
+																auto SR_plus = cm1_adjusted_source_range(*l_E, state1, Rewrite);
 																if (false && seems_to_be_part_or_all_of_a_macro_argument) {
 																	for (size_t i = 0; SR_plus.m_adjusted_source_text_infos.size() > i; i += 1) {
 																		auto& adjusted_source_text_info = SR_plus.m_adjusted_source_text_infos.at(i);
@@ -4516,7 +4521,12 @@ namespace convc2validcpp {
 					}
 				}
 			};
-		return add_replacement_action(OSR, lambda);
+
+		auto& SM = Rewrite.getSourceMgr();
+		if (!filtered_out_by_location<options_t<converter_mode_t> >(SM, OSR)) {
+			return add_replacement_action(OSR, lambda);
+		}
+		return std::pair<CCodeModificationActions::base_class::iterator, bool>{ this->end(), false };
 	}
 
 	static clang::SourceLocation get_previous_non_whitespace_SL(clang::SourceLocation SL, Rewriter &Rewrite) {
@@ -4936,6 +4946,36 @@ namespace convc2validcpp {
 					int q = 5;
 				}
 			}
+
+			/* <Quick-'n-dirty linear cache of results.> */
+
+			struct CSourceRangePlusCacheItem : CSourceRangePlus {
+				typedef CSourceRangePlus base_class;
+				CSourceRangePlusCacheItem(const CSourceRangePlusCacheItem&) = default;
+				CSourceRangePlusCacheItem(CSourceRangePlusCacheItem&&) = default;
+				CSourceRangePlusCacheItem() = default;
+				CSourceRangePlusCacheItem(base_class sr_plus_info, SourceRange SR) 
+					: base_class(std::move(sr_plus_info)), m_SR(SR)  {}
+
+				CSourceRangePlusCacheItem& operator=(const CSourceRangePlusCacheItem&) = default;
+
+				clang::SourceRange m_SR;
+			};
+			static const size_t CachSize = 0/*arbitrary*/;
+			thread_local std::array<CSourceRangePlusCacheItem, CachSize> tl_cache1;
+			thread_local size_t cache1_mru_index = 0;
+			if constexpr (1 <= CachSize) {
+				for (size_t i = 0; tl_cache1.size() > i; i += 1) {
+					auto wrapped_i = ((i + cache1_mru_index) % tl_cache1.size());
+					auto const& cache_item = tl_cache1.at(wrapped_i);
+					if (cache_item.m_SR == sr) {
+						return cache_item;
+					}
+				}
+			}
+			/* </Quick-'n-dirty linear cache of results.> - There is also some cache updating code near the end of this code scope. */
+
+
 			if (true && ((b3 && (!b4)) || ((!b3) && b4))) {
 				int q = 5;
 				/* Note that we specifically omit the (defaulted) CTUState pointer parameter as not omitting it 
@@ -5080,6 +5120,7 @@ namespace convc2validcpp {
 
 								if ("(" == text1) {
 									{
+										THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 										auto maybe_close_paren_SL = matching_close_parentheses_if_any(Rewrite, SL1);
 										if (maybe_close_paren_SL.has_value()) {
 											adjusted_macro_SPSR = clang::SourceRange{ adjusted_macro_SPSR.getBegin(), maybe_close_paren_SL.value() };
@@ -5089,6 +5130,7 @@ namespace convc2validcpp {
 											auto args_SLE = maybe_close_paren_SL.value().getLocWithOffset(-1);
 											auto args_SR = clang::SourceRange{ args_SL, args_SLE };
 
+											THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 											macro_args = parse_argument_list(args_SR, Rewrite);
 
 											int q = 5;
@@ -5177,6 +5219,7 @@ namespace convc2validcpp {
 				/* The element could be nested within multiple macro instances. We are going to obtain
 				and store a list of (the source ranges of) all the (nested) macro instances which contain
 				the element. */
+
 				auto nested_macro_ranges = std::vector<clang::SourceRange>{};
 
 				auto last_macro1_SL = sr2_sl;
@@ -5229,7 +5272,7 @@ namespace convc2validcpp {
 					if ((first_macro_SPSLE < first_macro_SPSLE2) && (first_macro_SPSL <= first_macro_SPSLE)) {
 						first_macro_SPSLE = first_macro_SPSLE2;
 					}
-					auto first_macro_SPSL_left_delimiter = get_previous_non_whitespace_SL(first_macro_SPSL, Rewrite);
+					const auto first_macro_SPSL_left_delimiter = get_previous_non_whitespace_SL(first_macro_SPSL, Rewrite);
 					const std::string text7 = getRewrittenTextOrEmpty(Rewrite, { first_macro_SPSL_left_delimiter, first_macro_SPSL_left_delimiter });
 					bool first_macro_SPSL_left_delimiter_is_open_paren_or_comma = (("(" == text7) || ("," == text7));
 					if (("(" == text7)) {
@@ -5248,71 +5291,117 @@ namespace convc2validcpp {
 					if (true && SL_isMacroArgExpansion_flag && SLE_isMacroArgExpansion_flag && (SL_macro_arg_expansion_start == SLE_macro_arg_expansion_start)
 						&& (first_macro_SPSL_left_delimiter_is_open_paren_or_comma) && (first_macro_SPSLE_right_delimiter_is_close_paren_or_comma)) {
 
+						THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
 						/* The given range might cover a (whole) macro argument. */
 
 						bool enclosing_parentheses_smoke_test_passed = false;
 						do {
-							{
-								/* Here we'll search for the enclosing open parenthesis and check if it is (reported as being) part 
-								of the same macro argument. Our hypothesis is that if the given range (already) covers the entire 
-								macro argument, then any enclosing parenthesis should not be (reported as) part of the same argument. 
-								(The intuitive hypothesis would be that if the given range (already) covers the entire macro argument, 
-								then any element whatsoever outside of the range should not be (reported as) part of the same 
-								argument. But empirical observation seems to sugeest that this is not always the case.) */
-								int offset1 = 1;
-								auto first_macro_open_paren_SL = first_macro_SL.getLocWithOffset(-offset1);
-								auto first_macro_open_paren_SPSL = SM.getSpellingLoc(first_macro_open_paren_SL);
-								std::string first_macro_open_paren_text = getRewrittenTextOrEmpty(Rewrite, { first_macro_open_paren_SPSL, first_macro_open_paren_SPSL });
-								int depth = 0;
-								while (first_macro_open_paren_SL.isValid() && (("(" != first_macro_open_paren_text) || (1 <= depth)) 
-									&& (500/*arbitrary*/ > offset1)) {
-
-									if ("(" == first_macro_open_paren_text) {
-										depth += 1;
-									} else if ("(" == first_macro_open_paren_text) {
-										depth -= 1;
-									}
-									offset1 += 1;
-									first_macro_open_paren_SL = first_macro_SL.getLocWithOffset(-offset1);
-									first_macro_open_paren_SPSL = SM.getSpellingLoc(first_macro_open_paren_SL);
-									first_macro_open_paren_text = getRewrittenTextOrEmpty(Rewrite, { first_macro_open_paren_SPSL, first_macro_open_paren_SPSL });
+#ifndef NDEBUG
+							thread_local size_t count8a = 0;
+							if (false) {
+								count8a += 1;
+								if (0 == (count8a % 256)) {
+									auto str1 = gtl_time_use_stats_session1.stats_text1();
+									int q = 5;
 								}
-								auto SL_open_paren_macro_arg_expansion_start = first_macro_open_paren_SL;
-								bool SL_open_paren_isMacroArgExpansion_flag = SM.isMacroArgExpansion(first_macro_open_paren_SL, &SL_open_paren_macro_arg_expansion_start);
-								if (SL_open_paren_isMacroArgExpansion_flag && (SL_macro_arg_expansion_start == SL_open_paren_macro_arg_expansion_start)) {
-									/* The enclosing open parenthesis seems to also be part of the same macro argument, indicating that 
-									the source range does not cover the entire macro argument. */
+							}
+#endif /*!NDEBUG*/
+
+							if (true) {
+								THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
+								/* Ok, we're not sure exactly how source locations work, but our hypothesis is that if our given source 
+								range covers only and all of a macro argument, then whatever item occurs "to the left of" (i.e. at a 
+								negative offset to) the start of our given range should not be reported as part of the same macro 
+								argument. (Note that the item "to the left", in terms of "raw" source location, may not correspond to 
+								the item that would be to the left of the spelling location.) Here we check that this is the case. */
+								int offset1 = 1;
+								auto item_to_the_left_of_first_macro_SL = first_macro_SL.getLocWithOffset(-offset1);
+								auto item_to_the_left_of_first_macro_SPSL = SM.getSpellingLoc(item_to_the_left_of_first_macro_SL);
+								std::string item_to_the_left_of_first_macro_text = getRewrittenTextOrEmpty(Rewrite, { item_to_the_left_of_first_macro_SPSL, item_to_the_left_of_first_macro_SPSL });
+								int depth = 0;
+								bool smoke_test_passed_flag = false;
+								while (item_to_the_left_of_first_macro_SL.isValid() && ("" == item_to_the_left_of_first_macro_text) && (500/*arbitrary*/ > offset1)) {
+									offset1 += 1;
+									item_to_the_left_of_first_macro_SL = first_macro_SL.getLocWithOffset(-offset1);
+									item_to_the_left_of_first_macro_SPSL = SM.getSpellingLoc(item_to_the_left_of_first_macro_SL);
+									item_to_the_left_of_first_macro_text = getRewrittenTextOrEmpty(Rewrite, { item_to_the_left_of_first_macro_SPSL, item_to_the_left_of_first_macro_SPSL });
+								}
+								auto SL_item_to_the_left_macro_arg_expansion_start = item_to_the_left_of_first_macro_SL;
+								bool SL_item_to_the_left_isMacroArgExpansion_flag = SM.isMacroArgExpansion(item_to_the_left_of_first_macro_SL, &SL_item_to_the_left_macro_arg_expansion_start);
+								if (SL_item_to_the_left_isMacroArgExpansion_flag && (SL_macro_arg_expansion_start == SL_item_to_the_left_macro_arg_expansion_start)) {
 									break;
 								}
 							}
+							if (true) {
+								THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
-							{
-								/* And here we'll search for the enclosing close parenthesis and check if it is (reported as being) 
-								part of the same macro argument. */
-								int offset1 = 1;
-								auto first_macro_close_paren_SLE = first_macro_SLE.getLocWithOffset(+offset1);
-								auto first_macro_close_paren_SPSLE = SM.getSpellingLoc(first_macro_close_paren_SLE);
-								std::string first_macro_close_paren_text = getRewrittenTextOrEmpty(Rewrite, { first_macro_close_paren_SPSLE, first_macro_close_paren_SPSLE });
-								int depth = 0;
-								while (first_macro_close_paren_SLE.isValid() && ((")" != first_macro_close_paren_text) || (1 <= depth)) 
-									&& (500/*arbitrary*/ > offset1)) {
+								/* Again, we're not sure exactly how source locations work, but it seems that the delimiter to the right of 
+								a macro argument gets reported as part of the same macro argument. Our hypothesis is that if our given 
+								source range covers only and all of a macro argument, then whatever item occurs "to the right of" (i.e. at a 
+								positive offset to) the right delimiter should not be reported as part of the same macro argument. (Note 
+								that the item "to the right", in terms of "raw" source location, may not correspond to the item that would 
+								be to the right of the spelling location.) Here we check that this is the case. */
 
-									if ("(" == first_macro_close_paren_text) {
-										depth += 1;
-									} else if (")" == first_macro_close_paren_text) {
-										depth -= 1;
+								if (first_macro_SLE < first_macro_SL) {
+									/* It seems that the begining and end of the macro argument candidate are not in the same macro. This 
+									can, for example, occur in code like this:
+
+									#define MACRO2(y) (y + 5)
+									#define MACRO1(x) MACRO2(x.a)
+									MACRO1(some_obj)
+
+									In this code, the source range of the expression corresponding to the `y` parameter of `MACRO2()` will 
+									be reported as beginning at the start of the `some_obj` argument and ending at the end of the `x.a` 
+									argument in the definition body of `MACRO1()`. 
+
+									Even though that's not really a valid or useful source range, we still  want to allow this case as the 
+									two ranges encompassing the `y` in the body of `MACRO2()` and the `x.a` macro argument in the body of 
+									`MACRO1()` are valid (and useful) source location ranges corresponding to the expression represented 
+									by `y` (that would be reported in the return value of this function).
+									*/
+									int q = 5;
+								} else {
+									int offset1 = text9.length();
+									auto item_to_the_right_of_first_macro_SL = first_macro_SL.getLocWithOffset(+offset1);
+									auto item_to_the_right_of_first_macro_SPSL = SM.getSpellingLoc(item_to_the_right_of_first_macro_SL);
+									std::string item_to_the_right_of_first_macro_text = getRewrittenTextOrEmpty(Rewrite, { item_to_the_right_of_first_macro_SPSL, item_to_the_right_of_first_macro_SPSL });
+									bool smoke_test_passed_flag = false;
+									bool right_delimiter_encountered = false;
+									while (item_to_the_right_of_first_macro_SL.isValid() && (500/*arbitrary*/ > offset1)) {
+
+										auto SL_item_to_the_right_macro_arg_expansion_start = item_to_the_right_of_first_macro_SL;
+										bool SL_item_to_the_right_isMacroArgExpansion_flag = SM.isMacroArgExpansion(item_to_the_right_of_first_macro_SL, &SL_item_to_the_right_macro_arg_expansion_start);
+										if (!(SL_item_to_the_right_isMacroArgExpansion_flag && (SL_macro_arg_expansion_start == SL_item_to_the_right_macro_arg_expansion_start))) {
+											smoke_test_passed_flag = true;
+											break;
+										}
+										if (right_delimiter_encountered && ("" != item_to_the_right_of_first_macro_text)) {
+											//smoke_test_passed_flag = false;
+											break;
+										}
+										if ("" != item_to_the_right_of_first_macro_text) {
+											if (text8 == item_to_the_right_of_first_macro_text) {
+												right_delimiter_encountered = true;
+											} else {
+												smoke_test_passed_flag = true;
+												break;
+											}
+										}
+
+										offset1 += 1;
+										item_to_the_right_of_first_macro_SL = first_macro_SL.getLocWithOffset(+offset1);
+										item_to_the_right_of_first_macro_SPSL = SM.getSpellingLoc(item_to_the_right_of_first_macro_SL);
+										item_to_the_right_of_first_macro_text = getRewrittenTextOrEmpty(Rewrite, { item_to_the_right_of_first_macro_SPSL, item_to_the_right_of_first_macro_SPSL });
+
+										thread_local size_t count10b = 0;
+										count10b += 1;
 									}
-									offset1 += 1;
-									first_macro_close_paren_SLE = first_macro_SLE.getLocWithOffset(+offset1);
-									first_macro_close_paren_SPSLE = SM.getSpellingLoc(first_macro_close_paren_SLE);
-									first_macro_close_paren_text = getRewrittenTextOrEmpty(Rewrite, { first_macro_close_paren_SPSLE, first_macro_close_paren_SPSLE });
-								}
-								auto SLE_close_paren_macro_arg_expansion_start = first_macro_close_paren_SLE;
-								bool SLE_close_paren_isMacroArgExpansion_flag = SM.isMacroArgExpansion(first_macro_close_paren_SLE, &SLE_close_paren_macro_arg_expansion_start);
-								if (SLE_close_paren_isMacroArgExpansion_flag && (SLE_macro_arg_expansion_start == SLE_close_paren_macro_arg_expansion_start)) {
-									/* The enclosing close parenthesis seems to also be part of the same macro argument, indicating that 
-									the source range does not cover the entire macro argument. */
-									break;
+									if (!smoke_test_passed_flag) {
+										int q = 5;
+										break;
+									}
 								}
 							}
 
@@ -5320,6 +5409,8 @@ namespace convc2validcpp {
 						} while (false);
 
 						if (enclosing_parentheses_smoke_test_passed) {
+							THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
 							auto macro_arg_expansion_SPSL = SM.getSpellingLoc(SL_macro_arg_expansion_start);
 							auto macro_arg_expansion_SPSLE = SM.getSpellingLoc(SLE_macro_arg_expansion_start);
 							auto macro_arg_expansion_SR = clang::SourceRange{ macro_arg_expansion_SPSL, macro_arg_expansion_SPSLE };
@@ -5327,6 +5418,12 @@ namespace convc2validcpp {
 							if (("" != macro_arg_expansion_text1)/* && (!filtered_out_by_location(SM, clang::SourceRange{ first_macro_SL, first_macro_SLE }))*/) {
 								/* If the range indeed covers a (whole) macro argument, then the value of macro_arg_expansion_text1 
 								should be a parameter of the macro. We check this here: */
+
+#ifndef NDEBUG
+								if ("beg" == macro_arg_expansion_text1) {
+									int q = 5;
+								}
+#endif /*!NDEBUG*/
 
 								DEBUG_SOURCE_TEXT_STR(last_macro1_source_text2, (clang::SourceRange{ SL_macro_arg_expansion_start, SLE_macro_arg_expansion_start }), Rewrite);
 								DEBUG_SOURCE_TEXT_STR(last_macro1_sp_source_text2, (clang::SourceRange{ SM.getSpellingLoc(SL_macro_arg_expansion_start), SM.getSpellingLoc(SLE_macro_arg_expansion_start) }), Rewrite);
@@ -5351,6 +5448,7 @@ namespace convc2validcpp {
 								auto found_macro_iter = state1.m_pp_macro_definitions.find(macro_name);
 								if ((state1.m_pp_macro_definitions.end() != found_macro_iter) && (1 <= macro_args.size())) {
 
+#ifndef NDEBUG
 									bool matching_macro_arg_found = false;
 									for (auto const& macro_arg : macro_args) {
 										if (macro_arg == text9) {
@@ -5358,7 +5456,11 @@ namespace convc2validcpp {
 											break;
 										}
 									}
-									if (true || matching_macro_arg_found) {
+									if (!matching_macro_arg_found) {
+										int q = 5;
+									}
+#endif /*!NDEBUG*/
+									{
 										auto& macro_params = found_macro_iter->second.m_parameter_names;
 										bool matching_macro_param_found = false;
 										for (auto const& macro_param : macro_params) {
@@ -5382,8 +5484,6 @@ namespace convc2validcpp {
 										} else {
 											int q = 5;
 										}
-									} else {
-										int q = 5;
 									}
 								}
 							}
@@ -5520,11 +5620,11 @@ namespace convc2validcpp {
 															/* Unless the macro definition is not elegible for conversion. In this case we probably don't 
 															want to return the invocation range that might be elegible for conversion. The macro might be 
 															a system or installed 3rd party library macro whose definition might be platform dependent. */
-		#ifndef NDEBUG
+#ifndef NDEBUG
 															if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 																int q = 5;
 															}
-		#endif /*!NDEBUG*/
+#endif /*!NDEBUG*/
 														} else {
 															if (nested_macro_ranges.size() <= nesting_level + 1) {
 																return_the_macro_invocation_rather_than_the_definition = true;
@@ -5550,7 +5650,7 @@ namespace convc2validcpp {
 													found_range = Parse::find_uncommented_token(macro_param, trimmed_source_text_as_if_expanded, found_range.begin + (*arg_citer).length());
 												}
 												/* Since the macro argument at this level of nesting seems to correspond to only a subset of the more 
-												deeply nested range, it probably wouldn't be valid to use it for anything. So we'll just set to the 
+												deeply nested range, it probably wouldn't be valid to use it for anything. So we'll just set it to the 
 												default (invalid) value. */
 												adjusted_macro_SPSR = clang::SourceRange{};
 											}
@@ -5657,7 +5757,10 @@ namespace convc2validcpp {
 								auto& adjusted_source_text_info_ref = retval.m_adjusted_source_text_infos.at(1 + nesting_level);
 								adjusted_source_text_info_ref.m_text = retval.m_adjusted_source_text_as_if_expanded;
 								adjusted_source_text_info_ref.m_macro_args = macro_args;
-								adjusted_source_text_info_ref.m_macro_invocation_range = adjusted_macro_SPSR;
+								/* If the (entirety of) the macro doesn't seem to represent the same expanded code as the more deeply 
+								nested range (i.e. if it represents a superset), then it probably wouldn't be valid to use its range 
+								for anything. So we'll just set it to the default (invalid) value. */
+								adjusted_source_text_info_ref.m_macro_invocation_range = is_essentially_the_whole_macro ? adjusted_macro_SPSR : clang::SourceRange{};
 								adjusted_source_text_info_ref.m_macro_name = macro_name;
 								if (is_essentially_the_whole_macro) {
 									std::string constructed_invocation_text = macro_name;
@@ -5707,15 +5810,19 @@ namespace convc2validcpp {
 				DEBUG_SOURCE_TEXT_STR(debug_macro_source_text, retval, Rewrite);
 
 				if ((true || presumed_macro_argument_flag) && (1 <= retval.m_adjusted_source_text_infos.size()) && ("" != SPSR_source_text)) {
-					/* Ok, our processing has been done with the presumption that the given range corresponds to a whole 
-					macro argument. Now we'll check that the range text matches our reconstruction of the text at the 
-					outer-most macro invocation that produced the argument expansion token text. The check can fail if 
-					either the range does not actually correspond to a whole macro argument, or if the macro argument 
-					does not expand to a whole token. */
-					bool bflag1 = false;
+					/* While processing the nested macro invocations we happened to reconstruct, from the most deeply 
+					nested macro invocation source range, what should be the text of the given source range (which is 
+					presumably a less-deeply nested (or most often, not nested,) macro invocation). To verify the 
+					nested macro invocation information that we generated, we'll now check that the reconstructed text 
+					(effectively) matches the text of the originally given source range. 
+
+					The texts may not match if, for example, the given source range covered only part of a macro 
+					argument. Or if the macro argument does not expand to a whole token. */
+
+					bool reconstructed_macro_invocation_matches_the_original = false;
 					for (auto& adjusted_source_text_info : retval.m_adjusted_source_text_infos) {
 						if (SPSR_source_text == adjusted_source_text_info.m_text) {
-							bflag1 = true;
+							reconstructed_macro_invocation_matches_the_original = true;
 							break;
 						} else {
 							auto trimmed_SPSR_source_text = SPSR_source_text;
@@ -5723,33 +5830,32 @@ namespace convc2validcpp {
 							auto trimmed_last_text_info_text = adjusted_source_text_info.m_text;
 							lrtrim(trimmed_last_text_info_text);
 							if (trimmed_SPSR_source_text == trimmed_last_text_info_text) {
-								bflag1 = true;
+								reconstructed_macro_invocation_matches_the_original = true;
 								break;
-							} else if (trimmed_last_text_info_text.length() > Parse::find_uncommented_token(trimmed_SPSR_source_text, trimmed_last_text_info_text).begin) {
-								/* While trimmed_SPSR_source_text is not identical to trimmed_last_text_info_text, it seems to be contained 
-								within it. */
-								if (presumed_macro_argument_flag) {
-									/* If this is a macro argument, then presumably the info for one or more of the most deeply nested 
-									macro invocations should be valid, with the others having their macro invocation range set to an 
-									invalid default to prevent any presumption that they are valid. */
-									retval.set_source_range(SPSR);
-									bflag1 = true;
-									break;
+							} else {
+#ifndef NDEBUG
+								if (trimmed_last_text_info_text.length() > Parse::find_uncommented_token(trimmed_SPSR_source_text, trimmed_last_text_info_text).begin) {
+									/* While trimmed_SPSR_source_text is not identical to trimmed_last_text_info_text, it seems to be contained 
+									within it. */
+									int q = 5;
 								}
+#endif /*!NDEBUG*/
 							}
 						}
 					}
-					if (!bflag1 && !bypass_macro_arg_source_checks) {
-						/* It seems that the range text does not match our reconstruction of the text at the outer-most 
-						macro invocation that produced the argument expansion token text. This could be because either 
-						the range does not actually correspond to a whole macro argument, or because the macro argument 
-						does not expand to a whole token. In either case, the "adjusted_source_text_infos" we produced 
-						which contain the adjusted representation of the range text at the various levels of macro nesting 
-						would not be valid. So we'll just bin them. */
-						retval.m_adjusted_source_text_as_if_expanded = SPSR_source_text;
-						retval.set_source_range(SPSR);
-						retval.m_adjusted_source_text_infos.clear();
-					} else if (1 <= retval.m_adjusted_source_text_infos.size() && retval.m_adjusted_source_text_infos.at(0).m_macro_invocation_range.isValid()) {
+					bool need_confirmation_that_deepest_range_represents_the_expression = false;
+					if (!reconstructed_macro_invocation_matches_the_original) {
+						need_confirmation_that_deepest_range_represents_the_expression = true;
+						auto& adjusted_source_text_info = retval.m_adjusted_source_text_infos.back();
+						if (adjusted_source_text_info.m_macro_invocation_range.isValid()) {
+							int q = 5;
+						}
+						/* The outer-most macro invocation source range presumably doesn't correspond with (some or all of) 
+						the more deeply nested invocation source ranges, but we may not have yet had the chance to set its 
+						reported source range to the default (invalid) value to indicate this fact. */
+						adjusted_source_text_info.m_macro_invocation_range = clang::SourceRange{};
+					}
+					if (1 <= retval.m_adjusted_source_text_infos.size() && retval.m_adjusted_source_text_infos.at(0).m_macro_invocation_range.isValid()) {
 						do {
 							if (!(maybe_context.has_value())) {
 								break;
@@ -5770,168 +5876,312 @@ namespace convc2validcpp {
 
 							auto parent_E_rawSR = parent_E->getSourceRange();
 							if (!(parent_E_rawSR.getBegin().isMacroID() && parent_E_rawSR.getEnd().isMacroID())) {
+								if (need_confirmation_that_deepest_range_represents_the_expression) {
+									if (E_SR_plus_ref.m_adjusted_source_text_infos.at(0).m_macro_invocation_range != parent_E_rawSR) {
+										/* If the expression's (most deeply nested) range and it's parent's (most deeply nested) range are not 
+										the same, then we'll presume that the expression's (most deeply nested) range actually represents 
+										(just) the expression. (Not a superset of the expression.) */
+										need_confirmation_that_deepest_range_represents_the_expression = false;
+									}
+								}
 								break;
 							}
+
+							auto first_has_a_range_contained_in_second = [](CSourceRangePlus const& E_SR_plus, clang::SourceRange const& potentially_containing_SR) {
+								bool E_SR_plus_has_range_contained_in_given_range = false;
+								if ((E_SR_plus.getBegin() >= potentially_containing_SR.getBegin()) && (E_SR_plus.getEnd() <= potentially_containing_SR.getEnd())) {
+									E_SR_plus_has_range_contained_in_given_range = true;
+								} else {
+									for (auto const& adjusted_source_text_info : E_SR_plus.m_adjusted_source_text_infos) {
+										auto const& SR2 = adjusted_source_text_info.m_macro_invocation_range;
+										if (SR2.isValid() && (SR2.getBegin() >= potentially_containing_SR.getBegin()) && (SR2.getEnd() <= potentially_containing_SR.getEnd())) {
+											E_SR_plus_has_range_contained_in_given_range = true;
+											break;
+										}
+									}
+								}
+								return E_SR_plus_has_range_contained_in_given_range;
+							};
 
 							auto parent_E_SR_plus_ref = cm1_adjusted_source_range(*parent_E, state1, Rewrite);
 							if (!(1 <= parent_E_SR_plus_ref.m_adjusted_source_text_infos.size())) {
+								if (need_confirmation_that_deepest_range_represents_the_expression) {
+									if ((E_SR_plus_ref.m_adjusted_source_text_infos.at(0).m_macro_invocation_range != parent_E_SR_plus_ref) 
+										&& first_has_a_range_contained_in_second(E_SR_plus_ref, parent_E_SR_plus_ref)) {
+
+										/* If the expression's (most deeply nested) range and it's parent's (most deeply nested) range are not 
+										the same, then we'll presume that the expression's (most deeply nested) range actually represents 
+										(just) the expression. (Not a superset of the expression.) Unless none of the expression's nested 
+										(invocation) ranges are contained within the parent's range. A phenomena that could be the result of 
+										the parent's nested (invocation) ranges not being reported due to not being supported. In which case 
+										we wouldn't know if the expression's (most deeply nested) range is actually different from it's 
+										parent's (unreported) most deeply nested range. */
+										need_confirmation_that_deepest_range_represents_the_expression = false;
+									}
+								}
 								break;
 							}
 
-							auto context_SR = parent_E_SR_plus_ref.m_adjusted_source_text_infos.at(0).m_macro_invocation_range;
+							const auto context_SR = parent_E_SR_plus_ref.m_adjusted_source_text_infos.at(0).m_macro_invocation_range;
 							if (!(context_SR.isValid())) {
 								break;
 							}
 
-							/* The problem is that the clang library does not seem to always reliably report all of the nested 
-							macro invocations where (an expansion of) the macro argument appears. A tentative hypothesis is 
-							that the clang library doesn't report macro argument expansions for macros that use the argument 
-							more than once in their definition (as the API (we use) doesn't seem to support the reporting of 
-							more than one expansion location?). It's possible that the expression is being used as an argument 
-							to such a macro.
-							So in this case we're going to check that at least one of the reported (nested) macro expansion 
-							ranges of the expression is contained inside the range of the parent expression. */
+							/* We're going to check that at least one of the reported (nested) macro expansion ranges of the expression 
+							is contained inside the range of the parent expression. */
 							bool E_SR_plus_ref_has_range_contained_in_parent_expression_range = false;
 							if ((E_SR_plus_ref.getBegin() >= context_SR.getBegin()) && (E_SR_plus_ref.getEnd() <= context_SR.getEnd())) {
 								E_SR_plus_ref_has_range_contained_in_parent_expression_range = true;
 							} else {
-								for (auto const& adjusted_source_text_info : E_SR_plus_ref.m_adjusted_source_text_infos) {
-									auto const& SR2 = adjusted_source_text_info.m_macro_invocation_range;
-									if (SR2.isValid() && (SR2.getBegin() >= context_SR.getBegin()) && (SR2.getEnd() <= context_SR.getEnd())) {
-										E_SR_plus_ref_has_range_contained_in_parent_expression_range = true;
-										break;
-									}
+								if (first_has_a_range_contained_in_second(E_SR_plus_ref, context_SR)) {
+									E_SR_plus_ref_has_range_contained_in_parent_expression_range = true;
 								}
 							}
 							if (!E_SR_plus_ref_has_range_contained_in_parent_expression_range) {
-								/* None of the reported (nested) macro expansion ranges of the expression seems to be contained 
-								inside the range of the parent expression. As mentioned above, this has been observed to happen 
-								in certain cases where the expression is (the expansion of) a macro argument. So we are going to 
-								assume that the expression text within the parent expression is simply a single (macro parameter) 
-								token. The location of that token is situation-specific and depends on the specifics of the 
-								parent expression. */
+								/* None of the reported (nested) macro expansion ranges of the expression seems to be contained inside 
+								the range of the parent expression. This has been observed to happen in certain cases where the 
+								expression is (the expansion of) a macro argument. At this point there are a couple of possibilities: 
+								One is that our previous heuristic attempt to determine whether the originally given source range 
+								corresponds to a whole macro argument was inaccurate and it only actually covers part of the macro 
+								argument. In this case the "adjusted_source_text_infos" we produced would not be valid and we'd need 
+								to remove them.
+								The other possibility stems from the fact that the clang library does not seem to always reliably report 
+								all of the nested macro invocations where (an expansion of) the macro argument appears. A tentative 
+								hypothesis is that the clang library doesn't report macro argument expansions for macros that use 
+								arguments more than once in their definition (as the API (we use) doesn't seem to support the reporting 
+								of more than one expansion location?). In such cases it would be the most deeply nested macro 
+								invocation(s) that would be missing. This means that in such case, the corresponding source range in the 
+								most deeply nested macro invocation that does get reported would itself cover a macro argument for an 
+								unreported macro invocation. 
+								So we can identify cases that fall into this second category by checking if the source range in the most 
+								deeply nested macro invocation reported is actually a macro argument (even though it isn't reported as 
+								such). We'll try to do that check now: */
 
-								std::optional<clang::SourceRange> maybe_E_token_SR;
-								do {
-									auto BO = dyn_cast<const clang::BinaryOperator>(parent_E);
-									if (BO) {
-										std::optional<clang::SourceLocation> maybe_E_token_SL;
-										if (IgnoreImplicit(BO->getLHS()) == IgnoreImplicit(E)) {
-											maybe_E_token_SL = context_SR.getBegin();
-										} else if (IgnoreImplicit(BO->getRHS()) == IgnoreImplicit(E)) {
-											maybe_E_token_SL = context_SR.getEnd();
+								bool seems_to_be_a_macro_argument = false;
+								{
+									auto const& deepest_reported_adjusted_source_text_info =  E_SR_plus_ref.m_adjusted_source_text_infos.at(0);
+									auto const& deepest_reported_SR = deepest_reported_adjusted_source_text_info.m_macro_invocation_range;
+									auto deepest_reported_SL = deepest_reported_SR.getBegin();
+									auto deepest_reported_SLE = deepest_reported_SR.getEnd();
+									const auto deepest_reported_SL_left_delimiter = get_previous_non_whitespace_SL(deepest_reported_SL, Rewrite);
+									const std::string text17 = getRewrittenTextOrEmpty(Rewrite, { deepest_reported_SL_left_delimiter, deepest_reported_SL_left_delimiter });
+									bool deepest_reported_SL_left_delimiter_is_open_paren_or_comma = (("(" == text17) || ("," == text17));
+									if (("(" == text17)) {
+										/* While the character is an open parenthesis, we'll additionally verify that it could be preceded by a macro name. */
+										deepest_reported_SL_left_delimiter_is_open_paren_or_comma = false;
+										auto deepest_reported_SL_left_delimiters_bumper = get_previous_non_whitespace_SL(deepest_reported_SL_left_delimiter, Rewrite);
+										const std::string text17b = getRewrittenTextOrEmpty(Rewrite, { deepest_reported_SL_left_delimiters_bumper, deepest_reported_SL_left_delimiters_bumper });
+										if (1 <= text17b.size())  {
+											deepest_reported_SL_left_delimiter_is_open_paren_or_comma = Parse::is_alnum_or_underscore(text17b.back());
 										}
-										if (maybe_E_token_SL.has_value()) {
-											auto const& E_token_SL = maybe_E_token_SL.value();
-											auto E_token_SR = clang::SourceRange{ E_token_SL, E_token_SL };
-											if (E_token_SR.isValid()) {
-												maybe_E_token_SR = E_token_SR;
-											}
-										} else {
-											int q = 3;
-										}
-										break;
 									}
+									auto deepest_reported_SLE_right_delimiter = get_next_non_whitespace_SL(deepest_reported_SLE, Rewrite);
+									const std::string text18 = getRewrittenTextOrEmpty(Rewrite, { deepest_reported_SLE_right_delimiter, deepest_reported_SLE_right_delimiter });
+									bool deepest_reported_SLE_right_delimiter_is_close_paren_or_comma = ((")" == text18) || ("," == text18));
 
-									auto CE = dyn_cast<const clang::CallExpr>(parent_E);
-									if (CE) {
-										const auto num_args = CE->getNumArgs();
-										std::optional<size_t> maybe_arg_index;
-										for (size_t arg_index = 0; num_args > arg_index; arg_index += 1) {
-											if (IgnoreImplicit(CE->getArg(arg_index)) == IgnoreImplicit(E)) {
-												maybe_arg_index = arg_index;
-												break;
-											}
-										}
-										if (maybe_arg_index.has_value()) {
-											const auto arg_index = maybe_arg_index.value();
-											auto call_expression_SR_plus = cm1_adjusted_source_range(*CE, state1, Rewrite);
-											auto SL1 = call_expression_SR_plus.getBegin();
-											std::string text1 = getRewrittenTextOrEmpty(Rewrite, { SL1, SL1 });
-											while (("(" != text1) && (call_expression_SR_plus.getEnd() > SL1)) {
-												SL1 = SL1.getLocWithOffset(+1);
-												text1 = getRewrittenTextOrEmpty(Rewrite, { SL1, SL1 });
-											}
-											if ("(" == text1) {
-												auto maybe_close_paren_SL = matching_close_parentheses_if_any(Rewrite, SL1);
-												if (maybe_close_paren_SL.has_value()) {
-													auto adjusted_macro_SPSR = clang::SourceRange{ call_expression_SR_plus.getBegin(), maybe_close_paren_SL.value() };
-													DEBUG_SOURCE_LOCATION_STR(adjusted_macro_SPSR2_debug_source_location_str, adjusted_macro_SPSR, Rewrite);
+									if ((deepest_reported_SL_left_delimiter_is_open_paren_or_comma) && (deepest_reported_SLE_right_delimiter_is_close_paren_or_comma)) {
+										std::optional<clang::SourceLocation> maybe_open_paren_SL;
+										if (true) {
+											/* Here we'll search for the enclosing open parenthesis. */
+											int offset1 = 1;
+											auto deepest_reported_open_paren_SL = deepest_reported_SL.getLocWithOffset(-offset1);
+											auto deepest_reported_open_paren_SPSL = SM.getSpellingLoc(deepest_reported_open_paren_SL);
+											std::string deepest_reported_open_paren_text = getRewrittenTextOrEmpty(Rewrite, { deepest_reported_open_paren_SPSL, deepest_reported_open_paren_SPSL });
+											int depth = 0;
+											while (deepest_reported_open_paren_SL.isValid() && (("(" != deepest_reported_open_paren_text) || (0 != depth)) 
+												&& (500/*arbitrary*/ > offset1)) {
 
-													const auto args_SL = SL1.getLocWithOffset(+1);
-													auto args_SLE = maybe_close_paren_SL.value().getLocWithOffset(-1);
-
-													auto args_SR = clang::SourceRange{ args_SL, args_SLE };
-
-													auto args1 = parse_argument_list(args_SR, Rewrite);
-
-													if (args1.size() > arg_index) {
-														auto& arg1_ref = args1.at(arg_index);
-														std::string arg_str1 = arg1_ref;
-														if ("" != arg_str1) {
-															if (arg1_ref.m_maybe_source_range.has_value()) {
-																auto const& arg_token_SR = arg1_ref.m_maybe_source_range.value();
-																if (arg_token_SR.isValid()) {
-																	maybe_E_token_SR = arg_token_SR;
-																	break;
-																}
-															}
-														}
-														int q = 5;
-													} else {
-														int q = 5;
-													}
-												} else {
-													int q = 3;
+												if ("(" == deepest_reported_open_paren_text) {
+													depth += 1;
+												} else if (")" == deepest_reported_open_paren_text) {
+													depth -= 1;
 												}
-											} else {
-												int q = 5;
+												offset1 += 1;
+												deepest_reported_open_paren_SL = deepest_reported_SL.getLocWithOffset(-offset1);
+												deepest_reported_open_paren_SPSL = SM.getSpellingLoc(deepest_reported_open_paren_SL);
+												deepest_reported_open_paren_text = getRewrittenTextOrEmpty(Rewrite, { deepest_reported_open_paren_SPSL, deepest_reported_open_paren_SPSL });
+											}
+											if ("(" == deepest_reported_open_paren_text) {
+												maybe_open_paren_SL = deepest_reported_open_paren_SL;
 											}
 										}
-										break;
-									}
-
-									auto PE = dyn_cast<const clang::ParenExpr>(parent_E);
-									if (PE) {
-										auto PE_rawSR = clang::SourceRange{ PE->getLParen(), PE->getRParen() };
-										auto PE_SR_plus = cm1_adjusted_source_range(*PE, state1, Rewrite);
-										if (PE_SR_plus.isValid()) {
-											DEBUG_SOURCE_TEXT_STR(debug_PE_source_text, PE_SR_plus, Rewrite);
-											auto token_SL = get_next_non_whitespace_SL(PE_SR_plus.getBegin(), Rewrite);
-											auto token_SLE = get_previous_non_whitespace_SL(PE_SR_plus.getEnd(), Rewrite);
-											auto token_SR_plus = cm1_adjusted_source_range(clang::SourceRange{ token_SL, token_SLE }, state1, Rewrite);
-											if (token_SR_plus.isValid()) {
-												DEBUG_SOURCE_TEXT_STR(debug_token_source_text, token_SR_plus, Rewrite);
-												maybe_E_token_SR = token_SR_plus;
-												break;
-											}
+										if (maybe_open_paren_SL.has_value()) {
+											auto const& open_paren_SL = maybe_open_paren_SL.value();
+											auto macro_name_SLE = get_previous_non_whitespace_SL(open_paren_SL, Rewrite);
+											do {
+												if (!macro_name_SLE.isValid()) {
+													break;
+												}
+												auto macro_name_SL = macro_name_SLE;
+												auto macro_name_SL_text = getRewrittenTextOrEmpty(Rewrite, { macro_name_SL, macro_name_SL });
+												int offset2 = 0;
+												auto last_macro_name_SL = macro_name_SL;
+												while (macro_name_SL.isValid() && (1 <= macro_name_SL_text.size()) && Parse::is_alnum_or_underscore(macro_name_SL_text.at(0))) {
+													last_macro_name_SL = macro_name_SL;
+													offset2 += 1;
+													macro_name_SL = macro_name_SLE.getLocWithOffset(-offset2);
+													macro_name_SL_text = getRewrittenTextOrEmpty(Rewrite, { macro_name_SL, macro_name_SL });
+												}
+												macro_name_SL = last_macro_name_SL;
+												auto macro_name_text = getRewrittenTextOrEmpty(Rewrite, { macro_name_SL, macro_name_SLE });
+												auto found_macro_iter = state1.m_pp_macro_definitions.find(macro_name_text);
+												if (state1.m_pp_macro_definitions.end() != found_macro_iter) {
+													if (1 <= found_macro_iter->second.m_parameter_names.size()) {
+														seems_to_be_a_macro_argument = true;
+													}
+												}
+											} while (false);
 										}
-										break;
-									}
-
-									auto CSCE = dyn_cast<const clang::CStyleCastExpr>(parent_E);
-									if (CSCE) {
 										int q = 5;
 									}
+								}
+								if (!seems_to_be_a_macro_argument) {
+									/* The expansion range of the most deeply nested macro invocation reported does not seem to be itself 
+									a macro argument. So the fact that given source range is not contained within the parent expression's 
+									range cannot be explained by unreported (more deeply nested) macro invocations. The remaining 
+									explanation would be that the originally given source range does not cover the entire macro argument. 
+									In which case, the "adjusted_source_text_infos" we produced which contain the adjusted representation 
+									of the range text at the various levels of macro nesting would not be valid. So we'll just bin them. */
+									retval.m_adjusted_source_text_as_if_expanded = SPSR_source_text;
+									retval.set_source_range(SPSR);
+									retval.m_adjusted_source_text_infos.clear();
 
-									int q = 5;
-								} while (false);
+									if (need_confirmation_that_deepest_range_represents_the_expression) {
+										/* The negative condition has just been confirmed and  handled so this other criteria for identifying the 
+										negative condition is now presumably redundant. */
+										need_confirmation_that_deepest_range_represents_the_expression = false;
+									}
+								} else {
+									/* We are going to assume that the expression text within the parent expression is simply a single 
+									(macro parameter) token. The location of that token is situation-specific and depends on the specifics 
+									of the parent expression. */
 
-								if (maybe_E_token_SR.has_value() && maybe_E_token_SR.value().isValid()) {
-									auto const& E_token_SR = maybe_E_token_SR.value();
-									std::string expression_text = getRewrittenTextOrEmpty(Rewrite, E_token_SR);
+									std::optional<clang::SourceRange> maybe_E_token_SR;
+									do {
+										auto BO = dyn_cast<const clang::BinaryOperator>(parent_E);
+										if (BO) {
+											std::optional<clang::SourceLocation> maybe_E_token_SL;
+											if (IgnoreImplicit(BO->getLHS()) == IgnoreImplicit(E)) {
+												maybe_E_token_SL = context_SR.getBegin();
+											} else if (IgnoreImplicit(BO->getRHS()) == IgnoreImplicit(E)) {
+												maybe_E_token_SL = context_SR.getEnd();
+											}
+											if (maybe_E_token_SL.has_value()) {
+												auto const& E_token_SL = maybe_E_token_SL.value();
+												auto E_token_SR = clang::SourceRange{ E_token_SL, E_token_SL };
+												if (E_token_SR.isValid()) {
+													maybe_E_token_SR = E_token_SR;
+												}
+											} else {
+												int q = 3;
+											}
+											break;
+										}
 
-									if (2 <= parent_E_SR_plus_ref.m_adjusted_source_text_infos.size()) {
-										/* As the current return value seems to be missing (information about) the (nested) macro 
-										expansion range corresponding to the expression representation in the parent expression, 
-										we'll add the missing information to the return value here. */
-										if (1 <= E_SR_plus_ref.m_adjusted_source_text_infos.size()) {
-											auto& old_deepest_nested_adjusted_source_text_info_ref = E_SR_plus_ref.m_adjusted_source_text_infos.at(0);
-											auto const& corresponding_parent_expression_nested_adjusted_source_text_info = parent_E_SR_plus_ref.m_adjusted_source_text_infos.at(1);
-											if (("" == old_deepest_nested_adjusted_source_text_info_ref.m_macro_name) || (corresponding_parent_expression_nested_adjusted_source_text_info.m_macro_name == old_deepest_nested_adjusted_source_text_info_ref.m_macro_name)) {
-												if (corresponding_parent_expression_nested_adjusted_source_text_info.m_macro_definition_range == old_deepest_nested_adjusted_source_text_info_ref.m_macro_definition_range) {
-													old_deepest_nested_adjusted_source_text_info_ref.m_macro_name = corresponding_parent_expression_nested_adjusted_source_text_info.m_macro_name;
-													old_deepest_nested_adjusted_source_text_info_ref.m_macro_args = corresponding_parent_expression_nested_adjusted_source_text_info.m_macro_args;
+										auto CE = dyn_cast<const clang::CallExpr>(parent_E);
+										if (CE) {
+											const auto num_args = CE->getNumArgs();
+											std::optional<size_t> maybe_arg_index;
+											for (size_t arg_index = 0; num_args > arg_index; arg_index += 1) {
+												if (IgnoreImplicit(CE->getArg(arg_index)) == IgnoreImplicit(E)) {
+													maybe_arg_index = arg_index;
+													break;
+												}
+											}
+											if (maybe_arg_index.has_value()) {
+												const auto arg_index = maybe_arg_index.value();
+												auto call_expression_SR_plus = cm1_adjusted_source_range(*CE, state1, Rewrite);
+												auto SL1 = call_expression_SR_plus.getBegin();
+												std::string text1 = getRewrittenTextOrEmpty(Rewrite, { SL1, SL1 });
+												while (("(" != text1) && (call_expression_SR_plus.getEnd() > SL1)) {
+													SL1 = SL1.getLocWithOffset(+1);
+													text1 = getRewrittenTextOrEmpty(Rewrite, { SL1, SL1 });
+												}
+												if ("(" == text1) {
+													auto maybe_close_paren_SL = matching_close_parentheses_if_any(Rewrite, SL1);
+													if (maybe_close_paren_SL.has_value()) {
+														auto adjusted_macro_SPSR = clang::SourceRange{ call_expression_SR_plus.getBegin(), maybe_close_paren_SL.value() };
+														DEBUG_SOURCE_LOCATION_STR(adjusted_macro_SPSR2_debug_source_location_str, adjusted_macro_SPSR, Rewrite);
+
+														const auto args_SL = SL1.getLocWithOffset(+1);
+														auto args_SLE = maybe_close_paren_SL.value().getLocWithOffset(-1);
+
+														auto args_SR = clang::SourceRange{ args_SL, args_SLE };
+
+														auto args1 = parse_argument_list(args_SR, Rewrite);
+
+														if (args1.size() > arg_index) {
+															auto& arg1_ref = args1.at(arg_index);
+															std::string arg_str1 = arg1_ref;
+															if ("" != arg_str1) {
+																if (arg1_ref.m_maybe_source_range.has_value()) {
+																	auto const& arg_token_SR = arg1_ref.m_maybe_source_range.value();
+																	if (arg_token_SR.isValid()) {
+																		maybe_E_token_SR = arg_token_SR;
+																		break;
+																	}
+																}
+															}
+															int q = 5;
+														} else {
+															int q = 5;
+														}
+													} else {
+														int q = 3;
+													}
+												} else {
+													int q = 5;
+												}
+											}
+											break;
+										}
+
+										auto PE = dyn_cast<const clang::ParenExpr>(parent_E);
+										if (PE) {
+											auto PE_rawSR = clang::SourceRange{ PE->getLParen(), PE->getRParen() };
+											auto PE_SR_plus = cm1_adjusted_source_range(*PE, state1, Rewrite);
+											if (PE_SR_plus.isValid()) {
+												DEBUG_SOURCE_TEXT_STR(debug_PE_source_text, PE_SR_plus, Rewrite);
+												auto token_SL = get_next_non_whitespace_SL(PE_SR_plus.getBegin(), Rewrite);
+												auto token_SLE = get_previous_non_whitespace_SL(PE_SR_plus.getEnd(), Rewrite);
+												auto token_SR_plus = cm1_adjusted_source_range(clang::SourceRange{ token_SL, token_SLE }, state1, Rewrite);
+												if (token_SR_plus.isValid()) {
+													DEBUG_SOURCE_TEXT_STR(debug_token_source_text, token_SR_plus, Rewrite);
+													maybe_E_token_SR = token_SR_plus;
+													break;
+												}
+											}
+											break;
+										}
+
+										auto CSCE = dyn_cast<const clang::CStyleCastExpr>(parent_E);
+										if (CSCE) {
+											/* todo */
+											int q = 5;
+										}
+
+										int q = 5;
+									} while (false);
+
+									if (maybe_E_token_SR.has_value() && maybe_E_token_SR.value().isValid()) {
+										auto const& E_token_SR = maybe_E_token_SR.value();
+										std::string expression_text = getRewrittenTextOrEmpty(Rewrite, E_token_SR);
+
+										if (2 <= parent_E_SR_plus_ref.m_adjusted_source_text_infos.size()) {
+											/* As the current return value seems to be missing (information about) the (nested) macro 
+											expansion range corresponding to the expression representation in the parent expression, 
+											we'll add the missing information to the return value here. */
+											if (1 <= E_SR_plus_ref.m_adjusted_source_text_infos.size()) {
+												auto& old_deepest_nested_adjusted_source_text_info_ref = E_SR_plus_ref.m_adjusted_source_text_infos.at(0);
+												auto const& corresponding_parent_expression_nested_adjusted_source_text_info = parent_E_SR_plus_ref.m_adjusted_source_text_infos.at(1);
+												if (("" == old_deepest_nested_adjusted_source_text_info_ref.m_macro_name) || (corresponding_parent_expression_nested_adjusted_source_text_info.m_macro_name == old_deepest_nested_adjusted_source_text_info_ref.m_macro_name)) {
+													if (corresponding_parent_expression_nested_adjusted_source_text_info.m_macro_definition_range == old_deepest_nested_adjusted_source_text_info_ref.m_macro_definition_range) {
+														old_deepest_nested_adjusted_source_text_info_ref.m_macro_name = corresponding_parent_expression_nested_adjusted_source_text_info.m_macro_name;
+														old_deepest_nested_adjusted_source_text_info_ref.m_macro_args = corresponding_parent_expression_nested_adjusted_source_text_info.m_macro_args;
+													} else {
+														/* unexpected? */
+														int q = 3;
+													}
 												} else {
 													/* unexpected? */
 													int q = 3;
@@ -5940,24 +6190,52 @@ namespace convc2validcpp {
 												/* unexpected? */
 												int q = 3;
 											}
+											auto new_adjusted_source_text_info = parent_E_SR_plus_ref.m_adjusted_source_text_infos.at(0);
+											new_adjusted_source_text_info.m_text = expression_text;
+											new_adjusted_source_text_info.m_macro_invocation_range = E_token_SR;
+											E_SR_plus_ref.m_adjusted_source_text_infos.insert(E_SR_plus_ref.m_adjusted_source_text_infos.begin(), new_adjusted_source_text_info);
 										} else {
 											/* unexpected? */
 											int q = 3;
 										}
-										auto new_adjusted_source_text_info = parent_E_SR_plus_ref.m_adjusted_source_text_infos.at(0);
-										new_adjusted_source_text_info.m_text = expression_text;
-										new_adjusted_source_text_info.m_macro_invocation_range = E_token_SR;
-										E_SR_plus_ref.m_adjusted_source_text_infos.insert(E_SR_plus_ref.m_adjusted_source_text_infos.begin(), new_adjusted_source_text_info);
-									} else {
-										/* unexpected? */
-										int q = 3;
 									}
+								}
+							}
+							if (need_confirmation_that_deepest_range_represents_the_expression) {
+								if (1 <= E_SR_plus_ref.m_adjusted_source_text_infos.size()) {
+									if ((E_SR_plus_ref.m_adjusted_source_text_infos.at(0).m_macro_invocation_range != parent_E_SR_plus_ref.m_adjusted_source_text_infos.at(0).m_macro_invocation_range)) {
+										/* If the expression's (most deeply nested) range and it's parent's (most deeply nested) range are not 
+										the same, then we'll presume that the expression's (most deeply nested) range actually represents 
+										(just) the expression. (Not a superset of the expression.) */
+										need_confirmation_that_deepest_range_represents_the_expression = false;
+									}
+								} else {
+									int q = 5;
 								}
 							}
 						} while (false);
 
 						int q = 5;
 					}
+					if (need_confirmation_that_deepest_range_represents_the_expression) {
+						/* It seems that the range text does not match our reconstruction of the text at the outer-most 
+						macro invocation that produced the argument expansion token text. This could be because either 
+						the range does not actually correspond to a whole macro argument, or because the macro argument 
+						does not expand to a whole token. In order to rule pout the former, we needed confirmation that 
+						the most deeply nested invocation range represents (only) the expression. Apparently we didn't 
+						get that confirmation. So presumably it wouldn't be helpful to provide information about the 
+						nested invocation of macros that don't actually represent the expression of interest. So we'll 
+						just bin them. */
+						retval.m_adjusted_source_text_as_if_expanded = SPSR_source_text;
+						retval.set_source_range(SPSR);
+						retval.m_adjusted_source_text_infos.clear();
+					}
+				}
+
+				if constexpr (1 <= CachSize) {
+					size_t cache1_least_recently_used_index = ((cache1_mru_index + tl_cache1.size() - 1) % tl_cache1.size());
+					tl_cache1.at(cache1_least_recently_used_index) = { retval, sr };
+					cache1_mru_index = cache1_least_recently_used_index;
 				}
 
 				return retval;
@@ -9700,7 +9978,7 @@ namespace convc2validcpp {
 
 		const Expr* EX = m_EX;
 		if (EX) {
-			auto EXSR = write_once_source_range(cm1_adj_nice_source_range(EX->getSourceRange(), state1, (*this).m_Rewrite));
+			auto EXSR = write_once_source_range(cm1_adj_nice_source_range(*EX, state1, (*this).m_Rewrite));
 			if (EXSR.isValid()) {
 				auto excs_iter = state1.m_expr_conversion_state_map.find(EX);
 				if (state1.m_expr_conversion_state_map.end() == excs_iter) {
@@ -9728,7 +10006,7 @@ namespace convc2validcpp {
 
 		const Expr* EX = m_EX;
 		if (EX) {
-			auto EXSR = write_once_source_range(cm1_adj_nice_source_range(EX->getSourceRange(), state1, (*this).m_Rewrite));
+			auto EXSR = write_once_source_range(cm1_adj_nice_source_range(*EX, state1, (*this).m_Rewrite));
 			if (EXSR.isValid()) {
 				auto excs_iter = state1.m_expr_conversion_state_map.find(EX);
 				if (state1.m_expr_conversion_state_map.end() == excs_iter) {
@@ -11567,7 +11845,7 @@ namespace convc2validcpp {
 						E = E2;
 					}
 				}
-				auto SR = write_once_source_range(cm1_adj_nice_source_range(E->getSourceRange(), m_state1, Rewrite));
+				auto SR = write_once_source_range(cm1_adj_nice_source_range(*E, m_state1, Rewrite));
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
@@ -14640,7 +14918,7 @@ namespace convc2validcpp {
 							return;
 						}
 
-						auto EXSR = write_once_source_range(cm1_adj_nice_source_range(EX->getSourceRange(), state1, Rewrite));
+						auto EXSR = write_once_source_range(cm1_adj_nice_source_range(*EX, state1, Rewrite));
 						std::string expr_source_text;
 						if (EXSR.isValid()) {
 							IF_DEBUG(expr_source_text = getRewrittenTextOrEmpty(Rewrite, EXSR);)
@@ -16319,7 +16597,7 @@ namespace convc2validcpp {
 
 			if ((E != nullptr))
 			{
-				auto SR = write_once_source_range(cm1_adj_nice_source_range(E->getSourceRange(), state1, Rewrite));
+				auto SR = write_once_source_range(cm1_adj_nice_source_range(*E, state1, Rewrite));
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
@@ -16748,7 +17026,12 @@ namespace convc2validcpp {
 						}
 					}
 					if (original_source_text_str != new_source_text_str) {
-						state1.add_pending_straight_text_replacement_expression_update(Rewrite, SL_SR, SL, new_source_text_str);
+						auto& SM = Rewrite.getSourceMgr();
+						if (!filtered_out_by_location<options_t<converter_mode_t> >(SM, SL_SR)) {
+							state1.add_pending_straight_text_replacement_expression_update(Rewrite, SL_SR, SL, new_source_text_str);
+						} else {
+							int q = 5;
+						}
 					}
 				}
 
@@ -16894,7 +17177,7 @@ namespace convc2validcpp {
 
 			if ((E != nullptr))
 			{
-				auto SR = write_once_source_range(cm1_adj_nice_source_range(E->getSourceRange(), m_state1, Rewrite));
+				auto SR = write_once_source_range(cm1_adj_nice_source_range(*E, m_state1, Rewrite));
 				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
