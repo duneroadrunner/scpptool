@@ -1617,7 +1617,7 @@ namespace convm1 {
 						}
 					}
 					process_child_flag = true;
-				} else if (false && (clang::UnaryOperatorKind::UO_AddrOf == UO->getOpcode())) {
+				} else if (true && (clang::UnaryOperatorKind::UO_AddrOf == UO->getOpcode())) {
 					if (1 <= stack.size()) {
 						stack.pop_back();
 					} else {
@@ -18011,9 +18011,9 @@ namespace convm1 {
 				auto& lhs_ddecl_ref = *(lhs_res2.ddecl_cptr);
 
 				for (size_t i = 0; lhs_indirection_level_adjustment > i; i += 1) {
-					/* These are the lhs indirection levels (actually, there should be at max one) that
-					have no corresponding indirection level in the rhs variable because a `&`
-					("address of") operator caused the correspondence to be shifted (by one level). */
+					/* These are the lhs indirection levels (actually, there should be at max one) that have no corresponding 
+					indirection level in the rhs variable because a `&` ("address of") operator caused the correspondence to 
+					be shifted (by one level). */
 					if (EIsAnInitialization::No == is_an_initialization) {
 						auto& ddcs_ref = *(lhs_res2.ddecl_conversion_state_ptr);
 						ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
@@ -18026,6 +18026,26 @@ namespace convm1 {
 						}
 						lhs_res2.update_declaration_flag |= true;
 					}
+
+					auto& lhs_indirection_state_ref = lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.at(i);
+					auto lhs_ddecl_indirection = CDDeclIndirection(lhs_ddecl_ref, i);
+					/* We need to ensure that LHS gets converted to a type that can handle being assigned the return value 
+					of the operator &(). */
+					if (!lhs_indirection_state_ref.is_known_to_have_malloc_target()) {
+						lhs_indirection_state_ref.set_is_known_to_have_malloc_target(true);
+						state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_ddecl_indirection);
+						if (lhs_indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+							state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_ddecl_indirection);
+						}
+					}
+					if (!lhs_indirection_state_ref.is_known_to_have_non_malloc_target()) {
+						lhs_indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
+						state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_ddecl_indirection);
+						if (lhs_indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+							state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_ddecl_indirection);
+						}
+					}
+					update_declaration_if_not_suppressed(lhs_ddecl_ref, Rewrite, *(MR.Context), state1);
 				}
 				for (size_t i = 0; (i + lhs_res2.indirection_level + lhs_indirection_level_adjustment < (*(lhs_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack.size())
 											&& (i + rhs_res2.indirection_level < (*(rhs_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack.size()); i += 1) {

@@ -1607,7 +1607,7 @@ namespace convc2validcpp {
 						}
 					}
 					process_child_flag = true;
-				} else if (false && (clang::UnaryOperatorKind::UO_AddrOf == UO->getOpcode())) {
+				} else if (true && (clang::UnaryOperatorKind::UO_AddrOf == UO->getOpcode())) {
 					if (1 <= stack.size()) {
 						stack.pop_back();
 					} else {
