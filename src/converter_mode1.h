@@ -4070,29 +4070,35 @@ namespace convm1 {
 
 						auto OSR = write_once_source_range(cm1_adj_nice_source_range(*E, m_state1, Rewrite));
 						if (OSR.isValid()) {
-							const bool b5 = OSR.getBegin().isMacroID();
-							const bool b6 = OSR.getEnd().isMacroID();
+							auto not_considered_an_updatable_visible_child_lambda = [this, &whole_SR](COrderedSourceRange const& OSR, clang::SourceRange const& rawSR) {
+									const bool b3 = rawSR.getBegin().isMacroID();
+									const bool b4 = rawSR.getEnd().isMacroID();
+									const bool b5 = OSR.getBegin().isMacroID();
+									const bool b6 = OSR.getEnd().isMacroID();
 
-							bool not_contained_in_range_flag = ((OSR.getBegin() < whole_SR.getBegin()) || (whole_SR.getEnd() < OSR.getEnd()));
-							bool not_considered_an_updatable_visible_child = not_contained_in_range_flag;
-							if ((!not_considered_an_updatable_visible_child) && b3 && b4) {
-								const auto sr2 = source_range_with_both_ends_in_the_same_macro_body(rawSR, Rewrite);
-								if (sr2 == rawSR) {
-									auto E_SR_plus = cm1_adjusted_source_range(sr2, m_state1, Rewrite);
-									if (2 <= E_SR_plus.m_adjusted_source_text_infos.size()) {
-										auto const& adjusted_source_text_info_cref = E_SR_plus.m_adjusted_source_text_infos.at(E_SR_plus.m_adjusted_source_text_infos.size() - 2);
-										auto const& md_SR_cref = adjusted_source_text_info_cref.m_macro_definition_range;
-										if (md_SR_cref.isValid()) {
-											auto& SM = Rewrite.getSourceMgr();
-											bool filtered_out_flag = filtered_out_by_location<options_t<converter_mode_t> >(SM, md_SR_cref);
-											if (filtered_out_flag) {
-												not_considered_an_updatable_visible_child = true;
+									bool not_contained_in_range_flag = ((OSR.getBegin() < whole_SR.getBegin()) || (whole_SR.getEnd() < OSR.getEnd()));
+									bool not_considered_an_updatable_visible_child = not_contained_in_range_flag;
+									if ((!not_considered_an_updatable_visible_child) && b3 && b4) {
+										const auto sr2 = source_range_with_both_ends_in_the_same_macro_body(rawSR, Rewrite);
+										if (sr2 == rawSR) {
+											auto E_SR_plus = cm1_adjusted_source_range(sr2, m_state1, Rewrite);
+											if (2 <= E_SR_plus.m_adjusted_source_text_infos.size()) {
+												auto const& adjusted_source_text_info_cref = E_SR_plus.m_adjusted_source_text_infos.at(E_SR_plus.m_adjusted_source_text_infos.size() - 2);
+												auto const& md_SR_cref = adjusted_source_text_info_cref.m_macro_definition_range;
+												if (md_SR_cref.isValid()) {
+													auto& SM = Rewrite.getSourceMgr();
+													bool filtered_out_flag = filtered_out_by_location<options_t<converter_mode_t> >(SM, md_SR_cref);
+													if (filtered_out_flag) {
+														not_considered_an_updatable_visible_child = true;
+													}
+												}
 											}
 										}
 									}
-								}
-							}
+									return not_considered_an_updatable_visible_child;
+								};
 
+							bool not_considered_an_updatable_visible_child = not_considered_an_updatable_visible_child_lambda(OSR, rawSR);
 							if (not_considered_an_updatable_visible_child) {
 								/* The source range of this element does not seem to be contained inside the source range of the parent 
 								expression. This can happen, for example, when macros are involved. But it's possible that some of the 
@@ -20948,10 +20954,8 @@ namespace convm1 {
 		MCSSSExprUtil (Rewriter &Rewrite, CTUState& state1) :
 			Rewrite(Rewrite), m_state1(state1) {}
 
-		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1)
+		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1, const clang::Expr* E)
 		{
-			const clang::Expr* E = MR.Nodes.getNodeAs<clang::Expr>("mcsssexprutil1");
-
 			if ((E != nullptr))
 			{
 				THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
@@ -21306,7 +21310,7 @@ namespace convm1 {
 				}
 
 				if (ConvertToSCPP && SR.isValid()) {
-					s_handler1(MR, (*this).Rewrite, (*this).m_state1);
+					s_handler1(MR, (*this).Rewrite, (*this).m_state1, E);
 				} else {
 					int q = 7;
 				}
