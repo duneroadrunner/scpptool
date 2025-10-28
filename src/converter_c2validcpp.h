@@ -1910,14 +1910,24 @@ namespace convc2validcpp {
 #ifndef NDEBUG
 			if ((*this).m_ddecl_cptr) {
 				std::string variable_name = m_ddecl_cptr->getNameAsString();
-				if ("zalloc" == variable_name) {
+				if ("hdr" == variable_name) {
 					std::string qtype_str = m_ddecl_cptr->getType().getAsString();
-					if ("const unsigned char *" == qtype_str) {
+					if ("struct request_header *" == qtype_str) {
 						int q = 5;
 					}
 				}
 			}
+			if (Rewrite_ptr) {
+				auto& Rewrite = *Rewrite_ptr;
+				auto SR = state1_ptr ? cm1_adj_nice_source_range(m_ddecl_cptr->getSourceRange(), *state1_ptr, Rewrite) : m_ddecl_cptr->getSourceRange();
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+					int q = 5;
+				}
+			}
 #endif /*!NDEBUG*/
+
 			QualType QT = ddecl.getType();
 			IF_DEBUG(std::string qtype_str = QT.getAsString();)
 			assert(ddecl.isFunctionOrFunctionTemplate() == QT->isFunctionType());
@@ -16432,7 +16442,7 @@ namespace convc2validcpp {
 					if (std::string::npos == qtype_str.find("::")) {
 						/* qtype does not seem to be namespace qualified. We'll check if it needs to be under C++. */
 
-						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+						//auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
 						clang::Type const* directType = nullptr;
 
@@ -18225,6 +18235,10 @@ namespace convc2validcpp {
 		HandlerForSSSArgToReferenceParameterPassing(R, tu_state()), HandlerForSSSReturnValue(R, tu_state()), HandlerForSSSFRead(R, tu_state()), HandlerForSSSFWrite(R, tu_state()), 
 		HandlerForSSSAddressOf(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForSSSStmt(R, tu_state()), HandlerForMisc1(R, tu_state(), CI)
 	{
+		if (tu_state_param.m_Rewrite_ptr != &R) {
+			tu_state_param.m_Rewrite_ptr = &R;
+		}
+
 #if 0
 		Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerForMisc1);
 
@@ -18774,11 +18788,11 @@ namespace convc2validcpp {
 
 		if (PPCallbacks::FileChangeReason::EnterFile == Reason) {
 			auto fii_iter = m_first_include_info_map.find(Loc);
-				if (m_first_include_info_map.end() == fii_iter) {
-					std::map<SourceLocation, std::shared_ptr<CFirstIncludeInfo>>::value_type item(Loc, std::make_shared<CFirstIncludeInfo>(Loc));
-					fii_iter = (m_first_include_info_map.insert(item)).first;
-				}
-				m_current_fii_shptr_stack.push_back((*fii_iter).second);
+			if (m_first_include_info_map.end() == fii_iter) {
+				std::map<SourceLocation, std::shared_ptr<CFirstIncludeInfo>>::value_type item(Loc, std::make_shared<CFirstIncludeInfo>(Loc));
+				fii_iter = (m_first_include_info_map.insert(item)).first;
+			}
+			m_current_fii_shptr_stack.push_back((*fii_iter).second);
 		} else if (PPCallbacks::FileChangeReason::ExitFile == Reason) {
 			if (1 <= m_current_fii_shptr_stack.size()) {
 				m_current_fii_shptr_stack.pop_back();
@@ -18786,6 +18800,10 @@ namespace convc2validcpp {
 				assert(false);
 			}
 		}
+	}
+
+	void Ifndef(SourceLocation Loc, const Token& MacroNameTok, const MacroDefinition& MD ) override {
+		;
 	}
 
 	std::shared_ptr<CFirstIncludeInfo> current_fii_shptr() {
@@ -18909,27 +18927,14 @@ namespace convc2validcpp {
 				rit = m_tu_state.m_pending_code_modification_actions.rbegin();
 			}
 
-			std::set<clang::FileID> files_that_use_the_if_cpp_macro;
-			for (auto const& SL : m_tu_state.m_if_cpp_macro_use_locations) {
-				files_that_use_the_if_cpp_macro.insert(SM.getFileID(SL));
-			}
-			for (auto const& file_id : files_that_use_the_if_cpp_macro) {
-				static const std::string if_cpp_def_str = "\n#ifndef IF_CPP_ELSE \n#ifdef __cplusplus \n#define IF_CPP_ELSE(x, y) x \n#else /*__cplusplus*/ \n#define IF_CPP_ELSE(x, y) y \n#endif /*__cplusplus*/ \n#define IF_CPP(x) IF_CPP_ELSE(x, ) \n#endif /*!defined(IF_CPP_ELSE)*/ \n";
-				const auto maybe_file_text = SM.getBufferDataOrNone(file_id);
-				if (maybe_file_text.has_value()) {
-					std::string file_text = std::string(maybe_file_text.value());
-					if (std::string::npos == file_text.find("#ifndef IF_CPP_ELSE ")) {
-						/* The IF_CPP_ELSE() macro is reportedly used in the conversion of this file, so we'll add some code 
-						at the beginning of the file to define that macro if it hasn't already been defined. */
-						const auto beginning_of_file_SL = SM.getLocForStartOfFile(file_id);
-						Rewrite.InsertTextBefore(beginning_of_file_SL, if_cpp_def_str);
-					}
-				}
-			}
-
 			TheRewriter.getEditBuffer(TheRewriter.getSourceMgr().getMainFileID()).write(llvm::outs());
 
 			{
+				std::set<clang::FileID> files_that_use_the_if_cpp_macro;
+				for (auto const& SL : m_tu_state.m_if_cpp_macro_use_locations) {
+					files_that_use_the_if_cpp_macro.insert(SM.getFileID(SL));
+				}
+
 				clang::CompilerInstance &ci = getCompilerInstance();
 				clang::Preprocessor &pp = ci.getPreprocessor();
 				//MyPPCallbacksPass1 *my_pp_callbacks_ptr = static_cast<MyPPCallbacksPass1 *>(pp.getPPCallbacks());
@@ -18967,6 +18972,36 @@ namespace convc2validcpp {
 
 						if (filtered_out_by_location(TheRewriter.getSourceMgr(), fii_ref.m_beginning_of_file_loc)) {
 							continue;
+						}
+
+						auto& SM = TheRewriter.getSourceMgr();
+
+						static const std::string if_cpp_def_str = "\n\n#ifndef IF_CPP_ELSE \n#ifdef __cplusplus \n#define IF_CPP_ELSE(x, y) x \n#else /*__cplusplus*/ \n#define IF_CPP_ELSE(x, y) y \n#endif /*__cplusplus*/ \n#define IF_CPP(x) IF_CPP_ELSE(x, ) \n#endif /*!defined(IF_CPP_ELSE)*/ \n";
+						auto file_id = SM.getFileID(fii_ref.m_beginning_of_file_loc);
+						const auto maybe_file_text = SM.getBufferDataOrNone(file_id);
+						if (maybe_file_text.has_value() && (files_that_use_the_if_cpp_macro.end() != files_that_use_the_if_cpp_macro.find(file_id))) {
+							std::string file_text = std::string(maybe_file_text.value());
+							if (std::string::npos == file_text.find("#ifndef IF_CPP_ELSE ")) {
+								/* The IF_CPP_ELSE() macro is reportedly used in the conversion of this file, so we'll add some code 
+								at the beginning of the file to define that macro if it hasn't already been defined. */
+								std::optional<clang::SourceLocation> maybe_include_guard_end_location;
+								if (fii_ref.m_first_macro_directive_ptr_is_valid && fii_ref.m_first_macro_directive_ptr) {
+									auto const& macro_directive = *(fii_ref.m_first_macro_directive_ptr);
+									if (clang::MacroDirective::MD_Define == macro_directive.getKind()) {
+										auto MI = macro_directive.getMacroInfo();
+										if (MI) {
+											auto const& macro_info = *MI;
+											auto macro_def_SLE = macro_info.getDefinitionEndLoc();
+											if (macro_def_SLE.isValid() && macro_info.isUsedForHeaderGuard()) {
+												maybe_include_guard_end_location = macro_def_SLE;
+											}
+										}
+									}
+								}
+								const clang::SourceLocation insert_after_location = maybe_include_guard_end_location.has_value() 
+									? maybe_include_guard_end_location.value() : SM.getLocForStartOfFile(file_id);
+								Rewrite.InsertTextAfterToken(insert_after_location, if_cpp_def_str);
+							}
 						}
 
 						if (false && !(fii_ref.m_legacyhelpers_include_directive_found)) {

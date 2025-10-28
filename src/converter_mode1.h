@@ -1919,14 +1919,24 @@ namespace convm1 {
 #ifndef NDEBUG
 			if ((*this).m_ddecl_cptr) {
 				std::string variable_name = m_ddecl_cptr->getNameAsString();
-				if ("zalloc" == variable_name) {
+				if ("hdr" == variable_name) {
 					std::string qtype_str = m_ddecl_cptr->getType().getAsString();
-					if ("const unsigned char *" == qtype_str) {
+					if ("struct request_header *" == qtype_str) {
 						int q = 5;
 					}
 				}
 			}
+			if (Rewrite_ptr) {
+				auto& Rewrite = *Rewrite_ptr;
+				auto SR = state1_ptr ? cm1_adj_nice_source_range(m_ddecl_cptr->getSourceRange(), *state1_ptr, Rewrite) : m_ddecl_cptr->getSourceRange();
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+					int q = 5;
+				}
+			}
 #endif /*!NDEBUG*/
+
 			QualType QT = ddecl.getType();
 			IF_DEBUG(std::string qtype_str = QT.getAsString();)
 			assert(ddecl.isFunctionOrFunctionTemplate() == QT->isFunctionType());
@@ -21887,8 +21897,6 @@ namespace convm1 {
 			if (tu_state_param.m_Rewrite_ptr != &R) {
 				tu_state_param.m_Rewrite_ptr = &R;
 			}
-			tu_state_param.m_Rewrite_ptr = &R;
-
 
 			Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerForMisc1);
 
