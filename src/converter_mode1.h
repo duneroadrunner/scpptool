@@ -2866,16 +2866,16 @@ namespace convm1 {
 		const CDDeclIndirection m_ddecl_indirection2;
 	};
 
-	class CAssignmentSourceConstrainsTargetReplacementAction : public CDDeclIndirectionReplacementAction {
+	class CAssignmentSameTypeReplacementAction : public CDDeclIndirectionReplacementAction {
 	public:
-		CAssignmentSourceConstrainsTargetReplacementAction(Rewriter &Rewrite, const CDDeclIndirection& ddecl_indirection1,
+		CAssignmentSameTypeReplacementAction(Rewriter &Rewrite, const CDDeclIndirection& ddecl_indirection1,
 				const CDDeclIndirection& ddecl_indirection2)
 				: CDDeclIndirectionReplacementAction(Rewrite, ddecl_indirection1), m_ddecl_indirection2(ddecl_indirection2) {}
 		/* with redundant parameter just for backward compatibility */
-		CAssignmentSourceConstrainsTargetReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
+		CAssignmentSameTypeReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
 				const CDDeclIndirection& ddecl_indirection2) :
 					CDDeclIndirectionReplacementAction(Rewrite, MR, ddecl_indirection), m_ddecl_indirection2(ddecl_indirection2) {}
-		virtual ~CAssignmentSourceConstrainsTargetReplacementAction() {}
+		virtual ~CAssignmentSameTypeReplacementAction() {}
 
 		virtual void do_replacement(CTUState& state1) const;
 
@@ -2948,12 +2948,12 @@ namespace convm1 {
 		const CDDeclIndirection m_ddecl_indirection2;
 	};
 
-	class CAssignmentSourceConstrainsTargetArray2ReplacementAction : public CArray2ReplacementAction {
+	class CAssignmentSameTypeArray2ReplacementAction : public CArray2ReplacementAction {
 	public:
-		CAssignmentSourceConstrainsTargetArray2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
+		CAssignmentSameTypeArray2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
 				const CDDeclIndirection& ddecl_indirection2) :
 					CArray2ReplacementAction(Rewrite, MR, ddecl_indirection), m_ddecl_indirection2(ddecl_indirection2) {}
-		virtual ~CAssignmentSourceConstrainsTargetArray2ReplacementAction() {}
+		virtual ~CAssignmentSameTypeArray2ReplacementAction() {}
 
 		virtual void do_replacement(CTUState& state1) const;
 
@@ -10853,7 +10853,7 @@ namespace convm1 {
 		}
 	}
 
-	void CAssignmentSourceConstrainsTargetReplacementAction::do_replacement(CTUState& state1) const {
+	void CAssignmentSameTypeReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
 
 		auto& trgt_indirection = m_ddecl_indirection2;
@@ -11065,8 +11065,8 @@ namespace convm1 {
 			//if (!(rhs_indirection_state.m_indirection_properties1 == lhs_indirection_state.m_indirection_properties1))
 			if (rhs_indirection_state.current_species() != lhs_indirection_state.current_species()) 
 			{
-				CAssignmentSourceConstrainsTargetReplacementAction(m_Rewrite, m_ddecl_indirection, m_ddecl_indirection2).do_replacement(state1);
-				CAssignmentSourceConstrainsTargetReplacementAction(m_Rewrite, m_ddecl_indirection2, m_ddecl_indirection).do_replacement(state1);
+				CAssignmentSameTypeReplacementAction(m_Rewrite, m_ddecl_indirection, m_ddecl_indirection2).do_replacement(state1);
+				CAssignmentSameTypeReplacementAction(m_Rewrite, m_ddecl_indirection2, m_ddecl_indirection).do_replacement(state1);
 			}
 
 			auto lhs_indirection_level = lhs_indirection.m_indirection_level;
@@ -11477,7 +11477,7 @@ namespace convm1 {
 		CAssignmentTargetConstrainsSourceReplacementAction(Rewrite, m_ddecl_indirection, m_ddecl_indirection2).do_replacement(state1);
 	}
 
-	void CAssignmentSourceConstrainsTargetArray2ReplacementAction::do_replacement(CTUState& state1) const {
+	void CAssignmentSameTypeArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
 
 #ifndef NDEBUG
@@ -11492,7 +11492,7 @@ namespace convm1 {
 		}
 #endif /*!NDEBUG*/
 
-		CAssignmentSourceConstrainsTargetReplacementAction(Rewrite, m_ddecl_indirection, m_ddecl_indirection2).do_replacement(state1);
+		CAssignmentSameTypeReplacementAction(Rewrite, m_ddecl_indirection, m_ddecl_indirection2).do_replacement(state1);
 	}
 
 	void CSameTypeArray2ReplacementAction::do_replacement(CTUState& state1) const {
@@ -12038,6 +12038,8 @@ namespace convm1 {
 				bool lhs_is_variously_native_and_dynamic_array = false;
 				bool lhs_update_flag = false;
 				bool lhs_is_known_to_be_a_pointer_target = false;
+				bool lhs_seems_to_be_an_addressof_expression = (lhs_inference_info.maybe_indirection_level_adjustment.has_value()
+					&& (-1 == lhs_inference_info.maybe_indirection_level_adjustment.value()));
 				std::optional<CFunctionTypeState> lhs_maybe_function_state;
 				CDDeclConversionState* lhs_ddcs_ptr = nullptr;
 				if (lhs_DD != nullptr) {
@@ -12092,6 +12094,8 @@ namespace convm1 {
 				bool rhs_is_variously_native_and_dynamic_array = false;
 				bool rhs_update_flag = false;
 				bool rhs_is_known_to_be_a_pointer_target = false;
+				bool rhs_seems_to_be_an_addressof_expression = (rhs_inference_info.maybe_indirection_level_adjustment.has_value()
+					&& (-1 == rhs_inference_info.maybe_indirection_level_adjustment.value()));
 				std::optional<CFunctionTypeState> rhs_maybe_function_state;
 				if (rhs_DD != nullptr) {
 					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &m_Rewrite);
@@ -12947,8 +12951,8 @@ namespace convm1 {
 						auto var_indirection = CDDeclIndirection{ *m_var_DD, m_var_indirection_level };
 						auto& var_indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(m_var_indirection_level);
 
-						bool lhs_has_DD_and_is_not_known_to_be_an_array = (lhs_DD && !lhs_is_known_to_be_an_array);
-						bool rhs_has_DD_and_is_not_known_to_be_an_array = (rhs_DD && !rhs_is_known_to_be_an_array);
+						bool lhs_has_DD_and_is_not_known_to_be_an_array = (lhs_DD && (!lhs_seems_to_be_an_addressof_expression) && !lhs_is_known_to_be_an_array);
+						bool rhs_has_DD_and_is_not_known_to_be_an_array = (rhs_DD && (!rhs_seems_to_be_an_addressof_expression) && !rhs_is_known_to_be_an_array);
 						bool both_sides_have_DD_and_are_not_known_to_be_an_array = lhs_has_DD_and_is_not_known_to_be_an_array && rhs_has_DD_and_is_not_known_to_be_an_array;
 						/* If either side is missing a DD, then we can't know the nature of its pointee, so we'll be "conservative" 
 						and assume that we have to support both malloc()ed and non-malloc()ed pointees. */
@@ -12980,10 +12984,42 @@ namespace convm1 {
 							}
 						}
 
+						auto apply_SameType_to_nested_levels = [this, &Rewrite, &state1, &ddcs_ref](CArrayInferenceInfo const& condarg_inference_info) {
+								if (condarg_inference_info.ddecl_cptr && condarg_inference_info.ddecl_conversion_state_ptr) {
+									auto& condarg_ddcs_ref = *condarg_inference_info.ddecl_conversion_state_ptr;
+
+									auto var_indirection_level2 = m_var_indirection_level + 1;
+									int i_condarg_indirection_level2 = condarg_inference_info.indirection_level + 1;
+									if (condarg_inference_info.maybe_indirection_level_adjustment.has_value()) {
+										auto adjustment = condarg_inference_info.maybe_indirection_level_adjustment.value();
+										i_condarg_indirection_level2 += adjustment;
+									}
+									if (0 > i_condarg_indirection_level2) {
+										/* unexpected? */
+										int q = 3;
+										var_indirection_level2 += size_t(0 - i_condarg_indirection_level2);
+										i_condarg_indirection_level2 = 0;
+									}
+									size_t condarg_indirection_level2 = size_t(i_condarg_indirection_level2);
+
+									for (; (ddcs_ref.m_indirection_state_stack.size() > var_indirection_level2) && (condarg_ddcs_ref.m_indirection_state_stack.size() > condarg_indirection_level2)
+										; var_indirection_level2 += 1, condarg_indirection_level2 += 1) {
+
+										auto var_indirection = CDDeclIndirection{ *m_var_DD, var_indirection_level2 };
+										CAssignmentSameTypeReplacementAction(Rewrite, var_indirection, CDDeclIndirection{ *(condarg_inference_info.ddecl_cptr), condarg_indirection_level2 }).do_replacement(state1);
+									}
+								}
+							};
+						apply_SameType_to_nested_levels(lhs_inference_info);
+						apply_SameType_to_nested_levels(rhs_inference_info);
+
 						/* Ok, we just handled the constraints the conditional operator (source expression) imposes on the 
 						assignee (target) object. Now we need to handle the constraints that the assignee (target) object 
 						imposes on each argument(/alternative/option/branch) of the conditional operator. */
-						if (lhs_DD && lhs_inference_info.ddecl_conversion_state_ptr && (lhs_inference_info.indirection_level < lhs_inference_info.ddecl_conversion_state_ptr->m_indirection_state_stack.size())) {
+
+						if (lhs_DD && lhs_inference_info.ddecl_conversion_state_ptr && (lhs_inference_info.indirection_level < lhs_inference_info.ddecl_conversion_state_ptr->m_indirection_state_stack.size())
+							&& (!lhs_seems_to_be_an_addressof_expression)) {
+
 							CAssignmentTargetConstrainsSourceReplacementAction(Rewrite, var_indirection, CDDeclIndirection{ *lhs_DD, lhs_inference_info.indirection_level }).do_replacement(state1);
 
 							auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &m_Rewrite);
@@ -12991,7 +13027,9 @@ namespace convm1 {
 								update_declaration(*lhs_DD, (*this).m_Rewrite, state1);
 							}
 						}
-						if (rhs_DD && rhs_inference_info.ddecl_conversion_state_ptr && (rhs_inference_info.indirection_level < rhs_inference_info.ddecl_conversion_state_ptr->m_indirection_state_stack.size())) {
+						if (rhs_DD && rhs_inference_info.ddecl_conversion_state_ptr && (rhs_inference_info.indirection_level < rhs_inference_info.ddecl_conversion_state_ptr->m_indirection_state_stack.size())
+							&& (!rhs_seems_to_be_an_addressof_expression)) {
+
 							CAssignmentTargetConstrainsSourceReplacementAction(Rewrite, var_indirection, CDDeclIndirection{ *rhs_DD, rhs_inference_info.indirection_level }).do_replacement(state1);
 
 							auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &m_Rewrite);
@@ -13931,7 +13969,7 @@ namespace convm1 {
 									/* Here we're establishing the constraint in the opposite direction as well. */
 									std::shared_ptr<CArray2ReplacementAction> cr_shptr;
 									if (1 > (0 + i)) {
-										cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i), CDDeclIndirection(*VD, 0 + i));
+										cr_shptr = std::make_shared<CAssignmentSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i), CDDeclIndirection(*VD, 0 + i));
 									} else {
 										/* Levels of indirection beyond the first one must be of the same type,
 										* not just of "compatible" types. */
@@ -15942,7 +15980,7 @@ namespace convm1 {
 									}
 									{
 										/* Here we're establishing the constraint in the opposite direction as well. */
-										auto cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
+										auto cr_shptr = std::make_shared<CAssignmentSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
 
 										if ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_point_to_an_array(res2.indirection_level)) {
 											(*cr_shptr).do_replacement(state1);
@@ -15999,7 +16037,7 @@ namespace convm1 {
 										}
 										{
 											/* Here we're establishing the constraint in the opposite direction as well. */
-											auto cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
+											auto cr_shptr = std::make_shared<CAssignmentSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
 
 											if ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_point_to_an_array(res2.indirection_level)) {
 												(*cr_shptr).do_replacement(state1);
@@ -16235,7 +16273,7 @@ namespace convm1 {
 								}
 								{
 									/* Here we're establishing the constraint in the opposite direction as well. */
-									auto cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
+									auto cr_shptr = std::make_shared<CAssignmentSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
 
 									if ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_point_to_an_array(res2.indirection_level)) {
 										(*cr_shptr).do_replacement(m_state1);
@@ -16292,7 +16330,7 @@ namespace convm1 {
 									}
 									{
 										/* Here we're establishing the constraint in the opposite direction as well. */
-										auto cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
+										auto cr_shptr = std::make_shared<CAssignmentSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
 
 										if ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_point_to_an_array(res2.indirection_level)) {
 											(*cr_shptr).do_replacement(m_state1);
@@ -18429,7 +18467,7 @@ namespace convm1 {
 
 						std::shared_ptr<CArray2ReplacementAction> cr_shptr;
 						if (1 > adjusted_lhs_indirection_level) {
-							cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level), lhs_ddecl_indirection);
+							cr_shptr = std::make_shared<CAssignmentSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level), lhs_ddecl_indirection);
 						} else {
 							/* Levels of indirection beyond the first one must be of the same type,
 							* not just of "compatible" types. */
