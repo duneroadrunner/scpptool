@@ -1917,6 +1917,8 @@ namespace convc2validcpp {
 					}
 				}
 			}
+			std::string debug_source_location_str2;
+			std::string debug_source_text2;
 			if (Rewrite_ptr) {
 				auto& Rewrite = *Rewrite_ptr;
 				auto SR = state1_ptr ? cm1_adj_nice_source_range(m_ddecl_cptr->getSourceRange(), *state1_ptr, Rewrite) : m_ddecl_cptr->getSourceRange();
@@ -1925,6 +1927,8 @@ namespace convc2validcpp {
 				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
 				}
+				debug_source_location_str2 = debug_source_location_str;
+				debug_source_text2 = debug_source_text;
 			}
 #endif /*!NDEBUG*/
 
@@ -2000,6 +2004,50 @@ namespace convc2validcpp {
 
 			//std::reverse(m_indirection_state_stack.begin(), m_indirection_state_stack.end());
 			m_indirection_state_stack.m_maybe_DD = &ddecl;
+
+			if (Rewrite_ptr && !((*this).m_original_source_text_has_been_noted)) {
+				auto& Rewrite = *Rewrite_ptr;
+				auto decl_source_range = state1_ptr ? cm1_adj_nice_source_range(m_ddecl_cptr->getSourceRange(), *state1_ptr, Rewrite) : m_ddecl_cptr->getSourceRange();
+
+				(*this).m_original_source_text_str = getRewrittenTextOrEmpty(Rewrite, decl_source_range);
+				auto FND = dyn_cast<const clang::FunctionDecl>(&ddecl);
+				if (FND) {
+					(*this).m_is_a_function = true;
+					for (size_t i = 0; i < FND->getNumParams(); i+=1) {
+						(*this).m_original_function_parameter_decl_cptrs.push_back(FND->getParamDecl(i));
+					}
+					auto return_type_source_range = state1_ptr
+						? cm1_adjusted_source_range(FND->getReturnTypeSourceRange(), *state1_ptr, Rewrite)
+						: CSourceRangePlus{ cm1_nice_source_range(FND->getReturnTypeSourceRange(), Rewrite) };
+
+					if (decl_source_range.getBegin() < return_type_source_range.getBegin()) {
+						/* FunctionDecl::getReturnTypeSourceRange() seems to not include prefix qualifiers, like
+						* "const". */
+						return_type_source_range = extended_to_include_west_const_if_any(Rewrite, return_type_source_range);
+
+						if (state1_ptr) {
+							return_type_source_range = cm1_adjusted_source_range(return_type_source_range, *state1_ptr, Rewrite);
+						}
+					}
+					if (!(return_type_source_range.isValid())) {
+						//return retval;
+						int q = 5;
+					} else {
+						auto name_SL = state1_ptr
+							? cm1_adj_nice_source_location(FND->getLocation(), *state1_ptr, Rewrite)
+							: cm1_nice_source_location(FND->getLocation(), Rewrite);
+						if ((return_type_source_range.getEnd() < name_SL) || (name_SL < return_type_source_range.getBegin())) {
+							(*this).m_function_return_type_original_source_text_str = getRewrittenTextOrEmpty(Rewrite, return_type_source_range);
+							(*this).m_function_return_type_SR_plus = return_type_source_range;
+						} else {
+							/* The return type source range seems to encompass the function name. Like maybe,
+							for example, if the return type is a pointer to a (native) array? */
+							int q = 5;
+						}
+					}
+				}
+				(*this).m_original_source_text_has_been_noted = true;
+			}
 		}
 		std::optional<clang::SourceRange> new_overwrite_location_for_delimiter_and_type() const {
 			std::optional<clang::SourceRange> retval;
@@ -2206,6 +2254,7 @@ namespace convc2validcpp {
 		bool m_is_a_function = false;
 		std::vector<const clang::ParmVarDecl*> m_original_function_parameter_decl_cptrs;
 		std::string m_function_return_type_original_source_text_str;
+		CSourceRangePlus m_function_return_type_SR_plus;
 
 		std::optional<clang::StorageDuration> m_maybe_original_storage_duration;
 		std::optional<clang::StorageDuration> m_maybe_current_storage_duration;
@@ -2563,10 +2612,10 @@ namespace convc2validcpp {
 			auto new_maybe_context = maybe_context.has_value() ? maybe_context : maybe_default_context();
 
 #ifndef NDEBUG
-			if (maybe_context.has_value() && maybe_context.value().m_Rewrite_ptr && maybe_context.value().m_state1_ptr) {
+			if (false && maybe_context.has_value() && maybe_context.value().m_Rewrite_ptr && maybe_context.value().m_state1_ptr) {
 				auto& Rewrite = *(maybe_context.value().m_Rewrite_ptr);
 				auto& state1 = *(maybe_context.value().m_state1_ptr);
-				auto SR = cm1_adj_nice_source_range((*m_expr_cptr), state1, Rewrite);
+				auto SR = cm1_adj_nice_source_range((*m_expr_cptr).getSourceRange(), state1, Rewrite);
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
@@ -2586,67 +2635,7 @@ namespace convc2validcpp {
 				working_text += m_non_child_dependent_text_fragments.back();
 				m_current_text_str = modified_copy(working_text);
 			} else {
-				std::string current_text_str;
-				if (maybe_context.has_value() && maybe_context.value().m_root_SR.isValid()) {
-					auto& context = maybe_context.value();
-
-					auto adjusted_source_text_if_appropriate = [this, &context]() -> std::string {
-						for (size_t ind = 0; m_SR_plus.m_adjusted_source_text_infos.size() > ind; ind += 1) {
-							auto& adjusted_source_text_info_ref = m_SR_plus.m_adjusted_source_text_infos.at(ind);
-
-							bool b1 = adjusted_source_text_info_ref.m_macro_definition_range.isValid() && (!((context.m_root_SR.getBegin() < adjusted_source_text_info_ref.m_macro_definition_range.getBegin())
-								|| (adjusted_source_text_info_ref.m_macro_definition_range.getEnd() < context.m_root_SR.getEnd())));
-
-							/* We expect this criteria should actually only be potentially relevant for the last adjusted_source_text_info 
-							for which a valid m_macro_definition_range wouldn't be available. */
-							bool b2 = adjusted_source_text_info_ref.m_macro_invocation_range.isValid() && (!((context.m_root_SR.getBegin() < adjusted_source_text_info_ref.m_macro_invocation_range.getBegin())
-								|| (adjusted_source_text_info_ref.m_macro_invocation_range.getEnd() < context.m_root_SR.getEnd())));
-
-							if (b1 || b2) {
-								/* We found a macro whose body seems to contain the element associated with the context. */
-
-								if ("" != adjusted_source_text_info_ref.m_text) {
-									/* So we'll return the stored representation that should be valid in the body of that macro. */
-									return adjusted_source_text_info_ref.m_text;
-								}
-							}
-						}
-						if (2 <= m_SR_plus.m_adjusted_source_text_infos.size()) {
-							if (std::string::npos != m_SR_plus.m_adjusted_source_text_infos.at(m_SR_plus.m_adjusted_source_text_infos.size() - 1).m_text.find("outlen")) {
-								int q = 5;
-							}
-							bool context_might_be_outside_any_macro = ((!(context.m_root_SR.getBegin().isMacroID())) || (!(context.m_root_SR.getEnd().isMacroID())));
-							if (context_might_be_outside_any_macro) {
-								/* While this expression seems to be in a macro, it's possible that the context expression isn't, 
-								in which case, none of the containing macros would contain the context expression. In such case 
-								the outer-most (i.e. least deeply nested) adjusted version of the source text should probably work. */
-								auto& adjusted_source_text_info_ref = m_SR_plus.m_adjusted_source_text_infos.at(m_SR_plus.m_adjusted_source_text_infos.size() - 1);
-								if ("" != adjusted_source_text_info_ref.m_text) {
-									return adjusted_source_text_info_ref.m_text;
-								}
-							} else {
-								/* Do we ever get here? */
-								int q = 5;
-							}
-						}
-						return std::string("");
-					};
-
-					current_text_str = adjusted_source_text_if_appropriate();
-				}
-				if ("" == current_text_str) {
-					if (m_SR_plus.m_macro_expansion_range_substituted_with_macro_invocation_range) {
-						if ("" != m_SR_plus.m_adjusted_source_text_as_if_expanded) {
-							current_text_str = m_SR_plus.m_adjusted_source_text_as_if_expanded;
-						} else {
-							int q = 3;
-						}
-					}
-				}
-				if ("" == current_text_str) {
-					current_text_str = m_original_source_text_str;
-				}
-				m_current_text_str = modified_copy(current_text_str);
+				m_current_text_str = modified_copy(m_original_source_text_str);
 			}
 		}
 		static std::string const& s_species() {
@@ -3292,6 +3281,8 @@ namespace convc2validcpp {
 #endif /*!NDEBUG*/
 
 			if ((!m_ReplaceText_supression_mode) && SR.isValid()) {
+				THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
 				auto& SM = Rewrite.getSourceMgr();
 				if (!filtered_out_by_location<options_t<converter_mode_t> >(SM, SR)) {
 					return Rewrite.ReplaceText(SR, NewStr);
@@ -3365,8 +3356,15 @@ namespace convc2validcpp {
 						}
 #endif /*!NDEBUG*/
 
-						this->ReplaceText(Rewrite, OSR, new_text);
-						this->m_already_modified_regions.insert(OSR);
+						if (OSR.is_rewritable() || !(this->m_already_modified_regions.contains(OSR))) {
+							this->ReplaceText(Rewrite, OSR, new_text);
+
+							if (!this->m_ReplaceText_supression_mode) {
+								this->m_already_modified_regions.insert(OSR);
+							}
+						} else {
+							int q = 5;
+						}
 
 #ifndef NDEBUG
 						DEBUG_SOURCE_TEXT_STR(debug_source_text2, OSR, Rewrite);
@@ -3595,10 +3593,18 @@ namespace convc2validcpp {
 		std::pair<CDDeclConversionState&, bool> get_ddecl_conversion_state_ref_and_update_flag(clang::DeclaratorDecl const& ddecl, Rewriter* Rewrite_ptr = nullptr, bool function_return_value_only = false) {
 			auto* DD = &ddecl;
 			auto& state1 = (*this);
-			auto  res1 = state1.m_ddecl_conversion_state_map.insert(*DD, Rewrite_ptr, &state1, function_return_value_only);
-			auto  ddcs_map_iter = res1.first;
-			auto&  ddcs_ref = (*ddcs_map_iter).second;
-			return std::pair<CDDeclConversionState&, bool> { ddcs_ref, res1.second };
+			bool insertion_occurred = false;
+			auto ddcs_map_iter = state1.m_ddecl_conversion_state_map.find(DD);
+			if (state1.m_ddecl_conversion_state_map.end() == ddcs_map_iter) {
+				auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, Rewrite_ptr, &state1, function_return_value_only);
+				ddcs_map_iter = res1.first;
+				assert(state1.m_ddecl_conversion_state_map.end() != ddcs_map_iter);
+				insertion_occurred = res1.second;
+			} else {
+				int q = 5;
+			}
+			auto& ddcs_ref = (*ddcs_map_iter).second;
+			return std::pair<CDDeclConversionState&, bool> { ddcs_ref, insertion_occurred };
 		}
 
 		/* This container maps "clang::SourceLocation"s to "clang::RecordDecl"s at that
@@ -3613,26 +3619,46 @@ namespace convc2validcpp {
 		* any modifications we might have made.  */
 		CExprConversionStateMap m_expr_conversion_state_map;
 
+	private:
+
 		/* Retrieves a reference to the "expression conversion state" object associated with the given 
-		expression. If no such object exists, one will be created and stored. If the existing object 
-		is an instance of the CExprConversionState base class, it will replaced by a new object of the 
-		specified subclass. */
+		expression. If no such object exists, one will be created and stored. If specified template 
+		parameter, TExprConversionState, is not (the default) CExprConversionState, and the existing 
+		object is not an instance of TExprConversionState, it will replaced by a new object of 
+		(CExprConversionState subclass) type TExprConversionState. If the `overwrite` argument value 
+		is true, any existing state will be unconditionally overwitten with a newly constructed one. */
 		template<typename TExprConversionState = CExprConversionState, typename TExpr, typename... TArgs>
-		auto& get_expr_conversion_state_ref(TExpr const& expr, Rewriter &Rewrite, TArgs&&... args) {
-			auto* EX = &expr;
+		TExprConversionState& get_expr_conversion_state_ref_helper1(bool overwrite, TExpr const& expr, Rewriter &Rewrite, TArgs&&... args) {
+
+			using TExprCPtr = std::conditional_t<std::is_same_v<CExprConversionState, TExprConversionState>, clang::Expr const*, TExpr const*>;
+			TExprCPtr EX = &expr;
+
+			if constexpr (std::is_same_v<clang::Expr const*, TExprCPtr>) {
+				EX = IgnoreImplicit(EX);
+			}
+
 			auto& state1 = (*this);
-			std::shared_ptr<CExprConversionState> shptr1;
+
+#ifndef NDEBUG
+			auto SR = cm1_adj_nice_source_range(*EX, state1, Rewrite);
+			if (SR.isValid()) {
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+					int q = 5;
+				}
+			}
+#endif /*!NDEBUG*/
+
 			auto excs_iter = state1.m_expr_conversion_state_map.find(EX);
-			bool insert_or_assign = false;
+			bool insert_or_assign = overwrite;
 			std::optional<CExprTextModifierStack> maybe_modifier_stack;
 			if (state1.m_expr_conversion_state_map.end() == excs_iter) {
 				insert_or_assign = true;
 			} else {
 				auto& excs_ref = (*(*excs_iter).second);
 				if constexpr (!std::is_same<TExprConversionState, CExprConversionState>::value) {
-					shptr1 = make_expr_conversion_state_shared_ptr<TExprConversionState>(*EX, Rewrite, state1, std::forward<TArgs>(args)...);
 					/* Since rtti is not available, we emulate it manually here using the species() virtual member function. */
-					if (shptr1->species() != excs_ref.species()) {
+					if (TExprConversionState::s_species() != excs_ref.species()) {
 						/* The existing "expression conversion state" seems to be of a different type than the specified 
 						one. Presumably, it's a generic (base class) "expression conversion state". We'll replace it with 
 						the (potentially) more specific one indicated by the template parameter. */
@@ -3642,9 +3668,7 @@ namespace convc2validcpp {
 				}
 			}
 			if (insert_or_assign) {
-				if (!shptr1) {
-					shptr1 = make_expr_conversion_state_shared_ptr<TExprConversionState>(*EX, Rewrite, state1, std::forward<TArgs>(args)...);
-				}
+				auto shptr1 = make_expr_conversion_state_shared_ptr<TExprConversionState>(*EX, Rewrite, state1, std::forward<TArgs>(args)...);
 				excs_iter = state1.m_expr_conversion_state_map.insert_or_assign(shptr1);
 				if (maybe_modifier_stack.has_value()) {
 					/* We're replacing a previously existing "expression conversion state", and so we'll copy any "text 
@@ -3652,7 +3676,67 @@ namespace convc2validcpp {
 					(*(*excs_iter).second).m_expr_text_modifier_stack = maybe_modifier_stack.value();
 				}
 			}
-			return *((*excs_iter).second);
+			assert((std::is_same<TExprConversionState, CExprConversionState>::value) || TExprConversionState::s_species() == (*((*excs_iter).second)).species());
+			return static_cast<TExprConversionState&>(*((*excs_iter).second));
+		}
+
+	public:
+		/* Retrieves a reference to the "expression conversion state" object associated with the given 
+		expression. If no such object exists, one will be created and stored. If specified template 
+		parameter, TExprConversionState, is not (the default) CExprConversionState, and the existing 
+		object is not an instance of TExprConversionState, it will replaced by a new object of 
+		(CExprConversionState subclass) type TExprConversionState. */
+		/* Note that you should generally use get_expr_conversion_state_ref() to establish an expression conversion 
+		state after the expression conversion state of any ancestor expressions have already been established, as 
+		the expression conversion state's constructor will look for and establish a relationship with any existing 
+		ancestor expression conversion states. */
+		template<typename TExprConversionState = CExprConversionState, typename TExpr, typename... TArgs>
+		TExprConversionState& get_expr_conversion_state_ref(TExpr const& expr, Rewriter &Rewrite, TArgs&&... args) {
+			return get_expr_conversion_state_ref_helper1<TExprConversionState>(false/*overwrite*/, expr, Rewrite, std::forward<TArgs>(args)...);
+		}
+
+		template<typename TExprConversionState = CExprConversionState, typename TExpr>
+		std::optional<TExprConversionState*> get_pointer_to_preexisting_expr_conversion_state_if_available(TExpr const& expr, Rewriter* Rewrite_ptr = nullptr) {
+			std::optional<TExprConversionState*> retval;
+
+			using TExprCPtr = std::conditional_t<std::is_same_v<CExprConversionState, TExprConversionState>, clang::Expr const*, TExpr const*>;
+			TExprCPtr EX = &expr;
+
+			if constexpr (std::is_same_v<clang::Expr const*, TExprCPtr>) {
+				EX = IgnoreImplicit(EX);
+			}
+
+			auto& state1 = (*this);
+
+#ifndef NDEBUG
+			if (Rewrite_ptr) {
+				auto& Rewrite = *Rewrite_ptr;
+				auto SR = cm1_adj_nice_source_range(*EX, state1, Rewrite);
+				if (SR.isValid()) {
+					DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+					if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+						int q = 5;
+					}
+				}
+			}
+#endif /*!NDEBUG*/
+
+			auto excs_iter = state1.m_expr_conversion_state_map.find(EX);
+			if (state1.m_expr_conversion_state_map.end() != excs_iter) {
+				auto& excs_ref = (*(*excs_iter).second);
+				if (TExprConversionState::s_species() == excs_ref.species()) {
+					retval = &static_cast<TExprConversionState&>(excs_ref);
+				}
+			}
+			return retval;
+		}
+
+		/* Constructs and stores an "expression conversion state" object associated with the given 
+		expression. Any existing stored "expression conversion state" object corresponding to the 
+		given expression will be replaced. A reference to the object is returned. */
+		template<typename TExprConversionState = CExprConversionState, typename TExpr, typename... TArgs>
+		TExprConversionState& set_expr_conversion_state_ref(TExpr const& expr, Rewriter &Rewrite, TArgs&&... args) {
+			return get_expr_conversion_state_ref_helper1<TExprConversionState>(true/*overwrite*/, expr, Rewrite, std::forward<TArgs>(args)...);
 		}
 
 		/* This container holds, in sorted order, locations of original source code to be modified
@@ -3923,10 +4007,10 @@ namespace convc2validcpp {
 
 	std::string const& CExprTextInfo::current_text(std::optional<CExprTextInfoContext> maybe_context/* = {}*/) const {
 #ifndef NDEBUG
-			if (maybe_context.has_value() && maybe_context.value().m_Rewrite_ptr && maybe_context.value().m_state1_ptr) {
+			if (false && maybe_context.has_value() && maybe_context.value().m_Rewrite_ptr && maybe_context.value().m_state1_ptr) {
 				auto& Rewrite = *(maybe_context.value().m_Rewrite_ptr);
 				auto& state1 = *(maybe_context.value().m_state1_ptr);
-				auto SR = cm1_adj_nice_source_range((*m_expr_cptr), state1, Rewrite);
+				auto SR = cm1_adj_nice_source_range((*m_expr_cptr).getSourceRange(), state1, Rewrite);
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 					int q = 5;
@@ -3984,7 +4068,7 @@ namespace convc2validcpp {
 		auto& SM = m_state1.m_ast_context_ptr->getSourceManager();
 
 #ifndef NDEBUG
-		auto SR = cm1_adj_nice_source_range((*m_expr_cptr), m_state1, Rewrite);
+		auto SR = cm1_adj_nice_source_range((*m_expr_cptr).getSourceRange(), m_state1, Rewrite);
 		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 		if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 			int q = 5;
@@ -4538,17 +4622,18 @@ namespace convc2validcpp {
 					}
 				}
 			};
-
-		auto& SM = Rewrite.getSourceMgr();
-		if (!filtered_out_by_location<options_t<converter_mode_t> >(SM, OSR)) {
-			return add_replacement_action(OSR, lambda);
-		}
-		return std::pair<CCodeModificationActions::base_class::iterator, bool>{ this->end(), false };
+		return add_replacement_action(OSR, lambda);
 	}
 
-	static clang::SourceLocation get_previous_non_whitespace_SL(clang::SourceLocation SL, Rewriter &Rewrite) {
+	static std::optional<clang::SourceLocation> get_previous_non_whitespace_SL_if_available(clang::SourceLocation SL, Rewriter &Rewrite) {
+		std::optional<clang::SourceLocation> retval;
 		auto& SM = Rewrite.getSourceMgr();
 		const auto FID1 = SM.getFileID(SL);
+		const auto sof_SL = SM.getLocForStartOfFile(FID1);
+		if (sof_SL == SL) {
+			return retval;
+		}
+
 		int offset2 = 0;
 		bool exit_flag = false;
 		while (!exit_flag) {
@@ -4556,8 +4641,9 @@ namespace convc2validcpp {
 			auto SL2 = SL.getLocWithOffset(offset2);
 			const auto FID2 = SM.getFileID(SL2);
 			if ((!SL2.isValid()) || (!FID2.isValid()) || (FID1 != FID2)) {
-				exit_flag = true;
-				break;
+				return retval;
+				//exit_flag = true;
+				//break;
 			}
 			clang::SourceRange SR2 { SL2, SL2 };
 			auto text2 = getRewrittenTextOrEmpty(Rewrite, SR2);
@@ -4567,13 +4653,22 @@ namespace convc2validcpp {
 					break;
 				}
 			}
+			if (sof_SL == SL2) {
+				return retval;
+			}
 		}
 		return SL.getLocWithOffset(offset2);
 	}
 
-	static clang::SourceLocation get_next_non_whitespace_SL(clang::SourceLocation SL, Rewriter &Rewrite) {
+	static std::optional<clang::SourceLocation> get_next_non_whitespace_SL_if_available(clang::SourceLocation SL, Rewriter &Rewrite) {
+		std::optional<clang::SourceLocation> retval;
 		auto& SM = Rewrite.getSourceMgr();
 		const auto FID1 = SM.getFileID(SL);
+		const auto eof_SL = SM.getLocForEndOfFile(FID1);
+		if (eof_SL == SL) {
+			return retval;
+		}
+
 		int offset2 = 0;
 		bool exit_flag = false;
 		while (!exit_flag) {
@@ -4581,8 +4676,9 @@ namespace convc2validcpp {
 			const auto SL2 = SL.getLocWithOffset(offset2);
 			const auto FID2 = SM.getFileID(SL2);
 			if ((!SL2.isValid()) || (!FID2.isValid()) || (FID1 != FID2)) {
-				exit_flag = true;
-				break;
+				return retval;
+				//exit_flag = true;
+				//break;
 			}
 			clang::SourceRange SR2 { SL2, SL2 };
 			auto text2 = getRewrittenTextOrEmpty(Rewrite, SR2);
@@ -4591,6 +4687,9 @@ namespace convc2validcpp {
 					exit_flag = true;
 					break;
 				}
+			}
+			if (eof_SL == SL2) {
+				return retval;
 			}
 		}
 		return SL.getLocWithOffset(offset2);
@@ -4610,10 +4709,13 @@ namespace convc2validcpp {
 			return retval;
 		}
 
-		int nested_depth = 0;
+		THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
 		int offset = 1;
 		auto SL = open_paren_SL.getLocWithOffset(offset);
+		int nested_depth = 0;
 		std::string text1 = getRewrittenTextOrEmpty(Rewrite, { SL, SL });
+
 		while (true) {
 			if (maybe_inclusive_bounding_SL.has_value()) {
 				if (maybe_inclusive_bounding_SL.value() < SL) {
@@ -4637,29 +4739,45 @@ namespace convc2validcpp {
 				nested_depth += 1;
 			}
 			if (1 <= nested_depth) {
+				if (true) {
+					const std::string text_from_the_open_paren = getRewrittenTextOrEmpty(Rewrite, { open_paren_SL, SL });
+					for (size_t i = 0; i < text_from_the_open_paren.length(); ++i) {
+						if (text_from_the_open_paren.at(i) != char_data[i]) {
+							/* The text read from the current source location no longer matches the text in the char_data starting 
+							from open_paren_SL. This might indicate that the source text was changed so that the source locations 
+							no longer properly correspond to their original source text. So can't we be sure that the return value 
+							we would have produced would have been correct. So we'll just bail here. */
+							int q = 3;
+							return retval;
+						}
+					}
+				}
+
 				return SL;
 			}
-
-			++offset;
+			if (2 <= text1.size()) {
+				if (('\"' == text1.front()) && ('\"' == text1.back())) {
+					offset += text1.length();
+				} else {
+					size_t i = 1;
+					for (; text1.size() > i; i += 1) {
+						auto const& ch = text1[i];
+						if (('(' == ch) || (')' == ch)) {
+							int q = 5;
+							break;
+						}
+					}
+					offset += i;
+				}
+			} else {
+				offset += 1;
+			}
 			SL = open_paren_SL.getLocWithOffset(offset);
 			if (!SL.isValid()) {
 				return retval;
 			}
-			text1 = getRewrittenTextOrEmpty(Rewrite, { SL, SL });
 
-			std::string text_from_the_open_paren = getRewrittenTextOrEmpty(Rewrite, { open_paren_SL, SL });
-			std::string char_data_text_from_the_open_paren;
-			char_data_text_from_the_open_paren.reserve(text_from_the_open_paren.length());
-			for (size_t i = 0; i < text_from_the_open_paren.length(); ++i) {
-				char_data_text_from_the_open_paren.push_back(char_data[i]);
-			}
-			if (text_from_the_open_paren != char_data_text_from_the_open_paren) {
-				/* The text read from the current source location no longer matches the text in the char_data starting 
-				from open_paren_SL. This might indicate that the source text was changed so that the source locations 
-				no longer properly correspond to their original source text. So can't we be sure that the return value 
-				we would have produced would have been correct. So we'll just bail here. */
-				return retval;
-			}
+			text1 = getRewrittenTextOrEmpty(Rewrite, { SL, SL });
 		};
 		return retval;
 	}
@@ -4757,6 +4875,8 @@ namespace convc2validcpp {
 	}
 
 	static std::vector<CSourceTextPlus> parse_argument_list(clang::SourceRange args_SR, clang::Rewriter& Rewrite) {
+	    THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
 		std::vector<CSourceTextPlus> retval;
 
 		std::string args_text1 = getRewrittenTextOrEmpty(Rewrite, args_SR);
@@ -4777,6 +4897,8 @@ namespace convc2validcpp {
 		auto found_comma_range = Parse::find_token_at_same_nesting_depth1(",", remaining_args_text1);
 
 		auto process_arg = [&](size_t next_comma_or_terminator_pos) {
+		    THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
 			auto sv1 = Parse::substring_view(remaining_args_text1, Parse::range_t{ 0, next_comma_or_terminator_pos });
 			auto arg_str2 = std::string(sv1);
 			//ltrim(arg_str2);
@@ -4789,20 +4911,35 @@ namespace convc2validcpp {
 				if (arg_SR.isValid()) {
 					std::string text2 = getRewrittenTextOrEmpty(Rewrite, arg_SR);
 					if (text2.length() > arg_str.length()) {
-						/* The text from arg_SR seems to be too long. We'll try shrinking arg_SR. */
-						const auto arg_SL2 = arg_SR.getBegin();
-						auto arg_SLE2 = arg_SR.getEnd();
-						while (arg_SL2 <= arg_SLE2) {
-							const auto arg_SR2 = clang::SourceRange{ arg_SL2, arg_SLE2 };
-							if (arg_SR2.isValid()) {
-								const std::string text3 = getRewrittenTextOrEmpty(Rewrite, arg_SR2);
-								if (text3 == arg_str) {
-									arg_SR = arg_SR2;
-									text2 = text3;
-									break;
-								}
+					    THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
+						bool already_fixed = false;
+						if ('\"' == arg_str.at(0)) {
+							auto test1_SR = arg_SR;
+							test1_SR.setEnd(test1_SR.getBegin());
+							std::string text4 = getRewrittenTextOrEmpty(Rewrite, test1_SR);
+							if (text4 == arg_str) {
+								arg_SR = test1_SR;
+								text2 = text4;
+								already_fixed = true;
 							}
-							arg_SLE2 = arg_SLE2.getLocWithOffset(-1);
+						}
+						if (!already_fixed) {
+							/* The text from arg_SR seems to be too long. We'll try shrinking arg_SR. */
+							const auto arg_SL2 = arg_SR.getBegin();
+							auto arg_SLE2 = arg_SR.getEnd();
+							while (arg_SL2 <= arg_SLE2) {
+								const auto arg_SR2 = clang::SourceRange{ arg_SL2, arg_SLE2 };
+								if (arg_SR2.isValid()) {
+									const std::string text3 = getRewrittenTextOrEmpty(Rewrite, arg_SR2);
+									if (text3 == arg_str) {
+										arg_SR = arg_SR2;
+										text2 = text3;
+										break;
+									}
+								}
+								arg_SLE2 = arg_SLE2.getLocWithOffset(-1);
+							}
 						}
 					}
 					if (arg_str == text2) {
@@ -5046,11 +5183,19 @@ namespace convc2validcpp {
 						if (macro_SPSLE < macro_SPSLE2) {
 							macro_SPSLE = macro_SPSLE2;
 						}
-						auto macro_SPSL_bumper = get_previous_non_whitespace_SL(macro_SPSL, Rewrite);
-						const std::string text7 = getRewrittenTextOrEmpty(Rewrite, { macro_SPSL_bumper, macro_SPSL_bumper });
+						std::string text7;
+						auto maybe_macro_SPSL_bumper = get_previous_non_whitespace_SL_if_available(macro_SPSL, Rewrite);
+						if (maybe_macro_SPSL_bumper.has_value()) {
+							auto const& macro_SPSL_bumper = maybe_macro_SPSL_bumper.value();
+							text7 = getRewrittenTextOrEmpty(Rewrite, { macro_SPSL_bumper, macro_SPSL_bumper });
+						}
 						bool macro_SPSL_bumper_is_open_paren = ("(" == text7);
-						auto macro_SPSLE_bumper = get_next_non_whitespace_SL(macro_SPSLE, Rewrite);
-						const std::string text8 = getRewrittenTextOrEmpty(Rewrite, { macro_SPSLE_bumper, macro_SPSLE_bumper });
+						std::string text8;
+						auto maybe_macro_SPSLE_bumper = get_next_non_whitespace_SL_if_available(macro_SPSLE, Rewrite);
+						if (maybe_macro_SPSLE_bumper.has_value()) {
+							auto const& macro_SPSLE_bumper = maybe_macro_SPSLE_bumper.value();
+							text8 = getRewrittenTextOrEmpty(Rewrite, { macro_SPSLE_bumper, macro_SPSLE_bumper });
+						}
 						bool macro_SPSLE_bumper_is_close_paren = (")" == text8);
 
 						if (true && SL_isMacroArgExpansion_flag && SLE_isMacroArgExpansion_flag && (SL_macro_arg_expansion_start == SLE_macro_arg_expansion_start)
@@ -5289,20 +5434,35 @@ namespace convc2validcpp {
 					if ((first_macro_SPSLE < first_macro_SPSLE2) && (first_macro_SPSL <= first_macro_SPSLE)) {
 						first_macro_SPSLE = first_macro_SPSLE2;
 					}
-					const auto first_macro_SPSL_left_delimiter = get_previous_non_whitespace_SL(first_macro_SPSL, Rewrite);
-					const std::string text7 = getRewrittenTextOrEmpty(Rewrite, { first_macro_SPSL_left_delimiter, first_macro_SPSL_left_delimiter });
-					bool first_macro_SPSL_left_delimiter_is_open_paren_or_comma = (("(" == text7) || ("," == text7));
-					if (("(" == text7)) {
-						/* While the character is an open parenthesis, we'll additionally verify that it could be preceded by a macro name. */
-						first_macro_SPSL_left_delimiter_is_open_paren_or_comma = false;
-						auto first_macro_SPSL_left_delimiters_bumper = get_previous_non_whitespace_SL(first_macro_SPSL_left_delimiter, Rewrite);
-						const std::string text7b = getRewrittenTextOrEmpty(Rewrite, { first_macro_SPSL_left_delimiters_bumper, first_macro_SPSL_left_delimiters_bumper });
-						if (1 <= text7b.size())  {
-							first_macro_SPSL_left_delimiter_is_open_paren_or_comma = Parse::is_alnum_or_underscore(text7b.back());
+					bool first_macro_SPSL_left_delimiter_is_open_paren_or_comma = false;
+					std::string text7;
+					auto maybe_first_macro_SPSL_left_delimiter = get_previous_non_whitespace_SL_if_available(first_macro_SPSL, Rewrite);
+					if (maybe_first_macro_SPSL_left_delimiter.has_value()) {
+						auto const& first_macro_SPSL_left_delimiter = maybe_first_macro_SPSL_left_delimiter.value();
+						text7 = getRewrittenTextOrEmpty(Rewrite, { first_macro_SPSL_left_delimiter, first_macro_SPSL_left_delimiter });
+
+						first_macro_SPSL_left_delimiter_is_open_paren_or_comma = (("(" == text7) || ("," == text7));
+
+						if (("(" == text7)) {
+							/* While the character is an open parenthesis, we'll additionally verify that it could be preceded by a macro name. */
+							first_macro_SPSL_left_delimiter_is_open_paren_or_comma = false;
+							std::string text7b;
+							auto maybe_first_macro_SPSL_left_delimiters_bumper = get_previous_non_whitespace_SL_if_available(first_macro_SPSL_left_delimiter, Rewrite);
+							if (maybe_first_macro_SPSL_left_delimiters_bumper.has_value()) {
+								auto const& first_macro_SPSL_left_delimiters_bumper = maybe_first_macro_SPSL_left_delimiters_bumper.value();
+								text7b = getRewrittenTextOrEmpty(Rewrite, { first_macro_SPSL_left_delimiters_bumper, first_macro_SPSL_left_delimiters_bumper });
+							}
+							if (1 <= text7b.size())  {
+								first_macro_SPSL_left_delimiter_is_open_paren_or_comma = Parse::is_alnum_or_underscore(text7b.back());
+							}
 						}
 					}
-					auto first_macro_SPSLE_right_delimiter = get_next_non_whitespace_SL(first_macro_SPSLE, Rewrite);
-					const std::string text8 = getRewrittenTextOrEmpty(Rewrite, { first_macro_SPSLE_right_delimiter, first_macro_SPSLE_right_delimiter });
+					std::string text8;
+					auto maybe_first_macro_SPSLE_right_delimiter = get_next_non_whitespace_SL_if_available(first_macro_SPSLE, Rewrite);
+					if (maybe_first_macro_SPSLE_right_delimiter.has_value()) {
+						auto const& first_macro_SPSLE_right_delimiter = maybe_first_macro_SPSLE_right_delimiter.value();
+						text8 = getRewrittenTextOrEmpty(Rewrite, { first_macro_SPSLE_right_delimiter, first_macro_SPSLE_right_delimiter });
+					}
 					bool first_macro_SPSLE_right_delimiter_is_close_paren_or_comma = ((")" == text8) || ("," == text8));
 
 					if (true && SL_isMacroArgExpansion_flag && SLE_isMacroArgExpansion_flag && (SL_macro_arg_expansion_start == SLE_macro_arg_expansion_start)
@@ -5980,20 +6140,36 @@ namespace convc2validcpp {
 									auto const& deepest_reported_SR = deepest_reported_adjusted_source_text_info.m_macro_invocation_range;
 									auto deepest_reported_SL = deepest_reported_SR.getBegin();
 									auto deepest_reported_SLE = deepest_reported_SR.getEnd();
-									const auto deepest_reported_SL_left_delimiter = get_previous_non_whitespace_SL(deepest_reported_SL, Rewrite);
-									const std::string text17 = getRewrittenTextOrEmpty(Rewrite, { deepest_reported_SL_left_delimiter, deepest_reported_SL_left_delimiter });
-									bool deepest_reported_SL_left_delimiter_is_open_paren_or_comma = (("(" == text17) || ("," == text17));
-									if (("(" == text17)) {
-										/* While the character is an open parenthesis, we'll additionally verify that it could be preceded by a macro name. */
-										deepest_reported_SL_left_delimiter_is_open_paren_or_comma = false;
-										auto deepest_reported_SL_left_delimiters_bumper = get_previous_non_whitespace_SL(deepest_reported_SL_left_delimiter, Rewrite);
-										const std::string text17b = getRewrittenTextOrEmpty(Rewrite, { deepest_reported_SL_left_delimiters_bumper, deepest_reported_SL_left_delimiters_bumper });
-										if (1 <= text17b.size())  {
-											deepest_reported_SL_left_delimiter_is_open_paren_or_comma = Parse::is_alnum_or_underscore(text17b.back());
+
+									bool deepest_reported_SL_left_delimiter_is_open_paren_or_comma = false;
+									std::string text17;
+									auto maybe_deepest_reported_SL_left_delimiter = get_previous_non_whitespace_SL_if_available(deepest_reported_SL, Rewrite);
+									if (maybe_deepest_reported_SL_left_delimiter.has_value()) {
+										auto const& deepest_reported_SL_left_delimiter = maybe_deepest_reported_SL_left_delimiter.value();
+										text17 = getRewrittenTextOrEmpty(Rewrite, { deepest_reported_SL_left_delimiter, deepest_reported_SL_left_delimiter });
+
+										deepest_reported_SL_left_delimiter_is_open_paren_or_comma = (("(" == text17) || ("," == text17));
+
+										if (("(" == text17)) {
+											/* While the character is an open parenthesis, we'll additionally verify that it could be preceded by a macro name. */
+											deepest_reported_SL_left_delimiter_is_open_paren_or_comma = false;
+											std::string text17b;
+											auto maybe_deepest_reported_SL_left_delimiters_bumper = get_previous_non_whitespace_SL_if_available(deepest_reported_SL_left_delimiter, Rewrite);
+											if (maybe_deepest_reported_SL_left_delimiters_bumper.has_value()) {
+												auto const& deepest_reported_SL_left_delimiters_bumper = maybe_deepest_reported_SL_left_delimiters_bumper.value();
+												text17b = getRewrittenTextOrEmpty(Rewrite, { deepest_reported_SL_left_delimiters_bumper, deepest_reported_SL_left_delimiters_bumper });
+											}
+											if (1 <= text17b.size())  {
+												deepest_reported_SL_left_delimiter_is_open_paren_or_comma = Parse::is_alnum_or_underscore(text17b.back());
+											}
 										}
 									}
-									auto deepest_reported_SLE_right_delimiter = get_next_non_whitespace_SL(deepest_reported_SLE, Rewrite);
-									const std::string text18 = getRewrittenTextOrEmpty(Rewrite, { deepest_reported_SLE_right_delimiter, deepest_reported_SLE_right_delimiter });
+									std::string text18;
+									auto maybe_deepest_reported_SLE_right_delimiter = get_next_non_whitespace_SL_if_available(deepest_reported_SLE, Rewrite);
+									if (maybe_deepest_reported_SLE_right_delimiter.has_value()) {
+										auto const& deepest_reported_SLE_right_delimiter = maybe_deepest_reported_SLE_right_delimiter.value();
+										text18 = getRewrittenTextOrEmpty(Rewrite, { deepest_reported_SLE_right_delimiter, deepest_reported_SLE_right_delimiter });
+									}
 									bool deepest_reported_SLE_right_delimiter_is_close_paren_or_comma = ((")" == text18) || ("," == text18));
 
 									if ((deepest_reported_SL_left_delimiter_is_open_paren_or_comma) && (deepest_reported_SLE_right_delimiter_is_close_paren_or_comma)) {
@@ -6024,8 +6200,12 @@ namespace convc2validcpp {
 										}
 										if (maybe_open_paren_SL.has_value()) {
 											auto const& open_paren_SL = maybe_open_paren_SL.value();
-											auto macro_name_SLE = get_previous_non_whitespace_SL(open_paren_SL, Rewrite);
+											auto maybe_macro_name_SLE = get_previous_non_whitespace_SL_if_available(open_paren_SL, Rewrite);
 											do {
+												if (!maybe_macro_name_SLE.has_value()) {
+													break;
+												}
+												auto const& macro_name_SLE = maybe_macro_name_SLE.value();
 												if (!macro_name_SLE.isValid()) {
 													break;
 												}
@@ -6159,13 +6339,17 @@ namespace convc2validcpp {
 											auto PE_SR_plus = cm1_adjusted_source_range(*PE, state1, Rewrite);
 											if (PE_SR_plus.isValid()) {
 												DEBUG_SOURCE_TEXT_STR(debug_PE_source_text, PE_SR_plus, Rewrite);
-												auto token_SL = get_next_non_whitespace_SL(PE_SR_plus.getBegin(), Rewrite);
-												auto token_SLE = get_previous_non_whitespace_SL(PE_SR_plus.getEnd(), Rewrite);
-												auto token_SR_plus = cm1_adjusted_source_range(clang::SourceRange{ token_SL, token_SLE }, state1, Rewrite);
-												if (token_SR_plus.isValid()) {
-													DEBUG_SOURCE_TEXT_STR(debug_token_source_text, token_SR_plus, Rewrite);
-													maybe_E_token_SR = token_SR_plus;
-													break;
+												auto maybe_token_SL = get_next_non_whitespace_SL_if_available(PE_SR_plus.getBegin(), Rewrite);
+												auto maybe_token_SLE = get_previous_non_whitespace_SL_if_available(PE_SR_plus.getEnd(), Rewrite);
+												if (maybe_token_SL.has_value() && maybe_token_SLE.has_value()) {
+													auto const& token_SL = maybe_token_SL.value();
+													auto const& token_SLE = maybe_token_SLE.value();
+													auto token_SR_plus = cm1_adjusted_source_range(clang::SourceRange{ token_SL, token_SLE }, state1, Rewrite);
+													if (token_SR_plus.isValid()) {
+														DEBUG_SOURCE_TEXT_STR(debug_token_source_text, token_SR_plus, Rewrite);
+														maybe_E_token_SR = token_SR_plus;
+														break;
+													}
 												}
 											}
 											break;
@@ -6266,20 +6450,278 @@ namespace convc2validcpp {
 		return retval;
 	}
 
+	static std::string get_source_as_if_preprocessor_expanded(const clang::SourceRange& sr, CTUState& state1, clang::Rewriter &Rewrite) {
+		std::string retval;
+
+		auto adjusted_SR = sr;
+
+		auto rawSR = sr;
+		auto SL = rawSR.getBegin();
+		auto SLE = rawSR.getEnd();
+		auto b3 = SL.isMacroID();
+		auto b4 = SLE.isMacroID();
+
+		auto& SM = Rewrite.getSourceMgr();
+		auto FLSL = SM.getFileLoc(SL);
+		auto FLSLE = SM.getFileLoc(SLE);
+		auto b5 = FLSL.isMacroID();
+		auto b6 = FLSLE.isMacroID();
+		auto b6b = FLSL.isFileID();
+		auto FLSR = clang::SourceRange{ FLSL, FLSLE };
+
+		auto SPSL = SM.getSpellingLoc(SL);
+		auto SPSLE = SM.getSpellingLoc(SLE);
+		auto b7 = SPSL.isMacroID();
+		auto b8 = SPSLE.isMacroID();
+		auto b8b = SPSL.isFileID();
+		auto b8c = SPSLE.isFileID();
+		auto SPSR = clang::SourceRange{ SPSL, SPSLE };
+
+		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, sr, Rewrite);
+
+		std::string SPSR_source_text;
+		if ((SPSR).isValid() && (((SPSR).getBegin() < (SPSR).getEnd()) || ((SPSR).getBegin() == (SPSR).getEnd()))) {
+			SPSR_source_text = getRewrittenTextOrEmpty(Rewrite, SPSR);
+			if ("" != SPSR_source_text) {
+				retval = SPSR_source_text;
+			}
+		}
+
+		DEBUG_SOURCE_TEXT_STR(debug_source_text, sr, Rewrite);
+		DEBUG_SOURCE_TEXT_STR(debug_fl_source_text, FLSR.isValid() ? FLSR : sr, Rewrite);
+		DEBUG_SOURCE_TEXT_STR(debug_sp_source_text, SPSR.isValid() ? SPSR : sr, Rewrite);
+
+#ifndef NDEBUG
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
+
+		if (b3) {
+			/* The element is part of a macro instance. */
+			auto& SM = Rewrite.getSourceMgr();
+
+			auto b10 = SM.isMacroArgExpansion(SL);
+			auto b10b = SM.isMacroArgExpansion(SLE);
+			auto b11 = SM.isMacroArgExpansion(FLSL);
+			auto b12 = SM.isMacroArgExpansion(SPSL);
+			auto b13 = SM.isMacroBodyExpansion(SL);
+			auto b14 = SM.isMacroBodyExpansion(FLSL);
+			auto b15 = SM.isMacroBodyExpansion(SPSL);
+			if (b10) {
+				if (!b10b) {
+					/* It seems that beginning of the source range is a macro function argument, but the end isn't. 
+					(Presumably the end is at another part of the macro body.) getRewrittenTextOrEmpty(Rewrite, ) doesn't 
+					seem to work on such mismatched source ranges. After some experimentation, it's still unclear 
+					how or if one can obtain the beginning corresponding source location in the macro body. */
+					int q = 5;
+				} else {
+					int q = 5;
+				}
+			}
+
+			std::string SPSR_source_text_with_added_parens = "(" + SPSR_source_text + ")";
+
+			{
+				/* The element could be nested within multiple macro instances. We are going to obtain
+				and store a list of (the source ranges of) all the (nested) macro instances which contain
+				the element. */
+				auto nested_macro_ranges = std::vector<clang::SourceRange>{};
+				auto last_macro1_SL = SL;
+				auto last_macro1_SLE = SLE;
+				auto macro1_SL = SM.getImmediateMacroCallerLoc(SL);
+				auto macro1_SLE = SM.getImmediateMacroCallerLoc(SLE);
+
+				const auto expansion_SR = SM.getExpansionRange(macro1_SL).getAsRange();
+				DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, expansion_SR, Rewrite);
+
+				while (macro1_SL != last_macro1_SL) {
+					nested_macro_ranges.push_back({ macro1_SL, macro1_SLE });
+
+					last_macro1_SL = macro1_SL;
+					last_macro1_SLE = macro1_SLE;
+					macro1_SL = SM.getImmediateMacroCallerLoc(macro1_SL);
+					macro1_SLE = SM.getImmediateMacroCallerLoc(macro1_SLE);
+
+					auto new_macro1_SR = clang::SourceRange{ macro1_SL, macro1_SLE };
+					DEBUG_SOURCE_TEXT_STR(debug_macro1_source_text, new_macro1_SR, Rewrite);
+					auto adjusted_macro_SPSR = clang::SourceRange{ SM.getSpellingLoc(new_macro1_SR.getBegin()), SM.getSpellingLoc(new_macro1_SR.getEnd()) };
+					DEBUG_SOURCE_TEXT_STR(debug_adjusted_macro_source_text, adjusted_macro_SPSR, Rewrite);
+
+					const auto expansion_SR = SM.getExpansionRange(macro1_SL).getAsRange();
+					DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, expansion_SR, Rewrite);
+
+					auto b16 = SM.isMacroArgExpansion(macro1_SL);
+					auto b17 = SM.isMacroArgExpansion(adjusted_macro_SPSR.getBegin());
+					auto b18 = SM.isMacroBodyExpansion(macro1_SL);
+					auto b19 = SM.isMacroBodyExpansion(adjusted_macro_SPSR.getBegin());
+					int q = 5;
+				}
+
+				if (1 <= nested_macro_ranges.size()) {
+					adjusted_SR = SPSR;
+				} else {
+					int q = 3;
+				}
+
+				int nesting_level = 0;
+
+				/* Here we're going to find (well, estimate/guess) the "outermost" macro that
+				contains the element, and consists of only an expression. (As opposed to, for
+				example, a declaration, or more than one statement.) */
+				for (const auto& macro2_SR : nested_macro_ranges) {
+					{
+						auto adjusted_macro_SPSR = clang::SourceRange{ SM.getSpellingLoc(macro2_SR.getBegin()), SM.getSpellingLoc(macro2_SR.getEnd()) };
+						std::string macro_name;
+						if (adjusted_macro_SPSR.isValid() && ((adjusted_macro_SPSR.getBegin() < adjusted_macro_SPSR.getEnd()) || (adjusted_macro_SPSR.getBegin() == adjusted_macro_SPSR.getEnd()))) {
+							macro_name = getRewrittenTextOrEmpty(Rewrite, adjusted_macro_SPSR);
+							auto l_paren_index = macro_name.find("(");
+							if (std::string::npos != l_paren_index) {
+								macro_name = macro_name.substr(0, l_paren_index);
+								rtrim(macro_name);
+							}
+						}
+
+						std::vector<std::string> macro_args;
+
+						/* If the macro is a function macro, then adjusted_macro_SPSR would not
+						currently include the arguments. Here we attempt to extend
+						adjusted_macro_SPSR to include any arguments. */
+						const auto expansion_SR = SM.getExpansionRange(adjusted_macro_SPSR.getBegin()).getAsRange();
+						DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, expansion_SR, Rewrite);
+						if ((!(adjusted_macro_SPSR.getBegin() < expansion_SR.getBegin())) && (!(expansion_SR.getEnd() < adjusted_macro_SPSR.getEnd()))
+							&& (!(expansion_SR == adjusted_macro_SPSR))) {
+							adjusted_macro_SPSR = expansion_SR;
+						} else {
+							auto SL1 = adjusted_macro_SPSR.getBegin();
+							std::string text1 = getRewrittenTextOrEmpty(Rewrite, { SL1, SL1 });
+							SL1 = SL1.getLocWithOffset(+text1.length());
+							text1 = getRewrittenTextOrEmpty(Rewrite, { SL1, SL1 });
+							while ("" == text1) {
+								SL1 = SL1.getLocWithOffset(+1);
+								if (!(SL1.isValid())) {
+									break;
+								}
+								text1 = getRewrittenTextOrEmpty(Rewrite, { SL1, SL1 });
+							}
+							if ("(" == text1) {
+								auto maybe_close_paren_SL = matching_close_parentheses_if_any(Rewrite, SL1);
+								if (maybe_close_paren_SL.has_value()) {
+									adjusted_macro_SPSR = clang::SourceRange{ adjusted_macro_SPSR.getBegin(), maybe_close_paren_SL.value() };
+
+									auto args_SR = clang::SourceRange{ SL1.getLocWithOffset(+1), maybe_close_paren_SL.value().getLocWithOffset(-1) };
+									std::string args_text1 = getRewrittenTextOrEmpty(Rewrite, args_SR);
+									std::string remaining_args_text1 = args_text1;
+									auto found_comma_range = Parse::find_token_at_same_nesting_depth1(",", remaining_args_text1);
+									while (found_comma_range.end < remaining_args_text1.length()) {
+										auto sv1 = Parse::substring_view(remaining_args_text1, Parse::range_t{ 0, found_comma_range.end });
+										macro_args.push_back(std::string(sv1));
+										remaining_args_text1 = remaining_args_text1.substr(found_comma_range.end);
+										found_comma_range = Parse::find_token_at_same_nesting_depth1(",", remaining_args_text1);
+									}
+								} else {
+									int q = 3;
+								}
+							}
+						}
+						DEBUG_SOURCE_TEXT_STR(debug_adjusted_macro_source_text2, adjusted_macro_SPSR, Rewrite);
+
+						if (true) {
+							auto found_macro_iter = state1.m_pp_macro_definitions.find(macro_name);
+							if (state1.m_pp_macro_definitions.end() != found_macro_iter) {
+								std::string macro_def_text = getRewrittenTextOrEmpty(Rewrite, found_macro_iter->second.definition_SR());
+
+								bool is_essentially_the_whole_macro = false;
+								auto found_iter2 = macro_def_text.find_first_of(";=");
+								if (std::string::npos == found_iter2) {
+									if (found_macro_iter->second.m_macro_def_body_str == SPSR_source_text) {
+										is_essentially_the_whole_macro = true;
+									} else if (found_macro_iter->second.m_macro_def_body_str == SPSR_source_text_with_added_parens) {
+										is_essentially_the_whole_macro = true;
+									}
+								}
+
+								if (is_essentially_the_whole_macro) {
+									/* It looks like the macro expansion is essentially just the given source 
+									range. So we're going to presume that it's likely that any given 
+									transformation could be appropriately applied to the instantiation of the 
+									macro, rather than needing to be applied to the definition of the macro. We 
+									would prefer not to modify the definition of a macro if it's not necessary. */
+									adjusted_SR = adjusted_macro_SPSR;
+								} else {
+									/* The macro seems like it might consist of additional expressions and/or statements other than the
+									outside of the source range we were given. */
+									break;
+								}
+							} else {
+								int q = 5;
+							}
+						}
+					}
+
+					++nesting_level;
+				}
+				DEBUG_SOURCE_TEXT_STR(debug_macro_source_text, adjusted_SR, Rewrite);
+				//return adjusted_SR;
+			}
+		}
+		//return adjusted_SR;
+
+		return retval;
+	}
+
 	clang::SourceRange extended_to_include_west_const_if_any(Rewriter& Rewrite, const clang::SourceRange& SR) {
 		/* look for (west) const qualifier */
 		/* This implementation is currently a quick hack that doesn't work correctly
 		in all cases. */
 		auto cq_SR = SR;
 		static const std::string const_str = "const";
-		auto SL3 = get_previous_non_whitespace_SL(cq_SR.getBegin(), Rewrite);
-		clang::SourceRange SR3 { SL3.getLocWithOffset(1 - int(const_str.length())), cq_SR.getBegin().getLocWithOffset(-1) };
+		auto maybe_SL2 = get_previous_non_whitespace_SL_if_available(cq_SR.getBegin(), Rewrite);
+		if (!maybe_SL2.has_value()) {
+			return SR;
+		}
+		auto const& SL2 = maybe_SL2.value();
+		const auto text2 = getRewrittenTextOrEmpty(Rewrite, clang::SourceRange{ SL2, SL2 });
+		if (!string_ends_with(text2, "t")) {
+			return SR;
+		}
+
+		auto maybe_SL3 = getLocWithOffsetIfAvailable(Rewrite, SL2, 1 - int(const_str.length()));
+		if (!maybe_SL3.has_value()) {
+			return SR;
+		}
+		auto const& SL3 = maybe_SL3.value();
+
+		clang::SourceRange SR3 { SL3, SL3 };
 		auto text3 = getRewrittenTextOrEmpty(Rewrite, SR3);
-		if (text3.substr(0, const_str.length()) == const_str) {
-			/* (west) const qualifier found */
-			/* extend the source range(s) to include the const qualifier */
-			cq_SR.setBegin(SR3.getBegin());
-			IF_DEBUG(std::string old_text = getRewrittenTextOrEmpty(Rewrite, cq_SR);)
+		if (text3 == const_str) {
+			bool left_of_const_is_not_alphanum_or_underscore = false;
+			auto maybe_SL4 = getLocWithOffsetIfAvailable(Rewrite, SL2, 0 - int(const_str.length()));
+			if (!maybe_SL4.has_value()) {
+				/* beginning of file? */
+				left_of_const_is_not_alphanum_or_underscore = true;
+			} else {
+				auto SL4 = maybe_SL4.value();
+				clang::SourceRange SR4 { SL4, SL4 };
+				auto text4 = getRewrittenTextOrEmpty(Rewrite, SR4);
+				if (1 > text4.length()) {
+					left_of_const_is_not_alphanum_or_underscore = true;
+				} else {
+					/* If SL4 is part of the same token as SL3, then end of text4 should be the same as text3 (i.e. "const"). 
+					So the value of text4.back() would be 't'. If SL4 is part of a different token abutting the SL3 "const" 
+					token (with no whitespace separation), then text4 should not be (or end in) a letter, number or 
+					underscore, right? */
+					left_of_const_is_not_alphanum_or_underscore = !Parse::is_alnum_or_underscore(text4.back());
+				}
+			}
+			if (left_of_const_is_not_alphanum_or_underscore)  {
+				/* (west) const qualifier found */
+				/* extend the source range(s) to include the const qualifier */
+				cq_SR.setBegin(SR3.getBegin());
+				IF_DEBUG(std::string old_text = getRewrittenTextOrEmpty(Rewrite, cq_SR);)
+			} else {
+				return SR;
+			}
 		}
 		return cq_SR;
 	}
@@ -6290,14 +6732,48 @@ namespace convc2validcpp {
 		in all cases. */
 		auto cq_SR = SR;
 		static const std::string const_str = "const";
-		auto SL3 = get_next_non_whitespace_SL(cq_SR.getEnd(), Rewrite);
-		clang::SourceRange SR3 { SL3, SL3.getLocWithOffset(int(const_str.length()) - 1) };
+		auto maybe_SL3 = get_next_non_whitespace_SL_if_available(cq_SR.getEnd(), Rewrite);
+		if (!maybe_SL3.has_value()) {
+			return SR;
+		}
+		auto const& SL3 = maybe_SL3.value();
+		const auto text2 = getRewrittenTextOrEmpty(Rewrite, clang::SourceRange{ SL3, SL3 });
+		if (const_str != text2) {
+			return SR;
+		}
+
+		auto maybe_SLE3 = getLocWithOffsetIfAvailable(Rewrite, SL3, int(const_str.length()) - 1);
+		if (!maybe_SLE3.has_value()) {
+			return SR;
+		}
+		auto const& SLE3 = maybe_SLE3.value();
+		clang::SourceRange SR3 { SL3, SLE3 };
 		auto text3 = getRewrittenTextOrEmpty(Rewrite, SR3);
 		if (const_str == text3) {
-			/* east const qualifier found */
-			/* extend the source range(s) to include the const qualifier */
-			cq_SR.setEnd(SR3.getEnd());
-			IF_DEBUG(std::string old_text = getRewrittenTextOrEmpty(Rewrite, cq_SR);)
+			bool text4_is_alphanum_or_underscore = false;
+			auto maybe_SL4 = getLocWithOffsetIfAvailable(Rewrite, SL3, int(const_str.length()) - 0);
+			if (!maybe_SL4.has_value()) {
+				/* end of file? */
+				text4_is_alphanum_or_underscore = true;
+			} else {
+				auto SL4 = maybe_SL4.value();
+				clang::SourceRange SR4 { SL4, SL4 };
+				auto text4 = getRewrittenTextOrEmpty(Rewrite, SR4);
+				if (1 <= text4.length()) {
+					/* If SL4 is part of the same token as SL3, then beginning of text4 should be the same as text3 (i.e. 
+					"const"). So the value of text4.front() would be 'c'. If SL4 is part of a different token abutting 
+					the SL3 "const" token (with no whitespace separation), then text4 should not be (or begin with) a 
+					letter, number or underscore, right? */
+					auto ch = text4.front();
+					text4_is_alphanum_or_underscore = Parse::is_alnum_or_underscore(ch);
+				}
+			}
+			if (!text4_is_alphanum_or_underscore) {
+				/* east const qualifier found */
+				/* extend the source range(s) to include the const qualifier */
+				cq_SR.setEnd(SR3.getEnd());
+				IF_DEBUG(std::string old_text = getRewrittenTextOrEmpty(Rewrite, cq_SR);)
+			}
 		}
 		return cq_SR;
 	}
@@ -8208,9 +8684,18 @@ namespace convc2validcpp {
 			return retval;
 		}
 
-		auto res1 = ddecl_conversion_state_map.insert(*DD, &Rewrite, state1_ptr);
-		auto ddcs_map_iter = res1.first;
-		auto& ddcs_ref = (*ddcs_map_iter).second;
+		CDDeclConversionState* ddcs_ptr = nullptr;
+		if (state1_ptr) {
+			auto& state1 = *state1_ptr;
+			auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+			ddcs_ptr = &ddcs_ref;
+		} else {
+			auto res1 = ddecl_conversion_state_map.insert(*DD, &Rewrite, state1_ptr);
+			auto ddcs_map_iter = res1.first;
+			auto& ddcs_ref = (*ddcs_map_iter).second;
+			ddcs_ptr = &ddcs_ref;
+		}
+		auto& ddcs_ref = *ddcs_ptr;
 
 		auto qtype = DD->getType();
 		auto qtype_str = adjusted_qtype_str(DD->getType().getAsString());
@@ -8552,8 +9037,18 @@ namespace convc2validcpp {
 					ddcs_ref.m_original_function_parameter_decl_cptrs.push_back(FND->getParamDecl(i));
 				}
 				auto return_type_source_range = state1_ptr
-					? cm1_adj_nice_source_range(FND->getReturnTypeSourceRange(), *state1_ptr, Rewrite)
-					: cm1_nice_source_range(FND->getReturnTypeSourceRange(), Rewrite);
+					? cm1_adjusted_source_range(FND->getReturnTypeSourceRange(), *state1_ptr, Rewrite)
+					: CSourceRangePlus{ cm1_nice_source_range(FND->getReturnTypeSourceRange(), Rewrite) };
+
+				if (decl_source_range.getBegin() < return_type_source_range.getBegin()) {
+					/* FunctionDecl::getReturnTypeSourceRange() seems to not include prefix qualifiers, like
+					* "const". */
+					return_type_source_range = extended_to_include_west_const_if_any(Rewrite, return_type_source_range);
+
+					if (state1_ptr) {
+						return_type_source_range = cm1_adjusted_source_range(return_type_source_range, *state1_ptr, Rewrite);
+					}
+				}
 				if (!(return_type_source_range.isValid())) {
 					return retval;
 				}
@@ -8562,6 +9057,7 @@ namespace convc2validcpp {
 					: cm1_nice_source_location(FND->getLocation(), Rewrite);
 				if ((return_type_source_range.getEnd() < name_SL) || (name_SL < return_type_source_range.getBegin())) {
 					ddcs_ref.m_function_return_type_original_source_text_str = getRewrittenTextOrEmpty(Rewrite, return_type_source_range);
+					ddcs_ref.m_function_return_type_SR_plus = return_type_source_range;
 				} else {
 					/* The return type source range seems to encompass the function name. Like maybe,
 					for example, if the return type is a pointer to a (native) array? */
@@ -9152,7 +9648,9 @@ namespace convc2validcpp {
 			const clang::FunctionDecl* FND = dyn_cast<const clang::FunctionDecl>(DD);
 			if (FND) {
 				auto name_str = FND->getNameAsString();
-				auto return_type_source_range = write_once_source_range(cm1_adj_nice_source_range(FND->getReturnTypeSourceRange(), state1, Rewrite));
+				auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(ddecl, &Rewrite);
+
+				auto return_type_source_range = write_once_source_range(ddcs_ref.m_function_return_type_SR_plus);
 				if (!(return_type_source_range.isValid())) {
 					return;
 				}
@@ -9184,8 +9682,6 @@ namespace convc2validcpp {
 
 				auto res = generate_declaration_replacement_code(&ddecl, Rewrite, &state1, state1.m_ddecl_conversion_state_map, options_str);
 				changed_from_original |= res.m_changed_from_original;
-
-				auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(ddecl, &Rewrite);
 
 				if (ConvertC2ValidCpp && return_type_source_range.isValid() && (1 <= res.m_replacement_code.size())
 						&& changed_from_original) {
@@ -9638,10 +10134,17 @@ namespace convc2validcpp {
 		IF_DEBUG(auto qtype_str = QT.getAsString();)
 
 		assert(ddecl.isFunctionOrFunctionTemplate() == QT->isFunctionType());
-		if ((TP->isFunctionType()) || (false)) {
+		if ((TP->isFunctionType())) {
 			const clang::FunctionDecl* FND = dyn_cast<const clang::FunctionDecl>(DD);
-			if (FND) {
-				auto return_type_source_range = write_once_source_range(cm1_adj_nice_source_range(FND->getReturnTypeSourceRange(), state1, Rewrite));
+			if (true && FND) {
+				auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+
+				/* Btw, it turns out that attempting to read the text at the return type source range after the text 
+				in the function declaration range has been modified is prone to causing segfaults. 
+				cm1_adj_nice_source_range() may attempt to read text in the given range. So here we'll just grab the 
+				previously stored return type source range, which can be obtained without reading any source text. */
+				//auto return_type_source_range = write_once_source_range(cm1_adj_nice_source_range(FND->getReturnTypeSourceRange(), state1, Rewrite));
+				auto return_type_source_range = write_once_source_range(ddcs_ref.m_function_return_type_SR_plus);
 				if (!(return_type_source_range.isValid())) {
 					return;
 				}
@@ -9666,6 +10169,11 @@ namespace convc2validcpp {
 			/* This modification needs to be queued so that it will be executed after any other
 			modifications that might affect the relevant part of the source text. */
 			state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
+
+			/* We've queued the modification action for deferred execution, but we don't want to delay the establishment 
+			of the ddecl conversion state because, among other reasons, it reads from and stores the original source 
+			text and we want that done before the source text gets potentially modified. */
+			auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 		}
 
 		if (apply_to_redeclarations_t::yes == apply_to_redeclarations) {

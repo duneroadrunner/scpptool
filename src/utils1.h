@@ -76,6 +76,51 @@ inline std::string getRewrittenTextOrEmpty(clang::Rewriter& Rewrite, clang::Sour
 	return "";
 };
 
+inline std::optional<clang::SourceLocation> getLocWithOffsetIfAvailable(clang::Rewriter& Rewrite, clang::SourceLocation SL, int offset) {
+	std::optional<clang::SourceLocation> retval;
+	if (!SL.isValid()) {
+		return retval;
+	}
+	auto& SM = Rewrite.getSourceMgr();
+	const auto FID1 = SM.getFileID(SL);
+	const auto FL = SM.getFileLoc(SL);
+
+	const auto eof_SL = SM.getLocForEndOfFile(FID1);
+	const auto eof_FL = SM.getFileLoc(eof_SL);
+	if ((eof_FL == FL) && (1 <= offset)) {
+		return retval;
+	}
+	const auto sof_SL = SM.getLocForStartOfFile(FID1);
+	const auto sof_FL = SM.getFileLoc(sof_SL);
+	if ((sof_FL == FL) && (-1 >= offset)) {
+		return retval;
+	}
+
+	const auto SL2 = SL.getLocWithOffset(offset);
+	const auto FL2 = SM.getFileLoc(SL2);
+	const auto FID2 = SM.getFileID(SL2);
+	if ((!SL2.isValid()) || (!FID2.isValid()) || (FID1 != FID2)) {
+		return retval;
+		//exit_flag = true;
+		//break;
+	}
+
+	if (eof_FL < FL2) {
+		if (!(1 <= offset)) {
+			int q = 3;
+		}
+		return retval;
+	}
+	if (sof_FL > FL2) {
+		if (!(1 <= offset)) {
+			int q = 3;
+		}
+		return retval;
+	}
+
+	return SL2;
+};
+
 #define PP_CONCAT(a, b) a##b
 
 /*     Stringize a macro argument after it has been expanded. */
