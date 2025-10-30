@@ -12227,6 +12227,8 @@ namespace convm1 {
 					bool lhs_update_flag = false;
 					bool lhs_is_known_to_be_a_pointer_target = false;
 					bool lhs_is_non_modifiable = false;
+					bool lhs_seems_to_be_an_addressof_expression = (lhs_inference_info.maybe_indirection_level_adjustment.has_value()
+						&& (-1 == lhs_inference_info.maybe_indirection_level_adjustment.value()));
 					std::optional<CFunctionTypeState> lhs_maybe_function_state;
 					CDDeclConversionState* lhs_ddcs_ptr = nullptr;
 					if (lhs_DD != nullptr) {
@@ -12237,45 +12239,47 @@ namespace convm1 {
 						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &Rewrite);
 						lhs_ddcs_ptr = &ddcs_ref;
 
-						if (lhs_inference_info.indirection_level < ddcs_ref.m_indirection_state_stack.size()) {
-							auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(lhs_inference_info.indirection_level);
-							lhs_maybe_function_state = indirection_state_ref.m_function_type_state;
+						if (!lhs_seems_to_be_an_addressof_expression) {
+							if (lhs_inference_info.indirection_level < ddcs_ref.m_indirection_state_stack.size()) {
+								auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(lhs_inference_info.indirection_level);
+								lhs_maybe_function_state = indirection_state_ref.m_function_type_state;
 
-							if (lhs_is_non_modifiable && LHS->getType()->isPointerType()) {
-								/* We consider non-modifiable raw pointer expressions to be a pointer type that could be pointing to either 
-								a malloc()ed target or a non-malloc()ed target.*/
-								auto lhs_indirection = CDDeclIndirection{ *lhs_DD, lhs_inference_info.indirection_level };
-								if (!indirection_state_ref.is_known_to_have_malloc_target()) {
-									indirection_state_ref.set_is_known_to_have_malloc_target(true);
-									state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_indirection);
-									if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
-										state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_indirection);
+								if (lhs_is_non_modifiable && LHS->getType()->isPointerType()) {
+									/* We consider non-modifiable raw pointer expressions to be a pointer type that could be pointing to either 
+									a malloc()ed target or a non-malloc()ed target.*/
+									auto lhs_indirection = CDDeclIndirection{ *lhs_DD, lhs_inference_info.indirection_level };
+									if (!indirection_state_ref.is_known_to_have_malloc_target()) {
+										indirection_state_ref.set_is_known_to_have_malloc_target(true);
+										state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_indirection);
+										if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+											state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_indirection);
+										}
+									}
+									if (!indirection_state_ref.is_known_to_have_non_malloc_target()) {
+										indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
+										state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_indirection);
+										if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+											state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_indirection);
+										}
 									}
 								}
-								if (!indirection_state_ref.is_known_to_have_non_malloc_target()) {
-									indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
-									state1.m_conversion_state_change_action_map.execute_matching_actions(state1, lhs_indirection);
-									if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
-										state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_indirection);
-									}
-								}
-							}
 
-							if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
-								lhs_is_known_to_be_an_array = true;
-								if (indirection_state_ref.is_known_to_have_malloc_target() && indirection_state_ref.is_known_to_have_non_malloc_target()) {
-									lhs_is_variously_native_and_dynamic_array = true;
-								} else if (indirection_state_ref.is_known_to_have_malloc_target()) {
-									lhs_is_dynamic_array = true;
-								} else if (indirection_state_ref.is_known_to_have_non_malloc_target()) {
-									lhs_is_native_array = true;
-								} 
-							}
-						} else {
-							auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state;
-							lhs_maybe_function_state = indirection_state_ref.m_function_type_state;
-							if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
-								lhs_is_known_to_be_a_pointer_target = true;
+								if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+									lhs_is_known_to_be_an_array = true;
+									if (indirection_state_ref.is_known_to_have_malloc_target() && indirection_state_ref.is_known_to_have_non_malloc_target()) {
+										lhs_is_variously_native_and_dynamic_array = true;
+									} else if (indirection_state_ref.is_known_to_have_malloc_target()) {
+										lhs_is_dynamic_array = true;
+									} else if (indirection_state_ref.is_known_to_have_non_malloc_target()) {
+										lhs_is_native_array = true;
+									} 
+								}
+							} else {
+								auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state;
+								lhs_maybe_function_state = indirection_state_ref.m_function_type_state;
+								if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
+									lhs_is_known_to_be_a_pointer_target = true;
+								}
 							}
 						}
 						if (lhs_update_flag) {
@@ -12300,6 +12304,8 @@ namespace convm1 {
 					bool rhs_update_flag = false;
 					bool rhs_is_known_to_be_a_pointer_target = false;
 					bool rhs_is_non_modifiable = false;
+					bool rhs_seems_to_be_an_addressof_expression = (rhs_inference_info.maybe_indirection_level_adjustment.has_value()
+						&& (-1 == rhs_inference_info.maybe_indirection_level_adjustment.value()));
 					std::optional<CFunctionTypeState> rhs_maybe_function_state;
 					if (rhs_DD != nullptr) {
 						if (state1.m_ast_context_ptr) {
@@ -12308,48 +12314,50 @@ namespace convm1 {
 
 						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &Rewrite);
 
-						if (rhs_inference_info.indirection_level < ddcs_ref.m_indirection_state_stack.size()) {
-							auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(rhs_inference_info.indirection_level);
-							rhs_maybe_function_state = indirection_state_ref.m_function_type_state;
+						if (!rhs_seems_to_be_an_addressof_expression) {
+							if (rhs_inference_info.indirection_level < ddcs_ref.m_indirection_state_stack.size()) {
+								auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(rhs_inference_info.indirection_level);
+								rhs_maybe_function_state = indirection_state_ref.m_function_type_state;
 
-							if (rhs_is_non_modifiable && RHS->getType()->isPointerType()) {
-								/* We consider non-modifiable raw pointer expressions to be a pointer type that could be pointing to either 
-								a malloc()ed target or a non-malloc()ed target.*/
-								auto rhs_indirection = CDDeclIndirection{ *rhs_DD, rhs_inference_info.indirection_level };
-								if (!indirection_state_ref.is_known_to_have_malloc_target()) {
-									indirection_state_ref.set_is_known_to_have_malloc_target(true);
-									state1.m_conversion_state_change_action_map.execute_matching_actions(state1, rhs_indirection);
-									if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
-										state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
+								if (rhs_is_non_modifiable && RHS->getType()->isPointerType()) {
+									/* We consider non-modifiable raw pointer expressions to be a pointer type that could be pointing to either 
+									a malloc()ed target or a non-malloc()ed target.*/
+									auto rhs_indirection = CDDeclIndirection{ *rhs_DD, rhs_inference_info.indirection_level };
+									if (!indirection_state_ref.is_known_to_have_malloc_target()) {
+										indirection_state_ref.set_is_known_to_have_malloc_target(true);
+										state1.m_conversion_state_change_action_map.execute_matching_actions(state1, rhs_indirection);
+										if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+											state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
+										}
+									}
+									if (!indirection_state_ref.is_known_to_have_non_malloc_target()) {
+										indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
+										state1.m_conversion_state_change_action_map.execute_matching_actions(state1, rhs_indirection);
+										if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+											state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
+										}
 									}
 								}
-								if (!indirection_state_ref.is_known_to_have_non_malloc_target()) {
-									indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
-									state1.m_conversion_state_change_action_map.execute_matching_actions(state1, rhs_indirection);
-									if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
-										state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, rhs_indirection);
-									}
-								}
-							}
 
-							if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
-								rhs_is_known_to_be_an_array = true;
-								if (indirection_state_ref.is_known_to_have_malloc_target() && indirection_state_ref.is_known_to_have_non_malloc_target()) {
-									rhs_is_variously_native_and_dynamic_array = true;
-								} else if (indirection_state_ref.is_known_to_have_malloc_target()) {
-									rhs_is_dynamic_array = true;
-								} else if (indirection_state_ref.is_known_to_have_non_malloc_target()) {
-									rhs_is_native_array = true;
-								} 
-							}
-							if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
-								rhs_is_known_to_be_a_pointer_target = true;
-							}
-						} else {
-							auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state;
-							rhs_maybe_function_state = indirection_state_ref.m_function_type_state;
-							if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
-								rhs_is_known_to_be_a_pointer_target = true;
+								if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+									rhs_is_known_to_be_an_array = true;
+									if (indirection_state_ref.is_known_to_have_malloc_target() && indirection_state_ref.is_known_to_have_non_malloc_target()) {
+										rhs_is_variously_native_and_dynamic_array = true;
+									} else if (indirection_state_ref.is_known_to_have_malloc_target()) {
+										rhs_is_dynamic_array = true;
+									} else if (indirection_state_ref.is_known_to_have_non_malloc_target()) {
+										rhs_is_native_array = true;
+									} 
+								}
+								if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
+									rhs_is_known_to_be_a_pointer_target = true;
+								}
+							} else {
+								auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state;
+								rhs_maybe_function_state = indirection_state_ref.m_function_type_state;
+								if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
+									rhs_is_known_to_be_a_pointer_target = true;
+								}
 							}
 						}
 						if (rhs_update_flag) {
@@ -12593,75 +12601,109 @@ namespace convm1 {
 							}
 
 							if (lhs_needs_to_be_wrapped || rhs_needs_to_be_wrapped) {
-								std::string arg_pointee_qtype_str;
+								if (lhs_needs_to_be_wrapped && rhs_needs_to_be_wrapped) {
+									std::string arg_pointee_qtype_str;
 
-								CDDeclConversionState* ddcs_ptr = nullptr;
-								CArrayInferenceInfo& inference_info = lhs_DD ? lhs_inference_info : rhs_inference_info;
-								if (lhs_DD != nullptr) {
-									auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &Rewrite);
-									ddcs_ptr = &ddcs_ref;
-									inference_info = lhs_inference_info;
-								} else if (rhs_DD != nullptr) {
-									auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &Rewrite);
-									ddcs_ptr = &ddcs_ref;
-									inference_info = rhs_inference_info;
-								}
-								if (ddcs_ptr) {
-									auto& ddcs_ref = *ddcs_ptr;
-									if ((inference_info.indirection_level + 1) <= ddcs_ref.m_indirection_state_stack.size()) {
-										auto indirection_state_stack_of_pointee = ddcs_ref.m_indirection_state_stack;
-										/* This clears the base vector, but leaves the other members intact. */
-										indirection_state_stack_of_pointee.clear();
-										for (size_t i = size_t(inference_info.indirection_level + 1); ddcs_ref.m_indirection_state_stack.size() > i; ++i) {
-											indirection_state_stack_of_pointee.push_back(ddcs_ref.m_indirection_state_stack.at(i));
-										}
-
-										auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_pointee, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
-
-										arg_pointee_qtype_str = res3.m_complete_type_str;
-
-										if (0 == indirection_state_stack_of_pointee.size()) {
-											/* The type of the conditional operator argument(/alternative/option/branch) expressions seems to have
-											(only) one level of indirection. (I.e. It may be a pointer, but not a pointer to a pointer.) So the
-											"pointee" type is the "direct" type. */
-											if (LHS->getType()->getPointeeType().isConstQualified()) {
-												if (!(ddcs_ref.direct_type_state_ref().is_const())) {
-													/* Ok, so the pointee/"direct" type derived from the DDecl seems to be non-const, while the 
-													pointee/"direct" type of the actual type of the conditional operator argument(/alternative/option/branch) 
-													expressions is const. So we'll just add a const qualifier to the "direct" type. */
-													arg_pointee_qtype_str = "const " + arg_pointee_qtype_str;
-												}
+									CDDeclConversionState* ddcs_ptr = nullptr;
+									CArrayInferenceInfo& inference_info = lhs_DD ? lhs_inference_info : rhs_inference_info;
+									if (lhs_DD != nullptr) {
+										auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &Rewrite);
+										ddcs_ptr = &ddcs_ref;
+										inference_info = lhs_inference_info;
+									} else if (rhs_DD != nullptr) {
+										auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &Rewrite);
+										ddcs_ptr = &ddcs_ref;
+										inference_info = rhs_inference_info;
+									}
+									if (ddcs_ptr) {
+										auto& ddcs_ref = *ddcs_ptr;
+										auto pointee_indirection_level = inference_info.indirection_level + 1;
+										if (inference_info.maybe_indirection_level_adjustment.has_value()) {
+											const auto adjustment = inference_info.maybe_indirection_level_adjustment.value();
+											if (-1 <= adjustment) {
+												pointee_indirection_level += adjustment;
+											} else {
+												/* unexpected? */
+												int q = 3;
 											}
 										}
-									} else {
-										/* unexpected */
-										int q = 3;
-									}
-								}
-								if ("" == arg_pointee_qtype_str) {
-									arg_pointee_qtype_str = LHS->getType()->getPointeeType().getAsString();
-								}
+										if (pointee_indirection_level <= ddcs_ref.m_indirection_state_stack.size()) {
+											auto indirection_state_stack_of_pointee = ddcs_ref.m_indirection_state_stack;
+											/* This clears the base vector, but leaves the other members intact. */
+											indirection_state_stack_of_pointee.clear();
+											for (size_t i = size_t(pointee_indirection_level); ddcs_ref.m_indirection_state_stack.size() > i; ++i) {
+												indirection_state_stack_of_pointee.push_back(ddcs_ref.m_indirection_state_stack.at(i));
+											}
 
-								auto xscope_eligibility = EXScopeEligibility::No;
-								std::string arg_prefix_str;
-								if ("Dual" == ConvertMode) {
-									arg_prefix_str = "MSE_LH_CAST(";
-									if (false && (EXScopeEligibility::Yes == xscope_eligibility)) {
-										arg_prefix_str += "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(" + arg_pointee_qtype_str + ")";
-									} else {
-										arg_prefix_str += "MSE_LH_ARRAY_ITERATOR_TYPE(" + arg_pointee_qtype_str + ")";
+											auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_pointee, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
+
+											arg_pointee_qtype_str = res3.m_complete_type_str;
+
+											if (0 == indirection_state_stack_of_pointee.size()) {
+												/* The type of the conditional operator argument(/alternative/option/branch) expressions seems to have
+												(only) one level of indirection. (I.e. It may be a pointer, but not a pointer to a pointer.) So the
+												"pointee" type is the "direct" type. */
+												if (LHS->getType()->getPointeeType().isConstQualified()) {
+													if (!(ddcs_ref.direct_type_state_ref().is_const())) {
+														/* Ok, so the pointee/"direct" type derived from the DDecl seems to be non-const, while the 
+														pointee/"direct" type of the actual type of the conditional operator argument(/alternative/option/branch) 
+														expressions is const. So we'll just add a const qualifier to the "direct" type. */
+														arg_pointee_qtype_str = "const " + arg_pointee_qtype_str;
+													}
+												}
+											}
+										} else {
+											/* unexpected */
+											int q = 3;
+										}
 									}
-									arg_prefix_str += ", ";
+									if ("" == arg_pointee_qtype_str) {
+										arg_pointee_qtype_str = LHS->getType()->getPointeeType().getAsString();
+									}
+
+									auto xscope_eligibility = EXScopeEligibility::No;
+									std::string arg_prefix_str;
+									if ("Dual" == ConvertMode) {
+										arg_prefix_str = "MSE_LH_CAST(";
+										if (false && (EXScopeEligibility::Yes == xscope_eligibility)) {
+											arg_prefix_str += "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(" + arg_pointee_qtype_str + ")";
+										} else {
+											arg_prefix_str += "MSE_LH_ARRAY_ITERATOR_TYPE(" + arg_pointee_qtype_str + ")";
+										}
+										arg_prefix_str += ", ";
+									} else {
+										if (false && EXScopeEligibility::Yes == xscope_eligibility) {
+											arg_prefix_str += "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<" + arg_pointee_qtype_str + " >";
+										} else {
+											arg_prefix_str += "mse::lh::TLHNullableAnyRandomAccessIterator<" + arg_pointee_qtype_str + " >";
+										}
+										arg_prefix_str += "(";
+									}
+									cocs_ref.m_arg_prefix_str += arg_prefix_str;
+									cocs_ref.m_arg_suffix_str = cocs_ref.m_arg_suffix_str + ")";
 								} else {
-									if (false && EXScopeEligibility::Yes == xscope_eligibility) {
-										arg_prefix_str += "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<" + arg_pointee_qtype_str + " >";
+									std::string arg_type_str;
+									if (lhs_needs_to_be_wrapped) {
+										assert(!rhs_needs_to_be_wrapped);
+										auto& ecs_ref = state1.get_expr_conversion_state_ref(*RHS, Rewrite);
+										arg_type_str = "decltype(" + ecs_ref.current_text() + ")";
 									} else {
-										arg_prefix_str += "mse::lh::TLHNullableAnyRandomAccessIterator<" + arg_pointee_qtype_str + " >";
+										assert(rhs_needs_to_be_wrapped && !lhs_needs_to_be_wrapped);
+										auto& ecs_ref = state1.get_expr_conversion_state_ref(*LHS, Rewrite);
+										arg_type_str = "decltype(" + ecs_ref.current_text() + ")";
+									} 
+									std::string arg_prefix_str;
+									if ("Dual" == ConvertMode) {
+										arg_prefix_str = "MSE_LH_CAST(";
+										arg_prefix_str += arg_type_str;
+										arg_prefix_str += ", ";
+									} else {
+										arg_prefix_str += arg_type_str;
+										arg_prefix_str += "(";
 									}
-									arg_prefix_str += "(";
+									cocs_ref.m_arg_prefix_str += arg_prefix_str;
+									cocs_ref.m_arg_suffix_str = cocs_ref.m_arg_suffix_str + ")";
 								}
-								cocs_ref.m_arg_prefix_str += arg_prefix_str;
-								cocs_ref.m_arg_suffix_str = cocs_ref.m_arg_suffix_str + ")";
 
 								if (lhs_needs_to_be_wrapped) {
 									cocs_ref.m_lhs_needs_to_be_cast = true;
