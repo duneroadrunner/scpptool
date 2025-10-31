@@ -12605,109 +12605,85 @@ namespace convm1 {
 							}
 
 							if (lhs_needs_to_be_wrapped || rhs_needs_to_be_wrapped) {
-								if (lhs_needs_to_be_wrapped && rhs_needs_to_be_wrapped) {
-									std::string arg_pointee_qtype_str;
+								std::string arg_pointee_qtype_str;
 
-									CDDeclConversionState* ddcs_ptr = nullptr;
-									CArrayInferenceInfo& inference_info = lhs_DD ? lhs_inference_info : rhs_inference_info;
-									if (lhs_DD != nullptr) {
-										auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &Rewrite);
-										ddcs_ptr = &ddcs_ref;
-										inference_info = lhs_inference_info;
-									} else if (rhs_DD != nullptr) {
-										auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &Rewrite);
-										ddcs_ptr = &ddcs_ref;
-										inference_info = rhs_inference_info;
-									}
-									if (ddcs_ptr) {
-										auto& ddcs_ref = *ddcs_ptr;
-										auto pointee_indirection_level = inference_info.indirection_level + 1;
-										if (inference_info.maybe_indirection_level_adjustment.has_value()) {
-											const auto adjustment = inference_info.maybe_indirection_level_adjustment.value();
-											if (-1 <= adjustment) {
-												pointee_indirection_level += adjustment;
-											} else {
-												/* unexpected? */
-												int q = 3;
-											}
-										}
-										if (pointee_indirection_level <= ddcs_ref.m_indirection_state_stack.size()) {
-											auto indirection_state_stack_of_pointee = ddcs_ref.m_indirection_state_stack;
-											/* This clears the base vector, but leaves the other members intact. */
-											indirection_state_stack_of_pointee.clear();
-											for (size_t i = size_t(pointee_indirection_level); ddcs_ref.m_indirection_state_stack.size() > i; ++i) {
-												indirection_state_stack_of_pointee.push_back(ddcs_ref.m_indirection_state_stack.at(i));
-											}
-
-											auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_pointee, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
-
-											arg_pointee_qtype_str = res3.m_complete_type_str;
-
-											if (0 == indirection_state_stack_of_pointee.size()) {
-												/* The type of the conditional operator argument(/alternative/option/branch) expressions seems to have
-												(only) one level of indirection. (I.e. It may be a pointer, but not a pointer to a pointer.) So the
-												"pointee" type is the "direct" type. */
-												if (LHS->getType()->getPointeeType().isConstQualified()) {
-													if (!(ddcs_ref.direct_type_state_ref().is_const())) {
-														/* Ok, so the pointee/"direct" type derived from the DDecl seems to be non-const, while the 
-														pointee/"direct" type of the actual type of the conditional operator argument(/alternative/option/branch) 
-														expressions is const. So we'll just add a const qualifier to the "direct" type. */
-														arg_pointee_qtype_str = "const " + arg_pointee_qtype_str;
-													}
-												}
-											}
+								CDDeclConversionState* ddcs_ptr = nullptr;
+								CArrayInferenceInfo& inference_info = lhs_DD ? lhs_inference_info : rhs_inference_info;
+								if (lhs_DD != nullptr) {
+									auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &Rewrite);
+									ddcs_ptr = &ddcs_ref;
+									inference_info = lhs_inference_info;
+								} else if (rhs_DD != nullptr) {
+									auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &Rewrite);
+									ddcs_ptr = &ddcs_ref;
+									inference_info = rhs_inference_info;
+								}
+								if (ddcs_ptr) {
+									auto& ddcs_ref = *ddcs_ptr;
+									auto pointee_indirection_level = inference_info.indirection_level + 1;
+									if (inference_info.maybe_indirection_level_adjustment.has_value()) {
+										const auto adjustment = inference_info.maybe_indirection_level_adjustment.value();
+										if (-1 <= adjustment) {
+											pointee_indirection_level += adjustment;
 										} else {
-											/* unexpected */
+											/* unexpected? */
 											int q = 3;
 										}
 									}
-									if ("" == arg_pointee_qtype_str) {
-										arg_pointee_qtype_str = LHS->getType()->getPointeeType().getAsString();
-									}
+									if (pointee_indirection_level <= ddcs_ref.m_indirection_state_stack.size()) {
+										auto indirection_state_stack_of_pointee = ddcs_ref.m_indirection_state_stack;
+										/* This clears the base vector, but leaves the other members intact. */
+										indirection_state_stack_of_pointee.clear();
+										for (size_t i = size_t(pointee_indirection_level); ddcs_ref.m_indirection_state_stack.size() > i; ++i) {
+											indirection_state_stack_of_pointee.push_back(ddcs_ref.m_indirection_state_stack.at(i));
+										}
 
-									auto xscope_eligibility = EXScopeEligibility::No;
-									std::string arg_prefix_str;
-									if ("Dual" == ConvertMode) {
-										arg_prefix_str = "MSE_LH_CAST(";
-										if (false && (EXScopeEligibility::Yes == xscope_eligibility)) {
-											arg_prefix_str += "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(" + arg_pointee_qtype_str + ")";
-										} else {
-											arg_prefix_str += "MSE_LH_ARRAY_ITERATOR_TYPE(" + arg_pointee_qtype_str + ")";
+										auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_pointee, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
+
+										arg_pointee_qtype_str = res3.m_complete_type_str;
+
+										if (0 == indirection_state_stack_of_pointee.size()) {
+											/* The type of the conditional operator argument(/alternative/option/branch) expressions seems to have
+											(only) one level of indirection. (I.e. It may be a pointer, but not a pointer to a pointer.) So the
+											"pointee" type is the "direct" type. */
+											if (LHS->getType()->getPointeeType().isConstQualified()) {
+												if (!(ddcs_ref.direct_type_state_ref().is_const())) {
+													/* Ok, so the pointee/"direct" type derived from the DDecl seems to be non-const, while the 
+													pointee/"direct" type of the actual type of the conditional operator argument(/alternative/option/branch) 
+													expressions is const. So we'll just add a const qualifier to the "direct" type. */
+													arg_pointee_qtype_str = "const " + arg_pointee_qtype_str;
+												}
+											}
 										}
-										arg_prefix_str += ", ";
 									} else {
-										if (false && EXScopeEligibility::Yes == xscope_eligibility) {
-											arg_prefix_str += "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<" + arg_pointee_qtype_str + " >";
-										} else {
-											arg_prefix_str += "mse::lh::TLHNullableAnyRandomAccessIterator<" + arg_pointee_qtype_str + " >";
-										}
-										arg_prefix_str += "(";
+										/* unexpected */
+										int q = 3;
 									}
-									cocs_ref.m_arg_prefix_str += arg_prefix_str;
-									cocs_ref.m_arg_suffix_str = cocs_ref.m_arg_suffix_str + ")";
-								} else {
-									std::string arg_type_str;
-									if (lhs_needs_to_be_wrapped) {
-										assert(!rhs_needs_to_be_wrapped);
-										auto& ecs_ref = state1.get_expr_conversion_state_ref(*RHS, Rewrite);
-										arg_type_str = "decltype(" + ecs_ref.current_text() + ")";
-									} else {
-										assert(rhs_needs_to_be_wrapped && !lhs_needs_to_be_wrapped);
-										auto& ecs_ref = state1.get_expr_conversion_state_ref(*LHS, Rewrite);
-										arg_type_str = "decltype(" + ecs_ref.current_text() + ")";
-									} 
-									std::string arg_prefix_str;
-									if ("Dual" == ConvertMode) {
-										arg_prefix_str = "MSE_LH_CAST(";
-										arg_prefix_str += arg_type_str;
-										arg_prefix_str += ", ";
-									} else {
-										arg_prefix_str += arg_type_str;
-										arg_prefix_str += "(";
-									}
-									cocs_ref.m_arg_prefix_str += arg_prefix_str;
-									cocs_ref.m_arg_suffix_str = cocs_ref.m_arg_suffix_str + ")";
 								}
+								if ("" == arg_pointee_qtype_str) {
+									arg_pointee_qtype_str = LHS->getType()->getPointeeType().getAsString();
+								}
+
+								auto xscope_eligibility = EXScopeEligibility::No;
+								std::string arg_prefix_str;
+								if ("Dual" == ConvertMode) {
+									arg_prefix_str = "MSE_LH_CAST(";
+									if (false && (EXScopeEligibility::Yes == xscope_eligibility)) {
+										arg_prefix_str += "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(" + arg_pointee_qtype_str + ")";
+									} else {
+										arg_prefix_str += "MSE_LH_ARRAY_ITERATOR_TYPE(" + arg_pointee_qtype_str + ")";
+									}
+									arg_prefix_str += ", ";
+								} else {
+									if (false && EXScopeEligibility::Yes == xscope_eligibility) {
+										arg_prefix_str += "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<" + arg_pointee_qtype_str + " >";
+									} else {
+										arg_prefix_str += "mse::lh::TLHNullableAnyRandomAccessIterator<" + arg_pointee_qtype_str + " >";
+									}
+									arg_prefix_str += "(";
+								}
+								cocs_ref.m_arg_prefix_str += arg_prefix_str;
+								cocs_ref.m_arg_suffix_str = cocs_ref.m_arg_suffix_str + ")";
 
 								if (lhs_needs_to_be_wrapped) {
 									cocs_ref.m_lhs_needs_to_be_cast = true;
