@@ -16516,7 +16516,7 @@ namespace convm1 {
 						static const std::string anonymous_struct_prefix = "struct (anonymous struct";
 						static const std::string unnamed_struct_prefix = "struct (unnamed struct";
 						if ((std::string::npos != element_qtype_str.find(anonymous_struct_prefix)) || (std::string::npos != element_qtype_str.find(unnamed_struct_prefix))) {
-							/* The declaration seeems to be a (native) array of an unnamed struct type. But `lh::TNativeArrayReplacement<>` 
+							/* The declaration seems to be a (native) array of an unnamed struct type. But `lh::TNativeArrayReplacement<>` 
 							(like `std::array<>`) doesn't support unnamed struct types. Ultimately the solution would presumably be to just 
 							give the struct a name in a separate declaration, but for now we're just going to treat it as if it were 
 							unmodifiable. */
@@ -17957,8 +17957,47 @@ namespace convm1 {
 						int q = 5;
 					}
 					int q = 5;
-		
-					return;
+
+					if (EIsAnInitialization::Yes == is_an_initialization) {
+						bool LHS_decl_seems_to_be_a_non_modifiable_array_of_structs_with_modifiable_fields = false;
+						auto DD = lhs_res2.ddecl_cptr;
+						if (DD->getType()->isArrayType()) {
+							if (llvm::isa<const clang::ArrayType>(DD->getType().getTypePtr())) {
+								auto ATP = llvm::cast<const clang::ArrayType>(DD->getType().getTypePtr());
+								auto element_qtype = ATP->getElementType();
+								std::string element_qtype_str = element_qtype.getAsString();
+
+								auto ILE = dyn_cast<const clang::InitListExpr>(RHS_ii);
+								if (ILE && lhs_res2.ddecl_conversion_state_ptr) {
+									/* We seems to be dealing with a native array declaration with an InitListExpr. */
+
+									auto RD = element_qtype->getAsRecordDecl();
+									if (RD) {
+										for (auto FD : RD->fields()) {
+											if (FD) {
+												auto FD_is_non_modifiable = is_non_modifiable(*FD, MR, Rewrite, state1);
+												if (!FD_is_non_modifiable) {
+													/* The LHS decl seems to be a non-modifiable array of structs with modifiable fields. For example, in 
+													the case of native arrays of unnamed structs, the array itself may get reported as non-modifiable 
+													(rightly or wrongly) just due the fact that we don't (yet) support conversions of such types. But in 
+													such case, the fields of the (unnamed) struct may remain modifiable. So if such an array is 
+													initialized with an InitListExpr, we'd still need to process the relationships between the struct 
+													fields and the elements they are initialized with. */
+													LHS_decl_seems_to_be_a_non_modifiable_array_of_structs_with_modifiable_fields = true;
+													break;
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+						if (!LHS_decl_seems_to_be_a_non_modifiable_array_of_structs_with_modifiable_fields) {
+							return;
+						}
+					} else {
+						return;
+					}
 				}
 			}
 
@@ -18122,7 +18161,7 @@ namespace convm1 {
 				assert(RHS->getType().getTypePtrOrNull());
 
 				/* If the type definition is non-modifiable then we hesitate to convert items declared as that type. 
-				For example, you could imagine a library defining a "handle" type as a pointer (at least on cetain 
+				For example, you could imagine a library defining a "handle" type as a pointer (at least on certain 
 				platforms). We probably wouldn't want to convert items declared as that handle type to safe pointers. */
 				auto RHS_type_definition_is_non_modifiable = type_definition_is_non_modifiable(RHS_qtype, MR, Rewrite, state1);
 
@@ -18243,71 +18282,77 @@ namespace convm1 {
 				}
 			}
 
-			auto ILE = dyn_cast<const clang::InitListExpr>(RHS_ii);
-			if (ILE && lhs_res2.ddecl_conversion_state_ptr) {
-				if (lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size() >= (lhs_res2.indirection_level + lhs_indirection_level_adjustment)) {
-					auto adjusted_lhs_qtype = [&]() {
-						if (maybe_adjusted_lhs_qtype.has_value()) {
-							return maybe_adjusted_lhs_qtype.value();
-						}
-						return lhs_qtype;
-					};
-					bool is_array_type = false;
-					const auto adj_lhs_qtype = adjusted_lhs_qtype();
-					if (adj_lhs_qtype->isArrayType()) {
-						auto element_TypePtr = adj_lhs_qtype->getPointeeOrArrayElementType();
-						const auto num_int_items = ILE->getNumInits();
-						for (size_t i = 0; num_int_items > i; i += 1) {
-							auto init_item_E = ILE->getInit(i);
-							if (init_item_E) {
-								/* For each item in the initializer list, we'll process a synthesized assignment operation. We need 
-								to pass 1 as the argument for the maybe_lhs_indirection_level_adjustment parameter to indicate that 
-								the provided RHS expression should not be assigned to the provided (native) array declaration, but 
-								rather some element of the array. */
-								auto l_maybe_lhs_indirection_level_adjustment = maybe_lhs_indirection_level_adjustment;
-								if (l_maybe_lhs_indirection_level_adjustment.has_value()) {
-									l_maybe_lhs_indirection_level_adjustment.value() += 1;
-								} else {
-									l_maybe_lhs_indirection_level_adjustment = 1;
+			auto check_for_and_handle_InitListExpr = [&]() -> bool {
+					auto ILE = dyn_cast<const clang::InitListExpr>(RHS_ii);
+					if (ILE && lhs_res2.ddecl_conversion_state_ptr) {
+						if (lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size() >= (lhs_res2.indirection_level + lhs_indirection_level_adjustment)) {
+							auto adjusted_lhs_qtype = [&]() {
+								if (maybe_adjusted_lhs_qtype.has_value()) {
+									return maybe_adjusted_lhs_qtype.value();
 								}
-								/* recursion */
-								MCSSSAssignment::s_handler1(MR, Rewrite, state1, LHS/*LHS*//*presumably null in this case*/, init_item_E/*RHS*/
-									, VLD/*VLD*/, is_an_initialization, l_maybe_lhs_indirection_level_adjustment);
-							} else {
-								int q = 3;
-							}
-						}
-					} else {
-						const auto RD = adj_lhs_qtype->getAsRecordDecl();
-						if (RD) {
-							auto field_range = RD->fields();
-							int num_fields = 0;
-							for (auto iter = field_range.begin(); field_range.end() != iter; ++iter) {
-								num_fields += 1;
-							}
-							const auto num_int_items = ILE->getNumInits();
-							if (num_int_items <= num_fields) {
-								size_t init_item_index = 0;
-								for (auto iter = field_range.begin(); (field_range.end() != iter) && (num_int_items > init_item_index); ++iter) {
-									clang::Expr const* init_item_E = nullptr;
-									init_item_E = ILE->getInit(init_item_index);
-									auto FD = *iter;
-									if (FD && init_item_E) {
-										IF_DEBUG(std::string init_item_qtype_str = init_item_E->getType().getAsString();)
+								return lhs_qtype;
+							};
+							bool is_array_type = false;
+							const auto adj_lhs_qtype = adjusted_lhs_qtype();
+							if (adj_lhs_qtype->isArrayType()) {
+								auto element_TypePtr = adj_lhs_qtype->getPointeeOrArrayElementType();
+								const auto num_int_items = ILE->getNumInits();
+								for (size_t i = 0; num_int_items > i; i += 1) {
+									auto init_item_E = ILE->getInit(i);
+									if (init_item_E) {
+										/* For each item in the initializer list, we'll process a synthesized assignment operation. We need 
+										to pass 1 as the argument for the maybe_lhs_indirection_level_adjustment parameter to indicate that 
+										the provided RHS expression should not be assigned to the provided (native) array declaration, but 
+										rather some element of the array. */
+										auto l_maybe_lhs_indirection_level_adjustment = maybe_lhs_indirection_level_adjustment;
+										if (l_maybe_lhs_indirection_level_adjustment.has_value()) {
+											l_maybe_lhs_indirection_level_adjustment.value() += 1;
+										} else {
+											l_maybe_lhs_indirection_level_adjustment = 1;
+										}
 										/* recursion */
-										MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_item_E/*RHS*/, FD/*VLD*/, is_an_initialization);
+										MCSSSAssignment::s_handler1(MR, Rewrite, state1, LHS/*LHS*//*presumably null in this case*/, init_item_E/*RHS*/
+											, VLD/*VLD*/, is_an_initialization, l_maybe_lhs_indirection_level_adjustment);
 									} else {
 										int q = 3;
 									}
-
-									init_item_index += 1;
 								}
 							} else {
-								int q = 7;
+								const auto RD = adj_lhs_qtype->getAsRecordDecl();
+								if (RD) {
+									auto field_range = RD->fields();
+									int num_fields = 0;
+									for (auto iter = field_range.begin(); field_range.end() != iter; ++iter) {
+										num_fields += 1;
+									}
+									const auto num_int_items = ILE->getNumInits();
+									if (num_int_items <= num_fields) {
+										size_t init_item_index = 0;
+										for (auto iter = field_range.begin(); (field_range.end() != iter) && (num_int_items > init_item_index); ++iter) {
+											clang::Expr const* init_item_E = nullptr;
+											init_item_E = ILE->getInit(init_item_index);
+											auto FD = *iter;
+											if (FD && init_item_E) {
+												IF_DEBUG(std::string init_item_qtype_str = init_item_E->getType().getAsString();)
+												/* recursion */
+												MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_item_E/*RHS*/, FD/*VLD*/, is_an_initialization);
+											} else {
+												int q = 3;
+											}
+
+											init_item_index += 1;
+										}
+									} else {
+										int q = 7;
+									}
+								}
 							}
 						}
+						return true;
 					}
-				}
+					return false;
+				};
+			if (check_for_and_handle_InitListExpr()) {
 				return;
 			}
 
