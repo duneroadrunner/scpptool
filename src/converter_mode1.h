@@ -17956,8 +17956,14 @@ namespace convm1 {
 
 								if (RHS_ii->getType()->isFunctionType()) {
 									/* The rhs seems to be a function rather than a function pointer. */
-									make_raw_fn_wrapper_prefix_str += "&(";
-									make_raw_fn_wrapper_suffix_str = ")" + make_raw_fn_wrapper_suffix_str;
+									auto CO = dyn_cast<const clang::ConditionalOperator>(RHS_ii);
+									if ((!CO) && RHS_ii->isLValue()) {
+										/* The conversion of conditional operators generally results in the arguments being cast to the lhs type, 
+										so no further adjustment would be necessary. For other (lvalue) expressions we'll insert an addressof 
+										operation to explicitly obtain a (function) pointer to the function. */
+										make_raw_fn_wrapper_prefix_str += "&(";
+										make_raw_fn_wrapper_suffix_str = ")" + make_raw_fn_wrapper_suffix_str;
+									}
 								}
 
 								auto& ecs_ref = state1.get_expr_conversion_state_ref(*RHS_ii, Rewrite);
