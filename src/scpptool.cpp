@@ -86,8 +86,9 @@ cl::opt<bool> ScopeTypeFunctionParameters("ScopeTypeFunctionParameters", cl::des
   "\t This can result in invalid code (that may need to be fixed manually) in some cases, but the resulting \n"
   "\t functions may support arguments of scope type (including raw pointers). "), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> ScopeTypePointerFunctionParameters("ScopeTypePointerFunctionParameters", cl::desc("same as 'ScopeTypeFunctionParameters', but only applies to pointers, not iterators. (Not yet implemented.)"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
-cl::opt<bool> AddressableVars("AddressableVars", cl::desc("make variables of (safely) 'addressable' type even if they are never used as a pointer target"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
-cl::opt<bool> ConvertC2ValidCpp("ConvertC2ValidCpp", cl::desc("Modify C source to (more) conform to the subset supported by C++. (Preliminary implementation only.)"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
+cl::opt<bool> AddressableVars("AddressableVars", cl::desc("make variables be of (safely) 'addressable' type even if they are not used as a pointer target"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
+cl::opt<bool> AddPrecedingIncludeConfigDotHDirective("AddPrecedingIncludeConfigDotHDirective", cl::desc("adds a directive to include \"config.h\" before the SaferCPlusPlus libray header(s)"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
+cl::opt<bool> ConvertC2ValidCpp("ConvertC2ValidCpp", cl::desc("Modify C source to (more) conform to the subset supported by C++. "), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> ExpandPointerMacros("ExpandPointerMacros", cl::desc("Modify source so that instantiations of macros that contain pointers are replaced by their macro expansion. (May require multiple runs for nested macros.) (Preliminary implementation only.)"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> CheckSystemHeader("SysHeader", cl::desc("deprecated - process system headers also"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> MainFileOnly("MainOnly", cl::desc("process the main file only"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
@@ -189,7 +190,8 @@ int main(int argc, const char **argv)
             ConvertMode,
             ScopeTypeFunctionParameters,
             ScopeTypePointerFunctionParameters,
-            AddressableVars
+            AddressableVars,
+            AddPrecedingIncludeConfigDotHDirective
         };
 
   		THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)

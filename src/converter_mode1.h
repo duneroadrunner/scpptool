@@ -107,6 +107,7 @@ namespace convm1 {
     bool ScopeTypeFunctionParameters = false;
     bool ScopeTypePointerFunctionParameters = false;
 	bool AddressableVars = false;
+	bool AddPrecedingIncludeConfigDotHDirective = false;
 
     struct Options {
         bool CheckSystemHeader = false;
@@ -122,6 +123,7 @@ namespace convm1 {
         bool ScopeTypeFunctionParameters = false;
         bool ScopeTypePointerFunctionParameters = false;
 		bool AddressableVars = false;
+		bool AddPrecedingIncludeConfigDotHDirective = false;
     };
 
 	/* This class specifies a declaration and a level of "indirection"(/"dereference") relative to the declared
@@ -2014,48 +2016,67 @@ namespace convm1 {
 			//std::reverse(m_indirection_state_stack.begin(), m_indirection_state_stack.end());
 			m_indirection_state_stack.m_maybe_DD = &ddecl;
 
-			if (Rewrite_ptr && !((*this).m_original_source_text_has_been_noted)) {
+			if (Rewrite_ptr/* && !((*this).m_original_source_text_has_been_noted)*/) {
 				auto& Rewrite = *Rewrite_ptr;
+				auto& SM = Rewrite.getSourceMgr();
 				auto decl_source_range = state1_ptr ? cm1_adj_nice_source_range(m_ddecl_cptr->getSourceRange(), *state1_ptr, Rewrite) : m_ddecl_cptr->getSourceRange();
-
-				(*this).m_original_source_text_str = getRewrittenTextOrEmpty(Rewrite, decl_source_range);
-				auto FND = dyn_cast<const clang::FunctionDecl>(&ddecl);
-				if (FND) {
-					(*this).m_is_a_function = true;
-					for (size_t i = 0; i < FND->getNumParams(); i+=1) {
-						(*this).m_original_function_parameter_decl_cptrs.push_back(FND->getParamDecl(i));
-					}
-					auto return_type_source_range = state1_ptr
-						? cm1_adjusted_source_range(FND->getReturnTypeSourceRange(), *state1_ptr, Rewrite)
-						: CSourceRangePlus{ cm1_nice_source_range(FND->getReturnTypeSourceRange(), Rewrite) };
-
-					if (decl_source_range.getBegin() < return_type_source_range.getBegin()) {
-						/* FunctionDecl::getReturnTypeSourceRange() seems to not include prefix qualifiers, like
-						* "const". */
-						return_type_source_range = extended_to_include_west_const_if_any(Rewrite, return_type_source_range);
-
-						if (state1_ptr) {
-							return_type_source_range = cm1_adjusted_source_range(return_type_source_range, *state1_ptr, Rewrite);
+				if (decl_source_range.isValid() && (decl_source_range.getBegin() <= decl_source_range.getEnd())) {
+					if (1 <= (*this).m_indirection_state_stack.size()) {
+						auto decl_filename = get_filename(get_full_path_name(SM, decl_source_range.getBegin()));
+						if (string_ends_with(decl_filename, ".h") || string_ends_with(decl_filename, ".hpp")) {
+							/* For pointers declared within a translation unit, our whole-translation-unit analysis can assess whether 
+							on not they could potentially point to a "malloc()ed" target or a "non-malloc()ed" target (or both) and 
+							set their (safe pointer or iterator) type accordingly. But pointers declared in header files might be 
+							included in multiple translation units. And since our analysis only covers one translation unit at a time, 
+							it can't be certain that a pointer that doesn't point to a "malloc()ed" target (or doesn't point to a 
+							"non-malloc()ed" target) in the translation unit being analyzed, doesn't point to such a target in aother 
+							translation unit. So for pointers declared in header files, we'll conservatively assume that they could 
+							point to a "malloc()ed" target or a "non-malloc()ed" target (or both). */
+							auto& indirection_state_ref = (*this).m_indirection_state_stack.at(0);
+							//indirection_state_ref.set_is_known_to_have_malloc_target(true);
+							//indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
 						}
 					}
-					if (!(return_type_source_range.isValid())) {
-						//return retval;
-						int q = 5;
-					} else {
-						auto name_SL = state1_ptr
-							? cm1_adj_nice_source_location(FND->getLocation(), *state1_ptr, Rewrite)
-							: cm1_nice_source_location(FND->getLocation(), Rewrite);
-						if ((return_type_source_range.getEnd() < name_SL) || (name_SL < return_type_source_range.getBegin())) {
-							(*this).m_function_return_type_original_source_text_str = getRewrittenTextOrEmpty(Rewrite, return_type_source_range);
-							(*this).m_function_return_type_SR_plus = return_type_source_range;
-						} else {
-							/* The return type source range seems to encompass the function name. Like maybe,
-							for example, if the return type is a pointer to a (native) array? */
+
+					(*this).m_original_source_text_str = getRewrittenTextOrEmpty(Rewrite, decl_source_range);
+					auto FND = dyn_cast<const clang::FunctionDecl>(&ddecl);
+					if (FND) {
+						(*this).m_is_a_function = true;
+						for (size_t i = 0; i < FND->getNumParams(); i+=1) {
+							(*this).m_original_function_parameter_decl_cptrs.push_back(FND->getParamDecl(i));
+						}
+						auto return_type_source_range = state1_ptr
+							? cm1_adjusted_source_range(FND->getReturnTypeSourceRange(), *state1_ptr, Rewrite)
+							: CSourceRangePlus{ cm1_nice_source_range(FND->getReturnTypeSourceRange(), Rewrite) };
+
+						if (decl_source_range.getBegin() < return_type_source_range.getBegin()) {
+							/* FunctionDecl::getReturnTypeSourceRange() seems to not include prefix qualifiers, like
+							* "const". */
+							return_type_source_range = extended_to_include_west_const_if_any(Rewrite, return_type_source_range);
+
+							if (state1_ptr) {
+								return_type_source_range = cm1_adjusted_source_range(return_type_source_range, *state1_ptr, Rewrite);
+							}
+						}
+						if (!(return_type_source_range.isValid())) {
+							//return retval;
 							int q = 5;
+						} else {
+							auto name_SL = state1_ptr
+								? cm1_adj_nice_source_location(FND->getLocation(), *state1_ptr, Rewrite)
+								: cm1_nice_source_location(FND->getLocation(), Rewrite);
+							if ((return_type_source_range.getEnd() < name_SL) || (name_SL < return_type_source_range.getBegin())) {
+								(*this).m_function_return_type_original_source_text_str = getRewrittenTextOrEmpty(Rewrite, return_type_source_range);
+								(*this).m_function_return_type_SR_plus = return_type_source_range;
+							} else {
+								/* The return type source range seems to encompass the function name. Like maybe,
+								for example, if the return type is a pointer to a (native) array? */
+								int q = 5;
+							}
 						}
 					}
+					(*this).m_original_source_text_has_been_noted = true;
 				}
-				(*this).m_original_source_text_has_been_noted = true;
 			}
 		}
 		std::optional<clang::SourceRange> new_overwrite_location_for_delimiter_and_type() const {
@@ -15822,7 +15843,13 @@ namespace convm1 {
 		CTUState& m_state1;
 	};
 
-	/* This class addresses conditional expressions and initialized declarations in the form "type var = cond ? lhs : rhs;". */
+	enum class EIsAnInitialization { Yes, No };
+
+	inline void assignment_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+		, const clang::Expr* LHS, const clang::Expr* RHS, const clang::ValueDecl* VLD = nullptr
+		, EIsAnInitialization is_an_initialization = EIsAnInitialization::No, std::optional<int> maybe_lhs_indirection_level_adjustment = {});
+
+		/* This class addresses conditional expressions and initialized declarations in the form "type var = cond ? lhs : rhs;". */
 	class MCSSSConditionalExpr : public MatchFinder::MatchCallback
 	{
 	public:
@@ -17480,8 +17507,6 @@ namespace convm1 {
 			}
 		}
 
-		enum class EIsAnInitialization { Yes, No };
-
 		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
 			, const clang::Expr* LHS, const clang::Expr* RHS, const clang::ValueDecl* VLD = nullptr
 			, EIsAnInitialization is_an_initialization = EIsAnInitialization::No, std::optional<int> maybe_lhs_indirection_level_adjustment = {}) {
@@ -17829,6 +17854,8 @@ namespace convm1 {
 				}
 			}
 
+			bool LHS_decl_seems_to_be_a_non_modifiable_array_of_structs_with_modifiable_fields_flag = false;
+
 			if (lhs_res2.ddecl_cptr) {
 				auto LHSDD_SR = cm1_adj_nice_source_range(lhs_res2.ddecl_cptr->getSourceRange(), state1, Rewrite);
 				if ((LHS_decl_is_non_modifiable /*&& (!RHS_decl_is_non_modifiable)*/) && (LHS || VLD) && RHS) {
@@ -17959,7 +17986,6 @@ namespace convm1 {
 					int q = 5;
 
 					if (EIsAnInitialization::Yes == is_an_initialization) {
-						bool LHS_decl_seems_to_be_a_non_modifiable_array_of_structs_with_modifiable_fields = false;
 						auto DD = lhs_res2.ddecl_cptr;
 						if (DD->getType()->isArrayType()) {
 							if (llvm::isa<const clang::ArrayType>(DD->getType().getTypePtr())) {
@@ -17983,7 +18009,7 @@ namespace convm1 {
 													such case, the fields of the (unnamed) struct may remain modifiable. So if such an array is 
 													initialized with an InitListExpr, we'd still need to process the relationships between the struct 
 													fields and the elements they are initialized with. */
-													LHS_decl_seems_to_be_a_non_modifiable_array_of_structs_with_modifiable_fields = true;
+													LHS_decl_seems_to_be_a_non_modifiable_array_of_structs_with_modifiable_fields_flag = true;
 													break;
 												}
 											}
@@ -17992,7 +18018,7 @@ namespace convm1 {
 								}
 							}
 						}
-						if (!LHS_decl_seems_to_be_a_non_modifiable_array_of_structs_with_modifiable_fields) {
+						if (!LHS_decl_seems_to_be_a_non_modifiable_array_of_structs_with_modifiable_fields_flag) {
 							return;
 						}
 					} else {
@@ -18353,6 +18379,13 @@ namespace convm1 {
 					return false;
 				};
 			if (check_for_and_handle_InitListExpr()) {
+				return;
+			}
+
+			if (LHS_decl_seems_to_be_a_non_modifiable_array_of_structs_with_modifiable_fields_flag) {
+				/* When this "flag" variable is set we expect the situation to be (one with an InitListExpr) handled 
+				by, and (the function exited after) the previous code block. */
+				assert(false);
 				return;
 			}
 
@@ -18762,6 +18795,13 @@ namespace convm1 {
 		CTUState& m_state1;
 	};
 
+	inline void assignment_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
+		, const clang::Expr* LHS, const clang::Expr* RHS, const clang::ValueDecl* VLD/* = nullptr*/
+		, EIsAnInitialization is_an_initialization/* = EIsAnInitialization::No*/, std::optional<int> maybe_lhs_indirection_level_adjustment/* = {}*/) {
+
+			MCSSSAssignment::s_handler1(MR, Rewrite, state1, LHS, RHS, VLD, is_an_initialization, maybe_lhs_indirection_level_adjustment);
+	}
+
 	/* This class handles cases where (possibly array iterator) pointers are passed as function arguments. */
 	class MCSSSArgToParameterPassingArray2 : public MatchFinder::MatchCallback
 	{
@@ -19113,7 +19153,7 @@ namespace convm1 {
 							} else {
 								int q = 5;
 							}
-							MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, arg_EX/*RHS*/, param_VD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
+							MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, arg_EX/*RHS*/, param_VD/*VLD*/, EIsAnInitialization::Yes);
 							int q = 5;
 						}
 
@@ -19429,7 +19469,7 @@ namespace convm1 {
 										}
 									}
 								}
-								MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, arg_EX/*RHS*/, param_VD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
+								MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, arg_EX/*RHS*/, param_VD/*VLD*/, EIsAnInitialization::Yes);
 							} else {
 								int q = 5;
 							}
@@ -19793,7 +19833,7 @@ namespace convm1 {
 									DEBUG_SOURCE_LOCATION_STR(first_arg_ii_debug_source_location_str, first_arg_SR, Rewrite);
 									DEBUG_SOURCE_TEXT_STR(first_arg_ii_debug_source_text, first_arg_SR, Rewrite);
 									if (VLD) {
-										MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, first_arg_ii/*RHS*/, VLD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
+										MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, first_arg_ii/*RHS*/, VLD/*VLD*/, EIsAnInitialization::Yes);
 									}
 								}
 							} else if (alloc_function_info1.seems_to_be_some_kind_of_memdup()) {
@@ -19821,7 +19861,7 @@ namespace convm1 {
 									DEBUG_SOURCE_LOCATION_STR(first_arg_ii_debug_source_location_str, first_arg_SR, Rewrite);
 									DEBUG_SOURCE_TEXT_STR(first_arg_ii_debug_source_text, first_arg_SR, Rewrite);
 									if (VLD) {
-										MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, first_arg_ii/*RHS*/, VLD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
+										MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, first_arg_ii/*RHS*/, VLD/*VLD*/, EIsAnInitialization::Yes);
 									}
 								}
 							} else {
@@ -20011,7 +20051,7 @@ namespace convm1 {
 							int q = 5;
 						}
 
-						MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr, RS->getRetValue(), function_decl, MCSSSAssignment::EIsAnInitialization::Yes);
+						MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr, RS->getRetValue(), function_decl, EIsAnInitialization::Yes);
 					}
 				}
 			}
@@ -20541,7 +20581,7 @@ namespace convm1 {
 							if (filtered_out_by_location<options_t<converter_mode_t> >(*(MR.Context), init_EX_iinoop->getSourceRange())) {
 								return;
 							}
-							MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_EX/*RHS*/, DD, MCSSSAssignment::EIsAnInitialization::Yes);
+							MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_EX/*RHS*/, DD, EIsAnInitialization::Yes);
 						}
 						return;
 					}
@@ -20724,7 +20764,7 @@ namespace convm1 {
 								of multiple items with initialization expressions, the "assignment" matcher will only match the 
 								initialization of the first item. But this declaration seems to be one of those subsequent items 
 								in a multiplee declaration statement. So here we'll maually call the assignment handler. */
-								MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_EX/*RHS*/, VD, MCSSSAssignment::EIsAnInitialization::Yes);
+								MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_EX/*RHS*/, VD, EIsAnInitialization::Yes);
 							}
 
 							if (qtype->isArrayType()) {
@@ -21036,7 +21076,7 @@ namespace convm1 {
 						auto ILE = dyn_cast<const clang::InitListExpr>(init_EX_ii);
 						if (ILE) {
 							/* A (native) array with initializer list (including aggregate initialization). */
-							MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_EX_ii/*RHS*/, DD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
+							MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_EX_ii/*RHS*/, DD/*VLD*/, EIsAnInitialization::Yes);
 						}
 					}
 
@@ -22936,19 +22976,20 @@ namespace convm1 {
 						}
 
 						if (!(fii_ref.m_legacyhelpers_include_directive_found)) {
+							std::string new_include_directive = "\n#include \"mselegacyhelpers.h\"\n";
+							if (AddPrecedingIncludeConfigDotHDirective) {
+								new_include_directive = "\n#include \"config.h\"\n" + new_include_directive;
+							}
 							if (false/* While it might be aesthetically nicer to put our include directive
 								together with the (first) ones already present, it is sometimes not correct. */
 								&& fii_ref.m_first_include_directive_loc_is_valid) {
-								TheRewriter.InsertTextBefore(fii_ref.m_first_include_directive_loc,
-										"\n#include \"mselegacyhelpers.h\"\n");
+								TheRewriter.InsertTextBefore(fii_ref.m_first_include_directive_loc, new_include_directive);
 							} else if (false/* In auto-generated headers, the first directive might not
 								be an include guard. */
 								&& fii_ref.m_first_macro_directive_ptr_is_valid) {
-								TheRewriter.InsertTextAfterToken(fii_ref.m_first_macro_directive_ptr->getLocation(),
-										"\n#include \"mselegacyhelpers.h\"\n");
+								TheRewriter.InsertTextAfterToken(fii_ref.m_first_macro_directive_ptr->getLocation(), new_include_directive);
 							} else if (fii_ref.m_beginning_of_file_loc_is_valid) {
-								TheRewriter.InsertTextBefore(fii_ref.m_beginning_of_file_loc,
-										"\n#include \"mselegacyhelpers.h\"\n");
+								TheRewriter.InsertTextBefore(fii_ref.m_beginning_of_file_loc, new_include_directive);
 							}
 						}
 					}
@@ -23398,6 +23439,7 @@ namespace convm1 {
         ScopeTypeFunctionParameters = options.ScopeTypeFunctionParameters;
         ScopeTypePointerFunctionParameters = options.ScopeTypePointerFunctionParameters || options.ScopeTypeFunctionParameters;
 		AddressableVars = options.AddressableVars;
+		AddPrecedingIncludeConfigDotHDirective = options.AddPrecedingIncludeConfigDotHDirective;
 
 		std::cout << "\nNote, this program attempts to modify the specified source files in place";
 		std::cout << ", and any directly or indirectly `#include`d files, which may include headers from 3rd party libraries or other files you may not expect. ";

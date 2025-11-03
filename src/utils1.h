@@ -13,6 +13,7 @@
 #include <optional>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 #include <map>
@@ -342,6 +343,53 @@ struct CFilteringResultByLocation : public CFilteringResult {
 	clang::SourceLocation m_SL;
 };
 
+inline std::string get_full_path_name(const clang::SourceManager& SM, clang::SourceLocation const& SL, bool* filename_is_invalid_ptr = nullptr) {
+	bool filename_is_invalid = false;
+	auto full_path_name = std::string(SM.getBufferName(SL, &filename_is_invalid));
+	if (filename_is_invalid) {
+		if (SL.isMacroID()) {
+			auto SPSL = SM.getSpellingLoc(SL);
+			if (SPSL.isValid()) {
+				full_path_name = std::string(SM.getBufferName(SPSL, &filename_is_invalid));
+			}
+		}
+	}
+	if (filename_is_invalid_ptr) {
+		*filename_is_invalid_ptr = filename_is_invalid;
+	}
+	if ("" == full_path_name) {
+		full_path_name = std::string(SL.printToString(SM));
+
+		/*
+		static const std::string spelling_prefix("<Spelling=");
+		auto last_spelling_pos = full_path_name.rfind(spelling_prefix);
+		if (last_spelling_pos + spelling_prefix.length() + 1 < full_path_name.size()) {
+			full_path_name = full_path_name.substr(last_spelling_pos + spelling_prefix.length());
+		}
+		*/
+
+		auto last_colon_pos = full_path_name.find_first_of(':');
+		if (last_colon_pos + 1 < full_path_name.size()) {
+			full_path_name = full_path_name.substr(0, last_colon_pos);
+		} else {
+			int q = 7;
+		}
+	}
+	return full_path_name;
+}
+inline std::string get_filename(std::string_view full_path_name) {
+	auto filename = std::string(full_path_name);
+	const auto last_slash_pos = full_path_name.find_last_of('/');
+	if (std::string::npos != last_slash_pos) {
+		if (last_slash_pos + 1 < full_path_name.size()) {
+			filename = full_path_name.substr(last_slash_pos+1);
+		} else {
+			filename = "";
+		}
+	}
+	return filename;
+}
+
 template<typename TOptions = options_t<> >
 inline CFilteringResultByLocation evaluate_filtering_by_location(const clang::SourceManager &SM, clang::SourceLocation SL) {
 	CFilteringResultByLocation retval { SL };
@@ -350,58 +398,11 @@ inline CFilteringResultByLocation evaluate_filtering_by_location(const clang::So
 	if (tl_maybe_cached_result.has_value() && (SL == tl_maybe_cached_result.value().m_SL)) {
 		return tl_maybe_cached_result.value();
 	}
-	auto get_full_path_name = [&SM](clang::SourceLocation const& SL, bool* filename_is_invalid_ptr) {
-		bool filename_is_invalid = false;
-		auto full_path_name = std::string(SM.getBufferName(SL, &filename_is_invalid));
-		if (filename_is_invalid) {
-			if (SL.isMacroID()) {
-				auto SPSL = SM.getSpellingLoc(SL);
-				if (SPSL.isValid()) {
-					full_path_name = std::string(SM.getBufferName(SPSL, &filename_is_invalid));
-				}
-			}
-		}
-		if (filename_is_invalid_ptr) {
-			*filename_is_invalid_ptr = filename_is_invalid;
-		}
-		if ("" == full_path_name) {
-			full_path_name = std::string(SL.printToString(SM));
-
-			/*
-			static const std::string spelling_prefix("<Spelling=");
-			auto last_spelling_pos = full_path_name.rfind(spelling_prefix);
-			if (last_spelling_pos + spelling_prefix.length() + 1 < full_path_name.size()) {
-				full_path_name = full_path_name.substr(last_spelling_pos + spelling_prefix.length());
-			}
-			*/
-
-			auto last_colon_pos = full_path_name.find_first_of(':');
-			if (last_colon_pos + 1 < full_path_name.size()) {
-				full_path_name = full_path_name.substr(0, last_colon_pos);
-			} else {
-				int q = 7;
-			}
-		}
-		return full_path_name;
-	};
-	auto get_filename = [](std::string const& full_path_name) {
-		std::string filename = full_path_name;
-		const auto last_slash_pos = full_path_name.find_last_of('/');
-		if (std::string::npos != last_slash_pos) {
-			if (last_slash_pos + 1 < full_path_name.size()) {
-				filename = full_path_name.substr(last_slash_pos+1);
-			} else {
-				filename = "";
-			}
-		}
-		return filename;
-	};
-
 	if (!(SL.isValid())) {
 		retval.m_suppress_errors = true;
 	} else {
 		bool filename_is_invalid = false;
-		auto full_path_name = get_full_path_name(SL, &filename_is_invalid);
+		auto full_path_name = get_full_path_name(SM, SL, &filename_is_invalid);
 		if (SM.isInSystemHeader(SL)) {
 			static const std::string algorithm_str = "algorithm";
 			std::string filename/* = get_filename(full_path_name)*/;
