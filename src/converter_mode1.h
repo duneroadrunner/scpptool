@@ -15873,7 +15873,8 @@ namespace convm1 {
 
 	inline void assignment_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
 		, const clang::Expr* LHS, const clang::Expr* RHS, const clang::ValueDecl* VLD = nullptr
-		, EIsAnInitialization is_an_initialization = EIsAnInitialization::No, std::optional<int> maybe_lhs_indirection_level_adjustment = {});
+		, EIsAnInitialization is_an_initialization = EIsAnInitialization::No, std::optional<int> maybe_lhs_indirection_level_adjustment = {}
+		, ESuppressModifications suppress_modifications_enum = ESuppressModifications::No);
 
 		/* This class addresses conditional expressions and initialized declarations in the form "type var = cond ? lhs : rhs;". */
 	class MCSSSConditionalExpr : public MatchFinder::MatchCallback
@@ -15883,8 +15884,9 @@ namespace convm1 {
 			Rewrite(Rewrite), m_state1(state1) {}
 
 		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
-			, const clang::ConditionalOperator* CO, std::optional<const DeclaratorDecl*> maybe_DD, size_t DD_indirection_level = 0) 
+			, const clang::ConditionalOperator* CO, std::optional<const DeclaratorDecl*> maybe_DD, size_t DD_indirection_level = 0, ESuppressModifications suppress_modifications_enum = ESuppressModifications::No) 
 		{
+			bool suppress_modifications = (ESuppressModifications::Yes == suppress_modifications_enum);
 			const Expr* LHS = nullptr;
 			const Expr* RHS = nullptr;
 			if (CO) {
@@ -15924,11 +15926,13 @@ namespace convm1 {
 				bool lhs_qualifies = false;
 				bool rhs_qualifies = false;
 
-				if (lhs_res2.ddecl_cptr && lhs_res2.update_declaration_flag) {
-					update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
-				}
-				if (rhs_res2.ddecl_cptr && rhs_res2.update_declaration_flag) {
-					update_declaration_if_not_suppressed(*(rhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+				if (!suppress_modifications) {
+					if (lhs_res2.ddecl_cptr && lhs_res2.update_declaration_flag) {
+						update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+					}
+					if (rhs_res2.ddecl_cptr && rhs_res2.update_declaration_flag) {
+						update_declaration_if_not_suppressed(*(rhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+					}
 				}
 
 				const DeclaratorDecl* possibly_null_DD = maybe_DD.has_value() ? maybe_DD.value() : nullptr;
@@ -16079,12 +16083,23 @@ namespace convm1 {
 						}
 					}
 
-					auto cr_shptr = std::make_shared<CConditionalOperatorReconciliation2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0), CO, lhs_res2.ddecl_cptr, rhs_res2.ddecl_cptr, possibly_null_DD, DD_indirection_level);
-					(*cr_shptr).do_replacement(state1);
-					state1.m_conversion_state_change_action_map.insert(cr_shptr);
+					if (ConvertToSCPP && !suppress_modifications) {
+						auto cr_shptr = std::make_shared<CConditionalOperatorReconciliation2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, 0), CO, lhs_res2.ddecl_cptr, rhs_res2.ddecl_cptr, possibly_null_DD, DD_indirection_level);
+						(*cr_shptr).do_replacement(state1);
+						state1.m_conversion_state_change_action_map.insert(cr_shptr);
+					}
 				}
 
-				if (ConvertToSCPP) {
+				/* Here we "execute" sort of "virtual" assignments between the LHS and RHS of the conditional expression 
+				to help "harmonize" the types they will be converted to, while suppressing any actual code changes. These 
+				operations may be somewhat (or maybe completely) redundant and/or, by themselves, insufficient. But we 
+				execute them here (because it's easy to do and) just in case they are not completely redundant. */
+				assignment_handler1(MR, Rewrite, state1, LHS, RHS, nullptr/*VLD*/, EIsAnInitialization::No, {}/*maybe_lhs_indirection_level_adjustment*/
+					, ESuppressModifications::Yes);
+				assignment_handler1(MR, Rewrite, state1, RHS, LHS, nullptr/*VLD*/, EIsAnInitialization::No, {}/*maybe_lhs_indirection_level_adjustment*/
+					, ESuppressModifications::Yes);
+
+				if (ConvertToSCPP && !suppress_modifications) {
 					/* Here we're establishing and "enforcing" the constraint that the lhs and rhs
 					* values of the conditional operator must be the same type. */
 					if (lhs_res2.ddecl_cptr) {
@@ -17538,11 +17553,13 @@ namespace convm1 {
 
 		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
 			, const clang::Expr* LHS, const clang::Expr* RHS, const clang::ValueDecl* VLD = nullptr
-			, EIsAnInitialization is_an_initialization = EIsAnInitialization::No, std::optional<int> maybe_lhs_indirection_level_adjustment = {}) {
+			, EIsAnInitialization is_an_initialization = EIsAnInitialization::No, std::optional<int> maybe_lhs_indirection_level_adjustment = {}
+			, ESuppressModifications suppress_modifications_enum = ESuppressModifications::No) {
 
 			if (!RHS) {
 				return;
 			}
+			bool suppress_modifications = (ESuppressModifications::Yes == suppress_modifications_enum);
 
 			auto SR = write_once_source_range(cm1_adj_nice_source_range(*RHS, state1, Rewrite));
 			RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
@@ -17818,8 +17835,9 @@ namespace convm1 {
 								MCSSSAssignment::s_c_style_cast_of_rhs((Rewrite), state1, *CSCE, lhs_qtype, lhs_res2, LHS_decl_is_non_modifiable, RHS_decl_is_non_modifiable, LHS, VLD);
 							}
 						};
-
-						state1.m_pending_code_modification_actions.add_replacement_action(CSCESR, lambda);
+						if (ConvertToSCPP && !suppress_modifications) {
+							state1.m_pending_code_modification_actions.add_replacement_action(CSCESR, lambda);
+						}
 						finished_cast_handling_flag = true;
 
 						/* We've queued the modification action for deferred execution, but we don't want to delay the
@@ -17862,7 +17880,7 @@ namespace convm1 {
 							IF_DEBUG(std::string const_cast_pointee_qtype_str = const_cast_pointee_qtype.getAsString();)
 							IF_DEBUG(std::string DD_qtype_str = definition_qtype(DD->getType()).getAsString();)
 
-							if (ConvertToSCPP) {
+							if (ConvertToSCPP && !suppress_modifications) {
 								if (DD_pointee_qtype == const_adjusted_cast_pointee_qtype) {
 									for (size_t i = 0; i < ddcs_ref.m_indirection_state_stack.size(); ++i) {
 										std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CTargetConstrainsCStyleCastExprArray2ReplacementAction>(Rewrite, MR,
@@ -17927,7 +17945,7 @@ namespace convm1 {
 							assert(nullptr != RHS);
 							auto& rhs_ecs_ref = state1.get_expr_conversion_state_ref(*RHS, Rewrite);
 
-							if (ConvertToSCPP) {
+							if (ConvertToSCPP && !suppress_modifications) {
 
 								std::string rhs_function_qname_if_any;
 								auto rhs_CE = dyn_cast<const clang::CallExpr>(RHS_ii);
@@ -18010,21 +18028,22 @@ namespace convm1 {
 								}
 
 								auto& ecs_ref = state1.get_expr_conversion_state_ref(*RHS_ii, Rewrite);
-								const auto l_text_modifier = CWrapExprTextModifier(make_raw_fn_wrapper_prefix_str, make_raw_fn_wrapper_suffix_str);
-								bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
-									&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
-								if (!seems_to_be_already_applied) {
-									auto shptr2 = std::make_shared<CWrapExprTextModifier>(make_raw_fn_wrapper_prefix_str, make_raw_fn_wrapper_suffix_str);
-									ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
-									ecs_ref.update_current_text();
 
-									auto rhs_ii_SR = cm1_adj_nice_source_range(*RHS_ii, state1, Rewrite);
-									if (rhs_ii_SR.isValid()) {
-										state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, rhs_ii_SR, state1, RHS_ii);
+								if (ConvertToSCPP && !suppress_modifications) {
+									const auto l_text_modifier = CWrapExprTextModifier(make_raw_fn_wrapper_prefix_str, make_raw_fn_wrapper_suffix_str);
+									bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+										&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+									if (!seems_to_be_already_applied) {
+										auto shptr2 = std::make_shared<CWrapExprTextModifier>(make_raw_fn_wrapper_prefix_str, make_raw_fn_wrapper_suffix_str);
+										ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+										ecs_ref.update_current_text();
+
+										auto rhs_ii_SR = cm1_adj_nice_source_range(*RHS_ii, state1, Rewrite);
+										if (rhs_ii_SR.isValid()) {
+											state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, rhs_ii_SR, state1, RHS_ii);
+										}
 									}
 								}
-
-								int q = 5;
 							} else {
 								int q = 3;
 							}
@@ -18196,7 +18215,21 @@ namespace convm1 {
 				if (lhs_res2.ddecl_cptr) {
 					maybe_DD = lhs_res2.ddecl_cptr;
 				}
-				MCSSSConditionalExpr::s_handler1(MR, Rewrite, state1, CO, maybe_DD, lhs_res2.indirection_level);
+				MCSSSConditionalExpr::s_handler1(MR, Rewrite, state1, CO, maybe_DD, lhs_res2.indirection_level, suppress_modifications_enum);
+
+				/* Here we "execute" sort of "virtual" assignments between each of the branches of the conditional 
+				expression and the target that the result of the conditional expression will be assigned to in order 
+				to help "harmonize" the types they will be converted to, while suppressing any actual code changes. 
+				These operations may be somewhat (or maybe completely) redundant and/or, by themselves, insufficient. 
+				But we execute them here (because it's easy to do and) just in case they are not completely redundant. */
+				if (true && CO->getLHS()) {
+					MCSSSAssignment::s_handler1(MR, Rewrite, state1, LHS, CO->getLHS()/*RHS*/
+						, VLD, is_an_initialization, maybe_lhs_indirection_level_adjustment, ESuppressModifications::Yes);
+				}
+				if (true && CO->getRHS()) {
+					MCSSSAssignment::s_handler1(MR, Rewrite, state1, LHS, CO->getRHS()/*RHS*/
+						, VLD, is_an_initialization, maybe_lhs_indirection_level_adjustment, ESuppressModifications::Yes);
+				}
 			}
 
 			if (lhs_res2.ddecl_conversion_state_ptr && RHS_ii->getType()->isFunctionType()) {
@@ -18274,15 +18307,17 @@ namespace convm1 {
 					std::string suffix_str = make_fn_wrapper_suffix_str + fnptr_cast_suffix_str;
 
 					auto& ecs_ref = state1.get_expr_conversion_state_ref(*RHS_ii, Rewrite);
-					const auto l_text_modifier = CWrapExprTextModifier(prefix_str, suffix_str);
-					bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
-						&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
-					if (!seems_to_be_already_applied) {
-						auto shptr2 = std::make_shared<CWrapExprTextModifier>(prefix_str, suffix_str);
-						ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
-						ecs_ref.update_current_text();
+					if (ConvertToSCPP && !suppress_modifications) {
+						const auto l_text_modifier = CWrapExprTextModifier(prefix_str, suffix_str);
+						bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+							&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+						if (!seems_to_be_already_applied) {
+							auto shptr2 = std::make_shared<CWrapExprTextModifier>(prefix_str, suffix_str);
+							ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+							ecs_ref.update_current_text();
 
-						state1.add_pending_expression_update(*RHS_ii, Rewrite);
+							state1.add_pending_expression_update(*RHS_ii, Rewrite);
+						}
 					}
 
 					return;
@@ -18344,7 +18379,7 @@ namespace convm1 {
 						assert(nullptr != RHS_ii);
 						auto& rhs_ecs_ref = state1.get_expr_conversion_state_ref(*RHS_ii, Rewrite);
 
-						if (ConvertToSCPP) {
+						if (ConvertToSCPP && !suppress_modifications) {
 
 							std::string rhs_function_qname_if_any;
 							auto rhs_CE = dyn_cast<const clang::CallExpr>(RHS_ii);
@@ -18475,7 +18510,7 @@ namespace convm1 {
 										}
 										/* recursion */
 										MCSSSAssignment::s_handler1(MR, Rewrite, state1, LHS/*LHS*//*presumably null in this case*/, init_item_E/*RHS*/
-											, VLD/*VLD*/, is_an_initialization, l_maybe_lhs_indirection_level_adjustment);
+											, VLD/*VLD*/, is_an_initialization, l_maybe_lhs_indirection_level_adjustment, suppress_modifications_enum);
 									} else {
 										int q = 3;
 									}
@@ -18498,7 +18533,7 @@ namespace convm1 {
 											if (FD && init_item_E) {
 												IF_DEBUG(std::string init_item_qtype_str = init_item_E->getType().getAsString();)
 												/* recursion */
-												MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_item_E/*RHS*/, FD/*VLD*/, is_an_initialization);
+												MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_item_E/*RHS*/, FD/*VLD*/, is_an_initialization, {}/*maybe_lhs_indirection_level_adjustment*/, suppress_modifications_enum);
 											} else {
 												int q = 3;
 											}
@@ -18564,7 +18599,9 @@ namespace convm1 {
 							state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_ddecl_indirection);
 						}
 					}
-					update_declaration_if_not_suppressed(lhs_ddecl_ref, Rewrite, *(MR.Context), state1);
+					if (!suppress_modifications) {
+						update_declaration_if_not_suppressed(lhs_ddecl_ref, Rewrite, *(MR.Context), state1);
+					}
 				}
 				for (size_t i = 0; (i + lhs_res2.indirection_level + lhs_indirection_level_adjustment < (*(lhs_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack.size())
 											&& (i + rhs_res2.indirection_level < (*(rhs_res2.ddecl_conversion_state_ptr)).m_indirection_state_stack.size()); i += 1) {
@@ -18652,7 +18689,9 @@ namespace convm1 {
 										state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_ddecl_indirection);
 									}
 								}
-								update_declaration_if_not_suppressed(lhs_ddecl_ref, Rewrite, *(MR.Context), state1);
+								if (!suppress_modifications) {
+									update_declaration_if_not_suppressed(lhs_ddecl_ref, Rewrite, *(MR.Context), state1);
+								}
 							}
 						}
 
@@ -18714,9 +18753,10 @@ namespace convm1 {
 									state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_ddecl_indirection);
 								}
 							}
-							update_declaration_if_not_suppressed(lhs_ddecl_ref, Rewrite, *(MR.Context), state1);
+							if (!suppress_modifications) {
+								update_declaration_if_not_suppressed(lhs_ddecl_ref, Rewrite, *(MR.Context), state1);
+							}
 						}
-
 					}
 				}
 			}
@@ -18748,7 +18788,9 @@ namespace convm1 {
 								declaration pointer, as it won't have useful conversion state information associated with it. */
 								if (!is_non_modifiable(*rhs_FND, *(MR.Context), Rewrite, state1)) {
 									lhs_direct_type_state_ref.m_function_type_state.m_function_decl_ptr = rhs_FND;
-									update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+									if (!suppress_modifications) {
+										update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+									}
 
 									for (auto param_PVD : rhs_FND->parameters()) {
 										auto [PVD_ddcs_ref, PVD_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*param_PVD, &Rewrite);
@@ -18836,7 +18878,9 @@ namespace convm1 {
 							declaration pointer, as it won't have useful conversion state information associated with it. */
 							if (!is_non_modifiable(*rhs_FND, *(MR.Context), Rewrite, state1)) {
 								lhs_pointee_indirection_state_ref.m_function_type_state.m_function_decl_ptr = rhs_FND;
-								update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+								if (!suppress_modifications) {
+									update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+								}
 
 								for (auto param_PVD : rhs_FND->parameters()) {
 									auto [PVD_ddcs_ref, PVD_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*param_PVD, &Rewrite);
@@ -18878,11 +18922,13 @@ namespace convm1 {
 				}
 			}
 
-			if (lhs_res2.ddecl_cptr && lhs_res2.update_declaration_flag) {
-				update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
-			}
-			if (rhs_res2.ddecl_cptr && rhs_res2.update_declaration_flag) {
-				update_declaration_if_not_suppressed(*(rhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+			if (!suppress_modifications) {
+				if (lhs_res2.ddecl_cptr && lhs_res2.update_declaration_flag) {
+					update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+				}
+				if (rhs_res2.ddecl_cptr && rhs_res2.update_declaration_flag) {
+					update_declaration_if_not_suppressed(*(rhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
+				}
 			}
 		}
 
@@ -18942,9 +18988,10 @@ namespace convm1 {
 
 	inline void assignment_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
 		, const clang::Expr* LHS, const clang::Expr* RHS, const clang::ValueDecl* VLD/* = nullptr*/
-		, EIsAnInitialization is_an_initialization/* = EIsAnInitialization::No*/, std::optional<int> maybe_lhs_indirection_level_adjustment/* = {}*/) {
+		, EIsAnInitialization is_an_initialization/* = EIsAnInitialization::No*/, std::optional<int> maybe_lhs_indirection_level_adjustment/* = {}*/
+		, ESuppressModifications suppress_modifications_enum/* = ESuppressModifications::No*/) {
 
-			MCSSSAssignment::s_handler1(MR, Rewrite, state1, LHS, RHS, VLD, is_an_initialization, maybe_lhs_indirection_level_adjustment);
+		MCSSSAssignment::s_handler1(MR, Rewrite, state1, LHS, RHS, VLD, is_an_initialization, maybe_lhs_indirection_level_adjustment, suppress_modifications_enum);
 	}
 
 	/* This class handles cases where (possibly array iterator) pointers are passed as function arguments. */
