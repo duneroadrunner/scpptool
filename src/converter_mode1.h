@@ -2032,9 +2032,13 @@ namespace convm1 {
 							"non-malloc()ed" target) in the translation unit being analyzed, doesn't point to such a target in aother 
 							translation unit. So for pointers declared in header files, we'll conservatively assume that they could 
 							point to a "malloc()ed" target or a "non-malloc()ed" target (or both). */
-							auto& indirection_state_ref = (*this).m_indirection_state_stack.at(0);
-							//indirection_state_ref.set_is_known_to_have_malloc_target(true);
-							//indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
+							if (!(QT->isArrayType())) {
+								auto& indirection_state_ref = (*this).m_indirection_state_stack.at(0);
+								indirection_state_ref.set_is_known_to_have_malloc_target(true);
+								indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
+							} else {
+								int q = 5;
+							}
 						}
 					}
 
@@ -10098,7 +10102,7 @@ namespace convm1 {
 
 	enum class apply_to_redeclarations_t : bool { no, yes };
 
-	/* Ensure that the given declarations are the same type (give or take a reference). */
+	/* Ensure that the given declarations convert to the same type (give or take a reference). */
 	void homogenize_types(CTUState& state1, Rewriter &Rewrite, const clang::DeclaratorDecl& ddecl_cref1,
 		const clang::DeclaratorDecl& ddecl_cref2) {
 
@@ -11074,31 +11078,88 @@ namespace convm1 {
 
 			auto& lhs_function_state_ref = (CDDeclIndirection::no_indirection == lhs_indirection.m_indirection_level) ? lhs_ddcs_ref.direct_type_state_ref().m_function_type_state : lhs_ddcs_ref.m_indirection_state_stack.at(lhs_indirection.m_indirection_level).m_function_type_state;
 			auto& rhs_function_state_ref = (CDDeclIndirection::no_indirection == rhs_indirection.m_indirection_level) ? rhs_ddcs_ref.direct_type_state_ref().m_function_type_state : rhs_ddcs_ref.m_indirection_state_stack.at(rhs_indirection.m_indirection_level).m_function_type_state;
-			if (rhs_function_state_ref.has_been_changed()) {
-				if (!lhs_function_state_ref.has_been_changed()) {
+
+			auto lhs_fn_D = lhs_function_state_ref.m_function_decl_ptr;
+			auto rhs_fn_D = rhs_function_state_ref.m_function_decl_ptr;
+			if (lhs_fn_D || rhs_fn_D) {
+				if ((lhs_fn_D && rhs_fn_D) && (lhs_fn_D != rhs_fn_D)) {
+					/* Function declarations seems to be available for the both lhs and rhs (presumably indicating that the 
+					lhs and rhs indirections are functions) and they are not the same. */
+					auto lhs_fn_qtype = lhs_fn_D->getType();
+					auto rhs_fn_qtype = rhs_fn_D->getType();
+					if (lhs_fn_qtype == rhs_fn_qtype) {
+						if (lhs_fn_D->getNumParams() == rhs_fn_D->getNumParams()) {
+							for (size_t i = 0; i < lhs_fn_D->getNumParams(); i+=1) {
+								auto lhs_fn_param_D = lhs_fn_D->getParamDecl(i);
+								auto rhs_fn_param_D = rhs_fn_D->getParamDecl(i);
+
+								auto lhs_fn_param_qtype = lhs_fn_param_D->getType();
+								auto rhs_fn_param_qtype = rhs_fn_param_D->getType();
+								if (lhs_fn_param_qtype != rhs_fn_param_qtype) {
+									assert(false);
+									break;
+								}
+
+								auto [lhs_fn_param_ddcs_ref, lhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_fn_param_D, &m_Rewrite);
+								auto [rhs_fn_param_ddcs_ref, rhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_fn_param_D, &m_Rewrite);
+								if (lhs_fn_param_ddcs_ref.m_indirection_state_stack.size() != rhs_fn_param_ddcs_ref.m_indirection_state_stack.size()) {
+									assert(false);
+									break;
+								}
+
+								/* Constraining that two functions are of the same type requires that the type of each level of indirection 
+								of each parameter must also be the same. So we impose those constraints here. */
+								for (size_t i = 0; lhs_fn_param_ddcs_ref.m_indirection_state_stack.size() > i; i += 1) {
+									CSameTypeReplacementAction(Rewrite, CDDeclIndirection(*lhs_fn_param_D, i), CDDeclIndirection(*rhs_fn_param_D, i)).do_replacement(state1);
+								}
+								CSameTypeReplacementAction(Rewrite, CDDeclIndirection(*lhs_fn_param_D, CDDeclIndirection::no_indirection), CDDeclIndirection(*rhs_fn_param_D, CDDeclIndirection::no_indirection)).do_replacement(state1);
+							}
+						}
+					}
+				}
+			}
+
+			if (false) {
+				if (rhs_function_state_ref.has_been_changed()) {
+					if (!lhs_function_state_ref.has_been_changed()) {
+						bool assign_function_state = true;
+						if (CDDeclIndirection::no_indirection == lhs_indirection.m_indirection_level) {
+							if (!lhs_ddcs_ref.direct_type_state_ref().seems_to_be_a_function_type()) {
+								assign_function_state = false;
+							}
+						}
+						if (assign_function_state) {
+							auto saved_function_decl_ptr = lhs_function_state_ref.m_function_decl_ptr;
+
+							lhs_function_state_ref = rhs_function_state_ref;
+
+							if (saved_function_decl_ptr) {
+								lhs_function_state_ref.m_function_decl_ptr = saved_function_decl_ptr;
+							}
+
+							lhs_update_declaration_flag |= true;
+						}
+					} else {
+						int q = 7;
+					}
+				} else if (lhs_function_state_ref.has_been_changed()) {
 					bool assign_function_state = true;
-					if (CDDeclIndirection::no_indirection == lhs_indirection.m_indirection_level) {
-						if (!lhs_ddcs_ref.direct_type_state_ref().seems_to_be_a_function_type()) {
+					if (CDDeclIndirection::no_indirection == rhs_indirection.m_indirection_level) {
+						if (!rhs_ddcs_ref.direct_type_state_ref().seems_to_be_a_function_type()) {
 							assign_function_state = false;
 						}
 					}
 					if (assign_function_state) {
-						lhs_function_state_ref = rhs_function_state_ref;
-						lhs_update_declaration_flag |= true;
+						auto saved_function_decl_ptr = rhs_function_state_ref.m_function_decl_ptr;
+
+						rhs_function_state_ref = lhs_function_state_ref;
+
+						if (saved_function_decl_ptr) {
+							rhs_function_state_ref.m_function_decl_ptr = saved_function_decl_ptr;
+						}
+
+						rhs_update_declaration_flag |= true;
 					}
-				} else {
-					int q = 7;
-				}
-			} else if (lhs_function_state_ref.has_been_changed()) {
-				bool assign_function_state = true;
-				if (CDDeclIndirection::no_indirection == rhs_indirection.m_indirection_level) {
-					if (!rhs_ddcs_ref.direct_type_state_ref().seems_to_be_a_function_type()) {
-						assign_function_state = false;
-					}
-				}
-				if (assign_function_state) {
-					rhs_function_state_ref = lhs_function_state_ref;
-					rhs_update_declaration_flag |= true;
 				}
 			}
 		}
@@ -12047,6 +12108,65 @@ namespace convm1 {
 		}
 	}
 
+	inline bool homogenize_function_type_states_if_compatible(CFunctionTypeState& lhs_function_state_ref, CFunctionTypeState& rhs_function_state_ref, Rewriter &Rewrite, CTUState& state1) {
+		bool retval = false;
+
+		auto lhs_fn_D = lhs_function_state_ref.m_function_decl_ptr;
+		auto rhs_fn_D = rhs_function_state_ref.m_function_decl_ptr;
+		if (lhs_fn_D || rhs_fn_D) {
+			if (lhs_fn_D && rhs_fn_D) {
+				if (lhs_fn_D != rhs_fn_D) {
+					/* Both the lhs and rhs declarations are available and not the same. */
+					auto lhs_fn_qtype = lhs_fn_D->getType();
+					auto rhs_fn_qtype = rhs_fn_D->getType();
+					if (lhs_fn_qtype == rhs_fn_qtype) {
+						if (lhs_fn_D->getNumParams() == rhs_fn_D->getNumParams()) {
+							retval = true;
+							for (size_t i = 0; i < lhs_fn_D->getNumParams(); i+=1) {
+								auto lhs_fn_param_D = lhs_fn_D->getParamDecl(i);
+								auto rhs_fn_param_D = rhs_fn_D->getParamDecl(i);
+
+								auto lhs_fn_param_qtype = lhs_fn_param_D->getType();
+								auto rhs_fn_param_qtype = rhs_fn_param_D->getType();
+								if (lhs_fn_param_qtype != rhs_fn_param_qtype) {
+									assert(false);
+									retval = false;
+									break;
+								}
+
+								auto [lhs_fn_param_ddcs_ref, lhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_fn_param_D, &Rewrite);
+								auto [rhs_fn_param_ddcs_ref, rhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_fn_param_D, &Rewrite);
+								if (lhs_fn_param_ddcs_ref.m_indirection_state_stack.size() != rhs_fn_param_ddcs_ref.m_indirection_state_stack.size()) {
+									assert(false);
+									retval = false;
+									break;
+								}
+
+								/* If an assignment involves a function pointer, then the lhs and rhs function types need to be exactly 
+								the same. Which means the type of each level of indirection of each parameter must also be the same. So 
+								we impose those constraints here. */
+								for (size_t i = 0; lhs_fn_param_ddcs_ref.m_indirection_state_stack.size() > i; i += 1) {
+									auto cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, CDDeclIndirection(*lhs_fn_param_D, i)
+										, CDDeclIndirection(*rhs_fn_param_D, i));
+									state1.m_conversion_state_change_action_map.insert(cr_shptr);
+
+									(*cr_shptr).do_replacement(state1);
+								}
+
+								auto cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, CDDeclIndirection(*lhs_fn_param_D, CDDeclIndirection::no_indirection)
+									, CDDeclIndirection(*rhs_fn_param_D, CDDeclIndirection::no_indirection));
+								state1.m_conversion_state_change_action_map.insert(cr_shptr);
+
+								(*cr_shptr).do_replacement(state1);
+							}
+						}
+					}
+				}
+			}
+		}
+		return retval;
+	}
+
 	void CConditionalOperatorReconciliation2ReplacementAction::do_replacement(CTUState& state1) const {
 		const clang::ConditionalOperator* CO = m_CO;
 		const Expr* COND = nullptr;
@@ -12123,9 +12243,9 @@ namespace convm1 {
 							} 
 						}
 					} else {
-						auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state;
-						lhs_maybe_function_state = indirection_state_ref.m_function_type_state;
-						if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
+						auto& direct_type_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state;
+						lhs_maybe_function_state = direct_type_state_ref.m_function_type_state;
+						if (direct_type_state_ref.is_known_to_be_a_pointer_target()) {
 							lhs_is_known_to_be_a_pointer_target = true;
 						}
 					}
@@ -12228,9 +12348,9 @@ namespace convm1 {
 							}
 						}
 					} else {
-						auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state;
-						rhs_maybe_function_state = indirection_state_ref.m_function_type_state;
-						if (indirection_state_ref.is_known_to_be_a_pointer_target()) {
+						auto& direct_type_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state;
+						rhs_maybe_function_state = direct_type_state_ref.m_function_type_state;
+						if (direct_type_state_ref.is_known_to_be_a_pointer_target()) {
 							rhs_is_known_to_be_a_pointer_target = true;
 						}
 					}
@@ -15994,7 +16114,7 @@ namespace convm1 {
 							* references to declared variables. */
 							if (are_essentially_the_same_types/* && (1 == res2.indirection_level)*/) {
 								lhs_qualifies = true;
-								if (ConvertToSCPP && (nullptr != res2.ddecl_conversion_state_ptr)) {
+								if (nullptr != res2.ddecl_conversion_state_ptr) {
 									{
 										/* Here we're establishing and "enforcing" the constraint that the lhs value must
 										* be of an (array) type that can be assigned to the target variable. */
@@ -16051,7 +16171,7 @@ namespace convm1 {
 								* references to declared variables. */
 								if (are_essentially_the_same_types) {
 									rhs_qualifies = true;
-									if (ConvertToSCPP && (nullptr != res2.ddecl_conversion_state_ptr)) {
+									if (nullptr != res2.ddecl_conversion_state_ptr) {
 										{
 											/* Here we're establishing and "enforcing" the constraint that the rhs value must
 											* be of an (array) type that can be assigned to the target variable. */
@@ -16099,7 +16219,7 @@ namespace convm1 {
 				assignment_handler1(MR, Rewrite, state1, RHS, LHS, nullptr/*VLD*/, EIsAnInitialization::No, {}/*maybe_lhs_indirection_level_adjustment*/
 					, ESuppressModifications::Yes);
 
-				if (ConvertToSCPP && !suppress_modifications) {
+				{
 					/* Here we're establishing and "enforcing" the constraint that the lhs and rhs
 					* values of the conditional operator must be the same type. */
 					if (lhs_res2.ddecl_cptr) {
@@ -18233,123 +18353,132 @@ namespace convm1 {
 			}
 
 			if (lhs_res2.ddecl_conversion_state_ptr && RHS_ii->getType()->isFunctionType()) {
-				if (RHS_decl_is_non_modifiable && !LHS_decl_is_non_modifiable) {
+				/* In a C/C++ program you can have assignment expressions with a function pointer lhs and a function rhs 
+				(which will be implicitly converted to a function pointer). But the lhs can't be a function, because 
+				functions can't be assigned (or reassigned) a value, right? 
+				But this assignment handler can be given a function as the lhs expression in order to perform a "virtual" 
+				assignment (presumably with the suppress_modifications directive set). Such virtual assignments are used 
+				to employ this function's "conversion state synchronizing" behavior to non-assignment situations. (For 
+				example, to help synchronize the (types of the) two branches of a conditional operator.) */
+				if (!(lhs_qtype->isFunctionType())) {
+					if (RHS_decl_is_non_modifiable && !LHS_decl_is_non_modifiable) {
 
-					/* We're going to replace the (non-modifiable) rhs with a wrapper function that has an interface that's 
-					hopefully compatible with the (changed) lhs function pointer target. */
-					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(lhs_res2.ddecl_cptr), &Rewrite);
-					auto indirection_state_stack_of_expression = ddcs_ref.m_indirection_state_stack;
-					indirection_state_stack_of_expression.clear();
-					if (lhs_res2.indirection_level + lhs_indirection_level_adjustment < ddcs_ref.m_indirection_state_stack.size()) {
-						for (size_t i = size_t(lhs_res2.indirection_level + lhs_indirection_level_adjustment); ddcs_ref.m_indirection_state_stack.size() > i; ++i) {
-							indirection_state_stack_of_expression.push_back(ddcs_ref.m_indirection_state_stack.at(i));
-						}
-					}
-
-					auto direct_qtype_str = indirection_state_stack_of_expression.m_direct_type_state.current_qtype_str();
-
-					auto& function_type_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state;
-					if (function_type_state_ref.m_function_decl_ptr) {
-						clang::FunctionProtoTypeLoc functionProtoTypeLoc;
-						/* I don't think functionProtoTypeLoc will actually be used in this case (so it should be ok if it 
-						just has the default value), but current_params_string() does take it as a parameter so we'll 
-						assign it a proper value if available. */
-						if (function_type_state_ref.m_maybe_functionProtoTypeLoc.has_value()) {
-							IF_DEBUG(auto typeLocClass = definition_TypeLoc(function_type_state_ref.m_maybe_functionProtoTypeLoc.value()).getTypeLocClass();)
-							functionProtoTypeLoc = definition_TypeLoc(function_type_state_ref.m_maybe_functionProtoTypeLoc.value()).getAsAdjusted<clang::FunctionProtoTypeLoc>();
-						}
-
-						auto direct_qtype_str2 = ddcs_ref.current_direct_return_qtype_str();
-						direct_qtype_str2 += current_params_string(Rewrite, function_type_state_ref
-							, functionProtoTypeLoc, true/*suppress_modifications*/, &state1);
-
-						direct_qtype_str = direct_qtype_str2;
-					}
-
-					if (0 == indirection_state_stack_of_expression.size()) {
-						/* The expressions seems to not be indirect. The type of the expression is the "direct" type. */
-						if (lhs_qtype.isConstQualified()) {
-							if (!(ddcs_ref.direct_type_state_ref().is_const())) {
-								/* Ok, so the "direct" type derived from the DDecl seems to be non-const, while the 
-								"direct" type of the actual type of the conditional operator argument(/alternative/option/branch) 
-								expressions is const. So we'll just add a const qualifier to the "direct" type. */
-								direct_qtype_str = "const " + direct_qtype_str;
+						/* We're going to replace the (non-modifiable) rhs with a wrapper function that has an interface that's 
+						hopefully compatible with the (changed) lhs function pointer target. */
+						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(lhs_res2.ddecl_cptr), &Rewrite);
+						auto indirection_state_stack_of_expression = ddcs_ref.m_indirection_state_stack;
+						indirection_state_stack_of_expression.clear();
+						if (lhs_res2.indirection_level + lhs_indirection_level_adjustment < ddcs_ref.m_indirection_state_stack.size()) {
+							for (size_t i = size_t(lhs_res2.indirection_level + lhs_indirection_level_adjustment); ddcs_ref.m_indirection_state_stack.size() > i; ++i) {
+								indirection_state_stack_of_expression.push_back(ddcs_ref.m_indirection_state_stack.at(i));
 							}
 						}
-					}
 
-					std::string fnptr_cast_prefix_str;
-					std::string function_pointer_type_str;
-					std::string make_fn_wrapper_prefix_str;
-					if ("Dual" == ConvertMode) {
-						auto direct_return_qtype_str = ddcs_ref.current_direct_return_qtype_str();
-						auto function_state = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state;
-						function_pointer_type_str = std::string("(MSE_LH_FUNCTION_POINTER_TYPE_PREFIX") + direct_return_qtype_str 
-							+ "MSE_LH_FUNCTION_POINTER_TYPE_SUFFIX(" + function_state.m_params_current_str  + "))";
-						fnptr_cast_prefix_str = "(" + function_pointer_type_str + ")(";
-						make_fn_wrapper_prefix_str = "MSE_LH_UNSAFE_MAKE_FN_WRAPPER(";
-					} else {
-						function_pointer_type_str = std::string("mse::lh::TNativeFunctionPointerReplacement<") + direct_qtype_str + ">";
-						fnptr_cast_prefix_str = function_pointer_type_str + "(";
-						make_fn_wrapper_prefix_str = "mse::us::lh::unsafe_make_fn_wrapper(";
-					}
+						auto direct_qtype_str = indirection_state_stack_of_expression.m_direct_type_state.current_qtype_str();
 
-					std::string fnptr_cast_suffix_str;
-					std::string make_fn_wrapper_suffix_str;
-					if ("Dual" == ConvertMode) {
-						fnptr_cast_suffix_str = ")";
-						make_fn_wrapper_suffix_str = std::string(", ") + function_pointer_type_str + "())";
-					} else {
-						fnptr_cast_suffix_str = ")";
-						make_fn_wrapper_suffix_str = std::string(", ") + function_pointer_type_str + "())";
-					}
-					std::string prefix_str = fnptr_cast_prefix_str + make_fn_wrapper_prefix_str;
-					std::string suffix_str = make_fn_wrapper_suffix_str + fnptr_cast_suffix_str;
+						auto& function_type_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state;
+						if (function_type_state_ref.m_function_decl_ptr) {
+							clang::FunctionProtoTypeLoc functionProtoTypeLoc;
+							/* I don't think functionProtoTypeLoc will actually be used in this case (so it should be ok if it 
+							just has the default value), but current_params_string() does take it as a parameter so we'll 
+							assign it a proper value if available. */
+							if (function_type_state_ref.m_maybe_functionProtoTypeLoc.has_value()) {
+								IF_DEBUG(auto typeLocClass = definition_TypeLoc(function_type_state_ref.m_maybe_functionProtoTypeLoc.value()).getTypeLocClass();)
+								functionProtoTypeLoc = definition_TypeLoc(function_type_state_ref.m_maybe_functionProtoTypeLoc.value()).getAsAdjusted<clang::FunctionProtoTypeLoc>();
+							}
 
-					auto& ecs_ref = state1.get_expr_conversion_state_ref(*RHS_ii, Rewrite);
-					if (ConvertToSCPP && !suppress_modifications) {
-						const auto l_text_modifier = CWrapExprTextModifier(prefix_str, suffix_str);
-						bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
-							&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
-						if (!seems_to_be_already_applied) {
-							auto shptr2 = std::make_shared<CWrapExprTextModifier>(prefix_str, suffix_str);
-							ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
-							ecs_ref.update_current_text();
+							auto direct_qtype_str2 = ddcs_ref.current_direct_return_qtype_str();
+							direct_qtype_str2 += current_params_string(Rewrite, function_type_state_ref
+								, functionProtoTypeLoc, true/*suppress_modifications*/, &state1);
 
-							state1.add_pending_expression_update(*RHS_ii, Rewrite);
+							direct_qtype_str = direct_qtype_str2;
 						}
+
+						if (0 == indirection_state_stack_of_expression.size()) {
+							/* The expressions seems to not be indirect. The type of the expression is the "direct" type. */
+							if (lhs_qtype.isConstQualified()) {
+								if (!(ddcs_ref.direct_type_state_ref().is_const())) {
+									/* Ok, so the "direct" type derived from the DDecl seems to be non-const, while the 
+									"direct" type of the actual type of the conditional operator argument(/alternative/option/branch) 
+									expressions is const. So we'll just add a const qualifier to the "direct" type. */
+									direct_qtype_str = "const " + direct_qtype_str;
+								}
+							}
+						}
+
+						std::string fnptr_cast_prefix_str;
+						std::string function_pointer_type_str;
+						std::string make_fn_wrapper_prefix_str;
+						if ("Dual" == ConvertMode) {
+							auto direct_return_qtype_str = ddcs_ref.current_direct_return_qtype_str();
+							auto function_state = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state;
+							function_pointer_type_str = std::string("(MSE_LH_FUNCTION_POINTER_TYPE_PREFIX") + direct_return_qtype_str 
+								+ "MSE_LH_FUNCTION_POINTER_TYPE_SUFFIX(" + function_state.m_params_current_str  + "))";
+							fnptr_cast_prefix_str = "(" + function_pointer_type_str + ")(";
+							make_fn_wrapper_prefix_str = "MSE_LH_UNSAFE_MAKE_FN_WRAPPER(";
+						} else {
+							function_pointer_type_str = std::string("mse::lh::TNativeFunctionPointerReplacement<") + direct_qtype_str + ">";
+							fnptr_cast_prefix_str = function_pointer_type_str + "(";
+							make_fn_wrapper_prefix_str = "mse::us::lh::unsafe_make_fn_wrapper(";
+						}
+
+						std::string fnptr_cast_suffix_str;
+						std::string make_fn_wrapper_suffix_str;
+						if ("Dual" == ConvertMode) {
+							fnptr_cast_suffix_str = ")";
+							make_fn_wrapper_suffix_str = std::string(", ") + function_pointer_type_str + "())";
+						} else {
+							fnptr_cast_suffix_str = ")";
+							make_fn_wrapper_suffix_str = std::string(", ") + function_pointer_type_str + "())";
+						}
+						std::string prefix_str = fnptr_cast_prefix_str + make_fn_wrapper_prefix_str;
+						std::string suffix_str = make_fn_wrapper_suffix_str + fnptr_cast_suffix_str;
+
+						auto& ecs_ref = state1.get_expr_conversion_state_ref(*RHS_ii, Rewrite);
+						if (ConvertToSCPP && !suppress_modifications) {
+							const auto l_text_modifier = CWrapExprTextModifier(prefix_str, suffix_str);
+							bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+								&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+							if (!seems_to_be_already_applied) {
+								auto shptr2 = std::make_shared<CWrapExprTextModifier>(prefix_str, suffix_str);
+								ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+								ecs_ref.update_current_text();
+
+								state1.add_pending_expression_update(*RHS_ii, Rewrite);
+							}
+						}
+
+						return;
 					}
 
-					return;
-				}
+					auto& lhs_ddecl_ref = *(lhs_res2.ddecl_cptr);
+					auto& lhs_ddcs_ref = *(lhs_res2.ddecl_conversion_state_ptr);
 
-				auto& lhs_ddecl_ref = *(lhs_res2.ddecl_cptr);
-				auto& lhs_ddcs_ref = *(lhs_res2.ddecl_conversion_state_ptr);
+					if (lhs_ddcs_ref.m_indirection_state_stack.size() > 1 + lhs_res2.indirection_level) {
+						auto& pointee_indirection_state_ref = lhs_ddcs_ref.m_indirection_state_stack.at(1 + lhs_res2.indirection_level);
+						auto lhs_pointee_ddecl_indirection = CDDeclIndirection(lhs_ddecl_ref, 1 + lhs_res2.indirection_level);
 
-				if (lhs_ddcs_ref.m_indirection_state_stack.size() > 1 + lhs_res2.indirection_level) {
-					auto& pointee_indirection_state_ref = lhs_ddcs_ref.m_indirection_state_stack.at(1 + lhs_res2.indirection_level);
-					auto lhs_pointee_ddecl_indirection = CDDeclIndirection(lhs_ddecl_ref, 1 + lhs_res2.indirection_level);
-
-					bool b2 = pointee_indirection_state_ref.current_is_function_type();
-					if (b2) {
-						/* You can assign a function value to a function pointer, `fnptr`, by taking the address of the 
-						function like so: `fnptr = &strlen;`. But you can also equivalently omit the address taking operation: 
-						`fnptr = strlen;`, right? That appears to be what's going on here. So we're going to adjust the lhs 
-						indirection level so that it will be treated as if the address were taken. */
-						lhs_indirection_level_adjustment += 1;
+						bool b2 = pointee_indirection_state_ref.current_is_function_type();
+						if (b2) {
+							/* You can assign a function value to a function pointer, `fnptr`, by taking the address of the 
+							function like so: `fnptr = &strlen;`. But you can also equivalently omit the address taking operation: 
+							`fnptr = strlen;`, right? That appears to be what's going on here. So we're going to adjust the lhs 
+							indirection level so that it will be treated as if the address were taken. */
+							lhs_indirection_level_adjustment += 1;
+						}
+						int q = 5;
+					} else {
+						auto& direct_type_state_ref = lhs_ddcs_ref.m_indirection_state_stack.m_direct_type_state;
+						bool b3 = direct_type_state_ref.seems_to_be_a_function_type();
+						if (b3) {
+							/* You can assign a function value to a function pointer, `fnptr`, by taking the address of the 
+							function like so: `fnptr = &strlen;`. But you can also equivalently omit the address taking operation: 
+							`fnptr = strlen;`, right? That appears to be what's going on here. So we're going to adjust the lhs 
+							indirection level so that it will be treated as if the address were taken. */
+							lhs_indirection_level_adjustment += 1;
+						}
+						int q = 5;
 					}
-					int q = 5;
-				} else {
-					auto& direct_type_state_ref = lhs_ddcs_ref.m_indirection_state_stack.m_direct_type_state;
-					bool b3 = direct_type_state_ref.seems_to_be_a_function_type();
-					if (b3) {
-						/* You can assign a function value to a function pointer, `fnptr`, by taking the address of the 
-						function like so: `fnptr = &strlen;`. But you can also equivalently omit the address taking operation: 
-						`fnptr = strlen;`, right? That appears to be what's going on here. So we're going to adjust the lhs 
-						indirection level so that it will be treated as if the address were taken. */
-						lhs_indirection_level_adjustment += 1;
-					}
-					int q = 5;
 				}
 			}
 
@@ -18561,7 +18690,7 @@ namespace convm1 {
 				return;
 			}
 
-			if (ConvertToSCPP && (lhs_res2.ddecl_conversion_state_ptr) && (rhs_res2.ddecl_conversion_state_ptr) && lhs_is_an_indirect_type && lhs_res2.ddecl_cptr) {
+			if ((lhs_res2.ddecl_conversion_state_ptr) && (rhs_res2.ddecl_conversion_state_ptr) && lhs_is_an_indirect_type && lhs_res2.ddecl_cptr) {
 				auto& lhs_ddecl_ref = *(lhs_res2.ddecl_cptr);
 
 				for (size_t i = 0; lhs_indirection_level_adjustment > i; i += 1) {
@@ -18599,7 +18728,7 @@ namespace convm1 {
 							state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_ddecl_indirection);
 						}
 					}
-					if (!suppress_modifications) {
+					if (ConvertToSCPP && !suppress_modifications) {
 						update_declaration_if_not_suppressed(lhs_ddecl_ref, Rewrite, *(MR.Context), state1);
 					}
 				}
@@ -18689,7 +18818,7 @@ namespace convm1 {
 										state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_ddecl_indirection);
 									}
 								}
-								if (!suppress_modifications) {
+								if (ConvertToSCPP && !suppress_modifications) {
 									update_declaration_if_not_suppressed(lhs_ddecl_ref, Rewrite, *(MR.Context), state1);
 								}
 							}
@@ -18753,7 +18882,7 @@ namespace convm1 {
 									state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, lhs_ddecl_indirection);
 								}
 							}
-							if (!suppress_modifications) {
+							if (ConvertToSCPP && !suppress_modifications) {
 								update_declaration_if_not_suppressed(lhs_ddecl_ref, Rewrite, *(MR.Context), state1);
 							}
 						}
@@ -18784,11 +18913,9 @@ namespace convm1 {
 						if (lhs_pointee_maybe_qtype.has_value()) {
 							auto lhs_pointee_qtype = lhs_pointee_maybe_qtype.value();
 							if (lhs_pointee_qtype->isFunctionType()) {
-								/* If rhs_FND is non-modifiable, it's not really useful to use it as the stored associated function 
-								declaration pointer, as it won't have useful conversion state information associated with it. */
-								if (!is_non_modifiable(*rhs_FND, *(MR.Context), Rewrite, state1)) {
+								{
 									lhs_direct_type_state_ref.m_function_type_state.m_function_decl_ptr = rhs_FND;
-									if (!suppress_modifications) {
+									if (ConvertToSCPP && !suppress_modifications) {
 										update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 									}
 
@@ -18874,11 +19001,9 @@ namespace convm1 {
 
 								int q = 5;
 							}
-							/* If rhs_FND is non-modifiable, it's not really useful to use it as the stored associated function 
-							declaration pointer, as it won't have useful conversion state information associated with it. */
-							if (!is_non_modifiable(*rhs_FND, *(MR.Context), Rewrite, state1)) {
+							{
 								lhs_pointee_indirection_state_ref.m_function_type_state.m_function_decl_ptr = rhs_FND;
-								if (!suppress_modifications) {
+								if (ConvertToSCPP && !suppress_modifications) {
 									update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 								}
 
@@ -18909,20 +19034,25 @@ namespace convm1 {
 
 						auto& lhs_function_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state;
 						auto& rhs_function_state_ref = rhs_ddcs_ref.direct_type_state_ref().m_function_type_state;
-						if (rhs_function_state_ref.has_been_changed()) {
-							if (!lhs_function_state_ref.has_been_changed()) {
-								lhs_function_state_ref = rhs_function_state_ref;
-							} else {
-								int q = 7;
+
+						homogenize_function_type_states_if_compatible(lhs_function_state_ref, rhs_function_state_ref, Rewrite, state1);
+
+						if (false) {
+							if (rhs_function_state_ref.has_been_changed()) {
+								if (!lhs_function_state_ref.has_been_changed()) {
+									lhs_function_state_ref = rhs_function_state_ref;
+								} else {
+									int q = 7;
+								}
+							} else if (lhs_function_state_ref.has_been_changed()) {
+								rhs_function_state_ref = lhs_function_state_ref;
 							}
-						} else if (lhs_function_state_ref.has_been_changed()) {
-							rhs_function_state_ref = lhs_function_state_ref;
 						}
 					}
 				}
 			}
 
-			if (!suppress_modifications) {
+			if (ConvertToSCPP && !suppress_modifications) {
 				if (lhs_res2.ddecl_cptr && lhs_res2.update_declaration_flag) {
 					update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 				}
