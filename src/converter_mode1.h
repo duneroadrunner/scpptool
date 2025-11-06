@@ -2024,20 +2024,29 @@ namespace convm1 {
 					if (1 <= (*this).m_indirection_state_stack.size()) {
 						auto decl_filename = get_filename(get_full_path_name(SM, decl_source_range.getBegin()));
 						if (string_ends_with(decl_filename, ".h") || string_ends_with(decl_filename, ".hpp")) {
-							/* For pointers declared within a translation unit, our whole-translation-unit analysis can assess whether 
-							on not they could potentially point to a "malloc()ed" target or a "non-malloc()ed" target (or both) and 
-							set their (safe pointer or iterator) type accordingly. But pointers declared in header files might be 
-							included in multiple translation units. And since our analysis only covers one translation unit at a time, 
-							it can't be certain that a pointer that doesn't point to a "malloc()ed" target (or doesn't point to a 
-							"non-malloc()ed" target) in the translation unit being analyzed, doesn't point to such a target in aother 
-							translation unit. So for pointers declared in header files, we'll conservatively assume that they could 
-							point to a "malloc()ed" target or a "non-malloc()ed" target (or both). */
-							if (!(QT->isArrayType())) {
-								auto& indirection_state_ref = (*this).m_indirection_state_stack.at(0);
-								indirection_state_ref.set_is_known_to_have_malloc_target(true);
-								indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
-							} else {
-								int q = 5;
+							for (size_t i = 0; (*this).m_indirection_state_stack.size() > i; i += 1) {
+								auto& indirection_state_ref = (*this).m_indirection_state_stack.at(i);
+								/* For pointers declared within a translation unit, our whole-translation-unit analysis can assess whether 
+								on not they could potentially point to a "malloc()ed" target or a "non-malloc()ed" target (or both) and 
+								set their (safe pointer or iterator) type accordingly. But pointers declared in header files might be 
+								included in multiple translation units. And since our analysis only covers one translation unit at a time, 
+								it can't be certain that a pointer that doesn't point to a "malloc()ed" target (or doesn't point to a 
+								"non-malloc()ed" target) in the translation unit being analyzed, doesn't point to such a target in aother 
+								translation unit. So for pointers declared in header files, we'll conservatively assume that they could 
+								point to a "malloc()ed" target or a "non-malloc()ed" target (or both). */
+								bool is_a_native_array = false;
+								if (indirection_state_ref.m_maybe_original_qtype.has_value()) {
+									auto original_qtype = indirection_state_ref.m_maybe_original_qtype.value();
+									if (original_qtype->isArrayType()) {
+										is_a_native_array = true;
+									}
+								}
+								if (!is_a_native_array) {
+									indirection_state_ref.set_is_known_to_have_malloc_target(true);
+									indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
+								} else {
+									int q = 5;
+								}
 							}
 						}
 					}
@@ -2300,8 +2309,14 @@ namespace convm1 {
 
 	class CDDeclConversionStateMap : public std::unordered_map<const clang::DeclaratorDecl*, CDDeclConversionState> {
 	public:
+		typedef std::unordered_map<const clang::DeclaratorDecl*, CDDeclConversionState> base_class;
+
 		std::pair<iterator, bool> insert(const clang::DeclaratorDecl& ddecl, Rewriter* Rewrite_ptr = nullptr, CTUState* state1_ptr = nullptr, bool function_return_value_only = false) {
-			std::string variable_name = ddecl.getNameAsString();
+			IF_DEBUG(std::string variable_name = ddecl.getNameAsString();)
+			auto found_it = base_class::find(&ddecl);
+			if (base_class::end() != found_it) {
+				return { found_it, false };
+			}
 			value_type item(&ddecl, CDDeclConversionState(ddecl, Rewrite_ptr, state1_ptr, function_return_value_only));
 			return std::unordered_map<const clang::DeclaratorDecl*, CDDeclConversionState>::insert(item);
 		}
@@ -3592,6 +3607,10 @@ namespace convm1 {
 	public:
 	};
 
+	enum class apply_to_redeclarations_t : bool { no, yes };
+	static void update_declaration(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1, apply_to_redeclarations_t apply_to_redeclarations = apply_to_redeclarations_t::yes, std::string options_str = "");
+	static void update_declaration_if_not_suppressed(const DeclaratorDecl& ddecl, Rewriter &Rewrite, clang::ASTContext& context, CTUState& state1, apply_to_redeclarations_t apply_to_redeclarations = apply_to_redeclarations_t::yes, std::string options_str = "");
+
 	class CTUState : public CCommonTUState1 {
 	public:
 		/* This container holds (potential) actions that are meant to be executed upon
@@ -3628,17 +3647,24 @@ namespace convm1 {
 			auto* DD = &ddecl;
 			auto& state1 = (*this);
 			bool insertion_occurred = false;
+			bool update_executed = false;
 			auto ddcs_map_iter = state1.m_ddecl_conversion_state_map.find(DD);
 			if (state1.m_ddecl_conversion_state_map.end() == ddcs_map_iter) {
 				auto res1 = state1.m_ddecl_conversion_state_map.insert(*DD, Rewrite_ptr, &state1, function_return_value_only);
 				ddcs_map_iter = res1.first;
 				assert(state1.m_ddecl_conversion_state_map.end() != ddcs_map_iter);
 				insertion_occurred = res1.second;
+				if (Rewrite_ptr) {
+					if ((*this).m_ast_context_ptr) {
+						update_declaration_if_not_suppressed(*DD, *Rewrite_ptr, *((*this).m_ast_context_ptr), *this);
+						update_executed = true;
+					}
+				}
 			} else {
 				int q = 5;
 			}
 			auto& ddcs_ref = (*ddcs_map_iter).second;
-			return std::pair<CDDeclConversionState&, bool> { ddcs_ref, insertion_occurred };
+			return std::pair<CDDeclConversionState&, bool> { ddcs_ref, (insertion_occurred && !update_executed) };
 		}
 
 		/* This container maps "clang::SourceLocation"s to "clang::RecordDecl"s at that
@@ -10100,8 +10126,6 @@ namespace convm1 {
 		}
 	}
 
-	enum class apply_to_redeclarations_t : bool { no, yes };
-
 	/* Ensure that the given declarations convert to the same type (give or take a reference). */
 	void homogenize_types(CTUState& state1, Rewriter &Rewrite, const clang::DeclaratorDecl& ddecl_cref1,
 		const clang::DeclaratorDecl& ddecl_cref2) {
@@ -10155,9 +10179,6 @@ namespace convm1 {
 			}
 		}
 	}
-
-	static void update_declaration(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1, apply_to_redeclarations_t apply_to_redeclarations = apply_to_redeclarations_t::yes, std::string options_str = "");
-	static void update_declaration_if_not_suppressed(const DeclaratorDecl& ddecl, Rewriter &Rewrite, clang::ASTContext& context, CTUState& state1, apply_to_redeclarations_t apply_to_redeclarations = apply_to_redeclarations_t::yes, std::string options_str = "");
 
 	/* Ensure that all the (re)declarations of the same variable are the same type. */
 	void homogenize_redeclaration_types(const clang::DeclaratorDecl* ddecl_cptr, CTUState& state1, Rewriter &Rewrite, int ttl = -1) {
@@ -16211,9 +16232,10 @@ namespace convm1 {
 				}
 
 				/* Here we "execute" sort of "virtual" assignments between the LHS and RHS of the conditional expression 
-				to help "harmonize" the types they will be converted to, while suppressing any actual code changes. These 
-				operations may be somewhat (or maybe completely) redundant and/or, by themselves, insufficient. But we 
-				execute them here (because it's easy to do and) just in case they are not completely redundant. */
+				to help synchronize the types they will be converted to, while suppressing any actual code changes. There 
+				may be some redundancy between the "conversion" code in this function and these virtual assignments, but, 
+				at least currently, the assignment handler is more thorough with respect to setting up all the 
+				relationships between items whose conversions need to be synchronized. */
 				assignment_handler1(MR, Rewrite, state1, LHS, RHS, nullptr/*VLD*/, EIsAnInitialization::No, {}/*maybe_lhs_indirection_level_adjustment*/
 					, ESuppressModifications::Yes);
 				assignment_handler1(MR, Rewrite, state1, RHS, LHS, nullptr/*VLD*/, EIsAnInitialization::No, {}/*maybe_lhs_indirection_level_adjustment*/
@@ -18338,10 +18360,11 @@ namespace convm1 {
 				MCSSSConditionalExpr::s_handler1(MR, Rewrite, state1, CO, maybe_DD, lhs_res2.indirection_level, suppress_modifications_enum);
 
 				/* Here we "execute" sort of "virtual" assignments between each of the branches of the conditional 
-				expression and the target that the result of the conditional expression will be assigned to in order 
-				to help "harmonize" the types they will be converted to, while suppressing any actual code changes. 
-				These operations may be somewhat (or maybe completely) redundant and/or, by themselves, insufficient. 
-				But we execute them here (because it's easy to do and) just in case they are not completely redundant. */
+				expression and the target item that the result of the conditional expression will be assigned to in 
+				order to help synchronize the types they will be converted to, while suppressing any actual code 
+				changes. There may be some redundancy between the above MCSSSConditionalExpr::s_handler1() call and 
+				these virtual assignments, but, at least currently, the assignment handler is more thorough with 
+				respect to setting up all the relationships between items whose conversions need to be synchronized. */
 				if (true && CO->getLHS()) {
 					MCSSSAssignment::s_handler1(MR, Rewrite, state1, LHS, CO->getLHS()/*RHS*/
 						, VLD, is_an_initialization, maybe_lhs_indirection_level_adjustment, ESuppressModifications::Yes);
