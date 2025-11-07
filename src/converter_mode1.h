@@ -1915,6 +1915,9 @@ namespace convm1 {
 		CTUState& m_state1;
 	};
 
+	class CDDeclConversionState;
+	std::optional<std::pair<CDDeclConversionState&, bool> > get_ddecl_conversion_state_ref_and_update_flag_if_already_available(CTUState& state1, clang::DeclaratorDecl const& ddecl, Rewriter* Rewrite_ptr = nullptr, bool function_return_value_only = false);
+
 	class CDDeclConversionState {
 	public:
 		CDDeclConversionState(const clang::DeclaratorDecl& ddecl, Rewriter* Rewrite_ptr = nullptr, CTUState* state1_ptr = nullptr, bool function_return_value_only = false) : m_ddecl_cptr(&ddecl) {
@@ -2012,7 +2015,6 @@ namespace convm1 {
 					}
 				}
 			}
-
 			//std::reverse(m_indirection_state_stack.begin(), m_indirection_state_stack.end());
 			m_indirection_state_stack.m_maybe_DD = &ddecl;
 
@@ -2042,10 +2044,34 @@ namespace convm1 {
 									}
 								}
 								if (!is_a_native_array) {
+									if (0 == i)  {
+										bool has_external_storage = true;
+										auto VD = dyn_cast<const clang::VarDecl>(&ddecl);
+										if (VD) {
+											if (VD->hasExternalStorage()) {
+												has_external_storage = true;
+											}
+										}
+										bool ends_with_square_bracket = false;
+										auto packed_source_text_str = with_whitespace_removed((*this).m_original_source_text_str);
+										if (string_ends_with(packed_source_text_str, "]")) {
+											ends_with_square_bracket = true;
+										} else {
+											int q = 5;
+										}
+
+										if (false && has_external_storage) {
+											/* If a (non-nested) pointer is declared in a header file with external storage, we'll assume it'll end 
+											up being defined as a native array in some source file. */
+											is_a_native_array = true;
+										}
+									}
+								}
+								indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
+								if (!is_a_native_array) {
 									indirection_state_ref.set_is_known_to_have_malloc_target(true);
-									indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
 								} else {
-									int q = 5;
+									indirection_state_ref.set_is_known_to_be_used_as_an_iterator(true);
 								}
 							}
 						}
@@ -2089,6 +2115,77 @@ namespace convm1 {
 						}
 					}
 					(*this).m_original_source_text_has_been_noted = true;
+				}
+
+				if (QT->isArrayType() || QT->isPointerType()) {
+					auto VD = dyn_cast<const clang::VarDecl>(&ddecl);
+					if (VD && ((1 <= (*this).m_indirection_state_stack.size()))) {
+						auto& outer_indirection_state_ref = (*this).m_indirection_state_stack.at(0);
+
+						/* This seems to be a declaration of array or pointer type. So it could be a declaration or a redeclaration 
+						of a native array. So we're going to check all the corresponding redeclarations and make sure that they all 
+						have the same array size expression (or lack thereof). */
+
+						auto VD_qtype = VD->getType();
+						IF_DEBUG(std::string VD_qtype_str = VD_qtype.getAsString();)
+						auto VD_is_a_dependent_type = VD_qtype->isInstantiationDependentType();
+
+						if ("" == outer_indirection_state_ref.m_array_size_expr) {
+							/* First we'll check if any of the other redeclarations have an array size expression. */
+							for (auto redecl : VD->redecls()) {
+								auto redecl_qtype = redecl->getType();
+								IF_DEBUG(std::string redecl_qtype_str = redecl_qtype.getAsString();)
+								auto redecl_is_a_dependent_type = redecl_qtype->isInstantiationDependentType();
+
+								if (state1_ptr && (redecl != VD) && (redecl_is_a_dependent_type == VD_is_a_dependent_type)) {
+									auto& state1 = *state1_ptr;
+									auto maybe_ddecl_conversion_state_ref_and_update_flag = get_ddecl_conversion_state_ref_and_update_flag_if_already_available(state1, *redecl, &Rewrite);
+									if (maybe_ddecl_conversion_state_ref_and_update_flag.has_value()) {
+										auto [redecl_ddcs_ref, redecl_update_declaration_flag] = maybe_ddecl_conversion_state_ref_and_update_flag.value();
+										if (1 <= redecl_ddcs_ref.m_indirection_state_stack.size()) {
+											auto& redecl_outer_indirection_state_ref = redecl_ddcs_ref.m_indirection_state_stack.at(0);
+											if ("" != redecl_outer_indirection_state_ref.m_array_size_expr) {
+												outer_indirection_state_ref.m_array_size_expr = redecl_outer_indirection_state_ref.m_array_size_expr;
+												break;
+											}
+										} else {
+											/* unexpected */
+											int q = 3;
+										}
+									}
+								}
+							}
+						}
+						if ("" != outer_indirection_state_ref.m_array_size_expr) {
+							/* Ok we seem to have found an array size expression. Now, for any redeclaration that is missing the array 
+							size expression, we'll set it. */
+							for (auto redecl : VD->redecls()) {
+								auto redecl_qtype = redecl->getType();
+								IF_DEBUG(std::string redecl_qtype_str = redecl_qtype.getAsString();)
+								auto redecl_is_a_dependent_type = redecl_qtype->isInstantiationDependentType();
+
+								if (state1_ptr && (redecl != VD) && (redecl_is_a_dependent_type == VD_is_a_dependent_type)) {
+									auto& state1 = *state1_ptr;
+									auto maybe_ddecl_conversion_state_ref_and_update_flag = get_ddecl_conversion_state_ref_and_update_flag_if_already_available(state1, *redecl, &Rewrite);
+									if (maybe_ddecl_conversion_state_ref_and_update_flag.has_value()) {
+										auto [redecl_ddcs_ref, redecl_update_declaration_flag] = maybe_ddecl_conversion_state_ref_and_update_flag.value();
+										if (1 <= redecl_ddcs_ref.m_indirection_state_stack.size()) {
+											auto& redecl_outer_indirection_state_ref = redecl_ddcs_ref.m_indirection_state_stack.at(0);
+											if ("" == redecl_outer_indirection_state_ref.m_array_size_expr) {
+												redecl_outer_indirection_state_ref.m_array_size_expr = outer_indirection_state_ref.m_array_size_expr;
+											} else if (outer_indirection_state_ref.m_array_size_expr != redecl_outer_indirection_state_ref.m_array_size_expr) {
+												/* unexpected? */
+												int q = 3;
+											}
+										} else {
+											/* unexpected */
+											int q = 3;
+										}
+									}
+								}
+							}
+						}
+					}
 				}
 			}
 		}
@@ -2906,38 +3003,38 @@ namespace convm1 {
 		const CDDeclIndirection m_ddecl_indirection2;
 	};
 
-	class CAssignmentSameTypeReplacementAction : public CDDeclIndirectionReplacementAction {
+	class CAssignmentSourceConstrainsTargetReplacementAction : public CDDeclIndirectionReplacementAction {
 	public:
-		CAssignmentSameTypeReplacementAction(Rewriter &Rewrite, const CDDeclIndirection& ddecl_indirection1,
+		CAssignmentSourceConstrainsTargetReplacementAction(Rewriter &Rewrite, const CDDeclIndirection& ddecl_indirection1,
 				const CDDeclIndirection& ddecl_indirection2)
 				: CDDeclIndirectionReplacementAction(Rewrite, ddecl_indirection1), m_ddecl_indirection2(ddecl_indirection2) {}
 		/* with redundant parameter just for backward compatibility */
-		CAssignmentSameTypeReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
+		CAssignmentSourceConstrainsTargetReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
 				const CDDeclIndirection& ddecl_indirection2) :
 					CDDeclIndirectionReplacementAction(Rewrite, MR, ddecl_indirection), m_ddecl_indirection2(ddecl_indirection2) {}
-		virtual ~CAssignmentSameTypeReplacementAction() {}
+		virtual ~CAssignmentSourceConstrainsTargetReplacementAction() {}
 
 		virtual void do_replacement(CTUState& state1) const;
 
 		const CDDeclIndirection m_ddecl_indirection2;
 	};
 
-	class CSameTypeReplacementAction : public CDDeclIndirectionReplacementAction {
+	class CEnforceThatBothAreTheSameTypeReplacementAction : public CDDeclIndirectionReplacementAction {
 	public:
-		CSameTypeReplacementAction(Rewriter &Rewrite, const CDDeclIndirection& ddecl_indirection1,
+		CEnforceThatBothAreTheSameTypeReplacementAction(Rewriter &Rewrite, const CDDeclIndirection& ddecl_indirection1,
 				const CDDeclIndirection& ddecl_indirection2)
 				: CDDeclIndirectionReplacementAction(Rewrite, ddecl_indirection1), m_ddecl_indirection2(ddecl_indirection2) {}
-		CSameTypeReplacementAction(Rewriter &Rewrite, const clang::DeclaratorDecl& ddecl_cref1,
+		CEnforceThatBothAreTheSameTypeReplacementAction(Rewriter &Rewrite, const clang::DeclaratorDecl& ddecl_cref1,
 				const clang::DeclaratorDecl& ddecl_cref2)
 				: CDDeclIndirectionReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)), m_ddecl_indirection2(CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)) {}
 		/* with redundant parameter just for backward compatibility */
-		CSameTypeReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection1,
+		CEnforceThatBothAreTheSameTypeReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection1,
 				const CDDeclIndirection& ddecl_indirection2)
 				: CDDeclIndirectionReplacementAction(Rewrite, ddecl_indirection1), m_ddecl_indirection2(ddecl_indirection2) {}
-		CSameTypeReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const clang::DeclaratorDecl& ddecl_cref1,
+		CEnforceThatBothAreTheSameTypeReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const clang::DeclaratorDecl& ddecl_cref1,
 				const clang::DeclaratorDecl& ddecl_cref2)
 				: CDDeclIndirectionReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)), m_ddecl_indirection2(CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)) {}
-		virtual ~CSameTypeReplacementAction() {}
+		virtual ~CEnforceThatBothAreTheSameTypeReplacementAction() {}
 
 		virtual void do_replacement(CTUState& state1) const;
 
@@ -2988,28 +3085,28 @@ namespace convm1 {
 		const CDDeclIndirection m_ddecl_indirection2;
 	};
 
-	class CAssignmentSameTypeArray2ReplacementAction : public CArray2ReplacementAction {
+	class CAssignmentSourceConstrainsTargetArray2ReplacementAction : public CArray2ReplacementAction {
 	public:
-		CAssignmentSameTypeArray2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
+		CAssignmentSourceConstrainsTargetArray2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
 				const CDDeclIndirection& ddecl_indirection2) :
 					CArray2ReplacementAction(Rewrite, MR, ddecl_indirection), m_ddecl_indirection2(ddecl_indirection2) {}
-		virtual ~CAssignmentSameTypeArray2ReplacementAction() {}
+		virtual ~CAssignmentSourceConstrainsTargetArray2ReplacementAction() {}
 
 		virtual void do_replacement(CTUState& state1) const;
 
 		const CDDeclIndirection m_ddecl_indirection2;
 	};
 
-	class CSameTypeArray2ReplacementAction : public CArray2ReplacementAction {
+	class CEnforceThatBothAreTheSameTypeArray2ReplacementAction : public CArray2ReplacementAction {
 	public:
-		CSameTypeArray2ReplacementAction(Rewriter &Rewrite, const CDDeclIndirection& ddecl_indirection,
+		CEnforceThatBothAreTheSameTypeArray2ReplacementAction(Rewriter &Rewrite, const CDDeclIndirection& ddecl_indirection,
 				const CDDeclIndirection& ddecl_indirection2) :
 					CArray2ReplacementAction(Rewrite, ddecl_indirection), m_ddecl_indirection2(ddecl_indirection2) {}
 		/* with redundant parameter just for backward compatibility */
-		CSameTypeArray2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
+		CEnforceThatBothAreTheSameTypeArray2ReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
 				const CDDeclIndirection& ddecl_indirection2) :
 					CArray2ReplacementAction(Rewrite, ddecl_indirection), m_ddecl_indirection2(ddecl_indirection2) {}
-		virtual ~CSameTypeArray2ReplacementAction() {}
+		virtual ~CEnforceThatBothAreTheSameTypeArray2ReplacementAction() {}
 
 		virtual void do_replacement(CTUState& state1) const;
 
@@ -3642,6 +3739,21 @@ namespace convm1 {
 		CDDeclConversionStateMap m_ddecl_conversion_state_map;
 
 		/* Retrieves a reference to the "declaration conversion state" object associated with the given 
+		declaration if such an object already exists. */
+		std::optional<std::pair<CDDeclConversionState&, bool> > get_ddecl_conversion_state_ref_and_update_flag_if_already_available(clang::DeclaratorDecl const& ddecl, Rewriter* Rewrite_ptr = nullptr, bool function_return_value_only = false) {
+			auto* DD = &ddecl;
+			auto& state1 = (*this);
+			bool insertion_occurred = false;
+			bool update_executed = false;
+			auto ddcs_map_iter = state1.m_ddecl_conversion_state_map.find(DD);
+			if (state1.m_ddecl_conversion_state_map.end() == ddcs_map_iter) {
+				return {};
+			}
+			auto& ddcs_ref = (*ddcs_map_iter).second;
+			return std::pair<CDDeclConversionState&, bool> { ddcs_ref, (insertion_occurred && !update_executed) };
+		}
+
+		/* Retrieves a reference to the "declaration conversion state" object associated with the given 
 		declaration. If no such object exists, one will be created and stored. */
 		std::pair<CDDeclConversionState&, bool> get_ddecl_conversion_state_ref_and_update_flag(clang::DeclaratorDecl const& ddecl, Rewriter* Rewrite_ptr = nullptr, bool function_return_value_only = false) {
 			auto* DD = &ddecl;
@@ -3854,6 +3966,10 @@ namespace convm1 {
 		sure that it will be valid for the entire lifetime of this state. */
 		clang::Rewriter* m_Rewrite_ptr = nullptr;
 	};
+
+	std::optional<std::pair<CDDeclConversionState&, bool> > get_ddecl_conversion_state_ref_and_update_flag_if_already_available(CTUState& state1, clang::DeclaratorDecl const& ddecl, Rewriter* Rewrite_ptr/* = nullptr*/, bool function_return_value_only/* = false*/) {
+		return state1.get_ddecl_conversion_state_ref_and_update_flag_if_already_available(ddecl, Rewrite_ptr, function_return_value_only);
+	}
 
 
 	clang::ASTContext* CExprConversionState::maybe_null_ast_context_ptr() const {
@@ -7201,9 +7317,9 @@ namespace convm1 {
 				maybe_tparam_usage_info = seems_to_contain_an_instantiation_of_a_template_parameter(*DD, type_original_source_text, Rewrite, state1_ptr);
 
 				auto VD = dyn_cast<const clang::VarDecl>(DD);
-				 if (VD) {
+				if (VD) {
 					has_external_storage = VD->hasExternalStorage();
-				 }
+				}
 
 				if ("" == direct_type_original_qtype_str) {
 					auto maybe_typeLoc = typeLoc_if_available(*DD);
@@ -10146,7 +10262,7 @@ namespace convm1 {
 #endif /*!NDEBUG*/
 
 		/* homogenize the direct types (i.e. the types with any pointer/reference/array/etc indirections removed) */
-		CSameTypeReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)
+		CEnforceThatBothAreTheSameTypeReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref2, CDDeclIndirection::no_indirection)
 			, CDDeclIndirection(ddecl_cref1, CDDeclIndirection::no_indirection)).do_replacement(state1);
 
 		auto [lhs_ddcs_ref, lhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(ddecl_cref2, &Rewrite);
@@ -10171,10 +10287,10 @@ namespace convm1 {
 			/* homogenize the types of all the indirections */
 			size_t adjusted_num_indirection_levels = lhs_ddcs_ref.m_indirection_state_stack.size() - lhs_indirection_level_adjustment;
 			for (size_t i = 0; i < adjusted_num_indirection_levels; i += 1) {
-				CSameTypeReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref2, i + lhs_indirection_level_adjustment)
+				CEnforceThatBothAreTheSameTypeReplacementAction(Rewrite, CDDeclIndirection(ddecl_cref2, i + lhs_indirection_level_adjustment)
 					, CDDeclIndirection(ddecl_cref1, i + rhs_indirection_level_adjustment)).do_replacement(state1);
 
-				CSameTypeArray2ReplacementAction(Rewrite, CDDeclIndirection(*(lhs_ddcs_ref.m_ddecl_cptr), i + lhs_indirection_level_adjustment)
+				CEnforceThatBothAreTheSameTypeArray2ReplacementAction(Rewrite, CDDeclIndirection(*(lhs_ddcs_ref.m_ddecl_cptr), i + lhs_indirection_level_adjustment)
 					, CDDeclIndirection(*(rhs_ddcs_ref.m_ddecl_cptr), i + rhs_indirection_level_adjustment)).do_replacement(state1);
 			}
 		}
@@ -10870,16 +10986,59 @@ namespace convm1 {
 
 			auto& lhs_function_state_ref = (CDDeclIndirection::no_indirection == trgt_indirection_level) ? lhs_ddcs_ref.direct_type_state_ref().m_function_type_state : lhs_ddcs_ref.m_indirection_state_stack.at(trgt_indirection_level).m_function_type_state;
 			auto& rhs_function_state_ref = (CDDeclIndirection::no_indirection == src_indirection_level) ? rhs_ddcs_ref.direct_type_state_ref().m_function_type_state : rhs_ddcs_ref.m_indirection_state_stack.at(src_indirection_level).m_function_type_state;
-			if (lhs_function_state_ref.has_been_changed()) {
-				bool assign_function_state = true;
-				if (CDDeclIndirection::no_indirection == src_indirection_level) {
-					if (!rhs_ddcs_ref.direct_type_state_ref().seems_to_be_a_function_type()) {
-						assign_function_state = false;
+
+			auto lhs_fn_D = lhs_function_state_ref.m_function_decl_ptr;
+			auto rhs_fn_D = rhs_function_state_ref.m_function_decl_ptr;
+			if (lhs_fn_D || rhs_fn_D) {
+				if ((lhs_fn_D && rhs_fn_D) && (lhs_fn_D != rhs_fn_D)) {
+					/* Function declarations seems to be available for the both lhs and rhs (presumably indicating that the 
+					lhs and rhs indirections are functions) and they are not the same. */
+					auto lhs_fn_qtype = lhs_fn_D->getType();
+					auto rhs_fn_qtype = rhs_fn_D->getType();
+					if (lhs_fn_qtype == rhs_fn_qtype) {
+						if (lhs_fn_D->getNumParams() == rhs_fn_D->getNumParams()) {
+							for (size_t i = 0; i < lhs_fn_D->getNumParams(); i+=1) {
+								auto lhs_fn_param_D = lhs_fn_D->getParamDecl(i);
+								auto rhs_fn_param_D = rhs_fn_D->getParamDecl(i);
+
+								auto lhs_fn_param_qtype = lhs_fn_param_D->getType();
+								auto rhs_fn_param_qtype = rhs_fn_param_D->getType();
+								if (lhs_fn_param_qtype != rhs_fn_param_qtype) {
+									assert(false);
+									break;
+								}
+
+								auto [lhs_fn_param_ddcs_ref, lhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_fn_param_D, &m_Rewrite);
+								auto [rhs_fn_param_ddcs_ref, rhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_fn_param_D, &m_Rewrite);
+								if (lhs_fn_param_ddcs_ref.m_indirection_state_stack.size() != rhs_fn_param_ddcs_ref.m_indirection_state_stack.size()) {
+									assert(false);
+									break;
+								}
+
+								/* Constraining that two functions are of the same type requires that the type of each level of indirection 
+								of each parameter must also be the same. So we impose those constraints here. */
+								for (size_t i = 0; lhs_fn_param_ddcs_ref.m_indirection_state_stack.size() > i; i += 1) {
+									CEnforceThatBothAreTheSameTypeReplacementAction(Rewrite, CDDeclIndirection(*lhs_fn_param_D, i), CDDeclIndirection(*rhs_fn_param_D, i)).do_replacement(state1);
+								}
+								CEnforceThatBothAreTheSameTypeReplacementAction(Rewrite, CDDeclIndirection(*lhs_fn_param_D, CDDeclIndirection::no_indirection), CDDeclIndirection(*rhs_fn_param_D, CDDeclIndirection::no_indirection)).do_replacement(state1);
+							}
+						}
 					}
 				}
-				if (assign_function_state) {
-					rhs_function_state_ref = lhs_function_state_ref;
-					rhs_update_declaration_flag |= true;
+			}
+
+			if (false) {
+				if (lhs_function_state_ref.has_been_changed()) {
+					bool assign_function_state = true;
+					if (CDDeclIndirection::no_indirection == src_indirection_level) {
+						if (!rhs_ddcs_ref.direct_type_state_ref().seems_to_be_a_function_type()) {
+							assign_function_state = false;
+						}
+					}
+					if (assign_function_state) {
+						rhs_function_state_ref = lhs_function_state_ref;
+						rhs_update_declaration_flag |= true;
+					}
 				}
 			}
 		}
@@ -10925,7 +11084,7 @@ namespace convm1 {
 		}
 	}
 
-	void CAssignmentSameTypeReplacementAction::do_replacement(CTUState& state1) const {
+	void CAssignmentSourceConstrainsTargetReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
 
 		auto& trgt_indirection = m_ddecl_indirection2;
@@ -10964,16 +11123,59 @@ namespace convm1 {
 
 			auto& lhs_function_state_ref = (CDDeclIndirection::no_indirection == trgt_indirection_level) ? lhs_ddcs_ref.direct_type_state_ref().m_function_type_state : lhs_ddcs_ref.m_indirection_state_stack.at(trgt_indirection_level).m_function_type_state;
 			auto& rhs_function_state_ref = (CDDeclIndirection::no_indirection == src_indirection_level) ? rhs_ddcs_ref.direct_type_state_ref().m_function_type_state : rhs_ddcs_ref.m_indirection_state_stack.at(src_indirection_level).m_function_type_state;
-			if (rhs_function_state_ref.has_been_changed()) {
-				bool assign_function_state = true;
-				if (CDDeclIndirection::no_indirection == trgt_indirection_level) {
-					if (!lhs_ddcs_ref.direct_type_state_ref().seems_to_be_a_function_type()) {
-						assign_function_state = false;
+
+			auto lhs_fn_D = lhs_function_state_ref.m_function_decl_ptr;
+			auto rhs_fn_D = rhs_function_state_ref.m_function_decl_ptr;
+			if (lhs_fn_D || rhs_fn_D) {
+				if ((lhs_fn_D && rhs_fn_D) && (lhs_fn_D != rhs_fn_D)) {
+					/* Function declarations seems to be available for the both lhs and rhs (presumably indicating that the 
+					lhs and rhs indirections are functions) and they are not the same. */
+					auto lhs_fn_qtype = lhs_fn_D->getType();
+					auto rhs_fn_qtype = rhs_fn_D->getType();
+					if (lhs_fn_qtype == rhs_fn_qtype) {
+						if (lhs_fn_D->getNumParams() == rhs_fn_D->getNumParams()) {
+							for (size_t i = 0; i < lhs_fn_D->getNumParams(); i+=1) {
+								auto lhs_fn_param_D = lhs_fn_D->getParamDecl(i);
+								auto rhs_fn_param_D = rhs_fn_D->getParamDecl(i);
+
+								auto lhs_fn_param_qtype = lhs_fn_param_D->getType();
+								auto rhs_fn_param_qtype = rhs_fn_param_D->getType();
+								if (lhs_fn_param_qtype != rhs_fn_param_qtype) {
+									assert(false);
+									break;
+								}
+
+								auto [lhs_fn_param_ddcs_ref, lhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_fn_param_D, &m_Rewrite);
+								auto [rhs_fn_param_ddcs_ref, rhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_fn_param_D, &m_Rewrite);
+								if (lhs_fn_param_ddcs_ref.m_indirection_state_stack.size() != rhs_fn_param_ddcs_ref.m_indirection_state_stack.size()) {
+									assert(false);
+									break;
+								}
+
+								/* Constraining that two functions are of the same type requires that the type of each level of indirection 
+								of each parameter must also be the same. So we impose those constraints here. */
+								for (size_t i = 0; lhs_fn_param_ddcs_ref.m_indirection_state_stack.size() > i; i += 1) {
+									CEnforceThatBothAreTheSameTypeReplacementAction(Rewrite, CDDeclIndirection(*lhs_fn_param_D, i), CDDeclIndirection(*rhs_fn_param_D, i)).do_replacement(state1);
+								}
+								CEnforceThatBothAreTheSameTypeReplacementAction(Rewrite, CDDeclIndirection(*lhs_fn_param_D, CDDeclIndirection::no_indirection), CDDeclIndirection(*rhs_fn_param_D, CDDeclIndirection::no_indirection)).do_replacement(state1);
+							}
+						}
 					}
 				}
-				if (assign_function_state) {
-					lhs_function_state_ref = rhs_function_state_ref;
-					lhs_update_declaration_flag |= true;
+			}
+
+			if (false) {
+				if (rhs_function_state_ref.has_been_changed()) {
+					bool assign_function_state = true;
+					if (CDDeclIndirection::no_indirection == trgt_indirection_level) {
+						if (!lhs_ddcs_ref.direct_type_state_ref().seems_to_be_a_function_type()) {
+							assign_function_state = false;
+						}
+					}
+					if (assign_function_state) {
+						lhs_function_state_ref = rhs_function_state_ref;
+						lhs_update_declaration_flag |= true;
+					}
 				}
 			}
 		}
@@ -11021,7 +11223,7 @@ namespace convm1 {
 		}
 	}
 
-	void CSameTypeReplacementAction::do_replacement(CTUState& state1) const {
+	void CEnforceThatBothAreTheSameTypeReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
 
 		auto& lhs_indirection = m_ddecl_indirection2;
@@ -11096,93 +11298,6 @@ namespace convm1 {
 				elements that interact with them. */
 				return;
 			}
-
-			auto& lhs_function_state_ref = (CDDeclIndirection::no_indirection == lhs_indirection.m_indirection_level) ? lhs_ddcs_ref.direct_type_state_ref().m_function_type_state : lhs_ddcs_ref.m_indirection_state_stack.at(lhs_indirection.m_indirection_level).m_function_type_state;
-			auto& rhs_function_state_ref = (CDDeclIndirection::no_indirection == rhs_indirection.m_indirection_level) ? rhs_ddcs_ref.direct_type_state_ref().m_function_type_state : rhs_ddcs_ref.m_indirection_state_stack.at(rhs_indirection.m_indirection_level).m_function_type_state;
-
-			auto lhs_fn_D = lhs_function_state_ref.m_function_decl_ptr;
-			auto rhs_fn_D = rhs_function_state_ref.m_function_decl_ptr;
-			if (lhs_fn_D || rhs_fn_D) {
-				if ((lhs_fn_D && rhs_fn_D) && (lhs_fn_D != rhs_fn_D)) {
-					/* Function declarations seems to be available for the both lhs and rhs (presumably indicating that the 
-					lhs and rhs indirections are functions) and they are not the same. */
-					auto lhs_fn_qtype = lhs_fn_D->getType();
-					auto rhs_fn_qtype = rhs_fn_D->getType();
-					if (lhs_fn_qtype == rhs_fn_qtype) {
-						if (lhs_fn_D->getNumParams() == rhs_fn_D->getNumParams()) {
-							for (size_t i = 0; i < lhs_fn_D->getNumParams(); i+=1) {
-								auto lhs_fn_param_D = lhs_fn_D->getParamDecl(i);
-								auto rhs_fn_param_D = rhs_fn_D->getParamDecl(i);
-
-								auto lhs_fn_param_qtype = lhs_fn_param_D->getType();
-								auto rhs_fn_param_qtype = rhs_fn_param_D->getType();
-								if (lhs_fn_param_qtype != rhs_fn_param_qtype) {
-									assert(false);
-									break;
-								}
-
-								auto [lhs_fn_param_ddcs_ref, lhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_fn_param_D, &m_Rewrite);
-								auto [rhs_fn_param_ddcs_ref, rhs_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_fn_param_D, &m_Rewrite);
-								if (lhs_fn_param_ddcs_ref.m_indirection_state_stack.size() != rhs_fn_param_ddcs_ref.m_indirection_state_stack.size()) {
-									assert(false);
-									break;
-								}
-
-								/* Constraining that two functions are of the same type requires that the type of each level of indirection 
-								of each parameter must also be the same. So we impose those constraints here. */
-								for (size_t i = 0; lhs_fn_param_ddcs_ref.m_indirection_state_stack.size() > i; i += 1) {
-									CSameTypeReplacementAction(Rewrite, CDDeclIndirection(*lhs_fn_param_D, i), CDDeclIndirection(*rhs_fn_param_D, i)).do_replacement(state1);
-								}
-								CSameTypeReplacementAction(Rewrite, CDDeclIndirection(*lhs_fn_param_D, CDDeclIndirection::no_indirection), CDDeclIndirection(*rhs_fn_param_D, CDDeclIndirection::no_indirection)).do_replacement(state1);
-							}
-						}
-					}
-				}
-			}
-
-			if (false) {
-				if (rhs_function_state_ref.has_been_changed()) {
-					if (!lhs_function_state_ref.has_been_changed()) {
-						bool assign_function_state = true;
-						if (CDDeclIndirection::no_indirection == lhs_indirection.m_indirection_level) {
-							if (!lhs_ddcs_ref.direct_type_state_ref().seems_to_be_a_function_type()) {
-								assign_function_state = false;
-							}
-						}
-						if (assign_function_state) {
-							auto saved_function_decl_ptr = lhs_function_state_ref.m_function_decl_ptr;
-
-							lhs_function_state_ref = rhs_function_state_ref;
-
-							if (saved_function_decl_ptr) {
-								lhs_function_state_ref.m_function_decl_ptr = saved_function_decl_ptr;
-							}
-
-							lhs_update_declaration_flag |= true;
-						}
-					} else {
-						int q = 7;
-					}
-				} else if (lhs_function_state_ref.has_been_changed()) {
-					bool assign_function_state = true;
-					if (CDDeclIndirection::no_indirection == rhs_indirection.m_indirection_level) {
-						if (!rhs_ddcs_ref.direct_type_state_ref().seems_to_be_a_function_type()) {
-							assign_function_state = false;
-						}
-					}
-					if (assign_function_state) {
-						auto saved_function_decl_ptr = rhs_function_state_ref.m_function_decl_ptr;
-
-						rhs_function_state_ref = lhs_function_state_ref;
-
-						if (saved_function_decl_ptr) {
-							rhs_function_state_ref.m_function_decl_ptr = saved_function_decl_ptr;
-						}
-
-						rhs_update_declaration_flag |= true;
-					}
-				}
-			}
 		}
 
 		if ((lhs_ddcs_ref.m_indirection_state_stack.size() > lhs_indirection.m_indirection_level) &&
@@ -11194,8 +11309,8 @@ namespace convm1 {
 			//if (!(rhs_indirection_state.m_indirection_properties1 == lhs_indirection_state.m_indirection_properties1))
 			if (rhs_indirection_state.current_species() != lhs_indirection_state.current_species()) 
 			{
-				CAssignmentSameTypeReplacementAction(m_Rewrite, m_ddecl_indirection, m_ddecl_indirection2).do_replacement(state1);
-				CAssignmentSameTypeReplacementAction(m_Rewrite, m_ddecl_indirection2, m_ddecl_indirection).do_replacement(state1);
+				CAssignmentSourceConstrainsTargetReplacementAction(m_Rewrite, m_ddecl_indirection, m_ddecl_indirection2).do_replacement(state1);
+				CAssignmentSourceConstrainsTargetReplacementAction(m_Rewrite, m_ddecl_indirection2, m_ddecl_indirection).do_replacement(state1);
 			}
 
 			auto lhs_indirection_level = lhs_indirection.m_indirection_level;
@@ -11413,9 +11528,9 @@ namespace convm1 {
 				rhs_indirection_state_ref.m_function_type_state.m_params_current_str = lhs_indirection_state_ref.m_function_type_state.m_params_current_str;
 			}
 
-			/* There is presumably a CSameTypeReplacementAction to go along with this
-			CSameTypeArray2ReplacementAction. The "pointer target state", "xscope eligibility status", etc.
-			should be handled by that CSameTypeReplacementAction, so they shouldn't need to be
+			/* There is presumably a CEnforceThatBothAreTheSameTypeReplacementAction to go along with this
+			CEnforceThatBothAreTheSameTypeArray2ReplacementAction. The "pointer target state", "xscope eligibility status", etc.
+			should be handled by that CEnforceThatBothAreTheSameTypeReplacementAction, so they shouldn't need to be
 			handled here. */
 		} else {
 			int q = 7;
@@ -11606,7 +11721,7 @@ namespace convm1 {
 		CAssignmentTargetConstrainsSourceReplacementAction(Rewrite, m_ddecl_indirection, m_ddecl_indirection2).do_replacement(state1);
 	}
 
-	void CAssignmentSameTypeArray2ReplacementAction::do_replacement(CTUState& state1) const {
+	void CAssignmentSourceConstrainsTargetArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
 
 #ifndef NDEBUG
@@ -11621,13 +11736,13 @@ namespace convm1 {
 		}
 #endif /*!NDEBUG*/
 
-		CAssignmentSameTypeReplacementAction(Rewrite, m_ddecl_indirection, m_ddecl_indirection2).do_replacement(state1);
+		CAssignmentSourceConstrainsTargetReplacementAction(Rewrite, m_ddecl_indirection, m_ddecl_indirection2).do_replacement(state1);
 	}
 
-	void CSameTypeArray2ReplacementAction::do_replacement(CTUState& state1) const {
+	void CEnforceThatBothAreTheSameTypeArray2ReplacementAction::do_replacement(CTUState& state1) const {
 		Rewriter &Rewrite = m_Rewrite;
 
-		CSameTypeReplacementAction(Rewrite, m_ddecl_indirection, m_ddecl_indirection2).do_replacement(state1);
+		CEnforceThatBothAreTheSameTypeReplacementAction(Rewrite, m_ddecl_indirection, m_ddecl_indirection2).do_replacement(state1);
 	}
 
 	void CAddressofArraySubscriptExprReplacementAction::do_replacement(CTUState& state1) const {
@@ -12167,14 +12282,14 @@ namespace convm1 {
 								the same. Which means the type of each level of indirection of each parameter must also be the same. So 
 								we impose those constraints here. */
 								for (size_t i = 0; lhs_fn_param_ddcs_ref.m_indirection_state_stack.size() > i; i += 1) {
-									auto cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, CDDeclIndirection(*lhs_fn_param_D, i)
+									auto cr_shptr = std::make_shared<CEnforceThatBothAreTheSameTypeArray2ReplacementAction>(Rewrite, CDDeclIndirection(*lhs_fn_param_D, i)
 										, CDDeclIndirection(*rhs_fn_param_D, i));
 									state1.m_conversion_state_change_action_map.insert(cr_shptr);
 
 									(*cr_shptr).do_replacement(state1);
 								}
 
-								auto cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, CDDeclIndirection(*lhs_fn_param_D, CDDeclIndirection::no_indirection)
+								auto cr_shptr = std::make_shared<CEnforceThatBothAreTheSameTypeArray2ReplacementAction>(Rewrite, CDDeclIndirection(*lhs_fn_param_D, CDDeclIndirection::no_indirection)
 									, CDDeclIndirection(*rhs_fn_param_D, CDDeclIndirection::no_indirection));
 								state1.m_conversion_state_change_action_map.insert(cr_shptr);
 
@@ -13152,25 +13267,25 @@ namespace convm1 {
 								if (condarg_inference_info.ddecl_cptr && condarg_inference_info.ddecl_conversion_state_ptr) {
 									auto& condarg_ddcs_ref = *condarg_inference_info.ddecl_conversion_state_ptr;
 
-									auto var_indirection_level2 = m_var_indirection_level + 1;
-									int i_condarg_indirection_level2 = condarg_inference_info.indirection_level + 1;
+									auto var_nested_indirection_level2 = m_var_indirection_level + 1;
+									int i_condarg_nested_indirection_level2 = condarg_inference_info.indirection_level + 1;
 									if (condarg_inference_info.maybe_indirection_level_adjustment.has_value()) {
 										auto adjustment = condarg_inference_info.maybe_indirection_level_adjustment.value();
-										i_condarg_indirection_level2 += adjustment;
+										i_condarg_nested_indirection_level2 += adjustment;
 									}
-									if (0 > i_condarg_indirection_level2) {
+									if (0 > i_condarg_nested_indirection_level2) {
 										/* unexpected? */
 										int q = 3;
-										var_indirection_level2 += size_t(0 - i_condarg_indirection_level2);
-										i_condarg_indirection_level2 = 0;
+										var_nested_indirection_level2 += size_t(0 - i_condarg_nested_indirection_level2);
+										i_condarg_nested_indirection_level2 = 0;
 									}
-									size_t condarg_indirection_level2 = size_t(i_condarg_indirection_level2);
+									size_t condarg_indirection_level2 = size_t(i_condarg_nested_indirection_level2);
 
-									for (; (ddcs_ref.m_indirection_state_stack.size() > var_indirection_level2) && (condarg_ddcs_ref.m_indirection_state_stack.size() > condarg_indirection_level2)
-										; var_indirection_level2 += 1, condarg_indirection_level2 += 1) {
+									for (; (ddcs_ref.m_indirection_state_stack.size() > var_nested_indirection_level2) && (condarg_ddcs_ref.m_indirection_state_stack.size() > condarg_indirection_level2)
+										; var_nested_indirection_level2 += 1, condarg_indirection_level2 += 1) {
 
-										auto var_indirection = CDDeclIndirection{ *m_var_DD, var_indirection_level2 };
-										CAssignmentSameTypeReplacementAction(Rewrite, var_indirection, CDDeclIndirection{ *(condarg_inference_info.ddecl_cptr), condarg_indirection_level2 }).do_replacement(state1);
+										auto var_indirection = CDDeclIndirection{ *m_var_DD, var_nested_indirection_level2 };
+										CAssignmentSourceConstrainsTargetReplacementAction(Rewrite, var_indirection, CDDeclIndirection{ *(condarg_inference_info.ddecl_cptr), condarg_indirection_level2 }).do_replacement(state1);
 									}
 								}
 							};
@@ -14107,7 +14222,7 @@ namespace convm1 {
 									} else {
 										/* Levels of indirection beyond the first one must be of the same type,
 										* not just of "compatible" types. */
-										cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*VD, 0 + i), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i));
+										cr_shptr = std::make_shared<CEnforceThatBothAreTheSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*VD, 0 + i), CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i));
 									}
 									m_state1.m_conversion_state_change_action_map.insert(cr_shptr);
 
@@ -14133,11 +14248,11 @@ namespace convm1 {
 									/* Here we're establishing the constraint in the opposite direction as well. */
 									std::shared_ptr<CArray2ReplacementAction> cr_shptr;
 									if (1 > (0 + i)) {
-										cr_shptr = std::make_shared<CAssignmentSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i), CDDeclIndirection(*VD, 0 + i));
+										cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i), CDDeclIndirection(*VD, 0 + i));
 									} else {
 										/* Levels of indirection beyond the first one must be of the same type,
 										* not just of "compatible" types. */
-										cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i), CDDeclIndirection(*VD, 0 + i));
+										cr_shptr = std::make_shared<CEnforceThatBothAreTheSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_res2.indirection_level + i), CDDeclIndirection(*VD, 0 + i));
 									}
 									m_state1.m_conversion_state_change_action_map.insert(cr_shptr);
 
@@ -16025,7 +16140,7 @@ namespace convm1 {
 			Rewrite(Rewrite), m_state1(state1) {}
 
 		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
-			, const clang::ConditionalOperator* CO, std::optional<const DeclaratorDecl*> maybe_DD, size_t DD_indirection_level = 0, ESuppressModifications suppress_modifications_enum = ESuppressModifications::No) 
+			, const clang::ConditionalOperator* CO, std::optional<CDDeclIndirection> maybe_assignment_target_DDIndirection, ESuppressModifications suppress_modifications_enum = ESuppressModifications::No) 
 		{
 			bool suppress_modifications = (ESuppressModifications::Yes == suppress_modifications_enum);
 			const Expr* LHS = nullptr;
@@ -16076,11 +16191,12 @@ namespace convm1 {
 					}
 				}
 
-				const DeclaratorDecl* possibly_null_DD = maybe_DD.has_value() ? maybe_DD.value() : nullptr;
+				const DeclaratorDecl* possibly_null_DD = maybe_assignment_target_DDIndirection.has_value() ? maybe_assignment_target_DDIndirection.value().m_ddecl_cptr : nullptr;
+				size_t DD_indirection_level = maybe_assignment_target_DDIndirection.has_value() ? maybe_assignment_target_DDIndirection.value().m_indirection_level : 0;
 
-				if (maybe_DD.has_value() && LHS->getType()->isPointerType() && RHS->getType()->isPointerType()) {
-					assert(nullptr != maybe_DD.value());
-					auto DD = maybe_DD.value();
+				if (maybe_assignment_target_DDIndirection.has_value() && LHS->getType()->isPointerType() && RHS->getType()->isPointerType()) {
+					assert(nullptr != possibly_null_DD);
+					auto DD = maybe_assignment_target_DDIndirection.value().m_ddecl_cptr;
 					auto decl_source_range = cm1_adj_nice_source_range(DD->getSourceRange(), state1, Rewrite);
 					if (!decl_source_range.isValid()) {
 						return;
@@ -16154,7 +16270,7 @@ namespace convm1 {
 									}
 									{
 										/* Here we're establishing the constraint in the opposite direction as well. */
-										auto cr_shptr = std::make_shared<CAssignmentSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
+										auto cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
 
 										if ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_point_to_an_array(res2.indirection_level)) {
 											(*cr_shptr).do_replacement(state1);
@@ -16211,7 +16327,7 @@ namespace convm1 {
 										}
 										{
 											/* Here we're establishing the constraint in the opposite direction as well. */
-											auto cr_shptr = std::make_shared<CAssignmentSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
+											auto cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
 
 											if ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_point_to_an_array(res2.indirection_level)) {
 												(*cr_shptr).do_replacement(state1);
@@ -16316,14 +16432,16 @@ namespace convm1 {
 			const clang::ConditionalOperator* CO = MR.Nodes.getNodeAs<clang::ConditionalOperator>("mcsssconditionalinitializer2");
 			const DeclaratorDecl* DD = MR.Nodes.getNodeAs<clang::DeclaratorDecl>("mcsssconditionalinitializer3");
 
-			std::optional<const DeclaratorDecl*> maybe_DD;
+			std::optional<CDDeclIndirection> maybe_assignment_target_DDeclIndirection;
 			if (DD) {
-				maybe_DD = DD;
+				/* The indirection level is 0 because the corresponding matcher matches the "mcsssconditionalinitializer3" 
+				clang::DeclaratorDecl to a variable declaration. */
+				maybe_assignment_target_DDeclIndirection = CDDeclIndirection{ *DD, 0/*indirection level*/ };
 			} else {
 				int q = 5;
 			}
 
-			s_handler1(MR, Rewrite, m_state1, CO, maybe_DD);
+			s_handler1(MR, Rewrite, m_state1, CO, maybe_assignment_target_DDeclIndirection);
 		}
 
 	private:
@@ -16459,7 +16577,7 @@ namespace convm1 {
 								}
 								{
 									/* Here we're establishing the constraint in the opposite direction as well. */
-									auto cr_shptr = std::make_shared<CAssignmentSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
+									auto cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
 
 									if ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_point_to_an_array(res2.indirection_level)) {
 										(*cr_shptr).do_replacement(m_state1);
@@ -16516,7 +16634,7 @@ namespace convm1 {
 									}
 									{
 										/* Here we're establishing the constraint in the opposite direction as well. */
-										auto cr_shptr = std::make_shared<CAssignmentSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
+										auto cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(res2.ddecl_cptr) , res2.indirection_level), CDDeclIndirection(*DD, 0));
 
 										if ((*(res2.ddecl_conversion_state_ptr)).has_been_determined_to_point_to_an_array(res2.indirection_level)) {
 											(*cr_shptr).do_replacement(m_state1);
@@ -18353,11 +18471,11 @@ namespace convm1 {
 				}
 			} else if (llvm::isa<const clang::ConditionalOperator>(RHS->IgnoreParenCasts()) && rhs_is_an_indirect_type) {
 				auto CO = llvm::cast<const clang::ConditionalOperator>(RHS->IgnoreParenCasts());
-				std::optional<const DeclaratorDecl*> maybe_DD;
+				std::optional<CDDeclIndirection> maybe_assignment_target_DDeclIndirection;
 				if (lhs_res2.ddecl_cptr) {
-					maybe_DD = lhs_res2.ddecl_cptr;
+					maybe_assignment_target_DDeclIndirection = CDDeclIndirection{ *(lhs_res2.ddecl_cptr), lhs_res2.indirection_level };
 				}
-				MCSSSConditionalExpr::s_handler1(MR, Rewrite, state1, CO, maybe_DD, lhs_res2.indirection_level, suppress_modifications_enum);
+				MCSSSConditionalExpr::s_handler1(MR, Rewrite, state1, CO, maybe_assignment_target_DDeclIndirection, suppress_modifications_enum);
 
 				/* Here we "execute" sort of "virtual" assignments between each of the branches of the conditional 
 				expression and the target item that the result of the conditional expression will be assigned to in 
@@ -18795,7 +18913,7 @@ namespace convm1 {
 						} else {
 							/* Levels of indirection beyond the first one must be of the same type,
 							* not just of "compatible" types. */
-							cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, lhs_ddecl_indirection, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level));
+							cr_shptr = std::make_shared<CEnforceThatBothAreTheSameTypeArray2ReplacementAction>(Rewrite, MR, lhs_ddecl_indirection, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level));
 						}
 
 						(*cr_shptr).do_replacement(state1);
@@ -18849,11 +18967,11 @@ namespace convm1 {
 
 						std::shared_ptr<CArray2ReplacementAction> cr_shptr;
 						if (1 > adjusted_lhs_indirection_level) {
-							cr_shptr = std::make_shared<CAssignmentSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level), lhs_ddecl_indirection);
+							cr_shptr = std::make_shared<CAssignmentSourceConstrainsTargetArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level), lhs_ddecl_indirection);
 						} else {
 							/* Levels of indirection beyond the first one must be of the same type,
 							* not just of "compatible" types. */
-							cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level), lhs_ddecl_indirection);
+							cr_shptr = std::make_shared<CEnforceThatBothAreTheSameTypeArray2ReplacementAction>(Rewrite, MR, CDDeclIndirection(*(rhs_res2.ddecl_cptr), rhs_indirection_level), lhs_ddecl_indirection);
 						}
 
 						(*cr_shptr).do_replacement(state1);
@@ -18981,13 +19099,13 @@ namespace convm1 {
 										auto [PVD_ddcs_ref, PVD_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*param_PVD, &Rewrite);
 										if (PVD_ddcs_ref.m_indirection_state_stack.size() == old_PVD_ddcs_ref.m_indirection_state_stack.size()) {
 											for (size_t j = 0; j < PVD_ddcs_ref.m_indirection_state_stack.size(); j += 1) {
-												auto cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR,
+												auto cr_shptr = std::make_shared<CEnforceThatBothAreTheSameTypeArray2ReplacementAction>(Rewrite, MR,
 													CDDeclIndirection(*param_PVD, j), CDDeclIndirection(*old_param_PVD, j));
 												state1.m_conversion_state_change_action_map.insert(cr_shptr);
 												state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
 												state1.m_native_array2_contingent_replacement_map.insert(cr_shptr);
 
-												auto cr_shptr2 = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR,
+												auto cr_shptr2 = std::make_shared<CEnforceThatBothAreTheSameTypeArray2ReplacementAction>(Rewrite, MR,
 													CDDeclIndirection(*old_param_PVD, j), CDDeclIndirection(*param_PVD, j));
 												state1.m_conversion_state_change_action_map.insert(cr_shptr2);
 												state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr2);
@@ -19002,13 +19120,13 @@ namespace convm1 {
 									auto [rhs_FND_ddcs_ref, rhs_FND_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_FND, &Rewrite);
 									if (rhs_FND_ddcs_ref.m_indirection_state_stack.size() == old_FND_ddcs_ref.m_indirection_state_stack.size()) {
 										for (size_t j = 0; j < rhs_FND_ddcs_ref.m_indirection_state_stack.size(); j += 1) {
-											auto cr_shptr = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR,
+											auto cr_shptr = std::make_shared<CEnforceThatBothAreTheSameTypeArray2ReplacementAction>(Rewrite, MR,
 												CDDeclIndirection(*rhs_FND, j), CDDeclIndirection(*old_FND, j));
 											state1.m_conversion_state_change_action_map.insert(cr_shptr);
 											state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr);
 											state1.m_native_array2_contingent_replacement_map.insert(cr_shptr);
 
-											auto cr_shptr2 = std::make_shared<CSameTypeArray2ReplacementAction>(Rewrite, MR,
+											auto cr_shptr2 = std::make_shared<CEnforceThatBothAreTheSameTypeArray2ReplacementAction>(Rewrite, MR,
 												CDDeclIndirection(*old_FND, j), CDDeclIndirection(*rhs_FND, j));
 											state1.m_conversion_state_change_action_map.insert(cr_shptr2);
 											state1.m_dynamic_array2_contingent_replacement_map.insert(cr_shptr2);
@@ -19998,9 +20116,9 @@ namespace convm1 {
 														type (that has its '&' operator overloaded), then any passed argument must also be converted
 														to the same "safely addressable" type. Technically, the constraint shouldn't be reciprocal
 														(i.e. a "safely addressable" argument does not require that the reference parameter also be
-														a "safely addressable" type) but CSameTypeReplacementAction we're using here (due to laziness)
+														a "safely addressable" type) but CEnforceThatBothAreTheSameTypeReplacementAction we're using here (due to laziness)
 														does apply the constraint both ways. */
-														std::shared_ptr<CDDeclIndirectionReplacementAction> cr_shptr = std::make_shared<CSameTypeReplacementAction>(Rewrite, MR, *param_VD, *arg_VD2);
+														std::shared_ptr<CDDeclIndirectionReplacementAction> cr_shptr = std::make_shared<CEnforceThatBothAreTheSameTypeReplacementAction>(Rewrite, MR, *param_VD, *arg_VD2);
 
 														auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*param_VD, &Rewrite);
 
@@ -23508,9 +23626,11 @@ namespace convm1 {
 		} else if (mse_count2 > mse_count1) {
 			return second_option;
 		} else {
+			auto TNativeArrayReplacement_count1 = number_of_instances_of_TNativeArrayReplacement(first_option);
+			auto TNativeArrayReplacement_count2 = number_of_instances_of_TNativeArrayReplacement(second_option);
 			auto iterator_count1 = number_of_instances_of_iterator(first_option);
 			auto iterator_count2 = number_of_instances_of_iterator(second_option);
-			if (iterator_count1 > iterator_count2) {
+			if ((iterator_count1 + TNativeArrayReplacement_count1) > (iterator_count2 + TNativeArrayReplacement_count2)) {
 				return first_option;
 			} else if (iterator_count2 > iterator_count1) {
 				return second_option;
@@ -23519,8 +23639,6 @@ namespace convm1 {
 				auto TXScopeLHNullableAny_count2 = number_of_instances_of_TXScopeLHNullableAny_Pointer_and_Iterator(second_option);
 				auto TLHNullableAny_count1 = number_of_instances_of_TLHNullableAny_Pointer_and_Iterator(first_option);
 				auto TLHNullableAny_count2 = number_of_instances_of_TLHNullableAny_Pointer_and_Iterator(second_option);
-				auto TNativeArrayReplacement_count1 = number_of_instances_of_TNativeArrayReplacement(first_option);
-				auto TNativeArrayReplacement_count2 = number_of_instances_of_TNativeArrayReplacement(second_option);
 				if (1 <= (TXScopeLHNullableAny_count1 + TXScopeLHNullableAny_count2 + TLHNullableAny_count1 + TLHNullableAny_count2 
 					+ TNativeArrayReplacement_count1 + TNativeArrayReplacement_count2)) {
 
@@ -23682,31 +23800,36 @@ namespace convm1 {
 
 		bool first_conflict_flag = true;
 		bool first_option_was_chosen_in_the_previous_conflict = false;
-		auto conflict_start_index = retval.find("<<<<<<< ", 0);
+		static const std::string conflict_start_str = "<<<<<<< ";
+		static const std::string conflict_divider_and_backslash_n_str = "=======\n";
+		static const std::string conflict_end_str = ">>>>>>> ";
+		auto conflict_start_index = retval.find(conflict_start_str, 0);
 		while (std::string::npos != conflict_start_index) {
 			auto conflict_start_eol_index = retval.find("\n", conflict_start_index + 1);
 			if (std::string::npos == conflict_start_eol_index) {
 				break;
 			}
-			auto conflict_divider_index = retval.find("=======\n", conflict_start_eol_index + 1);
+			auto conflict_divider_index = retval.find(conflict_divider_and_backslash_n_str, conflict_start_eol_index + 1);
 			if (std::string::npos == conflict_divider_index) {
 				break;
 			}
 			auto conflict_divider_eol_index = retval.find("\n", conflict_divider_index + 1);
-			auto conflict_end_index = retval.find(">>>>>>> ", conflict_divider_eol_index + 1);
+			auto conflict_end_index = retval.find(conflict_end_str, conflict_divider_eol_index + 1);
 			if (std::string::npos == conflict_end_index) {
 				break;
 			}
 			auto conflict_end_eol_index = retval.find("\n", conflict_end_index + 1);
 			if (std::string::npos == conflict_end_eol_index) {
-				break;
+				/* presumably eof? */
+				conflict_end_eol_index = conflict_end_index + conflict_end_str.length();
+				//break;
 			}
 
 			auto first_option = retval.substr(conflict_start_eol_index + 1, conflict_divider_index - (conflict_start_eol_index + 1));
 			auto second_option = retval.substr(conflict_divider_eol_index + 1, conflict_end_index - (conflict_divider_eol_index + 1));
 
 #ifndef NDEBUG
-				if (std::string::npos != first_option.find("png_set_PLTE")) {
+				if (std::string::npos != first_option.find("compiled_features")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
@@ -23716,13 +23839,13 @@ namespace convm1 {
 				options is empty, it tends to be because the option that should be there was included
 				as part of the option for the previous merge conflict. */
 				if (first_option_was_chosen_in_the_previous_conflict) {
-					retval.replace(conflict_start_index, conflict_end_eol_index - conflict_start_index, first_option);
+					retval.replace(conflict_start_index, (conflict_end_eol_index + 1) - conflict_start_index, first_option);
 				} else {
-					retval.replace(conflict_start_index, conflict_end_eol_index - conflict_start_index, second_option);
+					retval.replace(conflict_start_index, (conflict_end_eol_index + 1) - conflict_start_index, second_option);
 				}
 			} else {
 				auto& chosen_option_ref = chosen_merge_option_ref(first_option, second_option);
-				retval.replace(conflict_start_index, conflict_end_eol_index - conflict_start_index, chosen_option_ref);
+				retval.replace(conflict_start_index, (conflict_end_eol_index + 1) - conflict_start_index, chosen_option_ref);
 				conflict_start_index += chosen_option_ref.size();
 				first_option_was_chosen_in_the_previous_conflict = ((&chosen_option_ref) == (&first_option));
 			}
