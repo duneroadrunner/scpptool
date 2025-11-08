@@ -2117,73 +2117,84 @@ namespace convm1 {
 					(*this).m_original_source_text_has_been_noted = true;
 				}
 
-				if (QT->isArrayType() || QT->isPointerType()) {
-					auto VD = dyn_cast<const clang::VarDecl>(&ddecl);
-					if (VD && ((1 <= (*this).m_indirection_state_stack.size()))) {
-						auto& outer_indirection_state_ref = (*this).m_indirection_state_stack.at(0);
+				auto VD = dyn_cast<const clang::VarDecl>(&ddecl);
+				if (VD) {
+					IF_DEBUG(const auto var_qualified_name = VD->getQualifiedNameAsString();)
+					const auto storage_duration = VD->getStorageDuration();
 
-						/* This seems to be a declaration of array or pointer type. So it could be a declaration or a redeclaration 
-						of a native array. So we're going to check all the corresponding redeclarations and make sure that they all 
-						have the same array size expression (or lack thereof). */
+					if ((clang::StorageDuration::SD_Static == storage_duration) || (clang::StorageDuration::SD_Thread == storage_duration)) {
+						if ((1 <= (*this).m_indirection_state_stack.size())) {
+							auto& outer_indirection_state_ref = (*this).m_indirection_state_stack.at(0);
 
-						auto VD_qtype = VD->getType();
-						IF_DEBUG(std::string VD_qtype_str = VD_qtype.getAsString();)
-						auto VD_is_a_dependent_type = VD_qtype->isInstantiationDependentType();
+							outer_indirection_state_ref.set_is_known_to_be_a_pointer_target(true);
 
-						if ("" == outer_indirection_state_ref.m_array_size_expr) {
-							/* First we'll check if any of the other redeclarations have an array size expression. */
-							for (auto redecl : VD->redecls()) {
-								auto redecl_qtype = redecl->getType();
-								IF_DEBUG(std::string redecl_qtype_str = redecl_qtype.getAsString();)
-								auto redecl_is_a_dependent_type = redecl_qtype->isInstantiationDependentType();
+							if (QT->isArrayType() || QT->isPointerType()) {
+								/* This seems to be a declaration of array or pointer type. So it could be a declaration or a redeclaration 
+								of a native array. So we're going to check all the corresponding redeclarations and make sure that they all 
+								have the same array size expression (or lack thereof). */
 
-								if (state1_ptr && (redecl != VD) && (redecl_is_a_dependent_type == VD_is_a_dependent_type)) {
-									auto& state1 = *state1_ptr;
-									auto maybe_ddecl_conversion_state_ref_and_update_flag = get_ddecl_conversion_state_ref_and_update_flag_if_already_available(state1, *redecl, &Rewrite);
-									if (maybe_ddecl_conversion_state_ref_and_update_flag.has_value()) {
-										auto [redecl_ddcs_ref, redecl_update_declaration_flag] = maybe_ddecl_conversion_state_ref_and_update_flag.value();
-										if (1 <= redecl_ddcs_ref.m_indirection_state_stack.size()) {
-											auto& redecl_outer_indirection_state_ref = redecl_ddcs_ref.m_indirection_state_stack.at(0);
-											if ("" != redecl_outer_indirection_state_ref.m_array_size_expr) {
-												outer_indirection_state_ref.m_array_size_expr = redecl_outer_indirection_state_ref.m_array_size_expr;
-												break;
+								auto VD_qtype = VD->getType();
+								IF_DEBUG(std::string VD_qtype_str = VD_qtype.getAsString();)
+								auto VD_is_a_dependent_type = VD_qtype->isInstantiationDependentType();
+
+								if ("" == outer_indirection_state_ref.m_array_size_expr) {
+									/* First we'll check if any of the other redeclarations have an array size expression. */
+									for (auto redecl : VD->redecls()) {
+										auto redecl_qtype = redecl->getType();
+										IF_DEBUG(std::string redecl_qtype_str = redecl_qtype.getAsString();)
+										auto redecl_is_a_dependent_type = redecl_qtype->isInstantiationDependentType();
+
+										if (state1_ptr && (redecl != VD) && (redecl_is_a_dependent_type == VD_is_a_dependent_type)) {
+											auto& state1 = *state1_ptr;
+											auto maybe_ddecl_conversion_state_ref_and_update_flag = get_ddecl_conversion_state_ref_and_update_flag_if_already_available(state1, *redecl, &Rewrite);
+											if (maybe_ddecl_conversion_state_ref_and_update_flag.has_value()) {
+												auto [redecl_ddcs_ref, redecl_update_declaration_flag] = maybe_ddecl_conversion_state_ref_and_update_flag.value();
+												if (1 <= redecl_ddcs_ref.m_indirection_state_stack.size()) {
+													auto& redecl_outer_indirection_state_ref = redecl_ddcs_ref.m_indirection_state_stack.at(0);
+													if ("" != redecl_outer_indirection_state_ref.m_array_size_expr) {
+														outer_indirection_state_ref.m_array_size_expr = redecl_outer_indirection_state_ref.m_array_size_expr;
+														break;
+													}
+												} else {
+													/* unexpected */
+													int q = 3;
+												}
 											}
-										} else {
-											/* unexpected */
-											int q = 3;
+										}
+									}
+								}
+								if ("" != outer_indirection_state_ref.m_array_size_expr) {
+									/* Ok we seem to have found an array size expression. Now, for any redeclaration that is missing the array 
+									size expression, we'll set it. */
+									for (auto redecl : VD->redecls()) {
+										auto redecl_qtype = redecl->getType();
+										IF_DEBUG(std::string redecl_qtype_str = redecl_qtype.getAsString();)
+										auto redecl_is_a_dependent_type = redecl_qtype->isInstantiationDependentType();
+
+										if (state1_ptr && (redecl != VD) && (redecl_is_a_dependent_type == VD_is_a_dependent_type)) {
+											auto& state1 = *state1_ptr;
+											auto maybe_ddecl_conversion_state_ref_and_update_flag = get_ddecl_conversion_state_ref_and_update_flag_if_already_available(state1, *redecl, &Rewrite);
+											if (maybe_ddecl_conversion_state_ref_and_update_flag.has_value()) {
+												auto [redecl_ddcs_ref, redecl_update_declaration_flag] = maybe_ddecl_conversion_state_ref_and_update_flag.value();
+												if (1 <= redecl_ddcs_ref.m_indirection_state_stack.size()) {
+													auto& redecl_outer_indirection_state_ref = redecl_ddcs_ref.m_indirection_state_stack.at(0);
+													if ("" == redecl_outer_indirection_state_ref.m_array_size_expr) {
+														redecl_outer_indirection_state_ref.m_array_size_expr = outer_indirection_state_ref.m_array_size_expr;
+													} else if (outer_indirection_state_ref.m_array_size_expr != redecl_outer_indirection_state_ref.m_array_size_expr) {
+														/* unexpected? */
+														int q = 3;
+													}
+												} else {
+													/* unexpected */
+													int q = 3;
+												}
+											}
 										}
 									}
 								}
 							}
-						}
-						if ("" != outer_indirection_state_ref.m_array_size_expr) {
-							/* Ok we seem to have found an array size expression. Now, for any redeclaration that is missing the array 
-							size expression, we'll set it. */
-							for (auto redecl : VD->redecls()) {
-								auto redecl_qtype = redecl->getType();
-								IF_DEBUG(std::string redecl_qtype_str = redecl_qtype.getAsString();)
-								auto redecl_is_a_dependent_type = redecl_qtype->isInstantiationDependentType();
-
-								if (state1_ptr && (redecl != VD) && (redecl_is_a_dependent_type == VD_is_a_dependent_type)) {
-									auto& state1 = *state1_ptr;
-									auto maybe_ddecl_conversion_state_ref_and_update_flag = get_ddecl_conversion_state_ref_and_update_flag_if_already_available(state1, *redecl, &Rewrite);
-									if (maybe_ddecl_conversion_state_ref_and_update_flag.has_value()) {
-										auto [redecl_ddcs_ref, redecl_update_declaration_flag] = maybe_ddecl_conversion_state_ref_and_update_flag.value();
-										if (1 <= redecl_ddcs_ref.m_indirection_state_stack.size()) {
-											auto& redecl_outer_indirection_state_ref = redecl_ddcs_ref.m_indirection_state_stack.at(0);
-											if ("" == redecl_outer_indirection_state_ref.m_array_size_expr) {
-												redecl_outer_indirection_state_ref.m_array_size_expr = outer_indirection_state_ref.m_array_size_expr;
-											} else if (outer_indirection_state_ref.m_array_size_expr != redecl_outer_indirection_state_ref.m_array_size_expr) {
-												/* unexpected? */
-												int q = 3;
-											}
-										} else {
-											/* unexpected */
-											int q = 3;
-										}
-									}
-								}
-							}
+						} else {
+							(*this).m_indirection_state_stack.m_direct_type_state.set_is_known_to_be_a_pointer_target(true);
 						}
 					}
 				}
@@ -10301,17 +10312,17 @@ namespace convm1 {
 		/* While the ttl parameter is used to deal with runaway direct recursion, it's not unrealistic that 
 		future code changes might result in (subtle) potential indirect infinite recursion. So we have a 
 		separate mechanism to address that possibility. */
-		static int sl_context_independent_recursion_depth = 0;
+		thread_local int tl_context_independent_recursion_depth = 0;
 		struct CRAIIDepthTrackingHelper {
 			CRAIIDepthTrackingHelper() {
-				sl_context_independent_recursion_depth += 1;
+				tl_context_independent_recursion_depth += 1;
 			}
 			~CRAIIDepthTrackingHelper() {
-				sl_context_independent_recursion_depth -= 1;
+				tl_context_independent_recursion_depth -= 1;
 			}
 		};
 		CRAIIDepthTrackingHelper raii_depth_tracking_helper1;
-		if (100/*arbitrary*/ < sl_context_independent_recursion_depth) {
+		if (100/*arbitrary*/ < tl_context_independent_recursion_depth) {
 			static bool note_given = false;
 			if (!note_given) {
 				llvm::errs() << "\nnote: homogenize_redeclaration_types() recursion cut off due to exceeding the (preset) limit. \n";
@@ -14021,6 +14032,15 @@ namespace convm1 {
 				} else {
 					auto qtype = VD->getType();
 					IF_DEBUG(std::string qtype_str = VD->getType().getAsString();)
+
+					if (qtype.isVolatileQualified()) {
+						/* Uh, not sure what to do with volatile qualified objects. For now we'll just mark them as "check suppressed" 
+						and leave them alone. */
+						auto l_ISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
+						m_state1.m_suppress_check_region_set.emplace(l_ISR);
+						m_state1.m_suppress_check_region_set.insert(VD);
+						return;
+					}
 
 					auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*VD, &Rewrite);
 
@@ -23632,7 +23652,7 @@ namespace convm1 {
 			auto iterator_count2 = number_of_instances_of_iterator(second_option);
 			if ((iterator_count1 + TNativeArrayReplacement_count1) > (iterator_count2 + TNativeArrayReplacement_count2)) {
 				return first_option;
-			} else if (iterator_count2 > iterator_count1) {
+			} else if ((iterator_count2 + TNativeArrayReplacement_count2) > (iterator_count1 + TNativeArrayReplacement_count1)) {
 				return second_option;
 			} else {
 				auto TXScopeLHNullableAny_count1 = number_of_instances_of_TXScopeLHNullableAny_Pointer_and_Iterator(first_option);
@@ -23828,12 +23848,6 @@ namespace convm1 {
 			auto first_option = retval.substr(conflict_start_eol_index + 1, conflict_divider_index - (conflict_start_eol_index + 1));
 			auto second_option = retval.substr(conflict_divider_eol_index + 1, conflict_end_index - (conflict_divider_eol_index + 1));
 
-#ifndef NDEBUG
-				if (std::string::npos != first_option.find("compiled_features")) {
-					int q = 5;
-				}
-#endif /*!NDEBUG*/
-
 			if ((first_option.empty() || second_option.empty()) && (!first_conflict_flag)) {
 				/* We've observed with the default (ubuntu 20) system merge, that when one of the merge
 				options is empty, it tends to be because the option that should be there was included
@@ -23844,10 +23858,44 @@ namespace convm1 {
 					retval.replace(conflict_start_index, (conflict_end_eol_index + 1) - conflict_start_index, second_option);
 				}
 			} else {
-				auto& chosen_option_ref = chosen_merge_option_ref(first_option, second_option);
-				retval.replace(conflict_start_index, (conflict_end_eol_index + 1) - conflict_start_index, chosen_option_ref);
-				conflict_start_index += chosen_option_ref.size();
-				first_option_was_chosen_in_the_previous_conflict = ((&chosen_option_ref) == (&first_option));
+				auto split_including_trailing_delimiter = [](const std::string& s, char delim = ',') -> std::vector<std::string> {
+						std::vector<std::string> parts;
+						std::size_t start = 0, pos;
+						while ((pos = s.find(delim, start)) != std::string::npos) {
+							parts.emplace_back(s.substr(start, 1 + (pos - start)));
+							start = pos + 1;
+						}
+						parts.emplace_back(s.substr(start));
+						return parts;
+					};
+
+				auto first_option_statements = split_including_trailing_delimiter(first_option, ';');
+				auto second_option_statements = split_including_trailing_delimiter(second_option, ';');
+				if (first_option_statements.size() != second_option_statements.size()) {
+					first_option_statements.clear();
+					first_option_statements.push_back(first_option);
+					second_option_statements.clear();
+					second_option_statements.push_back(second_option);
+				}
+				std::string chosen_statements;
+				for (size_t i = 0; first_option_statements.size() > i; i += 1 ) {
+					auto& first_option_statement = first_option_statements.at(i);
+					auto& second_option_statement = second_option_statements.at(i);
+
+#ifndef NDEBUG
+				if (std::string::npos != first_option_statement.find("warc_user_headers")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
+					auto& chosen_option_ref = chosen_merge_option_ref(first_option_statement, second_option_statement);
+					chosen_statements += chosen_option_ref;
+
+					first_option_was_chosen_in_the_previous_conflict = ((&chosen_option_ref) == (&first_option_statement));
+				}
+
+				retval.replace(conflict_start_index, (conflict_end_eol_index + 1) - conflict_start_index, chosen_statements);
+				conflict_start_index += chosen_statements.size();
 			}
 
 			first_conflict_flag = false;
