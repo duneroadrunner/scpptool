@@ -217,6 +217,7 @@ namespace convm1 {
 		std::string m_params_current_str;
 		const clang::FunctionDecl* m_function_decl_ptr = nullptr;
 		std::optional<clang::FunctionProtoTypeLoc> m_maybe_functionProtoTypeLoc;
+		bool m_is_declared_in_a_header_file = false;
 	};
 
 	/* We use the term "indirect type" to mean basically a type the "dereferences" to another
@@ -1917,6 +1918,33 @@ namespace convm1 {
 
 	class CDDeclConversionState;
 	std::optional<std::pair<CDDeclConversionState&, bool> > get_ddecl_conversion_state_ref_and_update_flag_if_already_available(CTUState& state1, clang::DeclaratorDecl const& ddecl, Rewriter* Rewrite_ptr = nullptr, bool function_return_value_only = false);
+	std::pair<CDDeclConversionState&, bool> get_ddecl_conversion_state_ref_and_update_flag(CTUState& state1, clang::DeclaratorDecl const& ddecl, Rewriter* Rewrite_ptr = nullptr, bool function_return_value_only = false);
+
+	inline void handle_declaration_in_header_file(CDDeclConversionState& ddcs_ref, Rewriter& Rewrite, CTUState* state1_ptr = nullptr);
+
+	/* For pointers declared within a translation unit, our whole-translation-unit analysis can assess whether 
+	on not they could potentially point to a "malloc()ed" target or a "non-malloc()ed" target (or both) and 
+	set their (safe pointer or iterator) type accordingly. But pointers declared in header files might be 
+	included in multiple translation units. And since our analysis only covers one translation unit at a time, 
+	it can't be certain that a pointer that doesn't point to a "malloc()ed" target (or doesn't point to a 
+	"non-malloc()ed" target) in the translation unit being analyzed, doesn't point to such a target in aother 
+	translation unit. So for pointers declared in header files, we'll conservatively assume that they could 
+	point to a "malloc()ed" target or a "non-malloc()ed" target (or both). 
+	This applies to parameters of functions and function pointers declared header files. So this function will 
+	check if the function is declared in a header file, adjust the parameter types as needed. This function may 
+	need to be called when a new FunctionDecl is associated to a function state (presumably when a function 
+	pointer is assigned a new value). */
+	inline void handle_new_associated_function_decl_ptr(CFunctionTypeState& function_type_state_ref, Rewriter& Rewrite, CTUState* state1_ptr = nullptr) {
+		if (function_type_state_ref.m_function_decl_ptr && function_type_state_ref.m_is_declared_in_a_header_file && state1_ptr) {
+			auto& state1 = *state1_ptr;
+			for (auto PVD : function_type_state_ref.m_function_decl_ptr->parameters()) {
+				if (PVD) {
+					auto [ddcs_ref, update_declaration_flag] = get_ddecl_conversion_state_ref_and_update_flag(state1, *PVD, &Rewrite);
+					handle_declaration_in_header_file(ddcs_ref, Rewrite, &state1);
+				} else { assert(false); }
+			}
+		}
+	}
 
 	class CDDeclConversionState {
 	public:
@@ -2026,54 +2054,7 @@ namespace convm1 {
 					if (1 <= (*this).m_indirection_state_stack.size()) {
 						auto decl_filename = get_filename(get_full_path_name(SM, decl_source_range.getBegin()));
 						if (string_ends_with(decl_filename, ".h") || string_ends_with(decl_filename, ".hpp")) {
-							for (size_t i = 0; (*this).m_indirection_state_stack.size() > i; i += 1) {
-								auto& indirection_state_ref = (*this).m_indirection_state_stack.at(i);
-								/* For pointers declared within a translation unit, our whole-translation-unit analysis can assess whether 
-								on not they could potentially point to a "malloc()ed" target or a "non-malloc()ed" target (or both) and 
-								set their (safe pointer or iterator) type accordingly. But pointers declared in header files might be 
-								included in multiple translation units. And since our analysis only covers one translation unit at a time, 
-								it can't be certain that a pointer that doesn't point to a "malloc()ed" target (or doesn't point to a 
-								"non-malloc()ed" target) in the translation unit being analyzed, doesn't point to such a target in aother 
-								translation unit. So for pointers declared in header files, we'll conservatively assume that they could 
-								point to a "malloc()ed" target or a "non-malloc()ed" target (or both). */
-								bool is_a_native_array = false;
-								if (indirection_state_ref.m_maybe_original_qtype.has_value()) {
-									auto original_qtype = indirection_state_ref.m_maybe_original_qtype.value();
-									if (original_qtype->isArrayType()) {
-										is_a_native_array = true;
-									}
-								}
-								if (!is_a_native_array) {
-									if (0 == i)  {
-										bool has_external_storage = true;
-										auto VD = dyn_cast<const clang::VarDecl>(&ddecl);
-										if (VD) {
-											if (VD->hasExternalStorage()) {
-												has_external_storage = true;
-											}
-										}
-										bool ends_with_square_bracket = false;
-										auto packed_source_text_str = with_whitespace_removed((*this).m_original_source_text_str);
-										if (string_ends_with(packed_source_text_str, "]")) {
-											ends_with_square_bracket = true;
-										} else {
-											int q = 5;
-										}
-
-										if (false && has_external_storage) {
-											/* If a (non-nested) pointer is declared in a header file with external storage, we'll assume it'll end 
-											up being defined as a native array in some source file. */
-											is_a_native_array = true;
-										}
-									}
-								}
-								indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
-								if (!is_a_native_array) {
-									indirection_state_ref.set_is_known_to_have_malloc_target(true);
-								} else {
-									indirection_state_ref.set_is_known_to_be_used_as_an_iterator(true);
-								}
-							}
+							handle_declaration_in_header_file(*this, Rewrite, state1_ptr);
 						}
 					}
 
@@ -3981,7 +3962,111 @@ namespace convm1 {
 	std::optional<std::pair<CDDeclConversionState&, bool> > get_ddecl_conversion_state_ref_and_update_flag_if_already_available(CTUState& state1, clang::DeclaratorDecl const& ddecl, Rewriter* Rewrite_ptr/* = nullptr*/, bool function_return_value_only/* = false*/) {
 		return state1.get_ddecl_conversion_state_ref_and_update_flag_if_already_available(ddecl, Rewrite_ptr, function_return_value_only);
 	}
+	std::pair<CDDeclConversionState&, bool> get_ddecl_conversion_state_ref_and_update_flag(CTUState& state1, clang::DeclaratorDecl const& ddecl, Rewriter* Rewrite_ptr/* = nullptr*/, bool function_return_value_only/* = false*/) {
+		return state1.get_ddecl_conversion_state_ref_and_update_flag(ddecl, Rewrite_ptr, function_return_value_only);
+	}
 
+
+	inline void handle_declaration_in_header_file(CDDeclConversionState& ddcs_ref, Rewriter& Rewrite, CTUState* state1_ptr/* = nullptr*/) {
+		auto& SM = Rewrite.getSourceMgr();
+		/* For pointers declared within a translation unit, our whole-translation-unit analysis can assess whether 
+		on not they could potentially point to a "malloc()ed" target or a "non-malloc()ed" target (or both) and 
+		set their (safe pointer or iterator) type accordingly. But pointers declared in header files might be 
+		included in multiple translation units. And since our analysis only covers one translation unit at a time, 
+		it can't be certain that a pointer that doesn't point to a "malloc()ed" target (or doesn't point to a 
+		"non-malloc()ed" target) in the translation unit being analyzed, doesn't point to such a target in aother 
+		translation unit. So for pointers declared in header files, we'll conservatively assume that they could 
+		point to a "malloc()ed" target or a "non-malloc()ed" target (or both). */
+
+		for (size_t i = 0; ddcs_ref.m_indirection_state_stack.size() > i; i += 1) {
+			auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(i);
+			bool is_a_native_array = false;
+			if (indirection_state_ref.m_maybe_original_qtype.has_value()) {
+				auto original_qtype = indirection_state_ref.m_maybe_original_qtype.value();
+				if (original_qtype->isArrayType()) {
+					is_a_native_array = true;
+				}
+			}
+			if (!is_a_native_array) {
+				if (0 == i)  {
+					bool has_external_storage = true;
+					auto VD = dyn_cast<const clang::VarDecl>(ddcs_ref.m_ddecl_cptr);
+					if (VD) {
+						if (VD->hasExternalStorage()) {
+							has_external_storage = true;
+						}
+					}
+					bool ends_with_square_bracket = false;
+					auto packed_source_text_str = with_whitespace_removed(ddcs_ref.m_original_source_text_str);
+					if (string_ends_with(packed_source_text_str, "]")) {
+						ends_with_square_bracket = true;
+					} else {
+						int q = 5;
+					}
+
+					if (false && has_external_storage) {
+						/* If a (non-nested) pointer is declared in a header file with external storage, we'll assume it'll end 
+						up being defined as a native array in some source file. */
+						is_a_native_array = true;
+					}
+				}
+			}
+
+			if (!indirection_state_ref.is_known_to_have_non_malloc_target()) {
+				indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
+				if (state1_ptr && ddcs_ref.m_ddecl_cptr) {
+					auto& state1 = *state1_ptr;
+					auto indirection = CDDeclIndirection{ *(ddcs_ref.m_ddecl_cptr), i };
+
+					state1.m_conversion_state_change_action_map.execute_matching_actions(state1, indirection);
+					if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+						state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, indirection);
+					}
+				}
+			}
+
+			if (!is_a_native_array) {
+				if (!indirection_state_ref.is_known_to_have_malloc_target()) {
+					indirection_state_ref.set_is_known_to_have_malloc_target(true);
+					if (state1_ptr && ddcs_ref.m_ddecl_cptr) {
+						auto& state1 = *state1_ptr;
+						auto indirection = CDDeclIndirection{ *(ddcs_ref.m_ddecl_cptr), i };
+
+						state1.m_conversion_state_change_action_map.execute_matching_actions(state1, indirection);
+						if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+							state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, indirection);
+						}
+					}
+				}
+			} else {
+				if (!indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+					indirection_state_ref.set_is_known_to_be_used_as_an_iterator(true);
+					if (state1_ptr && ddcs_ref.m_ddecl_cptr) {
+						auto& state1 = *state1_ptr;
+						auto indirection = CDDeclIndirection{ *(ddcs_ref.m_ddecl_cptr), i };
+
+						state1.m_conversion_state_change_action_map.execute_matching_actions(state1, indirection);
+						if (indirection_state_ref.is_known_to_have_malloc_target()) {
+							state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, indirection);
+						}
+						if (indirection_state_ref.is_known_to_have_non_malloc_target()) {
+							state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, indirection);
+						}
+					}
+				}
+			}
+
+			if (indirection_state_ref.current_is_function_type()) {
+				indirection_state_ref.m_function_type_state.m_is_declared_in_a_header_file = true;
+				handle_new_associated_function_decl_ptr(indirection_state_ref.m_function_type_state, Rewrite, state1_ptr);
+			}
+		}
+		if (ddcs_ref.m_indirection_state_stack.m_direct_type_state.seems_to_be_a_function_type()) {
+			auto& function_type_state_ref = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state;
+			function_type_state_ref.m_is_declared_in_a_header_file = true;
+			handle_new_associated_function_decl_ptr(function_type_state_ref, Rewrite, state1_ptr);
+		}
+	}
 
 	clang::ASTContext* CExprConversionState::maybe_null_ast_context_ptr() const {
 		return m_state1.m_ast_context_ptr;
@@ -10750,11 +10835,13 @@ namespace convm1 {
 						&& (!ddcs_indirection_state.is_known_to_have_malloc_target())) {
 					ddcs_indirection_state.set_is_known_to_have_malloc_target(true);
 					retval.update_declaration_flag = true;
+					state1_ref.m_conversion_state_change_action_map.execute_matching_actions(state1_ref, CDDeclIndirection(*DD, i));
 					state1_ref.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1_ref, CDDeclIndirection(*DD, i));
 				} else if (("native array" == stmt_indirection_stack[i])
 						&& (!ddcs_indirection_state.is_known_to_have_non_malloc_target())) {
 					ddcs_indirection_state.set_is_known_to_have_non_malloc_target(true);
 					retval.update_declaration_flag = true;
+					state1_ref.m_conversion_state_change_action_map.execute_matching_actions(state1_ref, CDDeclIndirection(*DD, i));
 					state1_ref.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1_ref, CDDeclIndirection(*DD, i));
 				} else if (("memset/cpy target" == stmt_indirection_stack[i])) {
 				} else if (("set to null" == stmt_indirection_stack[i])) {
@@ -18045,135 +18132,136 @@ namespace convm1 {
 
 			auto rhsii_EX = RHS->IgnoreParenImpCasts();
 			auto rhsii_stmt_class = rhsii_EX->getStmtClass();
-			//clang::Stmt::StmtClass::CXXStaticCastExprClass;
-			if (rhs_is_an_indirect_type && (rhsii_EX->getStmtClass() == clang::Stmt::StmtClass::CStyleCastExprClass)) {
-				auto CSCE = dyn_cast<const clang::CStyleCastExpr>(rhsii_EX);
-				const clang::CXXStaticCastExpr* CXXSCE = dyn_cast<const clang::CXXStaticCastExpr>(rhsii_EX);
-				assert(CSCE || CXXSCE);
-				auto cast_qtype = definition_qtype(CSCE ? CSCE->getTypeAsWritten() : CXXSCE->getTypeAsWritten());
-				MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(cast_qtype);
-				bool finished_cast_handling_flag = false;
+			if (rhs_is_an_indirect_type) {
+				if (rhsii_EX->getStmtClass() == clang::Stmt::StmtClass::CStyleCastExprClass) {
+					auto CSCE = dyn_cast<const clang::CStyleCastExpr>(rhsii_EX);
+					const clang::CXXStaticCastExpr* CXXSCE = dyn_cast<const clang::CXXStaticCastExpr>(rhsii_EX);
+					assert(CSCE || CXXSCE);
+					auto cast_qtype = definition_qtype(CSCE ? CSCE->getTypeAsWritten() : CXXSCE->getTypeAsWritten());
+					MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(cast_qtype);
+					bool finished_cast_handling_flag = false;
 
-				if (CSCE) {
-					auto csce_QT = definition_qtype(CSCE->getType());
-					MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(csce_QT);
-					auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
-					assert(precasted_expr_ptr);
-					const auto precasted_expr_qtype = precasted_expr_ptr->getType();
-					auto precasted_expr_SR = cm1_adj_nice_source_range(precasted_expr_ptr->getSourceRange(), state1, Rewrite);
-					auto CSCESR = write_once_source_range(cm1_adj_nice_source_range(CSCE->getSourceRange(), state1, Rewrite));
-					auto cast_operation_SR = write_once_source_range(cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite));
+					if (CSCE) {
+						auto csce_QT = definition_qtype(CSCE->getType());
+						MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(csce_QT);
+						auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
+						assert(precasted_expr_ptr);
+						const auto precasted_expr_qtype = precasted_expr_ptr->getType();
+						auto precasted_expr_SR = cm1_adj_nice_source_range(precasted_expr_ptr->getSourceRange(), state1, Rewrite);
+						auto CSCESR = write_once_source_range(cm1_adj_nice_source_range(CSCE->getSourceRange(), state1, Rewrite));
+						auto cast_operation_SR = write_once_source_range(cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite));
 
-					if (precasted_expr_qtype->isPointerType()) {
-						IF_DEBUG(const std::string precasted_expr_qtype_str = precasted_expr_qtype.getAsString();)
-						if (is_void_star_or_const_void_star(precasted_expr_qtype)) {
-							/* At this point, `void *` (or rather, its replacement) doesn't preserve "xscope" eligibility information, 
-							so we'll mark any object that is assigned a value from a `void *` as ineligible for "xscope" status. */
-							if (lhs_res2.ddecl_conversion_state_ptr) {
-								auto& ddcs = *(lhs_res2.ddecl_conversion_state_ptr);
-								if (ddcs.m_indirection_state_stack.size() > lhs_res2.indirection_level) {
-									auto& indirection_state_ref = ddcs.m_indirection_state_stack.at(lhs_res2.indirection_level);
-									indirection_state_ref.set_xscope_eligibility(false);
+						if (precasted_expr_qtype->isPointerType()) {
+							IF_DEBUG(const std::string precasted_expr_qtype_str = precasted_expr_qtype.getAsString();)
+							if (is_void_star_or_const_void_star(precasted_expr_qtype)) {
+								/* At this point, `void *` (or rather, its replacement) doesn't preserve "xscope" eligibility information, 
+								so we'll mark any object that is assigned a value from a `void *` as ineligible for "xscope" status. */
+								if (lhs_res2.ddecl_conversion_state_ptr) {
+									auto& ddcs = *(lhs_res2.ddecl_conversion_state_ptr);
+									if (ddcs.m_indirection_state_stack.size() > lhs_res2.indirection_level) {
+										auto& indirection_state_ref = ddcs.m_indirection_state_stack.at(lhs_res2.indirection_level);
+										indirection_state_ref.set_xscope_eligibility(false);
+									}
 								}
 							}
 						}
-					}
-					do {
-						if ((csce_QT->isPointerType()) && precasted_expr_ptr->getType()->isPointerType() && cast_operation_SR.isValid()) {
-							std::string csce_QT_str = csce_QT.getAsString();
-							if (false && ("void *" == csce_QT_str)) {
-								/* This case is handled by the MCSSSExprUtil handler. */
-								finished_cast_handling_flag = true;
-								break;
+						do {
+							if ((csce_QT->isPointerType()) && precasted_expr_ptr->getType()->isPointerType() && cast_operation_SR.isValid()) {
+								std::string csce_QT_str = csce_QT.getAsString();
+								if (false && ("void *" == csce_QT_str)) {
+									/* This case is handled by the MCSSSExprUtil handler. */
+									finished_cast_handling_flag = true;
+									break;
+								}
 							}
-						}
 
-						auto precasted_CE = llvm::dyn_cast<const clang::CallExpr>(precasted_expr_ptr->IgnoreParenCasts());
-						if (precasted_CE) {
-							auto alloc_function_info1 = analyze_malloc_resemblance(*precasted_CE, state1, Rewrite);
-							if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
-								/* This case is handled elsewhere. */
-								finished_cast_handling_flag = true;
-								break;
+							auto precasted_CE = llvm::dyn_cast<const clang::CallExpr>(precasted_expr_ptr->IgnoreParenCasts());
+							if (precasted_CE) {
+								auto alloc_function_info1 = analyze_malloc_resemblance(*precasted_CE, state1, Rewrite);
+								if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
+									/* This case is handled elsewhere. */
+									finished_cast_handling_flag = true;
+									break;
+								}
 							}
-						}
 
-						if (csce_QT->isPointerType() /*"void *" == csce_QT.getAsString()*/) {
-							auto IL = dyn_cast<const clang::IntegerLiteral>(precasted_expr_ptr);
-							if (IL) {
-								/* This case is handled in the handle_c_style_cast_without_context() handler. */
-								finished_cast_handling_flag = true;
-								break;
+							if (csce_QT->isPointerType() /*"void *" == csce_QT.getAsString()*/) {
+								auto IL = dyn_cast<const clang::IntegerLiteral>(precasted_expr_ptr);
+								if (IL) {
+									/* This case is handled in the handle_c_style_cast_without_context() handler. */
+									finished_cast_handling_flag = true;
+									break;
+								}
 							}
-						}
-					} while (false);
+						} while (false);
 
-					if ((!finished_cast_handling_flag) && lhs_res2.ddecl_conversion_state_ptr && ConvertToSCPP) {
+						if ((!finished_cast_handling_flag) && lhs_res2.ddecl_conversion_state_ptr && ConvertToSCPP) {
 
-						auto lambda = [&Rewrite, &state1, lhs_qtype, lhs_res2, CSCE, LHS_decl_is_non_modifiable, RHS_decl_is_non_modifiable, LHS, VLD]() {
-							if (CSCE) {
-								MCSSSAssignment::s_c_style_cast_of_rhs((Rewrite), state1, *CSCE, lhs_qtype, lhs_res2, LHS_decl_is_non_modifiable, RHS_decl_is_non_modifiable, LHS, VLD);
-							}
-						};
-						if (ConvertToSCPP && !suppress_modifications) {
-							state1.m_pending_code_modification_actions.add_replacement_action(CSCESR, lambda);
-						}
-						finished_cast_handling_flag = true;
-
-						/* We've queued the modification action for deferred execution, but we don't want to delay the
-						establishment of the expression conversion state because, among other reasons, it reads from 
-						and stores the original source text and we want that done before the source text gets 
-						potentially modified. */
-						auto& ecs_ref = state1.get_expr_conversion_state_ref(*CSCE, Rewrite);
-						/* Note, the expression conversion state of subexpressions should be constructed after the establishment 
-						of any ancestor expressions as they will automatically establish relationships with any pre-existing 
-						ancestors (but not descendants). */
-						auto& precasted_ecs_ref = state1.get_expr_conversion_state_ref(*precasted_expr_ptr, Rewrite);
-						if (LHS) {
-							auto& LHS_ecs_ref = state1.get_expr_conversion_state_ref(*LHS, Rewrite);
-						}
-					}
-				}
-				if (!finished_cast_handling_flag) {
-					if (DD && (cast_qtype->isPointerType() || cast_qtype->isReferenceType())) {
-						bool b1 = (DD->getType()->isPointerType() || (DD->getType()->isReferenceType()));
-						clang::FunctionDecl const * FND = nullptr;
-						if (!b1) {
-							FND = dyn_cast<const clang::FunctionDecl>(DD);
-							if (FND && (FND->getReturnType()->isPointerType() || FND->getReturnType()->isReferenceType())) {
-								b1 = true;
-							}
-						}
-						if (b1) {
-							auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
-
-							auto cast_pointee_qtype = definition_qtype(cast_qtype->getPointeeType());
-							auto DD_pointee_qtype = FND ? definition_qtype(FND->getReturnType()->getPointeeType()) : definition_qtype(DD->getType()->getPointeeType());
-
-							auto const_adjusted_cast_pointee_qtype = cast_pointee_qtype;
-							auto const_cast_pointee_qtype = const_adjusted_cast_pointee_qtype;
-							const_cast_pointee_qtype.addConst();
-							if (const_cast_pointee_qtype == DD_pointee_qtype) {
-								const_adjusted_cast_pointee_qtype = const_cast_pointee_qtype;
-							}
-							IF_DEBUG(std::string const_adjusted_cast_pointee_qtype_str = const_adjusted_cast_pointee_qtype.getAsString();)
-							IF_DEBUG(std::string const_cast_pointee_qtype_str = const_cast_pointee_qtype.getAsString();)
-							IF_DEBUG(std::string DD_qtype_str = definition_qtype(DD->getType()).getAsString();)
-
+							auto lambda = [&Rewrite, &state1, lhs_qtype, lhs_res2, CSCE, LHS_decl_is_non_modifiable, RHS_decl_is_non_modifiable, LHS, VLD]() {
+								if (CSCE) {
+									MCSSSAssignment::s_c_style_cast_of_rhs((Rewrite), state1, *CSCE, lhs_qtype, lhs_res2, LHS_decl_is_non_modifiable, RHS_decl_is_non_modifiable, LHS, VLD);
+								}
+							};
 							if (ConvertToSCPP && !suppress_modifications) {
-								if (DD_pointee_qtype == const_adjusted_cast_pointee_qtype) {
-									for (size_t i = 0; i < ddcs_ref.m_indirection_state_stack.size(); ++i) {
-										std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CTargetConstrainsCStyleCastExprArray2ReplacementAction>(Rewrite, MR,
-												CDDeclIndirection(*DD, i), *CSCE);
+								state1.m_pending_code_modification_actions.add_replacement_action(CSCESR, lambda);
+							}
+							finished_cast_handling_flag = true;
 
-										if (ddcs_ref.has_been_determined_to_point_to_an_array(i)) {
-											(*cr_shptr).do_replacement(state1);
+							/* We've queued the modification action for deferred execution, but we don't want to delay the
+							establishment of the expression conversion state because, among other reasons, it reads from 
+							and stores the original source text and we want that done before the source text gets 
+							potentially modified. */
+							auto& ecs_ref = state1.get_expr_conversion_state_ref(*CSCE, Rewrite);
+							/* Note, the expression conversion state of subexpressions should be constructed after the establishment 
+							of any ancestor expressions as they will automatically establish relationships with any pre-existing 
+							ancestors (but not descendants). */
+							auto& precasted_ecs_ref = state1.get_expr_conversion_state_ref(*precasted_expr_ptr, Rewrite);
+							if (LHS) {
+								auto& LHS_ecs_ref = state1.get_expr_conversion_state_ref(*LHS, Rewrite);
+							}
+						}
+					}
+					if (!finished_cast_handling_flag) {
+						if (DD && (cast_qtype->isPointerType() || cast_qtype->isReferenceType())) {
+							bool b1 = (DD->getType()->isPointerType() || (DD->getType()->isReferenceType()));
+							clang::FunctionDecl const * FND = nullptr;
+							if (!b1) {
+								FND = dyn_cast<const clang::FunctionDecl>(DD);
+								if (FND && (FND->getReturnType()->isPointerType() || FND->getReturnType()->isReferenceType())) {
+									b1 = true;
+								}
+							}
+							if (b1) {
+								auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
+
+								auto cast_pointee_qtype = definition_qtype(cast_qtype->getPointeeType());
+								auto DD_pointee_qtype = FND ? definition_qtype(FND->getReturnType()->getPointeeType()) : definition_qtype(DD->getType()->getPointeeType());
+
+								auto const_adjusted_cast_pointee_qtype = cast_pointee_qtype;
+								auto const_cast_pointee_qtype = const_adjusted_cast_pointee_qtype;
+								const_cast_pointee_qtype.addConst();
+								if (const_cast_pointee_qtype == DD_pointee_qtype) {
+									const_adjusted_cast_pointee_qtype = const_cast_pointee_qtype;
+								}
+								IF_DEBUG(std::string const_adjusted_cast_pointee_qtype_str = const_adjusted_cast_pointee_qtype.getAsString();)
+								IF_DEBUG(std::string const_cast_pointee_qtype_str = const_cast_pointee_qtype.getAsString();)
+								IF_DEBUG(std::string DD_qtype_str = definition_qtype(DD->getType()).getAsString();)
+
+								if (ConvertToSCPP && !suppress_modifications) {
+									if (DD_pointee_qtype == const_adjusted_cast_pointee_qtype) {
+										for (size_t i = 0; i < ddcs_ref.m_indirection_state_stack.size(); ++i) {
+											std::shared_ptr<CArray2ReplacementAction> cr_shptr = std::make_shared<CTargetConstrainsCStyleCastExprArray2ReplacementAction>(Rewrite, MR,
+													CDDeclIndirection(*DD, i), *CSCE);
+
+											if (ddcs_ref.has_been_determined_to_point_to_an_array(i)) {
+												(*cr_shptr).do_replacement(state1);
+											}
+											state1.m_conversion_state_change_action_map.insert(cr_shptr);
 										}
-										state1.m_conversion_state_change_action_map.insert(cr_shptr);
+									} else {
+										CSCE ? handle_c_style_cast_without_context(MR, Rewrite, state1, CSCE)
+											: handle_cxx_static_cast_without_context(MR, Rewrite, state1, CXXSCE);
 									}
-								} else {
-									CSCE ? handle_c_style_cast_without_context(MR, Rewrite, state1, CSCE)
-										: handle_cxx_static_cast_without_context(MR, Rewrite, state1, CXXSCE);
 								}
 							}
 						}
@@ -19076,6 +19164,7 @@ namespace convm1 {
 							if (lhs_pointee_qtype->isFunctionType()) {
 								{
 									lhs_direct_type_state_ref.m_function_type_state.m_function_decl_ptr = rhs_FND;
+									handle_new_associated_function_decl_ptr(lhs_direct_type_state_ref.m_function_type_state, Rewrite, &state1);
 									if (ConvertToSCPP && !suppress_modifications) {
 										update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 									}
@@ -19164,6 +19253,7 @@ namespace convm1 {
 							}
 							{
 								lhs_pointee_indirection_state_ref.m_function_type_state.m_function_decl_ptr = rhs_FND;
+								handle_new_associated_function_decl_ptr(lhs_pointee_indirection_state_ref.m_function_type_state, Rewrite, &state1);
 								if (ConvertToSCPP && !suppress_modifications) {
 									update_declaration_if_not_suppressed(*(lhs_res2.ddecl_cptr), Rewrite, *(MR.Context), state1);
 								}
@@ -23671,6 +23761,16 @@ namespace convm1 {
 						return second_option;
 					}
 
+					/* The "LHNullableAny" pointers and iterators are generally more flexible/compatible 
+					than some of the other pointers and iterators. So when there is a conflict where 
+					conversion of one translation unit suggests an "LHNullableAny" type and another 
+					suggests a potentially less flexible type, we will choose the "LHNullableAny" option. */
+					if ((TLHNullableAny_count2 + TXScopeLHNullableAny_count2) < (TLHNullableAny_count1 + TXScopeLHNullableAny_count1)) {
+						return first_option;
+					} else if ((TLHNullableAny_count2 + TXScopeLHNullableAny_count2) > (TLHNullableAny_count1 + TXScopeLHNullableAny_count1)) {
+						return second_option;
+					}
+
 					/* By default, legacy iterators and pointers are converted to (restricted) "xscope"
 					types. But in some transation units, there is enough information to determine that
 					(less restrictive) non-"xscope" versions are required in places. So when there is a
@@ -23883,7 +23983,7 @@ namespace convm1 {
 					auto& second_option_statement = second_option_statements.at(i);
 
 #ifndef NDEBUG
-				if (std::string::npos != first_option_statement.find("warc_user_headers")) {
+				if (std::string::npos != first_option_statement.find("fd_read_hunk")) {
 					int q = 5;
 				}
 #endif /*!NDEBUG*/
