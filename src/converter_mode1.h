@@ -1916,6 +1916,19 @@ namespace convm1 {
 		CTUState& m_state1;
 	};
 
+	inline bool location_seems_to_be_in_a_header_file(clang::SourceLocation SL, clang::SourceManager& SM) {
+		bool retval = false;
+		auto decl_filename = get_filename(get_full_path_name(SM, SL));
+		if (string_ends_with(decl_filename, ".h") || string_ends_with(decl_filename, ".hpp")) {
+			return true;
+		}
+		return retval;
+	}
+	inline bool location_seems_to_be_in_a_header_file(clang::SourceLocation SL, Rewriter& Rewrite) {
+		auto& SM = Rewrite.getSourceMgr();
+		return location_seems_to_be_in_a_header_file(SL, SM);
+	}
+
 	class CDDeclConversionState;
 	std::optional<std::pair<CDDeclConversionState&, bool> > get_ddecl_conversion_state_ref_and_update_flag_if_already_available(CTUState& state1, clang::DeclaratorDecl const& ddecl, Rewriter* Rewrite_ptr = nullptr, bool function_return_value_only = false);
 	std::pair<CDDeclConversionState&, bool> get_ddecl_conversion_state_ref_and_update_flag(CTUState& state1, clang::DeclaratorDecl const& ddecl, Rewriter* Rewrite_ptr = nullptr, bool function_return_value_only = false);
@@ -2052,8 +2065,7 @@ namespace convm1 {
 				auto decl_source_range = state1_ptr ? cm1_adj_nice_source_range(m_ddecl_cptr->getSourceRange(), *state1_ptr, Rewrite) : m_ddecl_cptr->getSourceRange();
 				if (decl_source_range.isValid() && (decl_source_range.getBegin() <= decl_source_range.getEnd())) {
 					if (1 <= (*this).m_indirection_state_stack.size()) {
-						auto decl_filename = get_filename(get_full_path_name(SM, decl_source_range.getBegin()));
-						if (string_ends_with(decl_filename, ".h") || string_ends_with(decl_filename, ".hpp")) {
+						if (location_seems_to_be_in_a_header_file(decl_source_range.getBegin(), SM)) {
 							handle_declaration_in_header_file(*this, Rewrite, state1_ptr);
 						}
 					}
@@ -7333,7 +7345,7 @@ namespace convm1 {
 
 	struct do_not_exclude_functions_with_conversions_t {};
 	template<typename TOptions = options_t<> >
-	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1, clang::Expr const* E = nullptr);
+	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1, clang::Expr const* E = nullptr, bool function_return_value_only = false);
 
 	/* If given a non-null state1_ptr argument, this function will modify the source text to reflect
 	any currently indicated changes to the declaration. In any case, it will return an information
@@ -12624,6 +12636,9 @@ namespace convm1 {
 					}
 #endif /*!NDEBUG*/
 
+					auto LHS_ii = state1.m_ast_context_ptr ? IgnoreParenImpNoopCasts(LHS, *(state1.m_ast_context_ptr))
+						: IgnoreParenImpCasts(LHS);
+					auto lhs_CE = dyn_cast<const clang::CallExpr>(LHS_ii);
 					auto lhs_inference_info = infer_array_type_info_from_stmt(*LHS, "", state1, lhs_DD);
 					bool lhs_is_known_to_be_an_array = false;
 					bool lhs_is_dynamic_array = false;
@@ -12638,7 +12653,7 @@ namespace convm1 {
 					CDDeclConversionState* lhs_ddcs_ptr = nullptr;
 					if (lhs_DD != nullptr) {
 						if (state1.m_ast_context_ptr) {
-							lhs_is_non_modifiable = is_non_modifiable(*lhs_DD, *(state1.m_ast_context_ptr), Rewrite, state1);
+							lhs_is_non_modifiable = is_non_modifiable(*lhs_DD, *(state1.m_ast_context_ptr), Rewrite, state1, LHS, (nullptr != lhs_CE)/*function_return_value_only*/);
 						}
 
 						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*lhs_DD, &Rewrite);
@@ -12701,6 +12716,9 @@ namespace convm1 {
 						}
 					}
 
+					auto RHS_ii = state1.m_ast_context_ptr ? IgnoreParenImpNoopCasts(RHS, *(state1.m_ast_context_ptr))
+						: IgnoreParenImpCasts(RHS);
+					auto rhs_CE = dyn_cast<const clang::CallExpr>(RHS_ii);
 					auto rhs_inference_info = infer_array_type_info_from_stmt(*RHS, "", state1, rhs_DD);
 					bool rhs_is_known_to_be_an_array = false;
 					bool rhs_is_dynamic_array = false;
@@ -12714,7 +12732,7 @@ namespace convm1 {
 					std::optional<CFunctionTypeState> rhs_maybe_function_state;
 					if (rhs_DD != nullptr) {
 						if (state1.m_ast_context_ptr) {
-							rhs_is_non_modifiable = is_non_modifiable(*rhs_DD, *(state1.m_ast_context_ptr), Rewrite, state1);
+							rhs_is_non_modifiable = is_non_modifiable(*rhs_DD, *(state1.m_ast_context_ptr), Rewrite, state1, RHS, (nullptr != rhs_CE)/*function_return_value_only*/);
 						}
 
 						auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*rhs_DD, &Rewrite);
@@ -12921,7 +12939,7 @@ namespace convm1 {
 									one is provided). */
 									bool var_is_non_modifiable = false;
 									if (var_DD) {
-										var_is_non_modifiable = is_non_modifiable(*var_DD, *(state1.m_ast_context_ptr), Rewrite, state1);
+										var_is_non_modifiable = is_non_modifiable(*var_DD, *(state1.m_ast_context_ptr), Rewrite, state1, nullptr/*expression*/, true/*function_return_value_only*/);
 
 										if (!var_is_non_modifiable) {
 											auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*var_DD, &Rewrite);
@@ -13229,7 +13247,7 @@ namespace convm1 {
 							one is provided). */
 							bool var_is_non_modifiable = false;
 							if (var_DD) {
-								var_is_non_modifiable = is_non_modifiable(*var_DD, *(state1.m_ast_context_ptr), Rewrite, state1);
+								var_is_non_modifiable = is_non_modifiable(*var_DD, *(state1.m_ast_context_ptr), Rewrite, state1, nullptr/*expression*/, true/*function_return_value_only*/);
 
 								if (!var_is_non_modifiable) {
 									auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*var_DD, &Rewrite);
@@ -13644,6 +13662,9 @@ namespace convm1 {
 						return info;
 					}
 				}
+				if (false && !location_seems_to_be_in_a_header_file(function_decl->getSourceRange().getBegin(), Rewrite)) {
+					return retval;
+				}
 
 				static const std::string calloc_str = "calloc";
 				bool contains_calloc = (std::string::npos != lc_function_name.find(calloc_str));
@@ -13720,6 +13741,9 @@ namespace convm1 {
 							return info;
 						}
 					}
+					if (false && !location_seems_to_be_in_a_header_file(function_decl->getSourceRange().getBegin(), Rewrite)) {
+						return retval;
+					}
 
 					std::string free_pointer_param_source_text;
 					clang::ValueDecl const * free_pointer_param_DD = nullptr;
@@ -13747,15 +13771,30 @@ namespace convm1 {
 						/* We don't want to mess with a "free" function unless we've encountered a corrsponding "alloc" 
 						function. But how do we know if a previously encountered "alloc" function corresponds to this 
 						"free" function? I don't know if there's a good answer to that, but for now we're going to 
-						require that the names at least start with the same letter. */
+						require that the names at least start with the same prefix. */
 						bool prefix_match = ("free" == function_name);
 						if (!prefix_match) {
-							const auto first_letter = function_name.at(0);
-							for (auto const& info : s_encountered_alloc_infos_ref()) {
-								if (first_letter == info.m_function_name.at(0)) {
-									prefix_match = true;
-									break;
+							auto free_start_index = function_name.find("free");
+							if (std::string::npos == free_start_index) {
+								free_start_index = function_name.find("Free");
+							}
+							if (std::string::npos == free_start_index) {
+								free_start_index = function_name.find("FREE");
+							}
+							if (std::string::npos != free_start_index) {
+								const std::string prefix = function_name.substr(0, free_start_index);
+								if (1 <= prefix.length()) {
+									for (auto const& info : s_encountered_alloc_infos_ref()) {
+										if (string_begins_with(info.m_function_name, prefix)) {
+											prefix_match = true;
+											break;
+										}
+									}
+								} else {
+									int q = 3;
 								}
+							} else {
+								int q = 3;
 							}
 						}
 						if (prefix_match) {
@@ -16853,7 +16892,7 @@ namespace convm1 {
 	}
 
 	template<typename TOptions/* = options_t<> */>
-	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1, clang::Expr const* E /*= nullptr*/) {
+	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1, clang::Expr const* E /*= nullptr*/, bool function_return_value_only/* = false*/) {
 		bool non_modifiable_flag = false;
 		do {
 			auto suppress_check_flag = state1.m_suppress_check_region_set.contains(&decl, Rewrite, Ctx);
@@ -16867,24 +16906,26 @@ namespace convm1 {
 				if (FND) {
 					IF_DEBUG(const auto qfname_str = FND->getQualifiedNameAsString();)
 
-					/* So technically, the fact that the Begin and End of the item's range are in a "filtered out" location 
-					out doesn't *necessarily* mean that the whole item is in a "filtered out" location, though we'll 
-					generally presume it to be. But in this case the item is a function declaration, so we'll just check if 
-					all the parameter declarations are also "filtered out" by location. */
-					bool an_arg_is_modifiable = false;
-					const auto num_params = FND->getNumParams();
-					for (size_t i = 0; num_params > i; i += 1) {
-						auto PVD = FND->getParamDecl(i);
-						if (PVD && !is_non_modifiable(*PVD, Ctx, Rewrite, state1)) {
-							an_arg_is_modifiable = true;
-							break;
+					if (!function_return_value_only) {
+						/* So technically, the fact that the Begin and End of the item's range are in a "filtered out" location 
+						out doesn't *necessarily* mean that the whole item is in a "filtered out" location, though we'll 
+						generally presume it to be. But in this case the item is a function declaration, so we'll just check if 
+						all the parameter declarations are also "filtered out" by location. */
+						bool an_arg_is_modifiable = false;
+						const auto num_params = FND->getNumParams();
+						for (size_t i = 0; num_params > i; i += 1) {
+							auto PVD = FND->getParamDecl(i);
+							if (PVD && !is_non_modifiable(*PVD, Ctx, Rewrite, state1)) {
+								an_arg_is_modifiable = true;
+								break;
+							}
 						}
-					}
-					if (!an_arg_is_modifiable) {
-						non_modifiable_flag = true;
-						break;
-					} else {
-						int q = 5;
+						if (!an_arg_is_modifiable) {
+							non_modifiable_flag = true;
+							break;
+						} else {
+							int q = 5;
+						}
 					}
 				} else {
 					non_modifiable_flag = true;
@@ -16897,6 +16938,16 @@ namespace convm1 {
 			}
 			auto DD = dyn_cast<const clang::DeclaratorDecl>(&decl);
 			if (DD) {
+				auto effective_qtype = DD->getType();
+
+				if (function_return_value_only) {
+					auto FND = dyn_cast<const clang::FunctionDecl>(&decl);
+					if (FND) {
+						IF_DEBUG(const auto qfname_str = FND->getQualifiedNameAsString();)
+						effective_qtype = FND->getReturnType();
+					}
+				}
+
 				auto tsi = DD->getTypeSourceInfo();
 				if (tsi) {
 					auto type_SL = tsi->getTypeLoc().getBeginLoc();
@@ -16916,6 +16967,29 @@ namespace convm1 {
 						IF_DEBUG(std::string cannonical_qtype_str = cannonical_qtype.getAsString();)
 
 						auto definition_type_SL = definition_TypeLoc(tsi->getTypeLoc()).getBeginLoc();
+						auto definition_qtype = tsi->getType();
+
+						if (function_return_value_only) {
+							auto FND = dyn_cast<const clang::FunctionDecl>(&decl);
+							if (FND) {
+								IF_DEBUG(const auto qfname_str = FND->getQualifiedNameAsString();)
+								auto ret_qtype = FND->getReturnType();
+
+								const TypedefType * TDT = ret_qtype.getTypePtr()->getAs<TypedefType>();
+								if (TDT) {
+									/* The function's return type seems to be a `typedef`ed type. */
+									auto TDTD = TDT->getDecl();
+									if (TDTD) {
+										auto TDTD_tsi = TDTD->getTypeSourceInfo();
+										if (TDTD_tsi) {
+											definition_qtype = TDTD_tsi->getType();
+											definition_type_SL = definition_TypeLoc(TDTD_tsi->getTypeLoc()).getBeginLoc();
+										}
+									}
+								}
+							}
+						}
+
 						if (!(definition_type_SL.isValid())) {
 							non_modifiable_flag = true;
 							break;
@@ -16929,7 +17003,7 @@ namespace convm1 {
 							types as "non-modifiable" is that it technically may include arithmetic types like `int64_t`, which, 
 							although (typically) a platform-specific typedef, has no properties, relevant to us, that are 
 							non-portable. */
-							if (!tsi->getType()->isArithmeticType()) {
+							if (!definition_qtype->isArithmeticType()) {
 								non_modifiable_flag = true;
 								break;
 							}
@@ -16937,14 +17011,14 @@ namespace convm1 {
 					}
 				}
 
-				std::string qtype_str = DD->getType().getAsString();
+				std::string qtype_str = effective_qtype.getAsString();
 				if ("FILE *" == qtype_str) {
 					return true;
 				}
 
-				if (DD->getType()->isArrayType()) {
-					if (llvm::isa<const clang::ArrayType>(DD->getType().getTypePtr())) {
-						auto ATP = llvm::cast<const clang::ArrayType>(DD->getType().getTypePtr());
+				if (effective_qtype->isArrayType()) {
+					if (llvm::isa<const clang::ArrayType>(effective_qtype.getTypePtr())) {
+						auto ATP = llvm::cast<const clang::ArrayType>(effective_qtype.getTypePtr());
 						auto element_qtype = ATP->getElementType();
 						std::string element_qtype_str = element_qtype.getAsString();
 
@@ -16960,7 +17034,7 @@ namespace convm1 {
 
 					}
 				}
-				if (DD->getType()->isFunctionPointerType()) {
+				if (effective_qtype->isFunctionPointerType()) {
 					auto found_it = state1.m_ddecl_conversion_state_map.find(DD);
 					if (state1.m_ddecl_conversion_state_map.end() != found_it) {
 						auto& ddcs_ref = found_it->second;
@@ -17078,8 +17152,8 @@ namespace convm1 {
 		}
 		return non_modifiable_flag;
 	}
-	bool is_non_modifiable(clang::Decl const& decl, const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::Rewriter &Rewrite, CTUState& state1, clang::Expr const* E = nullptr) {
-		return is_non_modifiable(decl, *(MR.Context), Rewrite, state1, E);
+	bool is_non_modifiable(clang::Decl const& decl, const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::Rewriter &Rewrite, CTUState& state1, clang::Expr const* E = nullptr, bool function_return_value_only = false) {
+		return is_non_modifiable(decl, *(MR.Context), Rewrite, state1, E, function_return_value_only);
 	}
 
 	inline static void handle_c_style_cast_without_context_modification_action(Rewriter&Rewrite, CTUState& state1, clang::CStyleCastExpr const* CSCE, clang::Expr const* precasted_expr_ptr, clang::SourceRange CSCESR, clang::SourceRange precasted_expr_SR, ESuppressModifications suppress_modifications = ESuppressModifications::No) {
@@ -17752,7 +17826,7 @@ namespace convm1 {
 						} else {
 							if (precasted_res2.ddecl_cptr && state1.m_ast_context_ptr) {
 								auto& Ctx = *(state1.m_ast_context_ptr);
-								auto precasted_expr_ptr_decl_is_non_modifiable = is_non_modifiable(*(precasted_res2.ddecl_cptr), Ctx, Rewrite, state1, precasted_expr_ptr);
+								auto precasted_expr_ptr_decl_is_non_modifiable = is_non_modifiable(*(precasted_res2.ddecl_cptr), Ctx, Rewrite, state1, precasted_expr_ptr, true/*function_return_value_only*/);
 								if (precasted_res2.ddecl_conversion_state_ptr) {
 									precasted_res2.ddecl_conversion_state_ptr->m_maybe_is_non_modifiable = precasted_expr_ptr_decl_is_non_modifiable;
 								}
@@ -18107,13 +18181,13 @@ namespace convm1 {
 			bool LHS_decl_is_non_modifiable = false;
 			bool RHS_decl_is_non_modifiable = false;
 			if (lhs_res2.ddecl_cptr) {
-				LHS_decl_is_non_modifiable = is_non_modifiable(*(lhs_res2.ddecl_cptr), MR, Rewrite, state1, LHS);
+				LHS_decl_is_non_modifiable = is_non_modifiable(*(lhs_res2.ddecl_cptr), MR, Rewrite, state1, LHS, true/*function_return_value_only*/);
 				if (lhs_res2.ddecl_conversion_state_ptr) {
 					lhs_res2.ddecl_conversion_state_ptr->m_maybe_is_non_modifiable = LHS_decl_is_non_modifiable;
 				}
 			}
 			if (rhs_res2.ddecl_cptr) {
-				RHS_decl_is_non_modifiable = is_non_modifiable(*(rhs_res2.ddecl_cptr), MR, Rewrite, state1, RHS);
+				RHS_decl_is_non_modifiable = is_non_modifiable(*(rhs_res2.ddecl_cptr), MR, Rewrite, state1, RHS, true/*function_return_value_only*/);
 				if (rhs_res2.ddecl_conversion_state_ptr) {
 					rhs_res2.ddecl_conversion_state_ptr->m_maybe_is_non_modifiable = RHS_decl_is_non_modifiable;
 				}
@@ -19048,7 +19122,7 @@ namespace convm1 {
 						/* Here we're establishing the constraint in the opposite direction as well. */
 
 						if (rhs_res2.ddecl_cptr) {
-							bool RHS_decl_is_non_modifiable = is_non_modifiable(*(rhs_res2.ddecl_cptr), MR, Rewrite, state1, RHS);
+							bool RHS_decl_is_non_modifiable = is_non_modifiable(*(rhs_res2.ddecl_cptr), MR, Rewrite, state1, RHS, true/*function_return_value_only*/);
 							if (RHS_decl_is_non_modifiable && (LHS || VLD) && RHS) {
 								/* RHS will, for whatever reason, not be converted to a safe iterator. But presumably the LHS wiil 
 								(or at least could) be. So we may need to ensure that LHS gets converted to a type that can handle 
@@ -19570,7 +19644,7 @@ namespace convm1 {
 											auto arg_num_args = arg_CE->getNumArgs();
 											if (arg_function_decl1) {
 												IF_DEBUG(std::string debug_arg_function_name = arg_function_decl1->getNameAsString();)
-												bool arg_FD_is_non_modifiable = is_non_modifiable(*arg_function_decl1, MR, Rewrite, state1, arg_CE);
+												bool arg_FD_is_non_modifiable = is_non_modifiable(*arg_function_decl1, MR, Rewrite, state1, arg_CE, true/*function_return_value_only*/);
 												if (arg_FD_is_non_modifiable) {
 													/* This argument corresponding to a pointer parameter that cannot be converted to a safe pointer, 
 													seems to be the direct return value of a function that also cannot be converted to return a safe 
@@ -19781,7 +19855,7 @@ namespace convm1 {
 										bool DD_is_not_modifiable = false;
 										auto DD = clang::dyn_cast<clang::DeclaratorDecl>(DRE->getDecl());
 										if (DD) {
-											DD_is_not_modifiable = is_non_modifiable(*DD, *(MR.Context), Rewrite, state1);
+											DD_is_not_modifiable = is_non_modifiable(*DD, *(MR.Context), Rewrite, state1, arg_EX, (nullptr != arg_CE)/*function_return_value_only*/);
 										}
 										if (!DD_is_not_modifiable) {
 											auto CO = dyn_cast<const clang::ConditionalOperator>(arg_EX_ii);
