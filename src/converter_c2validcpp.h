@@ -4725,7 +4725,10 @@ namespace convc2validcpp {
 				if (default_bounding_offset < offset) {
 					static bool note_given = false;
 					if (!note_given) {
-						llvm::errs() << "\nnote: matching_close_parentheses_if_any() search cut off due to exceeding the (preset) limit. \n";
+						llvm::errs() << "\nNote: matching_close_parentheses_if_any() search cut off due to exceeding the (preset) limit. \n";
+						if (SL.isValid()) {
+							llvm::errs() << "While processing source location: " << SL.printToString((Rewrite).getSourceMgr()) << " \n";
+						}
 						note_given = true;
 					}
 					return retval;
@@ -5043,12 +5046,12 @@ namespace convc2validcpp {
 			}
 #endif /*!NDEBUG*/
 
+		auto& SM = Rewrite.getSourceMgr();
+
 		if (b3 || b4) {
 			THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 			/* The element is part of a macro instance. */
-
-			auto& SM = Rewrite.getSourceMgr();
 
 			auto FLSL = SM.getFileLoc(SL);
 			auto FLSLE = SM.getFileLoc(SLE);
@@ -6045,11 +6048,13 @@ namespace convc2validcpp {
 							}
 
 							auto* E = IgnoreImplicit(*expr_ptr_ptr);
+							IF_DEBUG(std::string E_qtype_str = E->getType().getAsString();)
 							auto& E_SR_plus_ref = retval;
 							auto parent_E = NonImplicitParentOfType<clang::Expr const>(E, *(state1.m_ast_context_ptr));
 							if (!parent_E) {
 								break;
 							}
+							IF_DEBUG(std::string parent_E_qtype_str = parent_E->getType().getAsString();)
 
 							auto parent_E_rawSR = parent_E->getSourceRange();
 							if (!(parent_E_rawSR.getBegin().isMacroID() && parent_E_rawSR.getEnd().isMacroID())) {
@@ -6062,6 +6067,14 @@ namespace convc2validcpp {
 									}
 								}
 								break;
+							}
+
+							if (2 <= E_SR_plus_ref.m_adjusted_source_text_infos.size()) {
+								if (string_begins_with(E_SR_plus_ref.m_adjusted_source_text_infos.at(1).m_macro_name, "DIGITS_")) {
+									/* We're going to assume that this macro is potentially one that may be part of a mass of deeply nested 
+									macro invocations that are potentially very time-consuming to process and likely of no interest to us.  */
+									break;
+								}
 							}
 
 							auto first_has_a_range_contained_in_second = [](CSourceRangePlus const& E_SR_plus, clang::SourceRange const& potentially_containing_SR) {
@@ -6079,6 +6092,39 @@ namespace convc2validcpp {
 								}
 								return E_SR_plus_has_range_contained_in_given_range;
 							};
+
+							/* We're about to engage in some recursion that, unrestrained, could be significantly time-consuming. 
+							So we're going to enforce some cut-off limits. While such cut-off limits could theoretically affect 
+							the validity of the results, in our particular use-case here, we estimate that, in most cases, any 
+							invalidity in the results we receive would not end-up being propagated to the results we return. In 
+							most cases.
+							(However, if at some point we contemplate using a results cache to speed up this function, we should 
+							take into account that result generated while closer to the cut-off limit are less likely to be valid.) */
+							thread_local int tl_recursion_depth = 0;
+							if (4/*arbitrary*/ == tl_recursion_depth) {
+								if (filtered_out_by_location(SM, sr)) {
+									/* We're thinking there's probably not much point in spending too much time analyzing deeply nested 
+									macros in locations that we don't have permission to modify anyway. */
+									return retval;
+								}
+							}
+							if (7/*arbitrary*/ < tl_recursion_depth) {
+								static bool note_given = false;
+								if (!note_given) {
+									llvm::errs() << "\nNote: cm1_adjusted_source_range() nested macro processing cut off due to exceeding the (preset) depth limit. \n";
+									if (sr.isValid()) {
+										llvm::errs() << "While processing source location: " << sr.getBegin().printToString(SM) << " \n";
+									}
+									note_given = true;
+								}
+								return retval;
+							}
+							class CRecursionTrackingRAIIObj {
+								public:
+								CRecursionTrackingRAIIObj() { tl_recursion_depth += 1; }
+								~CRecursionTrackingRAIIObj() { tl_recursion_depth -= 1; }
+							};
+							CRecursionTrackingRAIIObj recursion_tracking_raii_obj1;
 
 							auto parent_E_SR_plus_ref = cm1_adjusted_source_range(*parent_E, state1, Rewrite);
 							if (!(1 <= parent_E_SR_plus_ref.m_adjusted_source_text_infos.size())) {
@@ -6141,6 +6187,11 @@ namespace convc2validcpp {
 									auto deepest_reported_SL = deepest_reported_SR.getBegin();
 									auto deepest_reported_SLE = deepest_reported_SR.getEnd();
 
+									const std::string text19 = getRewrittenTextOrEmpty(Rewrite, { deepest_reported_SL, deepest_reported_SLE });
+									auto deepest_reported_SLE2 = deepest_reported_SL.getLocWithOffset(+text19.length() - 1);
+									if ((deepest_reported_SLE < deepest_reported_SLE2) && (deepest_reported_SL <= deepest_reported_SLE)) {
+										deepest_reported_SLE = deepest_reported_SLE2;
+									}
 									bool deepest_reported_SL_left_delimiter_is_open_paren_or_comma = false;
 									std::string text17;
 									auto maybe_deepest_reported_SL_left_delimiter = get_previous_non_whitespace_SL_if_available(deepest_reported_SL, Rewrite);
@@ -17597,15 +17648,24 @@ namespace convc2validcpp {
 												}
 											}
 										};
+									auto update_ecs_ref = [&](CExprConversionState& ecs_ref) {
+											update_string_ref(ecs_ref.m_original_source_text_str);
+											update_string_ref(ecs_ref.m_current_text_str);
+											for (auto& non_child_dependent_text_fragment_ref : ecs_ref.m_non_child_dependent_text_fragments) {
+												update_string_ref(non_child_dependent_text_fragment_ref);
+											}
+											update_string_ref(ecs_ref.m_SR_plus.m_adjusted_source_text_as_if_expanded);
+											for (auto& adjusted_source_text_info_ref : ecs_ref.m_SR_plus.m_adjusted_source_text_infos) {
+												update_string_ref(adjusted_source_text_info_ref.m_text);
+											}
+										};
 
 									auto& ecs_ref = state1.get_expr_conversion_state_ref(*UEOTTE, Rewrite);
-									update_string_ref(ecs_ref.m_original_source_text_str);
-									update_string_ref(ecs_ref.m_SR_plus.m_adjusted_source_text_as_if_expanded);
-									for (auto& adjusted_source_text_info_ref : ecs_ref.m_SR_plus.m_adjusted_source_text_infos) {
-										update_string_ref(adjusted_source_text_info_ref.m_text);
-									}
+									update_ecs_ref(ecs_ref);
+									state1.add_pending_expression_update(*UEOTTE, Rewrite);
 
 									if (true || arg_seems_to_be_a_whole_macro_argument) {
+										bool visibly_containing_expression_scheduled_for_rendering_update =false;
 										auto parent_E = NonImplicitParentOfType<clang::Expr>(UEOTTE, *(MR.Context));
 										auto E1 = parent_E;
 										while (E1) {
@@ -17614,15 +17674,23 @@ namespace convc2validcpp {
 											auto iter = state1.m_expr_conversion_state_map.find(E1);
 											if (state1.m_expr_conversion_state_map.end() != iter) {
 												auto& l_ecs_ref = *((*iter).second);
-												update_string_ref(l_ecs_ref.m_original_source_text_str);
-												update_string_ref(l_ecs_ref.m_SR_plus.m_adjusted_source_text_as_if_expanded);
-												for (auto& adjusted_source_text_info_ref : l_ecs_ref.m_SR_plus.m_adjusted_source_text_infos) {
-													update_string_ref(adjusted_source_text_info_ref.m_text);
+												update_ecs_ref(l_ecs_ref);
+											}
+											if (!visibly_containing_expression_scheduled_for_rendering_update) {
+												const auto E1_SR = write_once_source_range(cm1_adj_nice_source_range(E1->getSourceRange(), state1, Rewrite));
+												if ((E1_SR.getBegin() <= arg_SR.getBegin()) && (arg_SR.getEnd() <= E1_SR.getEnd())) {
+													/* This expression seems to contain the (macro) argument in its visible range. So we'll schedule it 
+													for a rendering update reflect the changes we made to the (macro) argument. (We don't have a proper 
+													mechanism to update the (macro) argument directly because it's a type, not an expression.) */
+													state1.add_pending_expression_update(*E1, Rewrite);
+
+													visibly_containing_expression_scheduled_for_rendering_update = true;
 												}
 											}
 
 											E1 = NonImplicitParentOfType<clang::Expr>(E1, *(MR.Context));
 										}
+										int q = 5;
 									}
 								}
 							}
@@ -18693,6 +18761,10 @@ namespace convc2validcpp {
 
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
+			if (m_state1.m_ast_context_ptr != MR.Context) {
+				m_state1.m_ast_context_ptr = MR.Context;
+			}
+			m_state1.m_ast_context_ptr = MR.Context;
 			if (!m_other_TUs_imported) {
 				if (CTUAnalysis) {
 					import_other_TUs(&s_multi_tu_state, CI, m_current_tu_num);
@@ -18747,9 +18819,9 @@ namespace convc2validcpp {
 			tu_state_param.m_Rewrite_ptr = &R;
 		}
 
-#if 0
 		Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerForMisc1);
 
+#if 0
 		/* The ordering of the matchers has not yet been thoroughly considered, but generally you'd want
 		elements more likely to contain subelements (that could be potentially modified) to be matched
 		later. In this vein, we generally put the declaration matchers after the expression matchers. */

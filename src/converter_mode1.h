@@ -5009,7 +5009,10 @@ namespace convm1 {
 				if (default_bounding_offset < offset) {
 					static bool note_given = false;
 					if (!note_given) {
-						llvm::errs() << "\nnote: matching_close_parentheses_if_any() search cut off due to exceeding the (preset) limit. \n";
+						llvm::errs() << "\nNote: matching_close_parentheses_if_any() search cut off due to exceeding the (preset) limit. \n";
+						if (SL.isValid()) {
+							llvm::errs() << "While processing source location: " << SL.printToString((Rewrite).getSourceMgr()) << " \n";
+						}
 						note_given = true;
 					}
 					return retval;
@@ -5327,12 +5330,12 @@ namespace convm1 {
 			}
 #endif /*!NDEBUG*/
 
+		auto& SM = Rewrite.getSourceMgr();
+
 		if (b3 || b4) {
 			THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 			/* The element is part of a macro instance. */
-
-			auto& SM = Rewrite.getSourceMgr();
 
 			auto FLSL = SM.getFileLoc(SL);
 			auto FLSLE = SM.getFileLoc(SLE);
@@ -6329,11 +6332,13 @@ namespace convm1 {
 							}
 
 							auto* E = IgnoreImplicit(*expr_ptr_ptr);
+							IF_DEBUG(std::string E_qtype_str = E->getType().getAsString();)
 							auto& E_SR_plus_ref = retval;
 							auto parent_E = NonImplicitParentOfType<clang::Expr const>(E, *(state1.m_ast_context_ptr));
 							if (!parent_E) {
 								break;
 							}
+							IF_DEBUG(std::string parent_E_qtype_str = parent_E->getType().getAsString();)
 
 							auto parent_E_rawSR = parent_E->getSourceRange();
 							if (!(parent_E_rawSR.getBegin().isMacroID() && parent_E_rawSR.getEnd().isMacroID())) {
@@ -6346,6 +6351,14 @@ namespace convm1 {
 									}
 								}
 								break;
+							}
+
+							if (2 <= E_SR_plus_ref.m_adjusted_source_text_infos.size()) {
+								if (string_begins_with(E_SR_plus_ref.m_adjusted_source_text_infos.at(1).m_macro_name, "DIGITS_")) {
+									/* We're going to assume that this macro is potentially one that may be part of a mass of deeply nested 
+									macro invocations that are potentially very time-consuming to process and likely of no interest to us.  */
+									break;
+								}
 							}
 
 							auto first_has_a_range_contained_in_second = [](CSourceRangePlus const& E_SR_plus, clang::SourceRange const& potentially_containing_SR) {
@@ -6363,6 +6376,39 @@ namespace convm1 {
 								}
 								return E_SR_plus_has_range_contained_in_given_range;
 							};
+
+							/* We're about to engage in some recursion that, unrestrained, could be significantly time-consuming. 
+							So we're going to enforce some cut-off limits. While such cut-off limits could theoretically affect 
+							the validity of the results, in our particular use-case here, we estimate that, in most cases, any 
+							invalidity in the results we receive would not end-up being propagated to the results we return. In 
+							most cases.
+							(However, if at some point we contemplate using a results cache to speed up this function, we should 
+							take into account that result generated while closer to the cut-off limit are less likely to be valid.) */
+							thread_local int tl_recursion_depth = 0;
+							if (4/*arbitrary*/ == tl_recursion_depth) {
+								if (filtered_out_by_location(SM, sr)) {
+									/* We're thinking there's probably not much point in spending too much time analyzing deeply nested 
+									macros in locations that we don't have permission to modify anyway. */
+									return retval;
+								}
+							}
+							if (7/*arbitrary*/ < tl_recursion_depth) {
+								static bool note_given = false;
+								if (!note_given) {
+									llvm::errs() << "\nNote: cm1_adjusted_source_range() nested macro processing cut off due to exceeding the (preset) depth limit. \n";
+									if (sr.isValid()) {
+										llvm::errs() << "While processing source location: " << sr.getBegin().printToString(SM) << " \n";
+									}
+									note_given = true;
+								}
+								return retval;
+							}
+							class CRecursionTrackingRAIIObj {
+								public:
+								CRecursionTrackingRAIIObj() { tl_recursion_depth += 1; }
+								~CRecursionTrackingRAIIObj() { tl_recursion_depth -= 1; }
+							};
+							CRecursionTrackingRAIIObj recursion_tracking_raii_obj1;
 
 							auto parent_E_SR_plus_ref = cm1_adjusted_source_range(*parent_E, state1, Rewrite);
 							if (!(1 <= parent_E_SR_plus_ref.m_adjusted_source_text_infos.size())) {
@@ -6425,6 +6471,11 @@ namespace convm1 {
 									auto deepest_reported_SL = deepest_reported_SR.getBegin();
 									auto deepest_reported_SLE = deepest_reported_SR.getEnd();
 
+									const std::string text19 = getRewrittenTextOrEmpty(Rewrite, { deepest_reported_SL, deepest_reported_SLE });
+									auto deepest_reported_SLE2 = deepest_reported_SL.getLocWithOffset(+text19.length() - 1);
+									if ((deepest_reported_SLE < deepest_reported_SLE2) && (deepest_reported_SL <= deepest_reported_SLE)) {
+										deepest_reported_SLE = deepest_reported_SLE2;
+									}
 									bool deepest_reported_SL_left_delimiter_is_open_paren_or_comma = false;
 									std::string text17;
 									auto maybe_deepest_reported_SL_left_delimiter = get_previous_non_whitespace_SL_if_available(deepest_reported_SL, Rewrite);
