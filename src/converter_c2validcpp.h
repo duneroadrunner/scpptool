@@ -59,6 +59,10 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/IR/Function.h"
 
+#define RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V \
+				if ((!SR.isValid()) || cm1_filtered_out_by_location(MR, SR)) { \
+					return void(); \
+				}
 
 namespace convc2validcpp {
     using namespace llvm;
@@ -90,6 +94,9 @@ namespace convc2validcpp {
     bool EnableNamespaceImport = false;
     bool SuppressPrompts = false;
     bool DoNotReplaceOriginalSource = false;
+	std::vector<std::string> ModifiablePaths;
+	std::vector<std::string> UnModifiablePaths;
+	CModifiablePathInfo specified_modifiable_path_info;
     std::string MergeCommand = "";
     bool DoNotResolveMergeConflicts = false;
     std::string ConvertMode = "";
@@ -106,6 +113,8 @@ namespace convc2validcpp {
         bool EnableNamespaceImport = false;
         bool SuppressPrompts = false;
         bool DoNotReplaceOriginalSource = false;
+		std::vector<std::string> ModifiablePaths;
+		std::vector<std::string> UnModifiablePaths;
         std::string MergeCommand = "";
         bool DoNotResolveMergeConflicts = false;
         std::string ConvertMode = "";
@@ -113,6 +122,40 @@ namespace convc2validcpp {
         bool ScopeTypePointerFunctionParameters = false;
 		bool AddressableVars = false;
     };
+
+	inline bool cm1_filtered_out_by_location(const clang::SourceManager &SM, clang::SourceLocation SL) {
+		return filtered_out_by_location<options_t<converter_mode_t> >(SM, SL, specified_modifiable_path_info);
+	}
+	inline bool cm1_filtered_out_by_location(const clang::SourceManager &SM, clang::SourceRange SR) {
+		return filtered_out_by_location<options_t<converter_mode_t> >(SM, SR, specified_modifiable_path_info);
+	}
+	inline bool cm1_filtered_out_by_location(clang::ASTContext const& Ctx, clang::SourceRange SR) {
+		const clang::SourceManager &SM = Ctx.getSourceManager();
+		return cm1_filtered_out_by_location(SM, SR);
+	}
+	inline bool cm1_filtered_out_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceRange SR) {
+		clang::ASTContext *const ASTC = MR.Context;
+		assert(MR.Context);
+		const clang::SourceManager &SM = ASTC->getSourceManager();
+		return cm1_filtered_out_by_location(SM, SR);
+	}
+
+	inline bool c2v_filtered_out_by_location(const clang::SourceManager &SM, clang::SourceLocation SL) {
+		return filtered_out_by_location(SM, SL, specified_modifiable_path_info);
+	}
+	inline bool c2v_filtered_out_by_location(const clang::SourceManager &SM, clang::SourceRange SR) {
+		return filtered_out_by_location(SM, SR, specified_modifiable_path_info);
+	}
+	inline bool c2v_filtered_out_by_location(clang::ASTContext const& Ctx, clang::SourceRange SR) {
+		const clang::SourceManager &SM = Ctx.getSourceManager();
+		return c2v_filtered_out_by_location(SM, SR);
+	}
+	inline bool c2v_filtered_out_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceRange SR) {
+		clang::ASTContext *const ASTC = MR.Context;
+		assert(MR.Context);
+		const clang::SourceManager &SM = ASTC->getSourceManager();
+		return c2v_filtered_out_by_location(SM, SR);
+	}
 
 	/* This class specifies a declaration and a level of "indirection"(/"dereference") relative to the declared
 	* object. For example, given the declaration "int **var1[5];", (*var1) and (**var1) are 1 and 2 "levels of
@@ -1060,7 +1103,7 @@ namespace convc2validcpp {
 		auto b1 = SL.isMacroID();
 		auto b2 = SLE.isMacroID();
 
-		if (true && (b1 || b2) && (!filtered_out_by_location(SM, sr))) {
+		if (true && (b1 || b2) && (!c2v_filtered_out_by_location(SM, sr))) {
 			if (state1_ptr) {
 				auto& state1 = *state1_ptr;
 				const auto adj_sr = cm1_adjusted_source_range(sr, state1, Rewrite);
@@ -2568,7 +2611,7 @@ namespace convc2validcpp {
 									auto const& md_SR_cref = adjusted_source_text_info_cref.m_macro_definition_range;
 									if (md_SR_cref.isValid()) {
 										auto& SM = Rewrite.getSourceMgr();
-										bool filtered_out_flag = filtered_out_by_location<options_t<converter_mode_t> >(SM, md_SR_cref);
+										bool filtered_out_flag = cm1_filtered_out_by_location(SM, md_SR_cref);
 										if (filtered_out_flag) {
 											/* The definition of the (least deeply nested invoked) macro seems to be in a "filtered out" 
 											location (like a system header file). This would generally imply that the definition cannot be 
@@ -3284,7 +3327,7 @@ namespace convc2validcpp {
 				THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
 				auto& SM = Rewrite.getSourceMgr();
-				if (!filtered_out_by_location<options_t<converter_mode_t> >(SM, SR)) {
+				if (!cm1_filtered_out_by_location(SM, SR)) {
 					return Rewrite.ReplaceText(SR, NewStr);
 				} else {
 					int q = 5;
@@ -4155,7 +4198,7 @@ namespace convc2validcpp {
 												auto const& md_SR_cref = adjusted_source_text_info_cref.m_macro_definition_range;
 												if (md_SR_cref.isValid()) {
 													auto& SM = Rewrite.getSourceMgr();
-													bool filtered_out_flag = filtered_out_by_location<options_t<converter_mode_t> >(SM, md_SR_cref);
+													bool filtered_out_flag = cm1_filtered_out_by_location(SM, md_SR_cref);
 													if (filtered_out_flag) {
 														not_considered_an_updatable_visible_child = true;
 													}
@@ -5211,7 +5254,7 @@ namespace convc2validcpp {
 								DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, expansion_SR, Rewrite);
 								std::string macro_name2 = getRewrittenTextOrEmpty(Rewrite,  { expansion_SR.getBegin(), expansion_SR.getBegin() } );
 								found_macro_iter = state1.m_pp_macro_definitions.find(macro_name2);
-								if ((state1.m_pp_macro_definitions.end() != found_macro_iter) && (!filtered_out_by_location(SM, macro_SR))) {
+								if ((state1.m_pp_macro_definitions.end() != found_macro_iter) && (!c2v_filtered_out_by_location(SM, macro_SR))) {
 									/* Ok, we seem to have obtained the associated recognized macro. */
 
 									macro_name = macro_name2;
@@ -5595,7 +5638,7 @@ namespace convc2validcpp {
 							auto macro_arg_expansion_SPSLE = SM.getSpellingLoc(SLE_macro_arg_expansion_start);
 							auto macro_arg_expansion_SR = clang::SourceRange{ macro_arg_expansion_SPSL, macro_arg_expansion_SPSLE };
 							std::string macro_arg_expansion_text1 = getRewrittenTextOrEmpty(Rewrite, macro_arg_expansion_SR);
-							if (("" != macro_arg_expansion_text1)/* && (!filtered_out_by_location(SM, clang::SourceRange{ first_macro_SL, first_macro_SLE }))*/) {
+							if (("" != macro_arg_expansion_text1)/* && (!c2v_filtered_out_by_location(SM, clang::SourceRange{ first_macro_SL, first_macro_SLE }))*/) {
 								/* If the range indeed covers a (whole) macro argument, then the value of macro_arg_expansion_text1 
 								should be a parameter of the macro. We check this here: */
 
@@ -5728,7 +5771,7 @@ namespace convc2validcpp {
 				for (const auto& macro2_SR : nested_macro_ranges) {
 					THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
-					if (true || !filtered_out_by_location(SM, macro2_SR)) {
+					if (true || !c2v_filtered_out_by_location(SM, macro2_SR)) {
 						auto [adjusted_macro_SPSR, macro_name, macro_args] = macro_spelling_range_extended_to_include_any_arguments(macro2_SR);
 						DEBUG_SOURCE_LOCATION_STR(adjusted_macro_SPSR1_debug_source_location_str, adjusted_macro_SPSR, Rewrite);
 
@@ -5796,7 +5839,7 @@ namespace convc2validcpp {
 														}
 
 														bool return_the_macro_invocation_rather_than_the_definition = false;
-														if (filtered_out_by_location<options_t<converter_mode_t> >(SM, found_macro_iter->second.definition_SR())) {
+														if (cm1_filtered_out_by_location(SM, found_macro_iter->second.definition_SR())) {
 															/* Unless the macro definition is not elegible for conversion. In this case we probably don't 
 															want to return the invocation range that might be elegible for conversion. The macro might be 
 															a system or installed 3rd party library macro whose definition might be platform dependent. */
@@ -5878,7 +5921,7 @@ namespace convc2validcpp {
 										retval.m_range_is_essentially_the_entire_body_of_a_macro = true;
 									}
 
-									if ((!is_indicated_to_be_an_expression) && filtered_out_by_location<options_t<converter_mode_t> >(SM, found_macro_iter->second.definition_SR())) {
+									if ((!is_indicated_to_be_an_expression) && cm1_filtered_out_by_location(SM, found_macro_iter->second.definition_SR())) {
 										/* Unless the macro definition is not elegible for conversion. In this case we probably don't 
 										want to return the invocation range that might be elegible for conversion. The macro might be 
 										a system or installed 3rd party library macro whose definition might be platform dependent. */
@@ -6102,7 +6145,7 @@ namespace convc2validcpp {
 							take into account that result generated while closer to the cut-off limit are less likely to be valid.) */
 							thread_local int tl_recursion_depth = 0;
 							if (4/*arbitrary*/ == tl_recursion_depth) {
-								if (filtered_out_by_location(SM, sr)) {
+								if (c2v_filtered_out_by_location(SM, sr)) {
 									/* We're thinking there's probably not much point in spending too much time analyzing deeply nested 
 									macros in locations that we don't have permission to modify anyway. */
 									return retval;
@@ -9661,7 +9704,7 @@ namespace convc2validcpp {
 
 		IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 
-		if (filtered_out_by_location(SM, SR.getBegin())) {
+		if (c2v_filtered_out_by_location(SM, SR.getBegin())) {
 			return void();
 		}
 
@@ -9986,7 +10029,7 @@ namespace convc2validcpp {
 
 		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-		//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+		//RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -10043,7 +10086,7 @@ namespace convc2validcpp {
 
 		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-		//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+		//RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 		DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -10168,7 +10211,7 @@ namespace convc2validcpp {
 
 		IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 
-		if (filtered_out_by_location(SM, SR.getBegin())) {
+		if (c2v_filtered_out_by_location(SM, SR.getBegin())) {
 			return void();
 		}
 
@@ -11383,7 +11426,7 @@ namespace convc2validcpp {
 
 			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-			//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+			//RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -11482,7 +11525,7 @@ namespace convc2validcpp {
 
 			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-			//RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+			//RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -11841,7 +11884,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -12043,7 +12086,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -12312,7 +12355,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -12426,7 +12469,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 #ifndef NDEBUG
 				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
@@ -12483,7 +12526,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -12664,7 +12707,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -12845,7 +12888,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -12883,7 +12926,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -13026,7 +13069,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 #ifndef NDEBUG
 				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
@@ -13189,7 +13232,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -13268,7 +13311,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -13374,7 +13417,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -13480,7 +13523,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -13553,7 +13596,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -13614,7 +13657,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -13684,7 +13727,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -13756,7 +13799,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -14020,7 +14063,7 @@ namespace convc2validcpp {
 				break;
 			}
 			auto SR = decl.getSourceRange();
-			if (filtered_out_by_location<options_t<converter_mode_t> >(Ctx, SR)) {
+			if (cm1_filtered_out_by_location(Ctx, SR)) {
 				auto FND = dyn_cast<const clang::FunctionDecl>(&decl);
 				if (FND) {
 					IF_DEBUG(const auto qfname_str = FND->getQualifiedNameAsString();)
@@ -14574,7 +14617,7 @@ namespace convc2validcpp {
 #endif /*!NDEBUG*/
 
 			auto& SM = Rewrite.getSourceMgr();
-			if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR)) {
+			if ((!SR.isValid()) || cm1_filtered_out_by_location(MR, SR)) {
 				/* If the rhs source range is in a "filtered out" location there still might situations where we 
 				might still want to process it.  */
 				auto b10 = SM.isMacroArgExpansion(RHS->getSourceRange().getBegin());
@@ -14591,13 +14634,13 @@ namespace convc2validcpp {
 						const auto sub_EX_ii = IgnoreParenImpNoopCasts(CSCE->getSubExpr(), *(MR.Context));
 						SR2 = write_once_source_range(cm1_adj_nice_source_range(sub_EX_ii->getSourceRange(), state1, Rewrite));
 					}
-					if ((SR == SR2) || ((!SR2.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR2))) {
+					if ((SR == SR2) || ((!SR2.isValid()) || cm1_filtered_out_by_location(MR, SR2))) {
 						if (b3 && b4) {
 							bool one_of_the_nested_macro_invocations_is_not_filtered_out = false;
 							auto SR_plus = cm1_adjusted_source_range(RHS->getSourceRange(), state1, Rewrite);
 							for (auto& adjusted_source_text_info : SR_plus.m_adjusted_source_text_infos) {
 								auto const& SR3 = adjusted_source_text_info.m_macro_invocation_range;
-								if (SR3.isValid() && !filtered_out_by_location<options_t<converter_mode_t> >(MR, SR3)) {
+								if (SR3.isValid() && !cm1_filtered_out_by_location(MR, SR3)) {
 									one_of_the_nested_macro_invocations_is_not_filtered_out = true;
 									break;
 								}
@@ -14615,12 +14658,12 @@ namespace convc2validcpp {
 			bool vld_is_filtered_out = false;
 			if (VLD) {
 				auto VLD_SR = cm1_adj_nice_source_range(VLD->getSourceRange(), state1, Rewrite);
-				if ((!VLD_SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, VLD_SR)) {
+				if ((!VLD_SR.isValid()) || cm1_filtered_out_by_location(MR, VLD_SR)) {
 					vld_is_filtered_out = true;
 				}
 			}
 			bool rhs_is_filtered_out = false;
-			if ((!SR.isValid()) || filtered_out_by_location<options_t<converter_mode_t> >(MR, SR)) {
+			if ((!SR.isValid()) || cm1_filtered_out_by_location(MR, SR)) {
 				if (vld_is_filtered_out) {
 					//return void();
 				}
@@ -14742,7 +14785,7 @@ namespace convc2validcpp {
 								const std::string function_name = function_decl1->getNameAsString();
 
 								//auto function_decl1_SR = cm1_adj_nice_source_range(function_decl1->getSourceRange(), state1, Rewrite);
-								//bool FD_is_non_modifiable = filtered_out_by_location(MR, function_decl1_SR.getBegin());
+								//bool FD_is_non_modifiable = c2v_filtered_out_by_location(MR, function_decl1_SR.getBegin());
 
 								struct CFunctionInfo {
 									std::string m_fname;
@@ -14796,7 +14839,7 @@ namespace convc2validcpp {
 			if (rhs_needs_hard_cast_to_lhs) {
 				bool RHS_ii_is_filtered_out = false;
 				auto RHS_ii_SR = write_once_source_range(cm1_adjusted_source_range(RHS_ii->getSourceRange(), state1, Rewrite));
-				if ((!RHS_ii_SR.isValid()) || filtered_out_by_location(MR, RHS_ii_SR.getBegin())) {
+				if ((!RHS_ii_SR.isValid()) || c2v_filtered_out_by_location(MR, RHS_ii_SR.getBegin())) {
 					RHS_ii_is_filtered_out = true;
 				}
 				/* If RHS_ii is "filtered out" then we'll have to use RHS. */
@@ -14959,7 +15002,7 @@ namespace convc2validcpp {
 
 				if (lhs_res2.ddecl_cptr) {
 					auto LHSDD_SR = cm1_adj_nice_source_range(lhs_res2.ddecl_cptr->getSourceRange(), state1, Rewrite);
-					bool LHS_decl_is_non_modifiable = filtered_out_by_location(MR, LHSDD_SR.getBegin());
+					bool LHS_decl_is_non_modifiable = c2v_filtered_out_by_location(MR, LHSDD_SR.getBegin());
 					if (LHS_decl_is_non_modifiable) {
 						auto LHS_qtype = LHS->getType();
 						auto RHS_qtype = RHS->getType();
@@ -15327,7 +15370,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -15372,7 +15415,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -15395,7 +15438,7 @@ namespace convc2validcpp {
 					const auto lc_function_name = tolowerstr(function_name);
 
 					auto function_decl1_SR = cm1_adj_nice_source_range(function_decl1->getSourceRange(), state1, Rewrite);
-					bool FD_is_non_modifiable = filtered_out_by_location(MR, function_decl1_SR.getBegin());
+					bool FD_is_non_modifiable = c2v_filtered_out_by_location(MR, function_decl1_SR.getBegin());
 
 					static const std::string free_str = "free";
 					bool ends_with_free = ((lc_function_name.size() >= free_str.size())
@@ -15721,7 +15764,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -15853,7 +15896,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -16046,7 +16089,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -16099,7 +16142,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -16192,7 +16235,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -16240,7 +16283,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 #ifndef NDEBUG
@@ -16384,7 +16427,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -16444,7 +16487,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -16584,7 +16627,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 #ifndef NDEBUG
 				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
@@ -16662,7 +16705,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -17286,7 +17329,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -17339,7 +17382,7 @@ namespace convc2validcpp {
 
 				auto UEOTTE = dyn_cast<const clang::UnaryExprOrTypeTraitExpr>(E);
 				if (!UEOTTE) {
-					RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+					RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 				} else {
 					/* Even if a `sizeof (type_argument)` is in a "filtered out" location, the type_argument may be an expansion 
 					of a macro argument that isn't. */
@@ -17447,7 +17490,7 @@ namespace convc2validcpp {
 								contains the element, and consists of only an expression. (As opposed to, for
 								example, a declaration, or more than one statement.) */
 								for (const auto& macro2_SR : nested_macro_ranges) {
-									if (!filtered_out_by_location(SM, macro2_SR.getBegin())) {
+									if (!c2v_filtered_out_by_location(SM, macro2_SR.getBegin())) {
 										auto adjusted_macro_SPSR = clang::SourceRange{ SM.getSpellingLoc(macro2_SR.getBegin()), SM.getSpellingLoc(macro2_SR.getEnd()) };
 										std::string macro_name;
 										if (adjusted_macro_SPSR.isValid() && ((adjusted_macro_SPSR.getBegin() < adjusted_macro_SPSR.getEnd()) || (adjusted_macro_SPSR.getBegin() == adjusted_macro_SPSR.getEnd()))) {
@@ -17584,7 +17627,7 @@ namespace convc2validcpp {
 							const auto typeLoc = TSI->getTypeLoc();
 							const auto arg_SR = write_once_source_range(cm1_adjusted_source_range(typeLoc.getSourceRange(), state1, Rewrite));
 							DEBUG_SOURCE_LOCATION_STR(debug_arg_source_location_str, arg_SR, Rewrite);
-							if ((!arg_SR.isValid()) || filtered_out_by_location(MR, arg_SR.getBegin())) {
+							if ((!arg_SR.isValid()) || c2v_filtered_out_by_location(MR, arg_SR.getBegin())) {
 								return void();
 							}
 #ifndef NDEBUG
@@ -17696,7 +17739,7 @@ namespace convc2validcpp {
 							}
 						}
 					}
-					RETURN_IF_FILTERED_OUT_BY_LOCATION1
+					RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V
 				}
 
 				auto BO = dyn_cast<const clang::BinaryOperator>(E_ii);
@@ -17892,7 +17935,7 @@ namespace convc2validcpp {
 					}
 					if (original_source_text_str != new_source_text_str) {
 						auto& SM = Rewrite.getSourceMgr();
-						if (!filtered_out_by_location<options_t<converter_mode_t> >(SM, SL_SR)) {
+						if (!cm1_filtered_out_by_location(SM, SL_SR)) {
 							state1.add_pending_straight_text_replacement_expression_update(Rewrite, SL_SR, SL, new_source_text_str);
 						} else {
 							int q = 5;
@@ -18049,7 +18092,7 @@ namespace convc2validcpp {
 
 				auto UEOTTE = dyn_cast<const clang::UnaryExprOrTypeTraitExpr>(E);
 				if (!UEOTTE) {
-					RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+					RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 				} else {
 					/* Even if a `sizeof (type_argument)` is in a "filtered out" location, the type_argument may be an expansion 
 					of a macro argument that isn't. */
@@ -18099,7 +18142,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -18267,7 +18310,7 @@ namespace convc2validcpp {
 
 				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
 
-				RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
 
 				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
 
@@ -18662,7 +18705,7 @@ namespace convc2validcpp {
 						if (!SR.isValid()) {
 							continue;
 						}
-						if (filtered_out_by_location(localRewriter.getSourceMgr(), SR.getBegin())) {
+						if (c2v_filtered_out_by_location(localRewriter.getSourceMgr(), SR.getBegin())) {
 							continue;
 						}
 
@@ -19277,7 +19320,7 @@ namespace convc2validcpp {
 		auto& SM = (*this).m_Rewriter_ref.getSourceMgr();
 		IF_DEBUG(std::string debug_source_location_str = Range.getBegin().printToString(SM);)
 
-		if (filtered_out_by_location<options_t<converter_mode_t> >(SM, Range.getBegin())) {
+		if (cm1_filtered_out_by_location(SM, Range.getBegin())) {
 			return;
 		}
 
@@ -19550,7 +19593,7 @@ namespace convc2validcpp {
 						bool filename_is_invalid = false;
 						auto full_path_name = std::string(TheRewriter.getSourceMgr().getBufferName(fii_ref.m_beginning_of_file_loc, &filename_is_invalid));
 
-						if (filtered_out_by_location(TheRewriter.getSourceMgr(), fii_ref.m_beginning_of_file_loc)) {
+						if (c2v_filtered_out_by_location(TheRewriter.getSourceMgr(), fii_ref.m_beginning_of_file_loc)) {
 							continue;
 						}
 
@@ -19614,61 +19657,61 @@ namespace convc2validcpp {
 		}
 
 		bool overwriteChangedFiles() {
-			std::set<std::pair<std::string, std::string> > filename_info_set;
+			auto stats_text1 = gtl_time_use_stats_session1.stats_text1();
+
+			std::set<std::filesystem::path> filename_info_set;
 			{
 				for (auto  I = TheRewriter.buffer_begin(), E = TheRewriter.buffer_end(); I != E; ++I) {
 					const FileEntry *Entry = TheRewriter.getSourceMgr().getFileEntryForID(I->first);
-
-					auto pathname = std::string(Entry->tryGetRealPathName());
-					auto found_pos = pathname.find_last_of("/\\");
-					std::string path;
-					std::string filename;
-					if (std::string::npos != found_pos) {
-						path = pathname.substr(0, found_pos);
-						if (pathname.length() > found_pos) {
-							filename = pathname.substr(found_pos + 1);
+					if (Entry) {
+						auto pathname = std::string(Entry->tryGetRealPathName());
+						auto res1 = evaluate_filtering_by_full_path_name<options_t<converter_mode_t> >(pathname, specified_modifiable_path_info);
+						if (!(res1.m_do_not_process)) {
+							filename_info_set.insert(pathname);
+						} else {
+							int q = 5;
 						}
 					} else {
-						filename = pathname;
+						int q = 3;
 					}
-					std::pair<std::string, std::string> item(path, filename);
-					filename_info_set.insert(item);
 
 					int q = 5;
 				}
-				std::set<std::pair<std::string, std::string> > unbackupable_filename_info_set;
-				for (const auto& filename_info_ref : filename_info_set) {
-					std::string backup_pathname = filename_info_ref.first + "/" + filename_info_ref.second + ".bak.tmp";
-					std::string tmp_pathname = filename_info_ref.first + "/" + filename_info_ref.second + ".tmp";
-					std::string src_pathname = filename_info_ref.first + "/" + filename_info_ref.second;
-
+				std::set<std::filesystem::path> unbackupable_filename_info_set;
+				for (const auto& file_path : filename_info_set) {
+					auto backup_path = file_path;
+					backup_path += ".bak.tmp";
+					auto tmp_path = file_path;
+					tmp_path += ".tmp";
+					auto src_path = file_path;
+					
 					std::ifstream src;
-					src.open(src_pathname, std::ios::binary);
+					src.open(src_path, std::ios::binary);
 					std::ofstream dst;
-					dst.open(tmp_pathname, std::ios::binary);
+					dst.open(tmp_path, std::ios::binary);
 					if (((src.rdstate() & std::ifstream::failbit ) != 0)
 							|| ((dst.rdstate() & std::ofstream::failbit ) != 0)) {
-						unbackupable_filename_info_set.insert(filename_info_ref);
+						unbackupable_filename_info_set.insert(file_path);
 					} else {
 						dst << src.rdbuf();
 						src.close();
 						dst.close();
-						std::remove(backup_pathname.c_str());
-						std::rename(src_pathname.c_str(), backup_pathname.c_str());
-						std::rename(tmp_pathname.c_str(), src_pathname.c_str());
+						std::remove(backup_path.c_str());
+						std::rename(src_path.c_str(), backup_path.c_str());
+						std::rename(tmp_path.c_str(), src_path.c_str());
 					}
 				}
-				for (const auto& filename_info_ref : unbackupable_filename_info_set) {
-					filename_info_set.erase(filename_info_ref);
+				for (const auto& file_path : unbackupable_filename_info_set) {
+					filename_info_set.erase(file_path);
 				}
 			}
 
 			bool retval = TheRewriter.overwriteChangedFiles();
 
 			{
-				for (const auto& filename_info_ref : filename_info_set) {
+				for (const auto& file_path : filename_info_set) {
 					{
-						std::string converted_version_filename = filename_info_ref.second;
+						std::string converted_version_filename = file_path.filename();
 
 						static const std::string dot_c_str = ".c";
 						bool ends_with_dot_c = ((converted_version_filename.size() >= dot_c_str.size())
@@ -19679,13 +19722,13 @@ namespace convc2validcpp {
 						}
 
 						{
-							auto found_it = s_file_conversion_record_map.find(filename_info_ref.second);
+							auto found_it = s_file_conversion_record_map.find(file_path.filename());
 							if (s_file_conversion_record_map.end() == found_it) {
 								CFileConversionRecord file_conversion_record;
-							file_conversion_record.m_path = filename_info_ref.first;
-							file_conversion_record.m_original_filename = filename_info_ref.second;
+								file_conversion_record.m_path = file_path.parent_path();
+								file_conversion_record.m_original_filename = file_path.filename();
 								file_conversion_record.m_target_filename = converted_version_filename;
-								std::map<std::string, CFileConversionRecord>::value_type item(filename_info_ref.second, file_conversion_record);
+								std::map<std::string, CFileConversionRecord>::value_type item(file_path.filename(), file_conversion_record);
 								found_it = s_file_conversion_record_map.insert(item).first;
 								assert(s_file_conversion_record_map.end() != found_it);
 							}
@@ -19695,15 +19738,15 @@ namespace convc2validcpp {
 
 						converted_version_filename += ".converted_" + std::to_string(s_source_file_action_num);
 
-						std::string converted_version_pathname = filename_info_ref.first + "/" + converted_version_filename;
-						std::string src_pathname = filename_info_ref.first + "/" + filename_info_ref.second;
-						std::remove(converted_version_pathname.c_str());
-						std::rename(src_pathname.c_str(), converted_version_pathname.c_str());
+						auto converted_version_path = file_path;
+						converted_version_path.replace_filename(converted_version_filename);
+						auto src_path = file_path;
+						std::remove(converted_version_path.c_str());
+						std::rename(src_path.c_str(), converted_version_path.c_str());
 					}
 					{
-						std::string backup_filename = filename_info_ref.second + ".bak.tmp";
-						std::string backup_pathname = filename_info_ref.first + "/" + backup_filename;
-						std::string dst_pathname = filename_info_ref.first + "/" + filename_info_ref.second;
+						std::string backup_pathname = std::string(file_path) + ".bak.tmp";
+						std::string dst_pathname = file_path;
 						//std::remove(dst_pathname.c_str());
 						std::rename(backup_pathname.c_str(), dst_pathname.c_str());
 					}
@@ -19725,120 +19768,33 @@ namespace convc2validcpp {
 	std::map<std::string, CFileConversionRecord> MyFrontendActionPass1::s_file_conversion_record_map;
 
 
+	int number_of_instances_of_given_strings(const std::string& str1, const std::vector<std::string>& waldos) {
+		int count = 0;
+		for (auto& waldo : waldos) {
+			auto search_start_index = str1.find(waldo, 0);
+			while (std::string::npos != search_start_index) {
+				count += 1;
+				search_start_index = str1.find(waldo, search_start_index + waldo.size());
+			}
+		}
+		return count;
+	}
 	int number_of_instances_of_mse(const std::string& str1) {
-		int mse_count = 0;
-		{
-			static const std::string mse_str = "mse::";
-			auto search_start_index = str1.find(mse_str, 0);
-			while (std::string::npos != search_start_index) {
-				mse_count += 1;
-				search_start_index = str1.find(mse_str, search_start_index + mse_str.size());
-			}
-		}
-		{
-			static const std::string mse_str = "MSE_";
-			auto search_start_index = str1.find(mse_str, 0);
-			while (std::string::npos != search_start_index) {
-				mse_count += 1;
-				search_start_index = str1.find(mse_str, search_start_index + mse_str.size());
-			}
-		}
-		return mse_count;
+		return number_of_instances_of_given_strings(str1, { "mse::", "MSE_" });
 	}
-
 	int number_of_instances_of_iterator(const std::string& str1) {
-		int iterator_count = 0;
-		{
-			static const std::string iterator_str = "Iterator";
-			auto search_start_index = str1.find(iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				iterator_count += 1;
-				search_start_index = str1.find(iterator_str, search_start_index + iterator_str.size());
-			}
-		}
-		{
-			static const std::string iterator_str = "_ITERATOR";
-			auto search_start_index = str1.find(iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				iterator_count += 1;
-				search_start_index = str1.find(iterator_str, search_start_index + iterator_str.size());
-			}
-		}
-		return iterator_count;
+		return number_of_instances_of_given_strings(str1, { "Iterator", "_ITERATOR" });
 	}
-
 	int number_of_instances_of_TXScopeLHNullableAny_Pointer_and_Iterator(const std::string& str1) {
-		int TXScopeLHNullableAny_Pointer_and_Iterator_count = 0;
-		{
-			static const std::string TXScopeLHNullableAny_Pointer_and_Iterator_str = "::lh::TXScopeLHNullableAnyRandomAccessIterator";
-			auto search_start_index = str1.find(TXScopeLHNullableAny_Pointer_and_Iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				TXScopeLHNullableAny_Pointer_and_Iterator_count += 1;
-				search_start_index = str1.find(TXScopeLHNullableAny_Pointer_and_Iterator_str, search_start_index + TXScopeLHNullableAny_Pointer_and_Iterator_str.size());
-			}
-		}
-		{
-			static const std::string TXScopeLHNullableAny_Pointer_and_Iterator_str = "_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE";
-			auto search_start_index = str1.find(TXScopeLHNullableAny_Pointer_and_Iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				TXScopeLHNullableAny_Pointer_and_Iterator_count += 1;
-				search_start_index = str1.find(TXScopeLHNullableAny_Pointer_and_Iterator_str, search_start_index + TXScopeLHNullableAny_Pointer_and_Iterator_str.size());
-			}
-		}
-		{
-			static const std::string TXScopeLHNullableAny_Pointer_and_Iterator_str = "::lh::TXScopeLHNullableAnyPointer";
-			auto search_start_index = str1.find(TXScopeLHNullableAny_Pointer_and_Iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				TXScopeLHNullableAny_Pointer_and_Iterator_count += 1;
-				search_start_index = str1.find(TXScopeLHNullableAny_Pointer_and_Iterator_str, search_start_index + TXScopeLHNullableAny_Pointer_and_Iterator_str.size());
-			}
-		}
-		{
-			static const std::string TXScopeLHNullableAny_Pointer_and_Iterator_str = "_LH_LOCAL_VAR_ONLY_POINTER_TYPE";
-			auto search_start_index = str1.find(TXScopeLHNullableAny_Pointer_and_Iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				TXScopeLHNullableAny_Pointer_and_Iterator_count += 1;
-				search_start_index = str1.find(TXScopeLHNullableAny_Pointer_and_Iterator_str, search_start_index + TXScopeLHNullableAny_Pointer_and_Iterator_str.size());
-			}
-		}
-		return TXScopeLHNullableAny_Pointer_and_Iterator_count;
+		return number_of_instances_of_given_strings(str1, { "::lh::TXScopeLHNullableAnyRandomAccessIterator", "_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE"
+			, "::lh::TXScopeLHNullableAnyPointer", "_LH_LOCAL_VAR_ONLY_POINTER_TYPE" });
 	}
-
 	int number_of_instances_of_TLHNullableAny_Pointer_and_Iterator(const std::string& str1) {
-		int TLHNullableAny_Pointer_and_Iterator_count = 0;
-		{
-			static const std::string TLHNullableAny_Pointer_and_Iterator_str = "::lh::TLHNullableAnyRandomAccessIterator";
-			auto search_start_index = str1.find(TLHNullableAny_Pointer_and_Iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				TLHNullableAny_Pointer_and_Iterator_count += 1;
-				search_start_index = str1.find(TLHNullableAny_Pointer_and_Iterator_str, search_start_index + TLHNullableAny_Pointer_and_Iterator_str.size());
-			}
-		}
-		{
-			static const std::string TLHNullableAny_Pointer_and_Iterator_str = "_LH_ARRAY_ITERATOR_TYPE";
-			auto search_start_index = str1.find(TLHNullableAny_Pointer_and_Iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				TLHNullableAny_Pointer_and_Iterator_count += 1;
-				search_start_index = str1.find(TLHNullableAny_Pointer_and_Iterator_str, search_start_index + TLHNullableAny_Pointer_and_Iterator_str.size());
-			}
-		}
-		{
-			static const std::string TLHNullableAny_Pointer_and_Iterator_str = "::lh::TLHNullableAnyPointer";
-			auto search_start_index = str1.find(TLHNullableAny_Pointer_and_Iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				TLHNullableAny_Pointer_and_Iterator_count += 1;
-				search_start_index = str1.find(TLHNullableAny_Pointer_and_Iterator_str, search_start_index + TLHNullableAny_Pointer_and_Iterator_str.size());
-			}
-		}
-		{
-			static const std::string TLHNullableAny_Pointer_and_Iterator_str = "_LH_POINTER_TYPE";
-			auto search_start_index = str1.find(TLHNullableAny_Pointer_and_Iterator_str, 0);
-			while (std::string::npos != search_start_index) {
-				TLHNullableAny_Pointer_and_Iterator_count += 1;
-				search_start_index = str1.find(TLHNullableAny_Pointer_and_Iterator_str, search_start_index + TLHNullableAny_Pointer_and_Iterator_str.size());
-			}
-		}
-		return TLHNullableAny_Pointer_and_Iterator_count;
+		return number_of_instances_of_given_strings(str1, { "::lh::TLHNullableAnyRandomAccessIterator", "_LH_ARRAY_ITERATOR_TYPE"
+			, "::lh::TLHNullableAnyPointer", "_LH_POINTER_TYPE" });
+	}
+	int number_of_instances_of_TNativeArrayReplacement(const std::string& str1) {
+		return number_of_instances_of_given_strings(str1, { "::lh::TNativeArrayReplacement", "MSE_LH_FIXED_ARRAY_TYPE_PREFIX" });
 	}
 
 	auto& chosen_merge_option_ref(const std::string& first_option, const std::string& second_option) {
@@ -19851,18 +19807,41 @@ namespace convc2validcpp {
 		} else if (mse_count2 > mse_count1) {
 			return second_option;
 		} else {
+			auto TNativeArrayReplacement_count1 = number_of_instances_of_TNativeArrayReplacement(first_option);
+			auto TNativeArrayReplacement_count2 = number_of_instances_of_TNativeArrayReplacement(second_option);
 			auto iterator_count1 = number_of_instances_of_iterator(first_option);
 			auto iterator_count2 = number_of_instances_of_iterator(second_option);
-			if (iterator_count1 > iterator_count2) {
+			if ((iterator_count1 + TNativeArrayReplacement_count1) > (iterator_count2 + TNativeArrayReplacement_count2)) {
 				return first_option;
-			} else if (iterator_count2 > iterator_count1) {
+			} else if ((iterator_count2 + TNativeArrayReplacement_count2) > (iterator_count1 + TNativeArrayReplacement_count1)) {
 				return second_option;
 			} else {
 				auto TXScopeLHNullableAny_count1 = number_of_instances_of_TXScopeLHNullableAny_Pointer_and_Iterator(first_option);
 				auto TXScopeLHNullableAny_count2 = number_of_instances_of_TXScopeLHNullableAny_Pointer_and_Iterator(second_option);
 				auto TLHNullableAny_count1 = number_of_instances_of_TLHNullableAny_Pointer_and_Iterator(first_option);
 				auto TLHNullableAny_count2 = number_of_instances_of_TLHNullableAny_Pointer_and_Iterator(second_option);
-				if (1 <= (TXScopeLHNullableAny_count1 + TXScopeLHNullableAny_count2 + TLHNullableAny_count1 + TLHNullableAny_count2)) {
+				if (1 <= (TXScopeLHNullableAny_count1 + TXScopeLHNullableAny_count2 + TLHNullableAny_count1 + TLHNullableAny_count2 
+					+ TNativeArrayReplacement_count1 + TNativeArrayReplacement_count2)) {
+
+					/* If a header file has an `extern` declaration of a pointer, only the translation unit with the 
+					corresponding (one-and-only) non-`extern` declaration (+definition) will be able to determine that 
+					the pointer actually refers to a native array, and if so, what its size is. */
+					if (TNativeArrayReplacement_count1 > TNativeArrayReplacement_count2) {
+						return first_option;
+					} else if (TNativeArrayReplacement_count2 > TNativeArrayReplacement_count1) {
+						return second_option;
+					}
+
+					/* The "LHNullableAny" pointers and iterators are generally more flexible/compatible 
+					than some of the other pointers and iterators. So when there is a conflict where 
+					conversion of one translation unit suggests an "LHNullableAny" type and another 
+					suggests a potentially less flexible type, we will choose the "LHNullableAny" option. */
+					if ((TLHNullableAny_count2 + TXScopeLHNullableAny_count2) < (TLHNullableAny_count1 + TXScopeLHNullableAny_count1)) {
+						return first_option;
+					} else if ((TLHNullableAny_count2 + TXScopeLHNullableAny_count2) > (TLHNullableAny_count1 + TXScopeLHNullableAny_count1)) {
+						return second_option;
+					}
+
 					/* By default, legacy iterators and pointers are converted to (restricted) "xscope"
 					types. But in some transation units, there is enough information to determine that
 					(less restrictive) non-"xscope" versions are required in places. So when there is a
@@ -20012,49 +19991,82 @@ namespace convc2validcpp {
 
 		bool first_conflict_flag = true;
 		bool first_option_was_chosen_in_the_previous_conflict = false;
-		auto conflict_start_index = retval.find("<<<<<<< ", 0);
+		static const std::string conflict_start_str = "<<<<<<< ";
+		static const std::string conflict_divider_and_backslash_n_str = "=======\n";
+		static const std::string conflict_end_str = ">>>>>>> ";
+		auto conflict_start_index = retval.find(conflict_start_str, 0);
 		while (std::string::npos != conflict_start_index) {
 			auto conflict_start_eol_index = retval.find("\n", conflict_start_index + 1);
 			if (std::string::npos == conflict_start_eol_index) {
 				break;
 			}
-			auto conflict_divider_index = retval.find("=======\n", conflict_start_eol_index + 1);
+			auto conflict_divider_index = retval.find(conflict_divider_and_backslash_n_str, conflict_start_eol_index + 1);
 			if (std::string::npos == conflict_divider_index) {
 				break;
 			}
 			auto conflict_divider_eol_index = retval.find("\n", conflict_divider_index + 1);
-			auto conflict_end_index = retval.find(">>>>>>> ", conflict_divider_eol_index + 1);
+			auto conflict_end_index = retval.find(conflict_end_str, conflict_divider_eol_index + 1);
 			if (std::string::npos == conflict_end_index) {
 				break;
 			}
 			auto conflict_end_eol_index = retval.find("\n", conflict_end_index + 1);
 			if (std::string::npos == conflict_end_eol_index) {
-				break;
+				/* presumably eof? */
+				conflict_end_eol_index = conflict_end_index + conflict_end_str.length();
+				//break;
 			}
 
 			auto first_option = retval.substr(conflict_start_eol_index + 1, conflict_divider_index - (conflict_start_eol_index + 1));
 			auto second_option = retval.substr(conflict_divider_eol_index + 1, conflict_end_index - (conflict_divider_eol_index + 1));
-
-#ifndef NDEBUG
-				if (std::string::npos != first_option.find("png_set_PLTE")) {
-					int q = 5;
-				}
-#endif /*!NDEBUG*/
 
 			if ((first_option.empty() || second_option.empty()) && (!first_conflict_flag)) {
 				/* We've observed with the default (ubuntu 20) system merge, that when one of the merge
 				options is empty, it tends to be because the option that should be there was included
 				as part of the option for the previous merge conflict. */
 				if (first_option_was_chosen_in_the_previous_conflict) {
-					retval.replace(conflict_start_index, conflict_end_eol_index - conflict_start_index, first_option);
+					retval.replace(conflict_start_index, (conflict_end_eol_index + 1) - conflict_start_index, first_option);
 				} else {
-					retval.replace(conflict_start_index, conflict_end_eol_index - conflict_start_index, second_option);
+					retval.replace(conflict_start_index, (conflict_end_eol_index + 1) - conflict_start_index, second_option);
 				}
 			} else {
-				auto& chosen_option_ref = chosen_merge_option_ref(first_option, second_option);
-				retval.replace(conflict_start_index, conflict_end_eol_index - conflict_start_index, chosen_option_ref);
-				conflict_start_index += chosen_option_ref.size();
-				first_option_was_chosen_in_the_previous_conflict = ((&chosen_option_ref) == (&first_option));
+				auto split_including_trailing_delimiter = [](const std::string& s, char delim = ',') -> std::vector<std::string> {
+						std::vector<std::string> parts;
+						std::size_t start = 0, pos;
+						while ((pos = s.find(delim, start)) != std::string::npos) {
+							parts.emplace_back(s.substr(start, 1 + (pos - start)));
+							start = pos + 1;
+						}
+						parts.emplace_back(s.substr(start));
+						return parts;
+					};
+
+				auto first_option_statements = split_including_trailing_delimiter(first_option, ';');
+				auto second_option_statements = split_including_trailing_delimiter(second_option, ';');
+				if (first_option_statements.size() != second_option_statements.size()) {
+					first_option_statements.clear();
+					first_option_statements.push_back(first_option);
+					second_option_statements.clear();
+					second_option_statements.push_back(second_option);
+				}
+				std::string chosen_statements;
+				for (size_t i = 0; first_option_statements.size() > i; i += 1 ) {
+					auto& first_option_statement = first_option_statements.at(i);
+					auto& second_option_statement = second_option_statements.at(i);
+
+#ifndef NDEBUG
+				if (std::string::npos != first_option_statement.find("fd_read_hunk")) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
+					auto& chosen_option_ref = chosen_merge_option_ref(first_option_statement, second_option_statement);
+					chosen_statements += chosen_option_ref;
+
+					first_option_was_chosen_in_the_previous_conflict = ((&chosen_option_ref) == (&first_option_statement));
+				}
+
+				retval.replace(conflict_start_index, (conflict_end_eol_index + 1) - conflict_start_index, chosen_statements);
+				conflict_start_index += chosen_statements.size();
 			}
 
 			first_conflict_flag = false;
@@ -20109,6 +20121,9 @@ namespace convc2validcpp {
         EnableNamespaceImport = options.EnableNamespaceImport;
         SuppressPrompts = options.SuppressPrompts;
         DoNotReplaceOriginalSource = options.DoNotReplaceOriginalSource;
+		ModifiablePaths.insert(ModifiablePaths.end(), options.ModifiablePaths.begin(), options.ModifiablePaths.end());
+		UnModifiablePaths.insert(UnModifiablePaths.end(), options.UnModifiablePaths.begin(), options.UnModifiablePaths.end());
+		specified_modifiable_path_info = CModifiablePathInfo(ModifiablePaths, UnModifiablePaths);
         MergeCommand = options.MergeCommand;
 		DoNotResolveMergeConflicts = options.DoNotResolveMergeConflicts;
         ConvertMode = options.ConvertMode;
@@ -20117,9 +20132,15 @@ namespace convc2validcpp {
 		AddressableVars = options.AddressableVars;
 
 		std::cout << "\nNote, this program attempts to modify the specified source files in place";
-		std::cout << ", and any directly or indirectly `#include`d files, which may include headers from 3rd party libraries or other files you may not expect. ";
-		std::cout << "So be careful not to run this program with write permissions to files you can't risk being modified. ";
-		std::cout << "(Running this program in a discardable, easily restorable container with an isolated filesystem would be ideal.) \n";
+		if (0 == ModifiablePaths.size()) {
+			std::cout << ", and any directly or indirectly `#include`d files in the specified paths. ";
+			std::cout << "Please make sure you have appropriate backups before proceeding. ";
+		} else {
+			std::cout << ", and any directly or indirectly `#include`d files, which may include headers from 3rd party libraries or other files you may not expect. ";
+			std::cout << "So be careful not to run this program with write permissions to files you can't risk being modified. ";
+			std::cout << "Note that you can use the `-ModifiablePath` command line option to limit modifications to specified directories or paths. ";
+			std::cout << "(Running this program in a discardable, easily restorable container with an isolated filesystem would be ideal.) \n";
+		}
 		std::cout << "Continue [y/n]? \n";
 		int ich2 = 0;
 		if (SuppressPrompts) {

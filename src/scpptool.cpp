@@ -75,6 +75,10 @@ cl::opt<bool> CTUAnalysis("CTUAnalysis", cl::desc("cross translation unit analys
 cl::opt<bool> EnableNamespaceImport("EnableNamespaceImport", cl::desc("enable importing of namespaces from other translation units"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> SuppressPrompts("SuppressPrompts", cl::desc("suppress prompts before replacing source files"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> DoNotReplaceOriginalSource("DoNotReplaceOriginalSource", cl::desc("prevent replacement/modification of the original source files"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
+cl::list<std::string> ModifiablePaths("ModifiablePath", cl::desc("Specify a directory or path where the files are allowed to be modified. This option can be used multiple times to specify multiple directories. (Preliminary implementation only.)"
+  "Specifying one or more directories as modifiable will be considered to imply that no other directories should be considered modifiable. "), llvm::cl::value_desc("directory"), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
+cl::list<std::string> UnModifiablePaths("UnModifiablePath", cl::desc("Specify a directory or path where the files are not allowed to be modified. This option can be used multiple times to specify multiple directories. (Preliminary implementation only.)")
+  , llvm::cl::value_desc("directory"), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<std::string> MergeCommand("MergeCommand", cl::desc("specify an alternate merge tool to be used"), cl::init(""), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<bool> DoNotResolveMergeConflicts("DoNotResolveMergeConflicts", cl::desc("prevent the automatic resolution of merge conflicts (by heuristic guessing)"), cl::init(false), cl::cat(MatcherSampleCategory), cl::ZeroOrMore);
 cl::opt<std::string> ConvertMode("ConvertMode", cl::desc("specify the code conversion technique to use: \n"
@@ -185,6 +189,8 @@ int main(int argc, const char **argv)
             EnableNamespaceImport,
             SuppressPrompts,
             DoNotReplaceOriginalSource,
+            ModifiablePaths,
+            UnModifiablePaths,
             MergeCommand,
             DoNotResolveMergeConflicts,
             ConvertMode,
@@ -220,6 +226,8 @@ int main(int argc, const char **argv)
             EnableNamespaceImport,
             SuppressPrompts,
             DoNotReplaceOriginalSource,
+            ModifiablePaths,
+            UnModifiablePaths,
             MergeCommand,
             DoNotResolveMergeConflicts,
             ConvertMode,

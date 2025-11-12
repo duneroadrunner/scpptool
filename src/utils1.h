@@ -33,6 +33,7 @@
 #include <chrono>
 #include <source_location>
 #include <limits>
+#include <filesystem>
 
 /*Clang Headers*/
 #include "clang/AST/AST.h"
@@ -302,38 +303,114 @@ inline CFilteringResult evaluate_filtering_by_filename(const std::string &filena
 	return retval;
 }
 
+class CModifiablePathInfo {
+	/* Currently, we take the presence of any modifiable_paths to imply that all other paths are should be 
+	considered "non-modifiable". */
+	public:
+	CModifiablePathInfo(std::vector<std::filesystem::path> modifiable_paths = {}, std::vector<std::filesystem::path> unmodifiable_paths = {}) 
+		: m_modifiable_paths(std::move(modifiable_paths)), m_unmodifiable_paths(std::move(unmodifiable_paths)) {}
+	CModifiablePathInfo(std::vector<std::string> const& modifiable_paths, std::vector<std::string> const& unmodifiable_paths = {}) {
+		for (auto const& modifiable_path : modifiable_paths) {
+			m_modifiable_paths.push_back(modifiable_path);
+		}
+		for (auto const& unmodifiable_path : unmodifiable_paths) {
+			m_unmodifiable_paths.push_back(unmodifiable_path);
+		}
+	}
+	std::vector<std::filesystem::path> const& modifiable_paths() const { return m_modifiable_paths; }
+	std::vector<std::filesystem::path> const& unmodifiable_paths() const { return m_unmodifiable_paths; }
+	private:
+	std::vector<std::filesystem::path> m_modifiable_paths;
+	std::vector<std::filesystem::path> m_unmodifiable_paths;
+};
+
 template<typename TOptions = options_t<> >
-inline CFilteringResult evaluate_filtering_by_full_path_name(const std::string &full_path_name) {
+inline CFilteringResult evaluate_filtering_by_full_path_name(const std::string &full_path_name_str, std::optional<CModifiablePathInfo> maybe_specified_modifiable_path_info = {}) {
 	CFilteringResult retval;
 
-	auto get_filename = [](std::string const& full_path_name) {
-		std::string filename = full_path_name;
-		const auto last_slash_pos = full_path_name.find_last_of('/');
-		if (std::string::npos != last_slash_pos) {
-			if (last_slash_pos + 1 < full_path_name.size()) {
-				filename = full_path_name.substr(last_slash_pos+1);
-			} else {
-				filename = "";
-			}
+	auto second_is_a_subpath_of_first = [](std::filesystem::path const& container, std::filesystem::path const& contained) -> bool {
+		if ((!std::filesystem::exists(container)) || (!std::filesystem::exists(contained))) {
+			return false;
 		}
-		return filename;
+
+		// partially ai generated lambda
+
+		auto normalize_path = [](std::filesystem::path p) -> std::filesystem::path {
+			// Lexically normalize the path to remove redundant components
+			//return std::filesystem::lexically_normal(std::filesystem::absolute(p));
+			return std::filesystem::weakly_canonical(p).lexically_normal();
+		};
+
+		// Normalize both paths to absolute form and resolve . and ..
+		std::filesystem::path container_norm = normalize_path(container);
+		std::filesystem::path contained_norm = normalize_path(contained);
+
+		// Handle empty path edge cases
+		if (container_norm.empty()) return contained_norm.empty();
+		if (contained_norm.empty()) return false;
+
+		// Use iterators to compare path components
+		auto container_it = container_norm.begin();
+		auto contained_it = contained_norm.begin();
+
+		// Iterate through components of the container path
+		for (; container_it != container_norm.end(); ++container_it) {
+			// If contained path has fewer components, it can't be a subpath
+			if (contained_it == contained_norm.end()) return false;
+
+			// Compare components using native filesystem case sensitivity
+			if (*container_it != *contained_it) return false;
+
+			++contained_it;
+		}
+
+		// All container components matched, and contained has extra components
+		return contained_it != contained_norm.end();
 	};
 
-	const auto lib_clang_pos = full_path_name.find("/lib/clang/");
+	auto get_filename = [](std::filesystem::path const& full_path_name) {
+		return full_path_name.filename();
+	};
+
+	if (maybe_specified_modifiable_path_info.has_value()) {
+		auto const& modifiable_path_info = maybe_specified_modifiable_path_info.value();
+
+		for (auto const& unmodifiable_path : modifiable_path_info.unmodifiable_paths()) {
+			if (second_is_a_subpath_of_first(unmodifiable_path, full_path_name_str)) {
+				retval.m_do_not_process = true;
+				retval.m_suppress_errors = true;
+				return retval;
+			}
+		}
+		if (1 <= modifiable_path_info.modifiable_paths().size()) {
+			for (auto const& modifiable_path : modifiable_path_info.modifiable_paths()) {
+				if (second_is_a_subpath_of_first(modifiable_path, full_path_name_str)) {
+					auto modifiable_path_str = std::string(modifiable_path);
+					std::string filename = get_filename(full_path_name_str);
+					auto res1 = evaluate_filtering_by_filename<TOptions>(filename);
+					return res1;
+				}
+			}
+			retval.m_do_not_process = true;
+			retval.m_suppress_errors = true;
+			return retval;
+		}
+	}
+	const auto lib_clang_pos = full_path_name_str.find("/lib/clang/");
 	if (std::string::npos != lib_clang_pos) {
 		retval.m_do_not_process = true;
 		retval.m_suppress_errors = true;
-	} else if (string_begins_with(full_path_name, "/usr/") 
-		&& (string_begins_with(full_path_name, "/usr/include/") || string_begins_with(full_path_name, "/usr/lib/"))) {
+	} else if (string_begins_with(full_path_name_str, "/usr/") 
+		&& (string_begins_with(full_path_name_str, "/usr/include/") || string_begins_with(full_path_name_str, "/usr/lib/"))) {
 
 		retval.m_do_not_process = true;
 		retval.m_suppress_errors = true;
-	} else if (string_begins_with(full_path_name, "<")) {
+	} else if (string_begins_with(full_path_name_str, "<")) {
 		/* We've encountered path names like "<scratch space>:..." */
 		retval.m_do_not_process = true;
 		retval.m_suppress_errors = true;
 	} else {
-		std::string filename = get_filename(full_path_name);
+		std::string filename = get_filename(full_path_name_str);
 		auto res1 = evaluate_filtering_by_filename<TOptions>(filename);
 		retval.m_do_not_process = res1.m_do_not_process;
 		retval.m_suppress_errors = res1.m_suppress_errors;
@@ -395,7 +472,7 @@ inline std::string get_filename(std::string_view full_path_name) {
 }
 
 template<typename TOptions = options_t<> >
-inline CFilteringResultByLocation evaluate_filtering_by_location(const clang::SourceManager &SM, clang::SourceLocation SL) {
+inline CFilteringResultByLocation evaluate_filtering_by_location(const clang::SourceManager &SM, clang::SourceLocation SL, std::optional<CModifiablePathInfo> maybe_specified_modifiable_path_info = {}) {
 	CFilteringResultByLocation retval { SL };
 	thread_local std::optional<CFilteringResultByLocation> tl_maybe_cached_result;
 
@@ -422,7 +499,7 @@ inline CFilteringResultByLocation evaluate_filtering_by_location(const clang::So
 			retval.m_do_not_process = true;
 		*/
 		} else {
-			auto res1 = evaluate_filtering_by_full_path_name<TOptions>(full_path_name);
+			auto res1 = evaluate_filtering_by_full_path_name<TOptions>(full_path_name, maybe_specified_modifiable_path_info);
 			retval.m_do_not_process = res1.m_do_not_process;
 			retval.m_suppress_errors = res1.m_suppress_errors;
 		}
@@ -435,7 +512,7 @@ inline CFilteringResultByLocation evaluate_filtering_by_location(const clang::So
 			code in its definition may be platform specific. */
 			auto SPSL = SM.getSpellingLoc(SL);
 			if (SPSL.isValid() && (!SPSL.isMacroID())) {
-				retval = evaluate_filtering_by_location<TOptions>(SM, SPSL);
+				retval = evaluate_filtering_by_location<TOptions>(SM, SPSL, maybe_specified_modifiable_path_info);
 			}
 		}
 	}
@@ -444,47 +521,47 @@ inline CFilteringResultByLocation evaluate_filtering_by_location(const clang::So
 }
 
 template<typename TOptions = options_t<> >
-inline bool filtered_out_by_location(const clang::SourceManager &SM, clang::SourceLocation SL) {
-	auto res1 = evaluate_filtering_by_location<TOptions>(SM, SL);
+inline bool filtered_out_by_location(const clang::SourceManager &SM, clang::SourceLocation SL, std::optional<CModifiablePathInfo> maybe_specified_modifiable_path_info = {}) {
+	auto res1 = evaluate_filtering_by_location<TOptions>(SM, SL, maybe_specified_modifiable_path_info);
 	return res1.m_do_not_process;
 }
 template<typename TOptions = options_t<> >
-inline bool filtered_out_by_location(clang::ASTContext const& Ctx, clang::SourceLocation SL) {
+inline bool filtered_out_by_location(clang::ASTContext const& Ctx, clang::SourceLocation SL, std::optional<CModifiablePathInfo> maybe_specified_modifiable_path_info = {}) {
   const clang::SourceManager &SM = Ctx.getSourceManager();
-  return filtered_out_by_location<TOptions>(SM, SL);
+  return filtered_out_by_location<TOptions>(SM, SL, maybe_specified_modifiable_path_info);
 }
 template<typename TOptions = options_t<> >
-inline bool filtered_out_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceLocation SL) {
+inline bool filtered_out_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceLocation SL, std::optional<CModifiablePathInfo> maybe_specified_modifiable_path_info = {}) {
   clang::ASTContext *const ASTC = MR.Context;
   assert(MR.Context);
   const clang::SourceManager &SM = ASTC->getSourceManager();
-  return filtered_out_by_location<TOptions>(SM, SL);
+  return filtered_out_by_location<TOptions>(SM, SL, maybe_specified_modifiable_path_info);
 }
 
 template<typename TOptions = options_t<> >
-inline bool filtered_out_by_location(const clang::SourceManager &SM, clang::SourceRange SR) {
-	auto res1 = evaluate_filtering_by_location<TOptions>(SM, SR.getBegin());
+inline bool filtered_out_by_location(const clang::SourceManager &SM, clang::SourceRange SR, std::optional<CModifiablePathInfo> maybe_specified_modifiable_path_info = {}) {
+	auto res1 = evaluate_filtering_by_location<TOptions>(SM, SR.getBegin(), maybe_specified_modifiable_path_info);
 	if (res1.m_do_not_process) {
-		res1 = evaluate_filtering_by_location<TOptions>(SM, SR.getEnd());
+		res1 = evaluate_filtering_by_location<TOptions>(SM, SR.getEnd(), maybe_specified_modifiable_path_info);
 	}
 	return res1.m_do_not_process;
 }
 template<typename TOptions = options_t<> >
-inline bool filtered_out_by_location(clang::ASTContext const& Ctx, clang::SourceRange SR) {
+inline bool filtered_out_by_location(clang::ASTContext const& Ctx, clang::SourceRange SR, std::optional<CModifiablePathInfo> maybe_specified_modifiable_path_info = {}) {
   const clang::SourceManager &SM = Ctx.getSourceManager();
-  return filtered_out_by_location<TOptions>(SM, SR);
+  return filtered_out_by_location<TOptions>(SM, SR, maybe_specified_modifiable_path_info);
 }
 template<typename TOptions = options_t<> >
-inline bool filtered_out_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceRange SR) {
+inline bool filtered_out_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceRange SR, std::optional<CModifiablePathInfo> maybe_specified_modifiable_path_info = {}) {
   clang::ASTContext *const ASTC = MR.Context;
   assert(MR.Context);
   const clang::SourceManager &SM = ASTC->getSourceManager();
-  return filtered_out_by_location<TOptions>(SM, SR);
+  return filtered_out_by_location<TOptions>(SM, SR, maybe_specified_modifiable_path_info);
 }
 
-bool errors_suppressed_by_location(const clang::SourceManager &SM, clang::SourceLocation SL);
-bool errors_suppressed_by_location(clang::ASTContext const& Ctx, clang::SourceLocation SL);
-bool errors_suppressed_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceLocation SL);
+bool errors_suppressed_by_location(const clang::SourceManager &SM, clang::SourceLocation SL, std::optional<CModifiablePathInfo> maybe_specified_modifiable_path_info = {});
+bool errors_suppressed_by_location(clang::ASTContext const& Ctx, clang::SourceLocation SL, std::optional<CModifiablePathInfo> maybe_specified_modifiable_path_info = {});
+bool errors_suppressed_by_location(const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::SourceLocation SL, std::optional<CModifiablePathInfo> maybe_specified_modifiable_path_info = {});
 
 // trim from start (in place)
 void ltrim(std::string &s);

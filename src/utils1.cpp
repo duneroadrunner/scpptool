@@ -194,19 +194,19 @@ bool first_is_a_proper_subset_of_second(const clang::SourceRange& first, const c
 	return retval;
 }
 
-bool errors_suppressed_by_location(const SourceManager &SM, SourceLocation SL) {
-	auto res1 = evaluate_filtering_by_location(SM, SL);
+bool errors_suppressed_by_location(const SourceManager &SM, SourceLocation SL, std::optional<CModifiablePathInfo> maybe_specified_modifiable_path_info/* = {}*/) {
+	auto res1 = evaluate_filtering_by_location(SM, SL, maybe_specified_modifiable_path_info);
 	return res1.m_suppress_errors;
 }
-bool errors_suppressed_by_location(ASTContext const& Ctx, SourceLocation SL) {
+bool errors_suppressed_by_location(ASTContext const& Ctx, SourceLocation SL, std::optional<CModifiablePathInfo> maybe_specified_modifiable_path_info/* = {}*/) {
   const SourceManager &SM = Ctx.getSourceManager();
-  return errors_suppressed_by_location(SM, SL);
+  return errors_suppressed_by_location(SM, SL, maybe_specified_modifiable_path_info);
 }
-bool errors_suppressed_by_location(const ast_matchers::MatchFinder::MatchResult &MR, SourceLocation SL) {
+bool errors_suppressed_by_location(const ast_matchers::MatchFinder::MatchResult &MR, SourceLocation SL, std::optional<CModifiablePathInfo> maybe_specified_modifiable_path_info/* = {}*/) {
   ASTContext *const ASTC = MR.Context;
   assert(MR.Context);
   const SourceManager &SM = ASTC->getSourceManager();
-  return errors_suppressed_by_location(SM, SL);
+  return errors_suppressed_by_location(SM, SL, maybe_specified_modifiable_path_info);
 }
 
 // trim from start (in place)
