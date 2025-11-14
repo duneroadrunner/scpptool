@@ -18522,16 +18522,16 @@ namespace convm1 {
 							if ("" != lhs_text) {
 								std::string make_raw_fn_wrapper_prefix_str;
 								if ("Dual" == ConvertMode) {
-									make_raw_fn_wrapper_prefix_str = "MSE_LH_UNSAFE_MAKE_RAW_FN_WRAPPER_SHORT1(";
+									make_raw_fn_wrapper_prefix_str = "MSE_LH_UNSAFE_MAKE_RAW_FN_WRAPPER((";
 								} else {
-									make_raw_fn_wrapper_prefix_str = "mse::us::lh::make_raw_fn_wrapper(";
+									make_raw_fn_wrapper_prefix_str = "MSE_LH_UNSAFE_MAKE_RAW_FN_WRAPPER((";
 								}
 
 								std::string make_raw_fn_wrapper_suffix_str;
 								if ("Dual" == ConvertMode) {
-									make_raw_fn_wrapper_suffix_str = std::string(", (") + lhs_text + "))";
+									make_raw_fn_wrapper_suffix_str = std::string("), (") + lhs_text + "))";
 								} else {
-									make_raw_fn_wrapper_suffix_str = std::string(", (") + lhs_text + "))";
+									make_raw_fn_wrapper_suffix_str = std::string("), (") + lhs_text + "))";
 								}
 
 								if (RHS_ii->getType()->isFunctionType()) {
