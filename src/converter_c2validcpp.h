@@ -19779,85 +19779,47 @@ namespace convc2validcpp {
 		}
 		return count;
 	}
-	int number_of_instances_of_mse(const std::string& str1) {
-		return number_of_instances_of_given_strings(str1, { "mse::", "MSE_" });
+
+	int number_of_instances_of_IF_CPP(const std::string& str1) {
+		return number_of_instances_of_given_strings(str1, { "IF_CPP" });
 	}
-	int number_of_instances_of_iterator(const std::string& str1) {
-		return number_of_instances_of_given_strings(str1, { "Iterator", "_ITERATOR" });
+	int number_of_instances_of_parentheses(const std::string& str1) {
+		return number_of_instances_of_given_strings(str1, { "(", ")" });
 	}
-	int number_of_instances_of_TXScopeLHNullableAny_Pointer_and_Iterator(const std::string& str1) {
-		return number_of_instances_of_given_strings(str1, { "::lh::TXScopeLHNullableAnyRandomAccessIterator", "_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE"
-			, "::lh::TXScopeLHNullableAnyPointer", "_LH_LOCAL_VAR_ONLY_POINTER_TYPE" });
-	}
-	int number_of_instances_of_TLHNullableAny_Pointer_and_Iterator(const std::string& str1) {
-		return number_of_instances_of_given_strings(str1, { "::lh::TLHNullableAnyRandomAccessIterator", "_LH_ARRAY_ITERATOR_TYPE"
-			, "::lh::TLHNullableAnyPointer", "_LH_POINTER_TYPE" });
-	}
-	int number_of_instances_of_TNativeArrayReplacement(const std::string& str1) {
-		return number_of_instances_of_given_strings(str1, { "::lh::TNativeArrayReplacement", "MSE_LH_FIXED_ARRAY_TYPE_PREFIX" });
+	int number_of_instances_of_braces(const std::string& str1) {
+		return number_of_instances_of_given_strings(str1, { "{", "}" });
 	}
 
 	auto& chosen_merge_option_ref(const std::string& first_option, const std::string& second_option) {
 		/* Here we're using a very rudimentary heuristic for guessing which merge option might be the
 		better one. */
-		auto mse_count1 = number_of_instances_of_mse(first_option);
-		auto mse_count2 = number_of_instances_of_mse(second_option);
-		if (mse_count1 > mse_count2) {
-			return first_option;
-		} else if (mse_count2 > mse_count1) {
-			return second_option;
-		} else {
-			auto TNativeArrayReplacement_count1 = number_of_instances_of_TNativeArrayReplacement(first_option);
-			auto TNativeArrayReplacement_count2 = number_of_instances_of_TNativeArrayReplacement(second_option);
-			auto iterator_count1 = number_of_instances_of_iterator(first_option);
-			auto iterator_count2 = number_of_instances_of_iterator(second_option);
-			if ((iterator_count1 + TNativeArrayReplacement_count1) > (iterator_count2 + TNativeArrayReplacement_count2)) {
+		{
+			auto IF_CPP_count1 = number_of_instances_of_IF_CPP(first_option);
+			auto IF_CPP_count2 = number_of_instances_of_IF_CPP(second_option);
+			if (IF_CPP_count1 > IF_CPP_count2) {
 				return first_option;
-			} else if ((iterator_count2 + TNativeArrayReplacement_count2) > (iterator_count1 + TNativeArrayReplacement_count1)) {
+			} else if (IF_CPP_count1 < IF_CPP_count2) {
 				return second_option;
-			} else {
-				auto TXScopeLHNullableAny_count1 = number_of_instances_of_TXScopeLHNullableAny_Pointer_and_Iterator(first_option);
-				auto TXScopeLHNullableAny_count2 = number_of_instances_of_TXScopeLHNullableAny_Pointer_and_Iterator(second_option);
-				auto TLHNullableAny_count1 = number_of_instances_of_TLHNullableAny_Pointer_and_Iterator(first_option);
-				auto TLHNullableAny_count2 = number_of_instances_of_TLHNullableAny_Pointer_and_Iterator(second_option);
-				if (1 <= (TXScopeLHNullableAny_count1 + TXScopeLHNullableAny_count2 + TLHNullableAny_count1 + TLHNullableAny_count2 
-					+ TNativeArrayReplacement_count1 + TNativeArrayReplacement_count2)) {
+			}
+			auto parentheses_count1 = number_of_instances_of_parentheses(first_option);
+			auto parentheses_count2 = number_of_instances_of_parentheses(second_option);
+			if (parentheses_count1 > parentheses_count2) {
+				return first_option;
+			} else if (parentheses_count1 < parentheses_count2) {
+				return second_option;
+			}
+			auto braces_count1 = number_of_instances_of_braces(first_option);
+			auto braces_count2 = number_of_instances_of_braces(second_option);
+			if (braces_count1 > braces_count2) {
+				return first_option;
+			} else if (braces_count1 < braces_count2) {
+				return second_option;
+			}
 
-					/* If a header file has an `extern` declaration of a pointer, only the translation unit with the 
-					corresponding (one-and-only) non-`extern` declaration (+definition) will be able to determine that 
-					the pointer actually refers to a native array, and if so, what its size is. */
-					if (TNativeArrayReplacement_count1 > TNativeArrayReplacement_count2) {
-						return first_option;
-					} else if (TNativeArrayReplacement_count2 > TNativeArrayReplacement_count1) {
-						return second_option;
-					}
-
-					/* The "LHNullableAny" pointers and iterators are generally more flexible/compatible 
-					than some of the other pointers and iterators. So when there is a conflict where 
-					conversion of one translation unit suggests an "LHNullableAny" type and another 
-					suggests a potentially less flexible type, we will choose the "LHNullableAny" option. */
-					if ((TLHNullableAny_count2 + TXScopeLHNullableAny_count2) < (TLHNullableAny_count1 + TXScopeLHNullableAny_count1)) {
-						return first_option;
-					} else if ((TLHNullableAny_count2 + TXScopeLHNullableAny_count2) > (TLHNullableAny_count1 + TXScopeLHNullableAny_count1)) {
-						return second_option;
-					}
-
-					/* By default, legacy iterators and pointers are converted to (restricted) "xscope"
-					types. But in some transation units, there is enough information to determine that
-					(less restrictive) non-"xscope" versions are required in places. So when there is a
-					conflict where conversion of one translation unit suggests an "xscope" type and
-					another suggests a non-"xscope" type, we will choose the non-"xscope" option. */
-					if ((TLHNullableAny_count2 < TLHNullableAny_count1) && (TXScopeLHNullableAny_count2 > TXScopeLHNullableAny_count1)) {
-						return first_option;
-					} else if ((TLHNullableAny_count2 > TLHNullableAny_count1) && (TXScopeLHNullableAny_count2 < TXScopeLHNullableAny_count1)) {
-						return second_option;
-					}
-				}
-				if (first_option.length() > second_option.length()) {
-					return first_option;
-				} else if (second_option.length() > first_option.length()) {
-					return second_option;
-				}
+			if (first_option.length() > second_option.length()) {
+				return first_option;
+			} else if (second_option.length() > first_option.length()) {
+				return second_option;
 			}
 		}
 		return first_option;
