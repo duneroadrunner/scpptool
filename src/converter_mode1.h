@@ -6393,7 +6393,9 @@ namespace convm1 {
 							}
 
 							if (2 <= E_SR_plus_ref.m_adjusted_source_text_infos.size()) {
-								if (string_begins_with(E_SR_plus_ref.m_adjusted_source_text_infos.at(1).m_macro_name, "DIGITS_")) {
+								if (string_begins_with(E_SR_plus_ref.m_adjusted_source_text_infos.at(1).m_macro_name, "DIGITS_") 
+									|| string_begins_with(E_SR_plus_ref.m_adjusted_source_text_infos.at(1).m_macro_name, "B32")) {
+
 									/* We're going to assume that this macro is potentially one that may be part of a mass of deeply nested 
 									macro invocations that are potentially very time-consuming to process and likely of no interest to us.  */
 									break;
@@ -18932,7 +18934,15 @@ namespace convm1 {
 				platforms). We probably wouldn't want to convert items declared as that handle type to safe pointers. */
 				auto RHS_type_definition_is_non_modifiable = type_definition_is_non_modifiable(RHS_qtype, MR, Rewrite, state1);
 
-				if ((RHS_decl_is_non_modifiable && (!LHS_decl_is_non_modifiable)) && (LHS || VLD) && RHS && (!RHS_type_definition_is_non_modifiable)) {
+				/* If the rhs is wrapped in a cast operation, then even if RHS_decl_is_non_modifiable, we wouldn't need 
+				to add any further adjustments to the rhs as we expect that that cast operation would be converted 
+				(elsewhere in this handler) as needed to produce a value of an appropriate type for assignment to the 
+				lhs. */
+				auto CSCE = dyn_cast<const clang::CStyleCastExpr>(rhsii_EX);
+
+				if ((RHS_decl_is_non_modifiable && (!LHS_decl_is_non_modifiable)) && (LHS || VLD) && RHS && (!RHS_type_definition_is_non_modifiable)
+					&& (!CSCE)) {
+
 					/* RHS will, for whatever reason, not be converted to a safe pointer. But presumably the LHS will 
 					(or at least could) be. So we may need to add an unsafe cast from the RHS raw pointer to the LHS 
 					safe pointer. */
@@ -19548,7 +19558,7 @@ namespace convm1 {
 					return;
 				}
  
-				s_handler1(MR, Rewrite, m_state1, LHS, RHS, VLD);
+				s_handler1(MR, Rewrite, m_state1, LHS, RHS, VLD, VLD ? EIsAnInitialization::Yes : EIsAnInitialization::No);
 
 			}
 		}

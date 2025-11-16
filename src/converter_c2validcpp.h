@@ -6113,7 +6113,9 @@ namespace convc2validcpp {
 							}
 
 							if (2 <= E_SR_plus_ref.m_adjusted_source_text_infos.size()) {
-								if (string_begins_with(E_SR_plus_ref.m_adjusted_source_text_infos.at(1).m_macro_name, "DIGITS_")) {
+								if (string_begins_with(E_SR_plus_ref.m_adjusted_source_text_infos.at(1).m_macro_name, "DIGITS_") 
+									|| string_begins_with(E_SR_plus_ref.m_adjusted_source_text_infos.at(1).m_macro_name, "B32")) {
+
 									/* We're going to assume that this macro is potentially one that may be part of a mass of deeply nested 
 									macro invocations that are potentially very time-consuming to process and likely of no interest to us.  */
 									break;
@@ -14835,6 +14837,58 @@ namespace convc2validcpp {
 						}
 					}
 				}
+			} else if ((EIsAnInitialization::Yes == is_an_initialization) && (dyn_cast<const clang::StringLiteral>(RHS_ii)) 
+				&& (LHS_qtype->isConstantArrayType())) {
+
+				/* This seems to be a case of a native array being initialized with a string literal. */
+				const auto SL = dyn_cast<const clang::StringLiteral>(RHS_ii); 
+				const auto CAT = dyn_cast<const clang::ConstantArrayType>(LHS_qtype.getTypePtr());
+				if (SL && CAT) {
+					//const auto array_size = CAT->getLimitedSize();
+					const auto maybe_array_size = CAT->getSize().tryZExtValue();
+					if (!maybe_array_size.has_value()) {
+						int q = 3;
+					} else {
+						const auto array_size = size_t(maybe_array_size.value());
+						const auto str = std::string(SL->getString());
+						if (str.length() == array_size) {
+							/* But the array doesn't seem to be big enough to include the null terminator. This is apparently permitted 
+							in C, but not C++. */
+							std::string replacement_init_expr_text = "{ ";
+							for (size_t i = 0; array_size > i; i += 1) {
+								if (1 <= i) {
+									replacement_init_expr_text += ", ";
+								}
+								replacement_init_expr_text += "\'";
+								replacement_init_expr_text += str.at(i);
+								replacement_init_expr_text += "\'";
+							}
+							replacement_init_expr_text += " }";
+
+							bool RHS_ii_is_filtered_out = false;
+							auto RHS_ii_SR = write_once_source_range(cm1_adjusted_source_range(RHS_ii->getSourceRange(), state1, Rewrite));
+							if ((!RHS_ii_SR.isValid()) || c2v_filtered_out_by_location(MR, RHS_ii_SR.getBegin())) {
+								RHS_ii_is_filtered_out = true;
+							}
+							/* If RHS_ii is "filtered out" then we'll have to use RHS. */
+							auto RHS2 = RHS_ii_is_filtered_out ? RHS : RHS_ii;
+							auto RHS2SR = RHS_ii_is_filtered_out ? SR : RHS_ii_SR;
+							auto& context_ref = *(MR.Context);
+							auto& ecs_ref = state1.get_expr_conversion_state_ref(*RHS2, Rewrite);
+
+							const auto l_text_modifier = CStraightReplacementExprTextModifier(replacement_init_expr_text);
+							bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && (l_text_modifier.species_str() == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+								&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+							if (!seems_to_be_already_applied) {
+								auto shptr2 = std::make_shared<CStraightReplacementExprTextModifier>(replacement_init_expr_text);
+								ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+								ecs_ref.update_current_text();
+
+								state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, RHS2SR, state1, RHS2);
+							}
+						}
+					}
+				} else { assert(false); }
 			}
 			if (rhs_needs_hard_cast_to_lhs) {
 				bool RHS_ii_is_filtered_out = false;
@@ -15388,7 +15442,7 @@ namespace convc2validcpp {
 					return;
 				}
  
-				s_handler1(MR, Rewrite, m_state1, LHS, RHS, VLD);
+				s_handler1(MR, Rewrite, m_state1, LHS, RHS, VLD, VLD ? EIsAnInitialization::Yes : EIsAnInitialization::No);
 
 			}
 		}
@@ -17752,7 +17806,6 @@ namespace convc2validcpp {
 				}
 				auto DRE = dyn_cast<const clang::DeclRefExpr>(E);
 				if (DRE) {
-					//auto& ecs = state1.get_expr_conversion_state_ref(*E, Rewrite);
 					auto expr_text_info = CExprTextInfo(E, Rewrite, state1);
 					const std::string name = expr_text_info.current_text();
 					for (auto& keyword : s_cpp_specific_keywords()) {
@@ -17908,37 +17961,81 @@ namespace convc2validcpp {
 					std::string new_source_text_str = original_source_text_str;
 
 					const auto num_toks = SL->getNumConcatenated();
-					for (unsigned int j = 0; num_toks > j; j += 1) {
-						int i = num_toks - 1 - j;
-						auto SrcLoc1 = SL->getStrTokenLoc(i);
+					if (2 <= num_toks) {
+						for (unsigned int j = 0; num_toks > j; j += 1) {
+							int i = num_toks - 1 - j;
+							auto SrcLoc1 = SL->getStrTokenLoc(i);
 
-						const auto SL_rawSR5 = clang::SourceRange{ SrcLoc1, SrcLoc1 };
-						//const auto SL_SR_plus5 = cm1_adjusted_source_range(clang::SourceRange{ SrcLoc1, SrcLoc1 }, state1, Rewrite);
-						const auto SL_SR5 = write_once_source_range(cm1_adj_nice_source_range(clang::SourceRange{ SrcLoc1, SrcLoc1 }, state1, Rewrite));
-						if (SL_SR5.isValid()) {
-							auto& SM = Rewrite.getSourceMgr();
-							const std::string original_source_text_str5 = getRewrittenTextOrEmpty(Rewrite, SL_SR5);
-							auto pos = SM.getFileOffset(SL_SR5.getBegin()) - SM.getFileOffset(SL_SR.getBegin());
+							const auto SL_rawSR5 = clang::SourceRange{ SrcLoc1, SrcLoc1 };
+							//const auto SL_SR_plus5 = cm1_adjusted_source_range(clang::SourceRange{ SrcLoc1, SrcLoc1 }, state1, Rewrite);
+							const auto SL_SR5 = write_once_source_range(cm1_adj_nice_source_range(clang::SourceRange{ SrcLoc1, SrcLoc1 }, state1, Rewrite));
+							if (SL_SR5.isValid()) {
+								auto& SM = Rewrite.getSourceMgr();
+								const std::string original_source_text_str5 = getRewrittenTextOrEmpty(Rewrite, SL_SR5);
+								auto pos = SM.getFileOffset(SL_SR5.getBegin()) - SM.getFileOffset(SL_SR.getBegin());
 
-							if ((SL_SR.getBegin() <= SL_SR5.getBegin()) && (SL_SR.getEnd() >= SL_SR5.getEnd()) && ("" != original_source_text_str5)
-								&& (0 <= pos) && (original_source_text_str.length() > pos)) {
+								if ((SL_SR.getBegin() <= SL_SR5.getBegin()) && (SL_SR.getEnd() >= SL_SR5.getEnd()) && ("" != original_source_text_str5)
+									&& (0 <= pos) && (original_source_text_str.length() > pos)) {
 
-								if (new_source_text_str.substr(pos, original_source_text_str5.length()) == original_source_text_str5) {
-									/* We're adding spaces around string literals to address: error: invalid suffix on literal; C++11 requires a space between literal and identifier [-Wreserved-user-defined-literal] */
-									std::string with_added_space_bumpers = " " + original_source_text_str5 + " ";
-									new_source_text_str.replace(pos, original_source_text_str5.length(), with_added_space_bumpers);
-								} else {
-									int q = 3;
+									if (new_source_text_str.substr(pos, original_source_text_str5.length()) == original_source_text_str5) {
+										/* We're adding trailing spaces to the string literals to address: error: invalid suffix on literal; C++11 requires a space between literal and identifier [-Wreserved-user-defined-literal] */
+										std::string with_added_rear_space_bumpers = original_source_text_str5 + " ";
+										new_source_text_str.replace(pos, original_source_text_str5.length(), with_added_rear_space_bumpers);
+									} else {
+										int q = 3;
+									}
 								}
 							}
 						}
-					}
-					if (original_source_text_str != new_source_text_str) {
-						auto& SM = Rewrite.getSourceMgr();
-						if (!cm1_filtered_out_by_location(SM, SL_SR)) {
-							state1.add_pending_straight_text_replacement_expression_update(Rewrite, SL_SR, SL, new_source_text_str);
-						} else {
-							int q = 5;
+						if (original_source_text_str != new_source_text_str) {
+							auto& SM = Rewrite.getSourceMgr();
+							if (!cm1_filtered_out_by_location(SM, SL_SR)) {
+								auto& ecs_ref = state1.get_expr_conversion_state_ref(*SL, Rewrite);
+
+								const auto l_text_modifier = CStraightReplacementExprTextModifier(new_source_text_str);
+								bool there_seems_to_be_a_text_replacement_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && (l_text_modifier.species_str() == ecs_ref.m_expr_text_modifier_stack.back()->species_str()));
+								if (!there_seems_to_be_a_text_replacement_already_applied) {
+									auto shptr2 = std::make_shared<CStraightReplacementExprTextModifier>(new_source_text_str);
+									ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+									ecs_ref.update_current_text();
+
+									state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, SL_SR, state1, SL);
+								}
+							} else {
+								int q = 5;
+							}
+						}
+					} else {
+						bool thing_to_the_right_may_be_interpretable_as_a_literal_suffix = true;
+						const auto one_after_the_end_SL_SPSL1 = SL_SPSL.getLocWithOffset(+original_source_text_str2.length());
+						const auto one_after_the_end_SL_SPSL2 = SM.getSpellingLoc(SL_rawSR.getBegin().getLocWithOffset(+original_source_text_str2.length()));
+						if (one_after_the_end_SL_SPSL1.isValid() && one_after_the_end_SL_SPSL2.isValid() && (one_after_the_end_SL_SPSL1 == one_after_the_end_SL_SPSL2)) {
+							std::string text1 = getRewrittenTextOrEmpty(Rewrite, { one_after_the_end_SL_SPSL1, one_after_the_end_SL_SPSL1 });
+							if (1 > text1.length()) {
+								thing_to_the_right_may_be_interpretable_as_a_literal_suffix = false;
+							} else {
+								thing_to_the_right_may_be_interpretable_as_a_literal_suffix = Parse::is_alpha_or_underscore(text1.at(0));
+							}
+						}
+						if (thing_to_the_right_may_be_interpretable_as_a_literal_suffix) {
+							/* The thing to the immediate right of the string literal could be interpreted as a literal suffix in 
+							C++ (but not in C which doesn't support (user-defined) literal suffixes) which could result in the 
+							following error:
+							error: invalid suffix on literal; C++11 requires a space between literal and identifier [-Wreserved-user-defined-literal] 
+							
+							So we'll just add a space after the string literal. */
+							auto& ecs_ref = state1.get_expr_conversion_state_ref(*SL, Rewrite);
+
+							const auto l_text_modifier = CWrapExprTextModifier("", " ");
+							bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && (l_text_modifier.species_str() == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+								&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+							if (!seems_to_be_already_applied) {
+								auto shptr2 = std::make_shared<CWrapExprTextModifier>("", " ");
+								ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+								ecs_ref.update_current_text();
+
+								state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, SL_SR, state1, SL);
+							}
 						}
 					}
 				}
