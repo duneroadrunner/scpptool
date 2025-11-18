@@ -13683,7 +13683,7 @@ namespace convm1 {
 		return tl_list;
 	}
 
-	CAllocFunctionInfo analyze_malloc_resemblance(const clang::FunctionDecl& function_decl_ref, CTUState& state1, Rewriter &Rewrite) {
+	CAllocFunctionInfo analyze_malloc_resemblance(const clang::FunctionDecl& function_decl_ref, CTUState& state1, Rewriter &Rewrite, std::optional<std::string_view> maybe_function_name_override_sv = {}) {
 		CAllocFunctionInfo retval;
 
 		auto function_decl = &function_decl_ref;
@@ -13691,12 +13691,15 @@ namespace convm1 {
 		if (function_decl && (1 <= num_params)) {
 			std::string return_type_str = definition_qtype(function_decl->getReturnType()).getAsString();
 			bool return_type_is_void_star = is_void_star_or_const_void_star(definition_qtype(function_decl->getReturnType()));
-			const std::string function_name = function_decl->getNameAsString();
+			std::string function_name = function_decl->getNameAsString();
+			if (maybe_function_name_override_sv.has_value()) {
+				function_name = std::string(maybe_function_name_override_sv.value());
+			}
 
 			/* Preliminary observations seem to confirm the net benefits of this one-element cache. But 
 			further testing would be warranted. */
 			thread_local CAllocFunctionInfoCacheItem last_item;
-			if (function_decl == last_item.m_FND) {
+			if ((function_decl == last_item.m_FND) && (function_name == last_item.m_function_name)) {
 				return last_item;
 			} else {
 				int q = 5;
@@ -13917,7 +13920,54 @@ namespace convm1 {
 		auto num_args = CE->getNumArgs();
 		if (function_decl && (1 <= num_args)) {
 			auto res2 = analyze_malloc_resemblance(*function_decl, state1, Rewrite);
-			if (res2.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
+			bool seems_to_be_some_kind_of_malloc_or_realloc_or_dup1 = res2.seems_to_be_some_kind_of_malloc_or_realloc_or_dup();
+
+			if ((!seems_to_be_some_kind_of_malloc_or_realloc_or_dup1) && (!res2.seems_to_be_some_kind_of_free()) && CE_rawSR.isValid()) {
+				bool b3 = CE_rawSR.getBegin().isMacroID();
+				bool b4 = CE_rawSR.getEnd().isMacroID();
+				if (b3) {
+					/* Our call to `analyze_malloc_resemblance()` didn't conclude that it sufficiently resembled an allocation 
+					or free call. But the heuristic is particularly reticent in concluding that a call expression is 
+					essentially equivalent to a `free()` call, basically doing so only if a corresponding allocation call has 
+					already been encountered. Given the propensity for false negatives, and the fact that this particular call 
+					expression seems to be a macro invocation, we're going to check if the code is using a macro to redefine 
+					the `free()` function, or a standard allocation function while we're at it, to something else. */
+					auto is_standard_alloc_function_name = [](std::string_view sv1) -> bool {
+						if (("free" == sv1) || ("malloc" == sv1) || ("realloc" == sv1) || ("memdup" == sv1) || ("calloc" == sv1)) {
+							return true;
+						}
+						return false;
+					};
+					auto extracted_function_name = [] (std::string_view sv1) -> std::string {
+						auto retval = std::string(sv1);
+						ltrim(retval);
+						auto open_paren_index = retval.find("\(");
+						if (std::string::npos != open_paren_index) {
+							retval = retval.substr(0, open_paren_index);
+						}
+						rtrim(retval);
+						return retval;
+					};
+					auto SR_plus = cm1_adjusted_source_range(*CE, state1, Rewrite);
+					if (is_standard_alloc_function_name(extracted_function_name(SR_plus.m_adjusted_source_text_as_if_expanded))) {
+						res2 = analyze_malloc_resemblance(*function_decl, state1, Rewrite, extracted_function_name(SR_plus.m_adjusted_source_text_as_if_expanded));
+						seems_to_be_some_kind_of_malloc_or_realloc_or_dup1 = res2.seems_to_be_some_kind_of_malloc_or_realloc_or_dup();
+					}
+					if ((!seems_to_be_some_kind_of_malloc_or_realloc_or_dup1) && (!res2.seems_to_be_some_kind_of_free())) {
+						for (auto const& adjusted_source_text_info : SR_plus.m_adjusted_source_text_infos) {
+							adjusted_source_text_info.m_text;
+							if (is_standard_alloc_function_name(extracted_function_name(adjusted_source_text_info.m_text))) {
+								res2 = analyze_malloc_resemblance(*function_decl, state1, Rewrite, extracted_function_name(adjusted_source_text_info.m_text));
+								seems_to_be_some_kind_of_malloc_or_realloc_or_dup1 = res2.seems_to_be_some_kind_of_malloc_or_realloc_or_dup();
+								if (seems_to_be_some_kind_of_malloc_or_realloc_or_dup1) {
+									break;
+								}
+							}
+						}
+					}
+				}
+			}
+			if (seems_to_be_some_kind_of_malloc_or_realloc_or_dup1) {
 				bool already_encountered_calloc_first_arg = false;
 				std::string realloc_pointer_arg_source_text;
 				std::string realloc_pointer_arg_adjusted_source_text;
@@ -17279,8 +17329,18 @@ namespace convm1 {
 				}
 				auto res1 = analyze_malloc_resemblance(*FND, state1, Rewrite);
 				if (res1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup() || res1.seems_to_be_some_kind_of_free()) {
-					/* malloc() and free() calls will presumably be converted. */
-					return false;
+					bool expression_seems_to_be_in_a_nonmodifiable_location = false;
+					if (E) {
+						auto E_SR = cm1_adj_nice_source_range(E->getSourceRange(), state1, Rewrite);
+						if ((!E_SR.isValid()) || cm1_filtered_out_by_location(Ctx, E_SR) || state1.m_suppress_check_region_set.contains(E, Rewrite, Ctx)) {
+							expression_seems_to_be_in_a_nonmodifiable_location = true;
+						}
+					}
+					if (true || 
+						!expression_seems_to_be_in_a_nonmodifiable_location) {
+						/* malloc() and free() calls will presumably be converted. */
+						return false;
+					}
 				}
 			}
 		}
@@ -17395,14 +17455,21 @@ namespace convm1 {
 				/*&& (precasted_expr_QT->isPointerType() || precasted_expr_QT->isArrayType())
 				&& cast_operation_SR.isValid()*/) {
 
-				auto CE = NonParenImpNoopCastParentOfType<clang::CallExpr>(CSCE, *(MR.Context));
+				auto CE = NonParenImpParentOfType<clang::CallExpr>(CSCE, *(MR.Context));
 				if (CE) {
 					auto function_decl1 = CE->getDirectCallee();
 					auto num_args = CE->getNumArgs();
 					if (function_decl1) {
 						const std::string function_name = function_decl1->getNameAsString();
 
-						auto res1 = analyze_malloc_resemblance(*function_decl1, state1, Rewrite);
+						if (is_non_modifiable(*function_decl1, MR, Rewrite, state1, CE)) {
+							/* If the precasted expression is modifiable then likely the cast would need to be converted to some 
+							sort of unsafe cast operation. But we'll assume the MCSSSArgToParameterPassingArray2 handler will 
+							deal with that. */
+							return;
+						}
+
+						auto res1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
 						if (res1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup() || res1.seems_to_be_some_kind_of_free()) {
 							/* This case should be handled as part of the replacement of the parent *alloc() or *free() function. */
 							return;
@@ -23814,6 +23881,12 @@ namespace convm1 {
 
 						bool filename_is_invalid = false;
 						auto full_path_name = std::string(TheRewriter.getSourceMgr().getBufferName(fii_ref.m_beginning_of_file_loc, &filename_is_invalid));
+						
+#ifndef NDEBUG
+						if (string_ends_with(full_path_name, "stdlib.h")) {
+							int q = 5;
+						}
+#endif /*!NDEBUG*/
 
 						if (cm1_filtered_out_by_location(TheRewriter.getSourceMgr(), fii_ref.m_beginning_of_file_loc)) {
 							continue;
