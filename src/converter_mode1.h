@@ -13664,6 +13664,7 @@ namespace convm1 {
 		clang::ValueDecl const * m_realloc_or_free_pointer_arg_DD = nullptr;
 		std::string m_function_name;
 		size_t m_num_params = 0;
+		std::string m_resembling_invoked_macro_name;
 	};
 	struct CAllocFunctionInfoCacheItem : public CAllocFunctionInfo {
 		typedef CAllocFunctionInfo base_class;
@@ -13932,8 +13933,9 @@ namespace convm1 {
 					already been encountered. Given the propensity for false negatives, and the fact that this particular call 
 					expression seems to be a macro invocation, we're going to check if the code is using a macro to redefine 
 					the `free()` function, or a standard allocation function while we're at it, to something else. */
-					auto is_standard_alloc_function_name = [](std::string_view sv1) -> bool {
-						if (("free" == sv1) || ("malloc" == sv1) || ("realloc" == sv1) || ("memdup" == sv1) || ("calloc" == sv1)) {
+					auto is_recognized_alloc_function_name = [](std::string_view sv1) -> bool {
+						if (("free" == sv1) || ("malloc" == sv1) || ("realloc" == sv1) || ("memdup" == sv1) || ("calloc" == sv1)
+							|| ("xfree" == sv1)|| ("rpl_free" == sv1)) {
 							return true;
 						}
 						return false;
@@ -13949,17 +13951,21 @@ namespace convm1 {
 						return retval;
 					};
 					auto SR_plus = cm1_adjusted_source_range(*CE, state1, Rewrite);
-					if (is_standard_alloc_function_name(extracted_function_name(SR_plus.m_adjusted_source_text_as_if_expanded))) {
+					if (is_recognized_alloc_function_name(extracted_function_name(SR_plus.m_adjusted_source_text_as_if_expanded))) {
 						res2 = analyze_malloc_resemblance(*function_decl, state1, Rewrite, extracted_function_name(SR_plus.m_adjusted_source_text_as_if_expanded));
 						seems_to_be_some_kind_of_malloc_or_realloc_or_dup1 = res2.seems_to_be_some_kind_of_malloc_or_realloc_or_dup();
+						if (seems_to_be_some_kind_of_malloc_or_realloc_or_dup1 || res2.seems_to_be_some_kind_of_free()) {
+							retval.m_resembling_invoked_macro_name = extracted_function_name(SR_plus.m_adjusted_source_text_as_if_expanded);
+						}
 					}
 					if ((!seems_to_be_some_kind_of_malloc_or_realloc_or_dup1) && (!res2.seems_to_be_some_kind_of_free())) {
 						for (auto const& adjusted_source_text_info : SR_plus.m_adjusted_source_text_infos) {
 							adjusted_source_text_info.m_text;
-							if (is_standard_alloc_function_name(extracted_function_name(adjusted_source_text_info.m_text))) {
+							if (is_recognized_alloc_function_name(extracted_function_name(adjusted_source_text_info.m_text))) {
 								res2 = analyze_malloc_resemblance(*function_decl, state1, Rewrite, extracted_function_name(adjusted_source_text_info.m_text));
 								seems_to_be_some_kind_of_malloc_or_realloc_or_dup1 = res2.seems_to_be_some_kind_of_malloc_or_realloc_or_dup();
-								if (seems_to_be_some_kind_of_malloc_or_realloc_or_dup1) {
+								if (seems_to_be_some_kind_of_malloc_or_realloc_or_dup1 || res2.seems_to_be_some_kind_of_free()) {
+									retval.m_resembling_invoked_macro_name = extracted_function_name(adjusted_source_text_info.m_text);
 									break;
 								}
 							}
@@ -15002,7 +15008,7 @@ namespace convm1 {
 					}
 #endif /*!NDEBUG*/
 
-/* The argument is in the form "something * sizeof(something_else)" or
+					/* The argument is in the form "something * sizeof(something_else)" or
 					* "sizeof(something) * something_else". So we're just going to assume that
 					* this is an instance of an array being allocated. */
 					std::string num_elements_text/* = before_str + after_str*/;
@@ -15607,9 +15613,9 @@ namespace convm1 {
 					return;
 				}
 
-				auto function_decl = CE->getDirectCallee();
+				auto FND = CE->getDirectCallee();
 				auto num_args = CE->getNumArgs();
-				if (function_decl && (1 <= num_args)) {
+				if (FND && (1 <= num_args)) {
 					auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
 					if (alloc_function_info1.seems_to_be_some_kind_of_free()) {
 						auto arg_iter = CE->arg_begin();
@@ -15665,111 +15671,176 @@ namespace convm1 {
 									}
 
 									if (ConvertToSCPP) {
-										bool use_the_more_surgical_replacement_method = false;
 										bool is_filtered_out_macro = false;
 										auto rawSR = CE->getSourceRange();
-										if (rawSR.isValid() && rawSR.getBegin().isMacroID()) {
-											auto adj_SR = cm1_adjusted_source_range(rawSR, state1, Rewrite);
-											if (!(adj_SR.m_macro_expansion_range_substituted_with_macro_invocation_range)) {
-												is_filtered_out_macro = adj_SR.m_range_is_essentially_the_entire_body_of_a_macro && cm1_filtered_out_by_location(MR, adj_SR);
-												if (!is_filtered_out_macro) {
-													/* The `free()` call expression may be part of (but not the whole of) the definition body of a macro. The macro may be a macro 
-													function and the argument of the `free()` call expression may be passed as an argument to the macro function. In such cases, 
-													the source range of the argument will be reported, by default, as the one at the site of instantiation of the function macro, 
-													while in order to replace the entire `free()` call expression, the source range of the argument in the definition body of the 
-													macro would need to be used instead. For that we'd need to create and use a custom version of CCallExprConversionState that 
-													uses the desired argument source range. Because it's easier, for now we're just going to avoid overwriting the argument (in 
-													the definition body) and just overwrite the function name. */
-													use_the_more_surgical_replacement_method = true;
-												} else {
+										if (rawSR.isValid() && rawSR.getBegin().isMacroID() && (cm1_filtered_out_by_location(MR, SR))) {
+											/* Ok, it seems that the call expression is in a "filtered out" location (where we don't have permission 
+											to modify it) in the body of a macro. But it's likely the case that the (or a) macro invocation that 
+											produced the call expression is not in a "filtered out" location. So we will investigate if it might be 
+											appropriate to instead replace the macro invocation with our safe version of the free() function. */
+											auto adj_SR_plus = cm1_adjusted_source_range(rawSR, state1, Rewrite);
+											if ((1 <= adj_SR_plus.m_adjusted_source_text_infos.size())) {
+												/* First we're going to obtain a list of the locations of the one or more possibly nested macro invocations. */
+												auto nested_macro_ranges = std::vector<clang::SourceRange>{};
+
+												auto& SM = Rewrite.getSourceMgr();
+												auto last_macro1_SL = rawSR.getBegin();
+												auto last_macro1_SLE = rawSR.getEnd();
+												DEBUG_SOURCE_TEXT_STR(last_macro1_source_text, (clang::SourceRange{ last_macro1_SL, last_macro1_SLE }), Rewrite);
+												DEBUG_SOURCE_TEXT_STR(last_macro1_sp_source_text, (clang::SourceRange{ SM.getSpellingLoc(last_macro1_SL), SM.getSpellingLoc(last_macro1_SLE) }), Rewrite);
+
+												auto macro1_SL = SM.getImmediateMacroCallerLoc(last_macro1_SL);
+												auto macro1_SLE = SM.getImmediateMacroCallerLoc(last_macro1_SLE);
+												DEBUG_SOURCE_TEXT_STR(macro1_source_text, (clang::SourceRange{ macro1_SL, macro1_SLE }), Rewrite);
+												DEBUG_SOURCE_TEXT_STR(macro1_sp_source_text, (clang::SourceRange{ SM.getSpellingLoc(macro1_SL), SM.getSpellingLoc(macro1_SLE) }), Rewrite);
+
+												const auto expansion_SR = SM.getExpansionRange(macro1_SL).getAsRange();
+												DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, expansion_SR, Rewrite);
+
+												while (macro1_SL != last_macro1_SL) {
+													nested_macro_ranges.push_back({ macro1_SL, macro1_SLE });
+
+													last_macro1_SL = macro1_SL;
+													last_macro1_SLE = macro1_SLE;
+													macro1_SL = SM.getImmediateMacroCallerLoc(macro1_SL);
+													macro1_SLE = SM.getImmediateMacroCallerLoc(macro1_SLE);
+
+													auto new_macro1_SR = clang::SourceRange{ macro1_SL, macro1_SLE };
+													DEBUG_SOURCE_TEXT_STR(debug_macro1_source_text, new_macro1_SR, Rewrite);
+													auto adjusted_macro_SPSR = clang::SourceRange{ SM.getSpellingLoc(new_macro1_SR.getBegin()), SM.getSpellingLoc(new_macro1_SR.getEnd()) };
+													DEBUG_SOURCE_TEXT_STR(debug_adjusted_macro_source_text, adjusted_macro_SPSR, Rewrite);
+													const auto expansion_SR = SM.getExpansionRange(macro1_SL).getAsRange();
+													DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, expansion_SR, Rewrite);
 													int q = 5;
 												}
-											}
-										}
-										if (!use_the_more_surgical_replacement_method) {
-											std::vector<const clang::Expr *> arg_expr_cptrs;
+												if (1 <= nested_macro_ranges.size()) {
+													/* Ok, now we'll go through the list of macro invocations and see if we can't find one that's appropriate 
+													for replacement. */
+													for (auto& macro_range : nested_macro_ranges) {
+#ifndef NDEBUG
+														auto macro_name3 = getRewrittenTextOrEmpty(Rewrite, macro_range);
+														auto macro2_SPSR = clang::SourceRange{ SM.getSpellingLoc(macro_range.getBegin()), SM.getSpellingLoc(macro_range.getEnd()) };
+														auto macro_name4 = getRewrittenTextOrEmpty(Rewrite, macro2_SPSR);
+														auto macro_SPSR = clang::SourceRange{ SM.getSpellingLoc(macro_range.getBegin()), SM.getSpellingLoc(macro_range.getBegin()) };
+														auto macro_name5 = getRewrittenTextOrEmpty(Rewrite, macro_SPSR);
+#endif /*!NDEBUG*/
+														const auto expansion_SR = SM.getExpansionRange(macro_range.getBegin()).getAsRange();
+														DEBUG_SOURCE_TEXT_STR(debug_expansion_source_text, expansion_SR, Rewrite);
+														const auto expansion_text = getRewrittenTextOrEmpty(Rewrite, expansion_SR);
+														const auto macro_name = getRewrittenTextOrEmpty(Rewrite, { expansion_SR.getBegin(), expansion_SR.getBegin() });
+														if ((1 <= macro_name.length()) && !cm1_filtered_out_by_location(SM, expansion_SR)) {
+															/* This macro invocation seems to be in a location that is eligible for modification. */
+															const auto macro_name_SR = clang::SourceRange{ expansion_SR.getBegin(), expansion_SR.getBegin().getLocWithOffset(+(macro_name.length() - 1)) };
+															const auto macro_name2 = getRewrittenTextOrEmpty(Rewrite, macro_name_SR);
+															if (macro_name == macro_name2) {
+																auto res3 = analyze_malloc_resemblance(*FND, state1, Rewrite, macro_name);
+																if (res3.seems_to_be_some_kind_of_free()) {
+																	/* Ok, based on its name, this macro heuristically seems like it might be essentially just a wrapper for 
+																	a `free()`-like finction. */
+																	auto found_macro_iter = state1.m_pp_macro_definitions.find(macro_name);
+																	if ((state1.m_pp_macro_definitions.end() != found_macro_iter) && (found_macro_iter->second.m_is_function_macro) 
+																		&& (1 == found_macro_iter->second.m_parameter_names.size())) {
+	
+																		/* Ok, we've confirmed that the macro is a "function macro" with one parameter (i.e. the same number of 
+																		parameters as the free() function). So we're going to go ahead and try to replace this macro invocation 
+																		with a call to our safe version of the free() function. But while we have a (somewhat) robust mechanism 
+																		for replacing/converting expressions, macro invocations are not expreassions. So we're going to resort 
+																		to the "less reliable" method of directly replacing the source text (and hoping that there are no other 
+																		competing modifications involving the same text). */
 
-											auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_E_ii);
-											if (CSCE) {
-												auto precasted_expr_as_written_ptr = CSCE->getSubExprAsWritten();
-												auto precasted_expr_ptr = IgnoreParenImpCasts(CSCE->getSubExpr());
-												assert(precasted_expr_ptr);
-												if (precasted_expr_as_written_ptr != precasted_expr_ptr) {
-													int q = 5;
-												} else {
-													int q = 5;
-												}
-												auto precasted_expr_QT = precasted_expr_ptr->getType();
-												IF_DEBUG(std::string precasted_expr_QT_str = precasted_expr_QT.getAsString();)
-												arg_E_ic = precasted_expr_ptr->IgnoreParenCasts();
-											}
-											arg_expr_cptrs.push_back(arg_E_ic);
+																		state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, macro_name_SR, callee_name_replacement_text);
 
-											std::optional<CExprTextInfoContext> maybe_ti_render_context;
-											auto arg_containing_SR = SR;
-											if (is_filtered_out_macro) {
-												/* This call expression seems to be (essentially the entirety of) the body of a macro defined in a 
-												"filtered out" location. Even if the invocation of the macro occurs in a location that is not deemed 
-												to be "filtered out", for most elements, we would consider the element non-modifiable, as elements in 
-												the body of a "filtered out" macro might be platform-dependent. But we make an exception for macro 
-												invocation that are suspected of essentially being (m)alloc()- or free()-like calls. (Presumably we 
-												decided to make this exception due to the significant safety implications?) 
-												The problem is that we can't modify code at the/any "filtered out" location. But if we intend to just 
-												replace the entire expression and the expression constitutes essentially the entirety of the macro 
-												body, then we can just replace the (not "filtered out") macro invocation with the replacement 
-												expression. So we have to determine the source range of the macro invocation to be replaced. But the 
-												call expression could be contained in any number of nested macro invocations. The one we want to 
-												replace would presumably be the most deeply nested one that encompasses the associated macro argument. 
-												(That macro argument presumably being in a non-"filtered out" location.) So we'll look through the set 
-												of (potentially) nested macro invocations for the appropriate one. */
-												const auto adj_SR = cm1_adjusted_source_range(CE->getSourceRange(), state1, Rewrite);
-												const auto arg_E_ic_adj_SR = cm1_adjusted_source_range(arg_E_ic->getSourceRange(), state1, Rewrite);
-												for (auto& adjusted_source_text_info : adj_SR.m_adjusted_source_text_infos) {
-													if ((adjusted_source_text_info.m_macro_invocation_range.getBegin() <= arg_E_ic_adj_SR.getBegin()) 
-														&& (arg_E_ic_adj_SR.getEnd() <= adjusted_source_text_info.m_macro_invocation_range.getEnd())) {
-
-														/* We seem to have found the (potentially nested) macro invocation (that encompasses the macro 
-														argument) that we want to replace. So we'll note its source range. */
-														arg_containing_SR = adjusted_source_text_info.m_macro_invocation_range;
-														break;
+																		auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_E_ii);
+																		if (CSCE) {
+																			auto cast_operation_SR = cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite);
+																			std::string cast_operation_text = getRewrittenTextOrEmpty(Rewrite, cast_operation_SR);
+																			/* We're going to "blank out"/erase the original source text of the C-style cast operation
+																			(including the parenthesis) (but not the expression that was being casted). */
+																			std::string blank_text = cast_operation_text;
+																			for (auto& ch : blank_text) {
+																				ch = ' ';
+																			}
+																			state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, blank_text);
+																		}
+																		return;
+																	} else {
+																		int q = 5;
+																	}
+																}
+															} else {
+																int q = 5;
+															}
+														}
 													}
 												}
-												/* In the case of (potentially) nested macro invocations, we can supply a "context" that can indicate 
-												to the function that renders the replacement text, which level of nesting we'll be replacing. This 
-												information is sometimes needed to produce the appropriate replacement text. */
-												maybe_ti_render_context = CExprTextInfoContext{ arg_E_ic_adj_SR, &Rewrite, &state1 };
-											}
 
-											auto& cecs = state1.get_expr_conversion_state_ref<CCallExprConversionState>(*CE, Rewrite, arg_expr_cptrs, callee_name_replacement_text);
-											cecs.m_arg_expr_cptrs = arg_expr_cptrs;
-											cecs.m_function_name = callee_name_replacement_text;
-											cecs.update_current_text(maybe_ti_render_context);
 
-											state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, write_once_source_range(arg_containing_SR), state1, CE);
-
-										} else {
-											if ((!callee_SR.isValid()) || cm1_filtered_out_by_location(MR, callee_SR.getBegin()) && cm1_filtered_out_by_location(MR, callee_SR.getEnd())) {
-												DEBUG_SOURCE_LOCATION_STR(callee_debug_source_location_str, callee_SR, Rewrite);
-												auto adj_SR_plus = cm1_adjusted_source_range(CE->getSourceRange(), state1, Rewrite);
-												DEBUG_SOURCE_LOCATION_STR(adj_debug_source_location_str, adj_SR_plus, Rewrite);
 												int q = 5;
-												return void();
 											}
-											state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, callee_SR, callee_name_replacement_text);
-
-											auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_E_ii);
-											if (CSCE) {
-												auto cast_operation_SR = cm1_adj_nice_source_range({ CSCE->getLParenLoc(), CSCE->getRParenLoc() }, state1, Rewrite);
-												std::string cast_operation_text = getRewrittenTextOrEmpty(Rewrite, cast_operation_SR);
-												/* We're going to "blank out"/erase the original source text of the C-style cast operation
-												(including the parenthesis) (but not the expression that was being casted). */
-												std::string blank_text = cast_operation_text;
-												for (auto& ch : blank_text) {
-													ch = ' ';
-												}
-												state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, blank_text);
+											if (!(adj_SR_plus.m_macro_expansion_range_substituted_with_macro_invocation_range)) {
+												is_filtered_out_macro = adj_SR_plus.m_range_is_essentially_the_entire_body_of_a_macro && cm1_filtered_out_by_location(MR, adj_SR_plus);
 											}
 										}
+
+										std::vector<const clang::Expr *> arg_expr_cptrs;
+
+										auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_E_ii);
+										if (CSCE) {
+											auto precasted_expr_as_written_ptr = CSCE->getSubExprAsWritten();
+											auto precasted_expr_ptr = IgnoreParenImpCasts(CSCE->getSubExpr());
+											assert(precasted_expr_ptr);
+											if (precasted_expr_as_written_ptr != precasted_expr_ptr) {
+												int q = 5;
+											} else {
+												int q = 5;
+											}
+											auto precasted_expr_QT = precasted_expr_ptr->getType();
+											IF_DEBUG(std::string precasted_expr_QT_str = precasted_expr_QT.getAsString();)
+											arg_E_ic = precasted_expr_ptr->IgnoreParenCasts();
+										}
+										arg_expr_cptrs.push_back(arg_E_ic);
+
+										std::optional<CExprTextInfoContext> maybe_ti_render_context;
+										auto arg_containing_SR = SR;
+										if (is_filtered_out_macro) {
+											/* This call expression seems to be (essentially the entirety of) the body of a macro defined in a 
+											"filtered out" location. Even if the invocation of the macro occurs in a location that is not deemed 
+											to be "filtered out", for most elements, we would consider the element non-modifiable, as elements in 
+											the body of a "filtered out" macro might be platform-dependent. But we make an exception for macro 
+											invocation that are suspected of essentially being (m)alloc()- or free()-like calls. (Presumably we 
+											decided to make this exception due to the significant safety implications?) 
+											The problem is that we can't modify code at the/any "filtered out" location. But if we intend to just 
+											replace the entire expression and the expression constitutes essentially the entirety of the macro 
+											body, then we can just replace the (not "filtered out") macro invocation with the replacement 
+											expression. So we have to determine the source range of the macro invocation to be replaced. But the 
+											call expression could be contained in any number of nested macro invocations. The one we want to 
+											replace would presumably be the most deeply nested one that encompasses the associated macro argument. 
+											(That macro argument presumably being in a non-"filtered out" location.) So we'll look through the set 
+											of (potentially) nested macro invocations for the appropriate one. */
+											const auto adj_SR = cm1_adjusted_source_range(CE->getSourceRange(), state1, Rewrite);
+											const auto arg_E_ic_adj_SR = cm1_adjusted_source_range(arg_E_ic->getSourceRange(), state1, Rewrite);
+											for (auto& adjusted_source_text_info : adj_SR.m_adjusted_source_text_infos) {
+												if ((adjusted_source_text_info.m_macro_invocation_range.getBegin() <= arg_E_ic_adj_SR.getBegin()) 
+													&& (arg_E_ic_adj_SR.getEnd() <= adjusted_source_text_info.m_macro_invocation_range.getEnd())) {
+
+													/* We seem to have found the (potentially nested) macro invocation (that encompasses the macro 
+													argument) that we want to replace. So we'll note its source range. */
+													arg_containing_SR = adjusted_source_text_info.m_macro_invocation_range;
+													break;
+												}
+											}
+											/* In the case of (potentially) nested macro invocations, we can supply a "context" that can indicate 
+											to the function that renders the replacement text, which level of nesting we'll be replacing. This 
+											information is sometimes needed to produce the appropriate replacement text. */
+											maybe_ti_render_context = CExprTextInfoContext{ arg_E_ic_adj_SR, &Rewrite, &state1 };
+										}
+
+										auto& cecs = state1.get_expr_conversion_state_ref<CCallExprConversionState>(*CE, Rewrite, arg_expr_cptrs, callee_name_replacement_text);
+										cecs.m_arg_expr_cptrs = arg_expr_cptrs;
+										cecs.m_function_name = callee_name_replacement_text;
+										cecs.update_current_text(maybe_ti_render_context);
+
+										state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, write_once_source_range(arg_containing_SR), state1, CE);
 									}
 								} else {
 									int q = 5;
@@ -17328,6 +17399,12 @@ namespace convm1 {
 					}
 				}
 				auto res1 = analyze_malloc_resemblance(*FND, state1, Rewrite);
+				if (E && !(res1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup() || res1.seems_to_be_some_kind_of_free())) {
+					auto CE = dyn_cast<const clang::CallExpr>(IgnoreParenImpNoopCasts(E, Ctx));
+					if (CE) {
+						res1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
+					}
+				}
 				if (res1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup() || res1.seems_to_be_some_kind_of_free()) {
 					bool expression_seems_to_be_in_a_nonmodifiable_location = false;
 					if (E) {
@@ -17336,8 +17413,7 @@ namespace convm1 {
 							expression_seems_to_be_in_a_nonmodifiable_location = true;
 						}
 					}
-					if (true || 
-						!expression_seems_to_be_in_a_nonmodifiable_location) {
+					if (true || !expression_seems_to_be_in_a_nonmodifiable_location) {
 						/* malloc() and free() calls will presumably be converted. */
 						return false;
 					}
