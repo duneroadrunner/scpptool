@@ -324,49 +324,49 @@ class CModifiablePathInfo {
 	std::vector<std::filesystem::path> m_unmodifiable_paths;
 };
 
+inline auto second_is_a_subpath_of_first(std::filesystem::path const& container, std::filesystem::path const& contained) -> bool {
+	if ((!std::filesystem::exists(container)) || (!std::filesystem::exists(contained))) {
+		return false;
+	}
+
+	// partially ai generated lambda
+
+	auto normalize_path = [](std::filesystem::path p) -> std::filesystem::path {
+		// Lexically normalize the path to remove redundant components
+		//return std::filesystem::lexically_normal(std::filesystem::absolute(p));
+		return std::filesystem::weakly_canonical(p).lexically_normal();
+	};
+
+	// Normalize both paths to absolute form and resolve . and ..
+	std::filesystem::path container_norm = normalize_path(container);
+	std::filesystem::path contained_norm = normalize_path(contained);
+
+	// Handle empty path edge cases
+	if (container_norm.empty()) return contained_norm.empty();
+	if (contained_norm.empty()) return false;
+
+	// Use iterators to compare path components
+	auto container_it = container_norm.begin();
+	auto contained_it = contained_norm.begin();
+
+	// Iterate through components of the container path
+	for (; container_it != container_norm.end(); ++container_it) {
+		// If contained path has fewer components, it can't be a subpath
+		if (contained_it == contained_norm.end()) return false;
+
+		// Compare components using native filesystem case sensitivity
+		if (*container_it != *contained_it) return false;
+
+		++contained_it;
+	}
+
+	// All container components matched, and contained has extra components
+	return contained_it != contained_norm.end();
+}
+
 template<typename TOptions = options_t<> >
 inline CFilteringResult evaluate_filtering_by_full_path_name(const std::string &full_path_name_str, std::optional<CModifiablePathInfo> maybe_specified_modifiable_path_info = {}) {
 	CFilteringResult retval;
-
-	auto second_is_a_subpath_of_first = [](std::filesystem::path const& container, std::filesystem::path const& contained) -> bool {
-		if ((!std::filesystem::exists(container)) || (!std::filesystem::exists(contained))) {
-			return false;
-		}
-
-		// partially ai generated lambda
-
-		auto normalize_path = [](std::filesystem::path p) -> std::filesystem::path {
-			// Lexically normalize the path to remove redundant components
-			//return std::filesystem::lexically_normal(std::filesystem::absolute(p));
-			return std::filesystem::weakly_canonical(p).lexically_normal();
-		};
-
-		// Normalize both paths to absolute form and resolve . and ..
-		std::filesystem::path container_norm = normalize_path(container);
-		std::filesystem::path contained_norm = normalize_path(contained);
-
-		// Handle empty path edge cases
-		if (container_norm.empty()) return contained_norm.empty();
-		if (contained_norm.empty()) return false;
-
-		// Use iterators to compare path components
-		auto container_it = container_norm.begin();
-		auto contained_it = contained_norm.begin();
-
-		// Iterate through components of the container path
-		for (; container_it != container_norm.end(); ++container_it) {
-			// If contained path has fewer components, it can't be a subpath
-			if (contained_it == contained_norm.end()) return false;
-
-			// Compare components using native filesystem case sensitivity
-			if (*container_it != *contained_it) return false;
-
-			++contained_it;
-		}
-
-		// All container components matched, and contained has extra components
-		return contained_it != contained_norm.end();
-	};
 
 	auto get_filename = [](std::filesystem::path const& full_path_name) {
 		return full_path_name.filename();
@@ -483,10 +483,36 @@ inline CFilteringResultByLocation evaluate_filtering_by_location(const clang::So
 		retval.m_suppress_errors = true;
 	} else {
 		bool filename_is_invalid = false;
-		auto full_path_name = get_full_path_name(SM, SL, &filename_is_invalid);
-		if (SM.isInSystemHeader(SL)) {
+		auto full_path_name_str = get_full_path_name(SM, SL, &filename_is_invalid);
+		bool is_effectively_a_system_header = SM.isInSystemHeader(SL);
+		if (is_effectively_a_system_header && maybe_specified_modifiable_path_info.has_value()) {
+			/* We've observed that, for example, in a project that used its own (local) version of `stdlib.h`, 
+			clang::SourceManager::isInSystemHeader() would identify that local version of `stdlib.h` as a system 
+			header, and so presumably "filtered out" (as "unmodifiable"). It's not immediately obvious whether this 
+			is necessarily always the behavior we want. For now we're we'll make it such that if such a file is in a 
+			path that has been specifically designated as "modifiable" (and not in a path that has been designated 
+			as "unmodifiable"), then we will consider it as not a system header. */
+			auto const& modifiable_path_info = maybe_specified_modifiable_path_info.value();
+
+			bool is_in_unmodifiable_path = false;
+			for (auto const& unmodifiable_path : modifiable_path_info.unmodifiable_paths()) {
+				if (second_is_a_subpath_of_first(unmodifiable_path, full_path_name_str)) {
+					is_in_unmodifiable_path = true;
+					break;
+				}
+			}
+			if ((!is_in_unmodifiable_path) && (1 <= modifiable_path_info.modifiable_paths().size())) {
+				for (auto const& modifiable_path : modifiable_path_info.modifiable_paths()) {
+					if (second_is_a_subpath_of_first(modifiable_path, full_path_name_str)) {
+						is_effectively_a_system_header = false;
+						break;
+					}
+				}
+			}
+		}
+		if (is_effectively_a_system_header) {
 			static const std::string algorithm_str = "algorithm";
-			std::string filename/* = get_filename(full_path_name)*/;
+			std::string filename/* = get_filename(full_path_name_str)*/;
 			if (false && (algorithm_str == filename)) {
 				retval.m_do_not_process = false;
 				retval.m_suppress_errors = false;
@@ -499,7 +525,7 @@ inline CFilteringResultByLocation evaluate_filtering_by_location(const clang::So
 			retval.m_do_not_process = true;
 		*/
 		} else {
-			auto res1 = evaluate_filtering_by_full_path_name<TOptions>(full_path_name, maybe_specified_modifiable_path_info);
+			auto res1 = evaluate_filtering_by_full_path_name<TOptions>(full_path_name_str, maybe_specified_modifiable_path_info);
 			retval.m_do_not_process = res1.m_do_not_process;
 			retval.m_suppress_errors = res1.m_suppress_errors;
 		}
