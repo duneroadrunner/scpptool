@@ -1947,6 +1947,19 @@ namespace convc2validcpp {
 		CTUState& m_state1;
 	};
 
+	inline bool location_seems_to_be_in_a_header_file(clang::SourceLocation SL, clang::SourceManager& SM) {
+		bool retval = false;
+		auto decl_filename = get_filename(get_full_path_name(SM, SL));
+		if (string_ends_with(decl_filename, ".h") || string_ends_with(decl_filename, ".hpp")) {
+			return true;
+		}
+		return retval;
+	}
+	inline bool location_seems_to_be_in_a_header_file(clang::SourceLocation SL, Rewriter& Rewrite) {
+		auto& SM = Rewrite.getSourceMgr();
+		return location_seems_to_be_in_a_header_file(SL, SM);
+	}
+
 	class CDDeclConversionState {
 	public:
 		CDDeclConversionState(const clang::DeclaratorDecl& ddecl, Rewriter* Rewrite_ptr = nullptr, CTUState* state1_ptr = nullptr, bool function_return_value_only = false) : m_ddecl_cptr(&ddecl) {
@@ -7071,6 +7084,7 @@ namespace convc2validcpp {
 		bool m_seems_to_involve_a_template_param_or_nonmodifiable_type_originally = false;
 		std::string m_tparam_or_nonmodifiable_type_that_encompasses_the_direct_type_str;
 		std::string m_complete_type_str;
+		std::string m_return_type_str;
 	};
 
 	class CDeclarationReplacementCodeItem {
@@ -7157,7 +7171,7 @@ namespace convc2validcpp {
 
 	struct do_not_exclude_functions_with_conversions_t {};
 	template<typename TOptions = options_t<> >
-	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1, clang::Expr const* E = nullptr);
+	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1, clang::Expr const* E = nullptr, bool function_return_value_only = false);
 
 	/* If given a non-null state1_ptr argument, this function will modify the source text to reflect
 	any currently indicated changes to the declaration. In any case, it will return an information
@@ -7165,6 +7179,8 @@ namespace convc2validcpp {
 	static CTypeIndirectionPrefixAndSuffixItem type_indirection_prefix_and_suffix_modifier_and_code_generator(CIndirectionStateStack& indirection_state_stack,
 			Rewriter &Rewrite, EIsFunctionParam is_a_function_parameter_enum, std::optional<clang::StorageDuration> maybe_storage_duration = {}
 			, ESuppressModifications suppress_modifications_enum = ESuppressModifications::No, CTUState* state1_ptr = nullptr) {
+		THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
 		CTypeIndirectionPrefixAndSuffixItem retval;
 
 		IF_DEBUG(std::string debug_source_location_str2;)
@@ -7235,9 +7251,9 @@ namespace convc2validcpp {
 				maybe_tparam_usage_info = seems_to_contain_an_instantiation_of_a_template_parameter(*DD, type_original_source_text, Rewrite, state1_ptr);
 
 				auto VD = dyn_cast<const clang::VarDecl>(DD);
-				 if (VD) {
+				if (VD) {
 					has_external_storage = VD->hasExternalStorage();
-				 }
+				}
 
 				if ("" == direct_type_original_qtype_str) {
 					auto maybe_typeLoc = typeLoc_if_available(*DD);
@@ -7495,8 +7511,230 @@ namespace convc2validcpp {
 					//suffix_str = indirection_state_ref.current_params_string() + suffix_str;
 				}
 
-				if (indirection_state_ref.is_known_to_be_used_as_an_iterator() || is_char_star) {
-					if (indirection_state_ref.is_known_to_have_malloc_target() && (!indirection_state_ref.is_known_to_have_non_malloc_target())) {
+				if (true) {
+					if ((indirection_state_ref.m_maybe_original_qtype.has_value() && indirection_state_ref.m_maybe_original_qtype.value()->isPointerType()) 
+						|| (!(indirection_state_ref.m_maybe_original_qtype.has_value()) && ("native pointer" == indirection_state_ref.current_species()))) {
+
+						suffix_str = "* ";
+						retval.m_action_species = "native pointer";
+					} else if ((indirection_state_ref.m_maybe_original_qtype.has_value() && indirection_state_ref.m_maybe_original_qtype.value()->isArrayType()) 
+						|| (!(indirection_state_ref.m_maybe_original_qtype.has_value()) && ("native array" == indirection_state_ref.current_species()))) {
+
+						retval.m_action_species = "native array";
+					} else {
+						int q = 5;
+					}
+				} else {
+					if (indirection_state_ref.is_known_to_be_used_as_an_iterator() || is_char_star) {
+						if (indirection_state_ref.is_known_to_have_malloc_target() && (!indirection_state_ref.is_known_to_have_non_malloc_target())) {
+							if (false && is_char_star) {
+								/* We're assuming this is a null terminated string. We'll just leave it as a
+								* char* for now. At some point we'll replace it with an mse::string or whatever. */
+								suffix_str = "* ";
+								retval.m_action_species = "char*";
+							} else if (is_FILE_star) {
+								/* We'll just leave it as a FILE* for now. */
+								suffix_str = "* ";
+								retval.m_action_species = "FILE*";
+							} else if (is_other_untranslatable_indirect_type) {
+								/* We'll just leave it as a native pointer. */
+								suffix_str = "* ";
+								retval.m_action_species = "other_untranslatable_indirect_type";
+							} else if (is_void_star && (!seems_to_involve_a_template_param_originally)) {
+								/* In the case of "void*" we're going to effectively "remove" one level of indirection
+								by making it a "transparent"/"pass-through"/"no-op" indirection, and replacing the
+								direct type (i.e. "void") with a type that replaces "void*" (i.e. the "void" and its
+								indirection). */
+								l_changed_from_original = true;
+								prefix_str = "";
+								suffix_str = " ";
+
+								/* This "void*" might actually be a function with a return value of "void*", in which
+								case the direct type should be a function type that includes its parameters. */
+								std::string params_str;
+								if (indirection_state_ref.current_is_function_type()) {
+									clang::FunctionProtoTypeLoc functionProtoTypeLoc;
+									if (indirection_state_ref.m_maybe_typeLoc.has_value()) {
+										functionProtoTypeLoc = definition_TypeLoc(indirection_state_ref.m_maybe_typeLoc.value()).getAsAdjusted<clang::FunctionProtoTypeLoc>();
+									}
+
+									params_str = current_params_string(Rewrite, indirection_state_ref.m_function_type_state
+										, functionProtoTypeLoc, suppress_modifications, state1_ptr);
+								}
+
+								std::string new_qtype_str;
+								if ("Dual" == ConvertMode) {
+									new_qtype_str = og_direct_type_was_const_void_type ? "MSE_LH_CONST_VOID_STAR " : "MSE_LH_VOID_STAR ";
+								} else {
+									new_qtype_str = og_direct_type_was_const_void_type ? "mse::lh::const_void_star_replacement " : "mse::lh::void_star_replacement ";
+								}
+								if (params_str.empty()) {
+									direct_type_state_ref.set_current_non_function_qtype_str(new_qtype_str);
+								} else {
+									direct_type_state_ref.set_current_function_qtype_str(new_qtype_str , params_str);
+								}
+								retval.m_action_species = "void*";
+							} else {
+								if (is_innermost_indirection) {
+									//retval.m_direct_type_must_be_non_const = true;
+								}
+								if ("Dual" == ConvertMode) {
+									prefix_str = "MSE_LH_DYNAMIC_ARRAY_ITERATOR_TYPE(";
+									//prefix_str = "MSE_LH_ARRAY_ITERATOR_TYPE(";
+									suffix_str = ") ";
+								} else if ("FasterAndStricter" == ConvertMode) {
+									//prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
+									prefix_str = "mse::lh::TStrongVectorIterator<";
+									suffix_str = "> ";
+								} else {
+									prefix_str = "mse::lh::TStrongVectorIterator<";
+									//prefix_str = "mse::lh::TLHNullableAnyRandomAccessIterator<";
+									suffix_str = "> ";
+								}
+								if (is_a_function_parameter) {
+									retval.m_action_species = "native pointer parameter to DYNAMIC_ARRAY_ITERATOR_TYPE";
+								} else {
+									retval.m_action_species = "native pointer to DYNAMIC_ARRAY_ITERATOR_TYPE";
+								}
+							}
+						} else if (indirection_state_ref.is_known_to_have_non_malloc_target() && (!indirection_state_ref.is_known_to_have_malloc_target())) {
+							/* This is (likely) redundant as the prefix and suffix strings will be reassigned later
+							in this function with a potentially updated size_text. */
+
+							std::string size_text = indirection_state_ref.m_array_size_expr;
+
+							if (false && is_char_star) {
+								/* We're assuming this is a null terminated string. We'll just leave it as a
+								* char[] for now. At some point we'll replace it with an mse::string or whatever. */
+								if ((true) || (1 == indirection_state_stack.size())) {
+									post_name_suffix_str = "[" + size_text + "]";
+								} else {
+									assert(1 < indirection_state_stack.size());
+									//suffix_str = "[" + size_text + "]";
+									/* native array decays to pointer */
+									suffix_str = "* ";
+								}
+								retval.m_action_species = "char[]";
+							} else if(is_argv) {
+								suffix_str = "* ";
+								retval.m_action_species = "char** argv";
+							} else if (is_other_untranslatable_indirect_type) {
+								/* We'll just leave it as a native array. */
+								if ((true) || (1 == indirection_state_stack.size())) {
+									post_name_suffix_str = "[" + size_text + "]";
+								} else {
+									assert(1 < indirection_state_stack.size());
+									//suffix_str = "[" + size_text + "]";
+									/* native array decays to pointer */
+									suffix_str = "* ";
+								}
+								retval.m_action_species = "other_untranslatable_indirect_type";
+							} else {
+								l_changed_from_original = true;
+								if (is_a_function_parameter || (("native array" != indirection_state_ref.original_species()) && ((!has_external_storage) || ("" == size_text)))) {
+									if ("FasterAndStricter" == ConvertMode) {
+										prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
+										suffix_str = "> ";
+									} else {
+										if (indirection_state_ref.xscope_eligibility())
+										{
+											if ("Dual" == ConvertMode) {
+												prefix_str = "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(";
+												suffix_str = ") ";
+											} else {
+												prefix_str = "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<";
+												suffix_str = "> ";
+											}
+										} else {
+											if ("Dual" == ConvertMode) {
+												prefix_str = "MSE_LH_ARRAY_ITERATOR_TYPE(";
+												suffix_str = ") ";
+											} else {
+												prefix_str = "mse::lh::TLHNullableAnyRandomAccessIterator<";
+												suffix_str = "> ";
+											}
+										}
+									}
+									retval.m_action_species = "native array parameter to MSE_LH_ARRAY_ITERATOR_TYPE";
+								} else {
+									if (is_innermost_indirection) {
+										//retval.m_direct_type_must_be_non_const = true;
+									}
+
+									if ("Dual" == ConvertMode) {
+										prefix_str = "MSE_LH_FIXED_ARRAY_TYPE_PREFIX ";
+										suffix_str = " MSE_LH_FIXED_ARRAY_TYPE_SUFFIX(" + size_text + ") ";
+										post_name_suffix_str = " MSE_LH_FIXED_ARRAY_TYPE_POST_NAME_SUFFIX(" + size_text + ")";
+									} else if ("FasterAndStricter" == ConvertMode) {
+										prefix_str = "mse::TXScopeObj<mse::nii_array<";
+										suffix_str = ", " + size_text + "> > ";
+									} else {
+										prefix_str = "mse::lh::TNativeArrayReplacement<";
+										suffix_str = ", " + size_text + "> ";
+									}
+
+									retval.m_action_species = "native array to MSE_LH_FIXED_ARRAY_TYPE";
+									if (is_outermost_indirection) {
+										retval.m_just_a_native_array = true;
+										retval.m_native_array_size_text = size_text;
+									}
+								}
+							}
+						} else {
+							if (false && is_char_star) {
+								/* We're assuming this is a null terminated string. We'll just leave it as a
+								* char* for now. At some point we'll replace it with an mse::string or whatever. */
+								suffix_str = "* ";
+								retval.m_action_species = "char*";
+							} else if (is_FILE_star) {
+								/* We'll just leave it as a FILE* for now. */
+								suffix_str = "* ";
+								retval.m_action_species = "FILE*";
+							} else if (is_other_untranslatable_indirect_type) {
+								/* We'll just leave it as a native pointer. */
+								suffix_str = "* ";
+								retval.m_action_species = "other_untranslatable_indirect_type";
+							} else if(is_argv) {
+								suffix_str = "* ";
+								retval.m_action_species = "char** argv";
+							} else {
+								if (is_innermost_indirection) {
+									//retval.m_direct_type_must_be_non_const = true;
+								}
+								if ("FasterAndStricter" == ConvertMode) {
+									prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
+									suffix_str = "> ";
+								} else {
+									if (is_void_star) {
+										std::string new_qtype_str;
+										if ("Dual" == ConvertMode) {
+											new_qtype_str = og_direct_type_was_const_void_type ? "MSE_LH_CONST_VOID_STAR " : "MSE_LH_VOID_STAR ";
+										} else {
+											new_qtype_str = og_direct_type_was_const_void_type ? "mse::lh::const_void_star_replacement " : "mse::lh::void_star_replacement ";
+										}
+										direct_type_state_ref.set_current_non_function_qtype_str(new_qtype_str);
+									} else if (indirection_state_ref.xscope_eligibility()) {
+										if ("Dual" == ConvertMode) {
+											prefix_str = "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(";
+											suffix_str = ") ";
+										} else {
+											prefix_str = "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<";
+											suffix_str = "> ";
+										}
+									} else {
+										if ("Dual" == ConvertMode) {
+											prefix_str = "MSE_LH_ARRAY_ITERATOR_TYPE(";
+											suffix_str = ") ";
+										} else {
+											prefix_str = "mse::lh::TLHNullableAnyRandomAccessIterator<";
+											suffix_str = "> ";
+										}
+									}
+								}
+								retval.m_action_species = "native pointer to MSE_LH_ARRAY_ITERATOR_TYPE";
+							}
+						}
+					} else if (indirection_state_ref.is_a_pointer_that_has_not_been_determined_to_be_an_array()) {
 						if (false && is_char_star) {
 							/* We're assuming this is a null terminated string. We'll just leave it as a
 							* char* for now. At some point we'll replace it with an mse::string or whatever. */
@@ -7544,113 +7782,101 @@ namespace convc2validcpp {
 								direct_type_state_ref.set_current_function_qtype_str(new_qtype_str , params_str);
 							}
 							retval.m_action_species = "void*";
-						} else {
-							if (is_innermost_indirection) {
-								//retval.m_direct_type_must_be_non_const = true;
-							}
-							if ("Dual" == ConvertMode) {
-								prefix_str = "MSE_LH_DYNAMIC_ARRAY_ITERATOR_TYPE(";
-								//prefix_str = "MSE_LH_ARRAY_ITERATOR_TYPE(";
-								suffix_str = ") ";
-							} else if ("FasterAndStricter" == ConvertMode) {
-								//prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
-								prefix_str = "mse::lh::TStrongVectorIterator<";
-								suffix_str = "> ";
-							} else {
-								prefix_str = "mse::lh::TStrongVectorIterator<";
-								//prefix_str = "mse::lh::TLHNullableAnyRandomAccessIterator<";
-								suffix_str = "> ";
-							}
-							if (is_a_function_parameter) {
-								retval.m_action_species = "native pointer parameter to DYNAMIC_ARRAY_ITERATOR_TYPE";
-							} else {
-								retval.m_action_species = "native pointer to DYNAMIC_ARRAY_ITERATOR_TYPE";
-							}
-						}
-					} else if (indirection_state_ref.is_known_to_have_non_malloc_target() && (!indirection_state_ref.is_known_to_have_malloc_target())) {
-						/* This is (likely) redundant as the prefix and suffix strings will be reassigned later
-						in this function with a potentially updated size_text. */
-
-						std::string size_text = indirection_state_ref.m_array_size_expr;
-
-						if (false && is_char_star) {
-							/* We're assuming this is a null terminated string. We'll just leave it as a
-							* char[] for now. At some point we'll replace it with an mse::string or whatever. */
-							if ((true) || (1 == indirection_state_stack.size())) {
-								post_name_suffix_str = "[" + size_text + "]";
-							} else {
-								assert(1 < indirection_state_stack.size());
-								//suffix_str = "[" + size_text + "]";
-								/* native array decays to pointer */
-								suffix_str = "* ";
-							}
-							retval.m_action_species = "char[]";
-						} else if(is_argv) {
-							suffix_str = "* ";
-							retval.m_action_species = "char** argv";
-						} else if (is_other_untranslatable_indirect_type) {
-							/* We'll just leave it as a native array. */
-							if ((true) || (1 == indirection_state_stack.size())) {
-								post_name_suffix_str = "[" + size_text + "]";
-							} else {
-								assert(1 < indirection_state_stack.size());
-								//suffix_str = "[" + size_text + "]";
-								/* native array decays to pointer */
-								suffix_str = "* ";
-							}
-							retval.m_action_species = "other_untranslatable_indirect_type";
-						} else {
+						} else if (is_function_pointer) {
 							l_changed_from_original = true;
-							if (is_a_function_parameter || (("native array" != indirection_state_ref.original_species()) && ((!has_external_storage) || ("" == size_text)))) {
+
+							auto& function_type_state_ref = ((i + 1) < indirection_state_stack.size())
+								? indirection_state_stack.at(i+1).m_function_type_state
+								: indirection_state_stack.m_direct_type_state.m_function_type_state;
+
+							clang::FunctionProtoTypeLoc functionProtoTypeLoc;
+
+							if (indirection_state_ref.m_maybe_typeLoc.has_value()) {
+								auto typeLoc = indirection_state_ref.m_maybe_typeLoc.value();
+								auto pointerTypeLoc = definition_TypeLoc(typeLoc).getAsAdjusted<clang::PointerTypeLoc>();
+								if (pointerTypeLoc) {
+									auto l_pointee_typeLoc = definition_TypeLoc(pointerTypeLoc.getPointeeLoc());
+
+									functionProtoTypeLoc = definition_TypeLoc(l_pointee_typeLoc).getAsAdjusted<clang::FunctionProtoTypeLoc>();
+								} else {
+									int q = 3;
+								}
+							}
+
+							std::string l_pointee_params_current_str;
+
+							/* In order to generate the text for the (potentially converted) parameter types we're going to pass 
+							function_type_state_ref to the current_params_string() function. */
+
+							bool FND_is_non_modifiable = false;
+							auto FND = function_type_state_ref.m_function_decl_ptr;
+							if (FND && state1_ptr && state1_ptr->m_ast_context_ptr) {
+								FND_is_non_modifiable = is_non_modifiable(*FND, *(state1_ptr->m_ast_context_ptr), Rewrite, *state1_ptr);
+							}
+
+							if (FND_is_non_modifiable) {
+								/* But if function_type_state_ref.m_function_decl_ptr is non-modifiable, then the current_params_string() 
+								function would generate text of the parameter types as if the parameters were not converted to safe types, 
+								which at one point might have been what we wanted, but now, pointers to unmodifiable functions that get 
+								assigned to (modifiable) function pointer variables should get wrapped in a function that generates a safe 
+								wrapper function on the fly. So we'll instead use a version of the function_type_state_ref that has its 
+								m_function_decl_ptr member set to null, causing the current_params_string() function to generate parameter 
+								types with default safe conversions. */
+								/* Actually, we now avoid assigning pointers to non-modifiable functions to the m_function_decl_ptr member, 
+								so we should no longer arrive at this branch. */
+								auto function_type_state2 = function_type_state_ref;
+								function_type_state2.m_function_decl_ptr = nullptr;
+								l_pointee_params_current_str = current_params_string(Rewrite, function_type_state2, functionProtoTypeLoc, suppress_modifications, state1_ptr);
+							} else {
+								l_pointee_params_current_str = current_params_string(Rewrite, function_type_state_ref, functionProtoTypeLoc, suppress_modifications, state1_ptr);;
+							}
+
+							if (true && ("Dual" == ConvertMode)) {
+								prefix_str = "MSE_LH_FUNCTION_POINTER_TYPE_PREFIX ";
+								suffix_str = " MSE_LH_FUNCTION_POINTER_TYPE_SUFFIX(" + l_pointee_params_current_str + ") ";
+								post_name_suffix_str = " MSE_LH_FUNCTION_POINTER_TYPE_POST_NAME_SUFFIX(" + l_pointee_params_current_str + ")";
+							} else {
+								prefix_str = "mse::lh::TNativeFunctionPointerReplacement<";
+								suffix_str = l_pointee_params_current_str + "> ";
+							}
+							retval.m_action_species = "function pointer to mse::lh::TNativeFunctionPointerReplacement";
+						} else {
+							if (true/*for now*/) {
+								l_changed_from_original = true;
+
 								if ("FasterAndStricter" == ConvertMode) {
-									prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
+									prefix_str = "mse::TXScopeAnyPointer<";
 									suffix_str = "> ";
 								} else {
 									if (indirection_state_ref.xscope_eligibility())
 									{
 										if ("Dual" == ConvertMode) {
-											prefix_str = "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(";
+											prefix_str = "MSE_LH_LOCAL_VAR_ONLY_POINTER_TYPE(";
 											suffix_str = ") ";
 										} else {
-											prefix_str = "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<";
+											prefix_str = "mse::lh::TXScopeLHNullableAnyPointer<";
 											suffix_str = "> ";
 										}
 									} else {
 										if ("Dual" == ConvertMode) {
-											prefix_str = "MSE_LH_ARRAY_ITERATOR_TYPE(";
+											prefix_str = "MSE_LH_POINTER_TYPE(";
 											suffix_str = ") ";
 										} else {
-											prefix_str = "mse::lh::TLHNullableAnyRandomAccessIterator<";
+											prefix_str = "mse::lh::TLHNullableAnyPointer<";
 											suffix_str = "> ";
 										}
 									}
 								}
-								retval.m_action_species = "native array parameter to MSE_LH_ARRAY_ITERATOR_TYPE";
+
+								retval.m_action_species = "native pointer to TAnyPointer";
 							} else {
-								if (is_innermost_indirection) {
-									//retval.m_direct_type_must_be_non_const = true;
-								}
-
-								if ("Dual" == ConvertMode) {
-									prefix_str = "MSE_LH_FIXED_ARRAY_TYPE_PREFIX ";
-									suffix_str = " MSE_LH_FIXED_ARRAY_TYPE_SUFFIX(" + size_text + ") ";
-									post_name_suffix_str = " MSE_LH_FIXED_ARRAY_TYPE_POST_NAME_SUFFIX(" + size_text + ")";
-								} else if ("FasterAndStricter" == ConvertMode) {
-									prefix_str = "mse::TXScopeObj<mse::nii_array<";
-									suffix_str = ", " + size_text + "> > ";
-								} else {
-									prefix_str = "mse::lh::TNativeArrayReplacement<";
-									suffix_str = ", " + size_text + "> ";
-								}
-
-								retval.m_action_species = "native array to MSE_LH_FIXED_ARRAY_TYPE";
-								if (1 == indirection_state_stack.size()) {
-									retval.m_just_a_native_array = true;
-									retval.m_native_array_size_text = size_text;
-								}
+								//prefix_str = "";
+								suffix_str = "* ";
+								retval.m_action_species = "native pointer";
 							}
 						}
-					} else {
+					} else if (false && ("malloc target" == indirection_state_ref.current_species())) {
+						assert(false);
 						if (false && is_char_star) {
 							/* We're assuming this is a null terminated string. We'll just leave it as a
 							* char* for now. At some point we'll replace it with an mse::string or whatever. */
@@ -7664,236 +7890,67 @@ namespace convc2validcpp {
 							/* We'll just leave it as a native pointer. */
 							suffix_str = "* ";
 							retval.m_action_species = "other_untranslatable_indirect_type";
-						} else if(is_argv) {
-							suffix_str = "* ";
-							retval.m_action_species = "char** argv";
-						} else {
-							if (is_innermost_indirection) {
-								//retval.m_direct_type_must_be_non_const = true;
-							}
-							if ("FasterAndStricter" == ConvertMode) {
-								prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
-								suffix_str = "> ";
-							} else {
-								if (is_void_star) {
-									std::string new_qtype_str;
-									if ("Dual" == ConvertMode) {
-										new_qtype_str = og_direct_type_was_const_void_type ? "MSE_LH_CONST_VOID_STAR " : "MSE_LH_VOID_STAR ";
-									} else {
-										new_qtype_str = og_direct_type_was_const_void_type ? "mse::lh::const_void_star_replacement " : "mse::lh::void_star_replacement ";
-									}
-									direct_type_state_ref.set_current_non_function_qtype_str(new_qtype_str);
-								} else if (indirection_state_ref.xscope_eligibility()) {
-									if ("Dual" == ConvertMode) {
-										prefix_str = "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(";
-										suffix_str = ") ";
-									} else {
-										prefix_str = "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<";
-										suffix_str = "> ";
-									}
-								} else {
-									if ("Dual" == ConvertMode) {
-										prefix_str = "MSE_LH_ARRAY_ITERATOR_TYPE(";
-										suffix_str = ") ";
-									} else {
-										prefix_str = "mse::lh::TLHNullableAnyRandomAccessIterator<";
-										suffix_str = "> ";
-									}
-								}
-							}
-							retval.m_action_species = "native pointer to MSE_LH_ARRAY_ITERATOR_TYPE";
-						}
-					}
-				} else if (indirection_state_ref.is_a_pointer_that_has_not_been_determined_to_be_an_array()) {
-					if (false && is_char_star) {
-						/* We're assuming this is a null terminated string. We'll just leave it as a
-						* char* for now. At some point we'll replace it with an mse::string or whatever. */
-						suffix_str = "* ";
-						retval.m_action_species = "char*";
-					} else if (is_FILE_star) {
-						/* We'll just leave it as a FILE* for now. */
-						suffix_str = "* ";
-						retval.m_action_species = "FILE*";
-					} else if (is_other_untranslatable_indirect_type) {
-						/* We'll just leave it as a native pointer. */
-						suffix_str = "* ";
-						retval.m_action_species = "other_untranslatable_indirect_type";
-					} else if (is_void_star && (!seems_to_involve_a_template_param_originally)) {
-						/* In the case of "void*" we're going to effectively "remove" one level of indirection
-						by making it a "transparent"/"pass-through"/"no-op" indirection, and replacing the
-						direct type (i.e. "void") with a type that replaces "void*" (i.e. the "void" and its
-						indirection). */
-						l_changed_from_original = true;
-						prefix_str = "";
-						suffix_str = " ";
-
-						/* This "void*" might actually be a function with a return value of "void*", in which
-						case the direct type should be a function type that includes its parameters. */
-						std::string params_str;
-						if (indirection_state_ref.current_is_function_type()) {
-							clang::FunctionProtoTypeLoc functionProtoTypeLoc;
-							if (indirection_state_ref.m_maybe_typeLoc.has_value()) {
-								functionProtoTypeLoc = definition_TypeLoc(indirection_state_ref.m_maybe_typeLoc.value()).getAsAdjusted<clang::FunctionProtoTypeLoc>();
-							}
-
-							params_str = current_params_string(Rewrite, indirection_state_ref.m_function_type_state
-								, functionProtoTypeLoc, suppress_modifications, state1_ptr);
-						}
-
-						std::string new_qtype_str;
-						if ("Dual" == ConvertMode) {
-							new_qtype_str = og_direct_type_was_const_void_type ? "MSE_LH_CONST_VOID_STAR " : "MSE_LH_VOID_STAR ";
-						} else {
-							new_qtype_str = og_direct_type_was_const_void_type ? "mse::lh::const_void_star_replacement " : "mse::lh::void_star_replacement ";
-						}
-						if (params_str.empty()) {
-							direct_type_state_ref.set_current_non_function_qtype_str(new_qtype_str);
-						} else {
-							direct_type_state_ref.set_current_function_qtype_str(new_qtype_str , params_str);
-						}
-						retval.m_action_species = "void*";
-					} else if (is_function_pointer) {
-						l_changed_from_original = true;
-
-						auto& function_type_state_ref = ((i + 1) < indirection_state_stack.size())
-							? indirection_state_stack.at(i+1).m_function_type_state
-							: indirection_state_stack.m_direct_type_state.m_function_type_state;
-
-						clang::FunctionProtoTypeLoc functionProtoTypeLoc;
-
-						if (indirection_state_ref.m_maybe_typeLoc.has_value()) {
-							auto typeLoc = indirection_state_ref.m_maybe_typeLoc.value();
-							auto pointerTypeLoc = definition_TypeLoc(typeLoc).getAsAdjusted<clang::PointerTypeLoc>();
-							if (pointerTypeLoc) {
-								auto l_pointee_typeLoc = definition_TypeLoc(pointerTypeLoc.getPointeeLoc());
-
-								functionProtoTypeLoc = definition_TypeLoc(l_pointee_typeLoc).getAsAdjusted<clang::FunctionProtoTypeLoc>();
-							} else {
-								int q = 3;
-							}
-						}
-
-						std::string l_pointee_params_current_str = current_params_string(Rewrite, function_type_state_ref, functionProtoTypeLoc, suppress_modifications, state1_ptr);
-
-						if (true && ("Dual" == ConvertMode)) {
-							prefix_str = "MSE_LH_FUNCTION_POINTER_TYPE_PREFIX ";
-							suffix_str = " MSE_LH_FUNCTION_POINTER_TYPE_SUFFIX(" + l_pointee_params_current_str + ") ";
-							post_name_suffix_str = " MSE_LH_FUNCTION_POINTER_TYPE_POST_NAME_SUFFIX(" + l_pointee_params_current_str + ")";
-						} else {
-							prefix_str = "mse::lh::TNativeFunctionPointerReplacement<";
-							suffix_str = l_pointee_params_current_str + "> ";
-						}
-						retval.m_action_species = "function pointer to mse::lh::TNativeFunctionPointerReplacement";
-					} else {
-						if (true/*for now*/) {
+						} else if (is_void_star && (!seems_to_involve_a_template_param_originally)) {
+							/* In the case of "void*" we're going to effectively "remove" one level of indirection
+							by making it a "transparent"/"pass-through"/"no-op" indirection, and replacing the
+							direct type (i.e. "void") with a type that replaces "void*" (i.e. the "void" and its
+							indirection). */
 							l_changed_from_original = true;
+							prefix_str = "";
+							suffix_str = " ";
 
-							if ("FasterAndStricter" == ConvertMode) {
-								prefix_str = "mse::TXScopeAnyPointer<";
-								suffix_str = "> ";
-							} else {
-								if (indirection_state_ref.xscope_eligibility())
-								{
-									if ("Dual" == ConvertMode) {
-										prefix_str = "MSE_LH_LOCAL_VAR_ONLY_POINTER_TYPE(";
-										suffix_str = ") ";
-									} else {
-										prefix_str = "mse::lh::TXScopeLHNullableAnyPointer<";
-										suffix_str = "> ";
-									}
-								} else {
-									if ("Dual" == ConvertMode) {
-										prefix_str = "MSE_LH_POINTER_TYPE(";
-										suffix_str = ") ";
-									} else {
-										prefix_str = "mse::lh::TLHNullableAnyPointer<";
-										suffix_str = "> ";
-									}
+							/* This "void*" might actually be a function with a return value of "void*", in which
+							case the direct type should be a function type that includes its parameters. */
+							std::string params_str;
+							if (indirection_state_ref.current_is_function_type()) {
+								clang::FunctionProtoTypeLoc functionProtoTypeLoc;
+								if (indirection_state_ref.m_maybe_typeLoc.has_value()) {
+									functionProtoTypeLoc = definition_TypeLoc(indirection_state_ref.m_maybe_typeLoc.value()).getAsAdjusted<clang::FunctionProtoTypeLoc>();
 								}
+
+								params_str = current_params_string(Rewrite, indirection_state_ref.m_function_type_state
+									, functionProtoTypeLoc, suppress_modifications, state1_ptr);
 							}
 
-							retval.m_action_species = "native pointer to TAnyPointer";
-						} else {
-							//prefix_str = "";
-							suffix_str = "* ";
-							retval.m_action_species = "native pointer";
-						}
-					}
-				} else if (false && ("malloc target" == indirection_state_ref.current_species())) {
-					assert(false);
-					if (false && is_char_star) {
-						/* We're assuming this is a null terminated string. We'll just leave it as a
-						* char* for now. At some point we'll replace it with an mse::string or whatever. */
-						suffix_str = "* ";
-						retval.m_action_species = "char*";
-					} else if (is_FILE_star) {
-						/* We'll just leave it as a FILE* for now. */
-						suffix_str = "* ";
-						retval.m_action_species = "FILE*";
-					} else if (is_other_untranslatable_indirect_type) {
-						/* We'll just leave it as a native pointer. */
-						suffix_str = "* ";
-						retval.m_action_species = "other_untranslatable_indirect_type";
-					} else if (is_void_star && (!seems_to_involve_a_template_param_originally)) {
-						/* In the case of "void*" we're going to effectively "remove" one level of indirection
-						by making it a "transparent"/"pass-through"/"no-op" indirection, and replacing the
-						direct type (i.e. "void") with a type that replaces "void*" (i.e. the "void" and its
-						indirection). */
-						l_changed_from_original = true;
-						prefix_str = "";
-						suffix_str = " ";
-
-						/* This "void*" might actually be a function with a return value of "void*", in which
-						case the direct type should be a function type that includes its parameters. */
-						std::string params_str;
-						if (indirection_state_ref.current_is_function_type()) {
-							clang::FunctionProtoTypeLoc functionProtoTypeLoc;
-							if (indirection_state_ref.m_maybe_typeLoc.has_value()) {
-								functionProtoTypeLoc = definition_TypeLoc(indirection_state_ref.m_maybe_typeLoc.value()).getAsAdjusted<clang::FunctionProtoTypeLoc>();
-							}
-
-							params_str = current_params_string(Rewrite, indirection_state_ref.m_function_type_state
-								, functionProtoTypeLoc, suppress_modifications, state1_ptr);
-						}
-
-						std::string new_qtype_str;
-						if ("Dual" == ConvertMode) {
-							new_qtype_str = "MSE_LH_VOID_STAR ";
-						} else {
-							new_qtype_str = "mse::lh::void_star_replacement ";
-						}
-						if (params_str.empty()) {
-							direct_type_state_ref.set_current_non_function_qtype_str(new_qtype_str);
-						} else {
-							direct_type_state_ref.set_current_function_qtype_str(new_qtype_str , params_str);
-						}
-						retval.m_action_species = "void*";
-					} else {
-						{
+							std::string new_qtype_str;
 							if ("Dual" == ConvertMode) {
-								//prefix_str = "MSE_LH_ALLOC_POINTER_TYPE(";
-								prefix_str = "MSE_LH_POINTER_TYPE(";
-								suffix_str = ") ";
-							} else if ("FasterAndStricter" == ConvertMode) {
-								prefix_str = "mse::TRefCountingPointer<";
-								suffix_str = "> ";
+								new_qtype_str = "MSE_LH_VOID_STAR ";
 							} else {
-								prefix_str = "mse::lh::TLHNullableAnyPointer<";
-								suffix_str = "> ";
+								new_qtype_str = "mse::lh::void_star_replacement ";
 							}
+							if (params_str.empty()) {
+								direct_type_state_ref.set_current_non_function_qtype_str(new_qtype_str);
+							} else {
+								direct_type_state_ref.set_current_function_qtype_str(new_qtype_str , params_str);
+							}
+							retval.m_action_species = "void*";
+						} else {
+							{
+								if ("Dual" == ConvertMode) {
+									//prefix_str = "MSE_LH_ALLOC_POINTER_TYPE(";
+									prefix_str = "MSE_LH_POINTER_TYPE(";
+									suffix_str = ") ";
+								} else if ("FasterAndStricter" == ConvertMode) {
+									prefix_str = "mse::TRefCountingPointer<";
+									suffix_str = "> ";
+								} else {
+									prefix_str = "mse::lh::TLHNullableAnyPointer<";
+									suffix_str = "> ";
+								}
 
-							retval.m_action_species = "malloc target to TAnyPointer";
+								retval.m_action_species = "malloc target to TAnyPointer";
+							}
 						}
+					} else if ("native reference" == indirection_state_ref.current_species()) {
+						{
+							l_changed_from_original = false;
+							//prefix_str = "";
+							suffix_str = "& ";
+							retval.m_action_species = "native reference";
+						}
+					} else {
+						int q = 5;
 					}
-				} else if ("native reference" == indirection_state_ref.current_species()) {
-					{
-						l_changed_from_original = false;
-						//prefix_str = "";
-						suffix_str = "& ";
-						retval.m_action_species = "native reference";
-					}
-				} else {
-					int q = 5;
 				}
 
 				auto pointee_maybe_typeLoc = ((i + 1) < indirection_state_stack.size())
@@ -8294,9 +8351,7 @@ namespace convc2validcpp {
 
 											std::string size_text = indirection_state_ref.m_array_size_expr;
 
-											if (false && is_char_star) {
-												/* We're assuming this is a null terminated string. We'll just leave it as a
-												* char[] for now. At some point we'll replace it with an mse::string or whatever. */
+											if (true) {
 												if ((true) || (1 == indirection_state_stack.size())) {
 													post_name_suffix_str = "[" + size_text + "]";
 												} else {
@@ -8305,70 +8360,83 @@ namespace convc2validcpp {
 													/* native array decays to pointer */
 													suffix_str = "* ";
 												}
-												retval.m_action_species = "char[]";
-											} else if (is_other_untranslatable_indirect_type) {
-												/* We'll just leave it as a native array. */
-												if ((true) || (1 == indirection_state_stack.size())) {
-													post_name_suffix_str = "[" + size_text + "]";
-												} else {
-													assert(1 < indirection_state_stack.size());
-													//suffix_str = "[" + size_text + "]";
-													/* native array decays to pointer */
-													suffix_str = "* ";
-												}
-												retval.m_action_species = "other_untranslatable_indirect_type";
+												retval.m_action_species = "native array";
 											} else {
-												l_changed_from_original = true;
-												if (is_a_function_parameter || ("native array" != indirection_state_ref.original_species())) {
-													if ("FasterAndStricter" == ConvertMode) {
-														prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
-														suffix_str = "> ";
+												if (false && is_char_star) {
+													/* We're assuming this is a null terminated string. We'll just leave it as a
+													* char[] for now. At some point we'll replace it with an mse::string or whatever. */
+													if ((true) || (1 == indirection_state_stack.size())) {
+														post_name_suffix_str = "[" + size_text + "]";
 													} else {
-														if (indirection_state_ref.xscope_eligibility())
-														{
-															if ("Dual" == ConvertMode) {
-																prefix_str = "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(";
-																suffix_str = ") ";
-															} else {
-																prefix_str = "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<";
-																suffix_str = "> ";
-															}
+														assert(1 < indirection_state_stack.size());
+														//suffix_str = "[" + size_text + "]";
+														/* native array decays to pointer */
+														suffix_str = "* ";
+													}
+													retval.m_action_species = "char[]";
+												} else if (is_other_untranslatable_indirect_type) {
+													/* We'll just leave it as a native array. */
+													if ((true) || (1 == indirection_state_stack.size())) {
+														post_name_suffix_str = "[" + size_text + "]";
+													} else {
+														assert(1 < indirection_state_stack.size());
+														//suffix_str = "[" + size_text + "]";
+														/* native array decays to pointer */
+														suffix_str = "* ";
+													}
+													retval.m_action_species = "other_untranslatable_indirect_type";
+												} else {
+													l_changed_from_original = true;
+													if (is_a_function_parameter || ("native array" != indirection_state_ref.original_species())) {
+														if ("FasterAndStricter" == ConvertMode) {
+															prefix_str = "mse::TXScopeCSSSXSTERAIterator<";
+															suffix_str = "> ";
 														} else {
-															if ("Dual" == ConvertMode) {
-																prefix_str = "MSE_LH_ARRAY_ITERATOR_TYPE(";
-																suffix_str = ") ";
+															if (indirection_state_ref.xscope_eligibility())
+															{
+																if ("Dual" == ConvertMode) {
+																	prefix_str = "MSE_LH_LOCAL_VAR_ONLY_ARRAY_ITERATOR_TYPE(";
+																	suffix_str = ") ";
+																} else {
+																	prefix_str = "mse::lh::TXScopeLHNullableAnyRandomAccessIterator<";
+																	suffix_str = "> ";
+																}
 															} else {
-																prefix_str = "mse::lh::TLHNullableAnyRandomAccessIterator<";
-																suffix_str = "> ";
+																if ("Dual" == ConvertMode) {
+																	prefix_str = "MSE_LH_ARRAY_ITERATOR_TYPE(";
+																	suffix_str = ") ";
+																} else {
+																	prefix_str = "mse::lh::TLHNullableAnyRandomAccessIterator<";
+																	suffix_str = "> ";
+																}
 															}
 														}
-													}
-													retval.m_action_species = "native array parameter to MSE_LH_ARRAY_ITERATOR_TYPE";
-												} else {
-													if (is_innermost_indirection) {
-														//retval.m_direct_type_must_be_non_const = true;
-													}
-
-													if ("Dual" == ConvertMode) {
-														prefix_str = "MSE_LH_FIXED_ARRAY_TYPE_PREFIX ";
-														suffix_str = " MSE_LH_FIXED_ARRAY_TYPE_SUFFIX(" + size_text + ") ";
-														post_name_suffix_str = " MSE_LH_FIXED_ARRAY_TYPE_POST_NAME_SUFFIX(" + size_text + ")";
-													} else if ("FasterAndStricter" == ConvertMode) {
-														prefix_str = "mse::TXScopeObj<mse::nii_array<";
-														suffix_str = ", " + size_text + "> > ";
+														retval.m_action_species = "native array parameter to MSE_LH_ARRAY_ITERATOR_TYPE";
 													} else {
-														prefix_str = "mse::lh::TNativeArrayReplacement<";
-														suffix_str = ", " + size_text + "> ";
-													}
+														if (is_innermost_indirection) {
+															//retval.m_direct_type_must_be_non_const = true;
+														}
 
-													retval.m_action_species = "native array to MSE_LH_FIXED_ARRAY_TYPE";
-													if (1 == indirection_state_stack.size()) {
-														retval.m_just_a_native_array = true;
-														retval.m_native_array_size_text = size_text;
+														if ("Dual" == ConvertMode) {
+															prefix_str = "MSE_LH_FIXED_ARRAY_TYPE_PREFIX ";
+															suffix_str = " MSE_LH_FIXED_ARRAY_TYPE_SUFFIX(" + size_text + ") ";
+															post_name_suffix_str = " MSE_LH_FIXED_ARRAY_TYPE_POST_NAME_SUFFIX(" + size_text + ")";
+														} else if ("FasterAndStricter" == ConvertMode) {
+															prefix_str = "mse::TXScopeObj<mse::nii_array<";
+															suffix_str = ", " + size_text + "> > ";
+														} else {
+															prefix_str = "mse::lh::TNativeArrayReplacement<";
+															suffix_str = ", " + size_text + "> ";
+														}
+
+														retval.m_action_species = "native array to MSE_LH_FIXED_ARRAY_TYPE";
+														if (is_outermost_indirection) {
+															retval.m_just_a_native_array = true;
+															retval.m_native_array_size_text = size_text;
+														}
 													}
 												}
 											}
-
 										} else {
 											int q = 3;
 										}
@@ -8415,7 +8483,7 @@ namespace convc2validcpp {
 #define REGOBJ_TEST1_FLAG false
 
 					if (!is_argv) {
-						if ((REGOBJ_TEST1_FLAG
+						if (false && (REGOBJ_TEST1_FLAG
 								|| ((indirection_state_ref.is_known_to_be_a_pointer_target())
 									&& ("native pointer target" == indirection_state_ref.original_pointer_target_state()))
 							)
@@ -8428,7 +8496,7 @@ namespace convc2validcpp {
 							*/
 							) {
 
-							if ("native reference" != indirection_state_ref.current_species()) {
+							if (("native reference" != indirection_state_ref.current_species()) && ("native array" != indirection_state_ref.current_species())) {
 								if ("Dual" == ConvertMode) {
 									prefix_str = "MSE_LH_ADDRESSABLE_TYPE(" + prefix_str;
 									suffix_str = suffix_str + ")";
@@ -8574,7 +8642,12 @@ namespace convc2validcpp {
 			}
 		}
 
-		retval.m_complete_type_str = retval.m_prefix_str + direct_qtype_str + retval.m_suffix_str;
+		retval.m_complete_type_str = retval.m_prefix_str + direct_qtype_str + retval.m_suffix_str + retval.m_post_name_suffix_str;
+		retval.m_return_type_str = retval.m_prefix_str + direct_qtype_str + retval.m_suffix_str;
+		if (string_begins_with(retval.m_post_name_suffix_str, "[")) {
+			/* The post-name suffix seems to be the size expression of an array, not the parameter list of a function. */
+			retval.m_return_type_str += retval.m_post_name_suffix_str;
+		}
 
 		return retval;
 	}
@@ -8595,11 +8668,12 @@ namespace convc2validcpp {
 		return type_indirection_prefix_and_suffix_modifier_and_code_generator(indirection_state_stack, Rewrite, is_a_function_parameter, maybe_storage_duration, ESuppressModifications::Yes, state1_ptr);
 	}
 
-	inline std::string generate_qtype_replacement_code(clang::QualType qtype, Rewriter &Rewrite, EIsFunctionParam is_a_function_parameter = EIsFunctionParam::No, std::optional<clang::StorageDuration> maybe_storage_duration = {}) {
+	inline std::string generate_qtype_replacement_code(clang::QualType qtype, Rewriter &Rewrite, CTUState* state1_ptr = nullptr, EIsFunctionParam is_a_function_parameter = EIsFunctionParam::No, std::optional<clang::StorageDuration> maybe_storage_duration = {}, std::optional<const clang::Decl*> maybe_containing_D = {}, std::optional<clang::TypeLoc> maybe_typeLoc = {}) {
 		CIndirectionStateStack indirection_state_stack;
+		indirection_state_stack.m_maybe_containing_D = maybe_containing_D;
 
 		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
-		auto direct_qtype = populateQTypeIndirectionStack(indirection_state_stack, qtype);
+		auto direct_qtype = populateQTypeIndirectionStack(indirection_state_stack, qtype, maybe_typeLoc, &Rewrite, state1_ptr);
 		indirection_state_stack.m_direct_type_state.set_original_qtype(direct_qtype);
 
 		for (auto& indirection_state_ref : indirection_state_stack) {
@@ -8607,7 +8681,7 @@ namespace convc2validcpp {
 		}
 		indirection_state_stack.m_direct_type_state.set_xscope_eligibility(false);
 
-		auto res1 = type_indirection_prefix_and_suffix_modifier_and_code_generator(indirection_state_stack, Rewrite, is_a_function_parameter, maybe_storage_duration, ESuppressModifications::Yes);
+		auto res1 = type_indirection_prefix_and_suffix_modifier_and_code_generator(indirection_state_stack, Rewrite, is_a_function_parameter, maybe_storage_duration, ESuppressModifications::Yes, state1_ptr);
 		if (res1.m_direct_type_must_be_non_const) {
 			direct_qtype.removeLocalConst();
 			indirection_state_stack.m_direct_type_state.set_current_qtype(direct_qtype);
@@ -8620,6 +8694,28 @@ namespace convc2validcpp {
 		auto direct_type_str = no_indirection
 			? indirection_state_stack.m_direct_type_state.current_qtype_str()
 			: indirection_state_stack.m_direct_type_state.current_return_qtype_str();
+
+		if (res1.m_seems_to_involve_a_template_param_or_nonmodifiable_type_originally) {
+			/* The original type seems to involve a template parameter (and so the 
+			declaration is presumably in the body of a template). We don't want to
+			replace the original (presumably) dependent type with direct_qtype_str 
+			which may refer to a specific specialization of the originally expressed 
+			type. */
+			if ("" != res1.m_tparam_or_nonmodifiable_type_that_encompasses_the_direct_type_str) {
+				/* The name of a template parameter that encompasses the direct type has been provided. We'll 
+				use it in place of the direct type. Note that the given template parameter may actually 
+				encompass more than just the direct type, but any given prefixes and/or suffixes are presumably 
+				adjusted to compensate. */
+				direct_type_str = res1.m_tparam_or_nonmodifiable_type_that_encompasses_the_direct_type_str;
+			} else {
+				/* For some reason, a template parameter that encompasses the direct type was not provided. So we'll 
+				use the original expression of the type in the source text, if that's available. */
+				auto l_original_source_text = indirection_state_stack.m_direct_type_state.original_source_text();
+				if ("" != l_original_source_text) {
+					direct_type_str = l_original_source_text;
+				}
+			}
+		}
 
 		std::string retval = res1.m_prefix_str + direct_type_str + res1.m_suffix_str + res1.m_post_name_suffix_str;
 		return retval;
@@ -8635,7 +8731,7 @@ namespace convc2validcpp {
 				is_first_param = false;
 			}
 			//retval += qtype.getAsString();
-			retval += generate_qtype_replacement_code(qtype, Rewrite, EIsFunctionParam::Yes);
+			retval += generate_qtype_replacement_code(qtype, Rewrite, nullptr/*state1_ptr*/, EIsFunctionParam::Yes);
 		}
 		retval += ")";
 		return retval;
@@ -8659,7 +8755,7 @@ namespace convc2validcpp {
 
 	inline bool satisfies_restrictions_for_static_storage_duration(clang::QualType qtype) {
 		bool satisfies_checks = false;
-		DECLARE_CACHED_CONST_STRING(const_char_star_str, "const char *");
+		static const std::string const_char_star_str = "const char *";
 		if ((qtype.isConstQualified()) && (is_async_shareable(qtype))) {
 			satisfies_checks = true;
 		} else if (qtype.getAsString() == const_char_star_str) {
@@ -8728,25 +8824,29 @@ namespace convc2validcpp {
 		std::string retval;
 		std::string comment1_str = (ESuppressComment::Yes == suppress_comment) ? "" : "/*auto-generated init val*/";
 
-		const std::string qtype_str = qtype.getAsString();
+		std::string qtype_str = qtype.getAsString();
 		if (qtype.getTypePtr()->isScalarType()) {
 			std::string initializer_info_str;
-			bool is_named_enumeral_type = false;
 			if (qtype.getTypePtr()->isEnumeralType()) {
-				if (std::string::npos == qtype_str.find("unnamed enum at")) {
-					is_named_enumeral_type = true;
+				if (std::string::npos != qtype_str.find(" (unnamed ")) {
+					/* It appears to be an unnamed type, so replacing the declaration with one that tries
+					to explicitly specify the type probably isn't going to work. One strategy might be to 
+					give the type a name, but for now I think we're just gonna bail. */
+					//initializer_info_str += "0" + comment1_str;
+					initializer_info_str = "{}";
 				} else {
-					int q = 5;
-				}
-			}
-			if (is_named_enumeral_type) {
-				if ("Dual" == ConvertMode) {
-					initializer_info_str += "MSE_LH_CAST(";
-					initializer_info_str += qtype_str;
-					initializer_info_str += ", 0)" + comment1_str;
-				} else {
-					initializer_info_str += qtype_str;
-					initializer_info_str += "(0)" + comment1_str;
+					static const auto enum_space_str = std::string("enum ");
+					if (string_begins_with(qtype_str, enum_space_str)) {
+						qtype_str = qtype_str.substr(enum_space_str.length());
+					}
+					if ("Dual" == ConvertMode) {
+						initializer_info_str += "MSE_LH_CAST(";
+						initializer_info_str += qtype_str;
+						initializer_info_str += ", 0)" + comment1_str;
+					} else {
+						initializer_info_str += qtype_str;
+						initializer_info_str += "(0)" + comment1_str;
+					}
 				}
 			} else if (qtype.getTypePtr()->isPointerType()) {
 				if ("Dual" == ConvertMode) {
@@ -8759,7 +8859,7 @@ namespace convc2validcpp {
 			}
 			retval = initializer_info_str;
 		} else {
-			retval = qtype_str + "()";
+			retval = "{}";
 		}
 
 		return retval;
@@ -8767,6 +8867,8 @@ namespace convc2validcpp {
 
 	static CDeclarationReplacementCodeItem declaration_modifier_helper1(const DeclaratorDecl* DD,
 			Rewriter &Rewrite, CTUState* state1_ptr, CDDeclConversionStateMap& ddecl_conversion_state_map, ESuppressModifications suppress_modifications = ESuppressModifications::No, std::string options_str = "") {
+		THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
 		CDeclarationReplacementCodeItem retval;
 
 		if (!DD) {
@@ -9260,7 +9362,7 @@ namespace convc2validcpp {
 
 										auto& ecs_ref = state1.get_expr_conversion_state_ref<CExprConversionState>(*init_EX, Rewrite);
 										const auto l_text_modifier = CWrapExprTextModifier(new_init_prefix_str, "");
-										bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+										bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && (l_text_modifier.species_str() == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
 											&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
 										if (!seems_to_be_already_applied) {
 											auto shptr2 = std::make_shared<CWrapExprTextModifier>(new_init_prefix_str, "");
@@ -9333,6 +9435,13 @@ namespace convc2validcpp {
 			}
 		}
 
+		bool has_register_storage_class = (clang::StorageDuration::SD_Thread == storage_duration);
+		if ((!has_register_storage_class) && VD && (clang::StorageClass::SC_Register == storage_class)) {
+			/* C++ does not (seem to) support register storage class, so that'll need to be changed */
+			has_register_storage_class = true;
+			changed_from_original = true;
+		}
+
 		bool individual_from_compound_declaration = false;
 		if (true && (2 <= IndividualDeclaratorDecls(DD, Rewrite).size())) {
 			/* There is more than one declaration in the declaration statement. We split
@@ -9378,22 +9487,36 @@ namespace convc2validcpp {
 						replacement_code += "static ";
 					}
 				}
-				if (res4.m_just_a_native_array && (!res4.m_some_addressable_indirection)) {
-					if (const_qualifier_stripped_from_direct_qtype_str) {
-						replacement_code += "const ";
+				if (has_register_storage_class) {
+					if (state1_ptr) {
+						replacement_code += "IF_CPP_ELSE(, register) ";
+						auto& state1 = *state1_ptr;
+						state1.m_if_cpp_macro_use_locations.insert(decl_source_range.getBegin());
 					}
-					if ("Dual" == ConvertMode) {
-						replacement_code += "MSE_LH_FIXED_ARRAY_DECLARATION(" + direct_qtype_str;
-						replacement_code += ", " + res4.m_native_array_size_text;
-						replacement_code += ", " + variable_name + ")";
-					} else if ("FasterAndStricter" == ConvertMode) {
-						replacement_code += "mse::TXScopeObj<mse::nii_array<" + direct_qtype_str;
-						replacement_code += ", " + res4.m_native_array_size_text;
-						replacement_code += "> " + variable_name;
+				}
+				if (res4.m_just_a_native_array && (!res4.m_some_addressable_indirection)) {
+					if (1 == ddcs_ref.m_indirection_state_stack.size()) {
+						if (const_qualifier_stripped_from_direct_qtype_str) {
+							replacement_code += "const ";
+						}
+						if ("Dual" == ConvertMode) {
+							replacement_code += "MSE_LH_FIXED_ARRAY_DECLARATION(" + direct_qtype_str;
+							replacement_code += ", " + res4.m_native_array_size_text;
+							replacement_code += ", " + variable_name + ")";
+						} else if ("FasterAndStricter" == ConvertMode) {
+							replacement_code += "mse::TXScopeObj<mse::nii_array<" + direct_qtype_str;
+							replacement_code += ", " + res4.m_native_array_size_text;
+							replacement_code += "> " + variable_name;
+						} else {
+							replacement_code += "mse::lh::TNativeArrayReplacement<" + direct_qtype_str;
+							replacement_code += ", " + res4.m_native_array_size_text;
+							replacement_code += "> " + variable_name;
+						}
 					} else {
-						replacement_code += "mse::lh::TNativeArrayReplacement<" + direct_qtype_str;
-						replacement_code += ", " + res4.m_native_array_size_text;
-						replacement_code += "> " + variable_name;
+						replacement_code += prefix_str + direct_qtype_str + suffix_str;
+						replacement_code += " ";
+						replacement_code += variable_name;
+						replacement_code += post_name_suffix_str;
 					}
 
 					const clang::Expr* init_EX = nullptr;
@@ -9423,10 +9546,29 @@ namespace convc2validcpp {
 									}
 								}
 							}
-							if (add_std_array_intermediary) {
+							if (false && add_std_array_intermediary) {
+								/* Since the library no longer uses recursion to emulate aggregate initialization, this branch is no 
+								longer needed to work around the associated limitations. */
 
 								std::string initializer_prefix = "std::array<";
-								initializer_prefix += direct_qtype_str;
+								if (1 == ddcs_ref.m_indirection_state_stack.size()) {
+									initializer_prefix += direct_qtype_str;
+								} else if (1 < ddcs_ref.m_indirection_state_stack.size()) {
+									auto indirection_state_stack_of_array_element = ddcs_ref.m_indirection_state_stack;
+
+									indirection_state_stack_of_array_element.clear();
+									for (size_t i = 1; ddcs_ref.m_indirection_state_stack.size() > i; i += 1) {
+										indirection_state_stack_of_array_element.push_back(ddcs_ref.m_indirection_state_stack.at(i));
+									}
+
+									auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_array_element, Rewrite
+										, EIsFunctionParam::No, {}/*maybe_storage_duration*/, state1_ptr);
+
+									initializer_prefix += res3.m_complete_type_str;
+								} else {
+									int q = 3;
+									assert(false);
+								}
 								initializer_prefix += ", " + res4.m_native_array_size_text;
 								initializer_prefix += " > { ";
 								std::string initializer_suffix = " }";
@@ -9451,7 +9593,7 @@ namespace convc2validcpp {
 
 									auto& ecs_ref = state1.get_expr_conversion_state_ref<CExprConversionState>(*init_EX, Rewrite);
 									const auto l_text_modifier = CWrapExprTextModifier(new_init_prefix_str, new_init_suffix_str);
-									bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+									bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && (l_text_modifier.species_str() == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
 										&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
 									if (!seems_to_be_already_applied) {
 										auto shptr2 = std::make_shared<CWrapExprTextModifier>(new_init_prefix_str, new_init_suffix_str);
@@ -9466,6 +9608,7 @@ namespace convc2validcpp {
 								}
 								ddcs_ref.m_fallback_current_initialization_expr_str = ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr, CExprTextInfoContext{ decl_source_range, &Rewrite, state1_ptr });
 								initialization_expr_str = ddcs_ref.current_initialization_expr_str(Rewrite, state1_ptr, CExprTextInfoContext{ decl_source_range, &Rewrite, state1_ptr });
+								initializer_append_str = " = " + initialization_expr_str;
 							}
 						}
 					}
@@ -9689,24 +9832,51 @@ namespace convc2validcpp {
 		return IsUnwieldyQType(ddecl.getType());
 	}
 
-	static void declaration_modifier(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1, std::string options_str = "") {
+	COrderedSourceRange get_potentially_rewritable_source_range(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1) {
 		const DeclaratorDecl* DD = &ddecl;
-		auto unordered_SR = cm1_adj_nice_source_range(DD->getSourceRange(), state1, Rewrite);
+		auto raw_SR = DD->getSourceRange();
+		auto unordered_SR = cm1_adj_nice_source_range(raw_SR, state1, Rewrite);
+		if (!unordered_SR.isValid()) {
+			return raw_SR;
+		}
 		/* Our theory is that whole statements can be safely overwritten multiple times even with
-		replacement texts of differing sizes, except maybe in cases where the statement is a macro. */
-		auto SR = (false && unordered_SR.getBegin().isMacroID()) 
-			? write_once_source_range(unordered_SR)
-			: rewritable_source_range(unordered_SR);
+		replacement texts of differing sizes. */
+		bool suspected_to_be_rewritable = true;
+		auto PVD = dyn_cast<const clang::ParmVarDecl>(DD);
+		if (PVD) {
+			/* Unless the declaration is a function parameter. */
+			suspected_to_be_rewritable = false;
+		} else {
+			if (raw_SR.getBegin().isMacroID()) {
+				auto& SM = Rewrite.getSourceMgr();
+				if (SM.isMacroBodyExpansion(raw_SR.getBegin())) {
+					/* Or seems to be in the body of a macro definition. */
+					suspected_to_be_rewritable = false;
+				}
+			}
+		}
+
+		/* Though I think that we may no longer depend on any source range being rewritable. */
+		return suspected_to_be_rewritable ? rewritable_source_range(unordered_SR) : write_once_source_range(unordered_SR);
+	}
+
+	static void declaration_modifier(const DeclaratorDecl& ddecl, Rewriter &Rewrite, CTUState& state1, std::string options_str = "") {
+		THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
+		const DeclaratorDecl* DD = &ddecl;
 
 		QualType QT = DD->getType();
 		const clang::Type* TP = QT.getTypePtr();
 		IF_DEBUG(auto qtype_str = QT.getAsString();)
 
+		auto SR = get_potentially_rewritable_source_range(ddecl, Rewrite, state1);
+		RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
 		auto& SM = Rewrite.getSourceMgr();
 
 		IF_DEBUG(std::string debug_source_location_str = SR.getBegin().printToString(SM);)
 
-		if (c2v_filtered_out_by_location(SM, SR.getBegin())) {
+		if (cm1_filtered_out_by_location(SM, SR)) {
 			return void();
 		}
 
@@ -9718,16 +9888,17 @@ namespace convc2validcpp {
 		}
 #endif /*!NDEBUG*/
 
-		if (CTUAnalysis && (unordered_SR.getBegin() == unordered_SR.getEnd())) {
-			/* We've observed that declarations imported from other translation units may not report
-			the correct end location of their source range, and anyway we imported them for purposes
-			of code analysis, not to modify them here. */
-			return;
+		auto suppress_check_flag = false;
+		if (state1.m_ast_context_ptr) {
+			/* Generally, we wouldn't expect to get here because any element in a "check suppressed" region 
+			should have been weeded out in the calling function. But we ran into a case where a non-template
+			overload of a template function was defined in a "check suppressed" region, while the associated 
+			template function was not. This check happened to be an expedient, if not ideal, way to deal 
+			with that particular situation. */
+			suppress_check_flag = state1.m_suppress_check_region_set.contains(DD, Rewrite, *(state1.m_ast_context_ptr));
 		}
-
-		auto suppress_check_flag = false /*state1.m_suppress_check_region_set.contains(DD, *(MR.Context))*/;
 		//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
-		if (false && suppress_check_flag) {
+		if (suppress_check_flag) {
 			return;
 		}
 
@@ -9762,26 +9933,21 @@ namespace convc2validcpp {
 #endif /*!NDEBUG*/
 
 				if (SR.getBegin() < return_type_source_range.getBegin()) {
+					THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
 					/* FunctionDecl::getReturnTypeSourceRange() seems to not include prefix qualifiers, like
-					* "const". So we check if there is a "const" prefix present. */
-
-					//std::string return_type_source_range_str = getRewrittenTextOrEmpty(Rewrite, return_type_source_range);
-					//std::string SR_str = getRewrittenTextOrEmpty(Rewrite, SR);
-					std::string test_str = getRewrittenTextOrEmpty(Rewrite, { SR.getBegin(), return_type_source_range.getBegin().getLocWithOffset(-1) });
-
-					static const std::string const_str = "const";
-					if (string_begins_with(test_str, const_str)) {
-						/* Extend the return_type_source_range to include the "const" prefix. */
-						return_type_source_range.setBegin(SR.getBegin());
-					}
+					* "const". */
+					return_type_source_range = write_once_source_range(extended_to_include_west_const_if_any(Rewrite, return_type_source_range));
 				}
 
 				auto res = generate_declaration_replacement_code(&ddecl, Rewrite, &state1, state1.m_ddecl_conversion_state_map, options_str);
 				changed_from_original |= res.m_changed_from_original;
 
+				THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
 				if (ConvertC2ValidCpp && return_type_source_range.isValid() && (1 <= res.m_replacement_code.size())
 						&& changed_from_original) {
-					if (return_type_source_range.isValid() && res.m_replacement_return_type_post_params_suffix_str.empty()) {
+					if (return_type_source_range.isValid()/* && res.m_replacement_return_type_post_params_suffix_str.empty()*/) {
 						IF_DEBUG(std::string code_to_be_replaced = return_type_source_range.isValid() ? getRewrittenTextOrEmpty(Rewrite, return_type_source_range) : std::string("[invalid]");)
 						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, return_type_source_range, res.m_replacement_return_type_str);
 					} else if (!FND->isThisDeclarationADefinition()) {
@@ -9806,53 +9972,58 @@ namespace convc2validcpp {
 				}
 			}
 		} else {
+			THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
 			std::string replacement_code;
 
-			auto rd_map_iter = state1.m_recdecl_map.find(SR.getBegin());
-			if (state1.m_recdecl_map.end() != rd_map_iter) {
-				auto RD = (*rd_map_iter).second;
-
-				auto res1 = state1.m_recdecl_conversion_state_map.insert(*RD, Rewrite, state1);
-				auto rdcs_map_iter = res1.first;
-				auto& rdcs_ref = (*rdcs_map_iter).second;
-				//bool update_declaration_flag = res1.second;
-
-				std::string rd_name = rdcs_ref.recdecl_ptr()->getNameAsString();
-				if ("" != rd_name) {
-					if (rdcs_ref.recdecl_ptr()->isThisDeclarationADefinition()) {
-						replacement_code += rdcs_ref.m_current_text_str + "; ";
+			{
+				auto& qtype = QT;
+				auto* RD = qtype->getAsRecordDecl();
+				auto l_type_ptr = qtype.getTypePtr();
+				while (!RD) {
+					if (l_type_ptr->isArrayType()) {
+						auto element_type = l_type_ptr->getPointeeOrArrayElementType();
+						RD = element_type->getAsRecordDecl();
+						l_type_ptr = element_type;
+					} else if (l_type_ptr->isPointerType()) {
+						auto pointee_qtype = l_type_ptr->getPointeeType();
+						RD = pointee_qtype->getAsRecordDecl();
+						l_type_ptr = pointee_qtype.getTypePtr();
+					} else {
+						break;
 					}
-				} else {
-					/* We are unable to handle this case at the moment. */
-					return;
 				}
-				int q = 5;
-			}
-
-			bool named_record_type_defined_in_declaration = false;
-			std::string named_record_type_definition_text;
-
-			/* Some declarations combine a (named) struct definition with one or more variable definitions.
-			For example, somethng like "struct abc_t { int m_a; } acb1;". In these cases we'll separate the
-			the definition and declaration to something like "struct abc_t { int m_a; }; abc_t acb1;". */
-			auto CXXRD = DD->getType()->getAsCXXRecordDecl();
-			if (CXXRD) {
-				auto CXXRD_SR = cm1_adj_nice_source_range(CXXRD->getSourceRange(), state1, Rewrite);
-				named_record_type_defined_in_declaration |= first_is_a_subset_of_second(CXXRD_SR, SR);
-				named_record_type_definition_text = getRewrittenTextOrEmpty(Rewrite, CXXRD_SR);
-			} else {
-				auto RD = DD->getType()->getAsRecordDecl();
 				if (RD) {
-					auto RD_SR = cm1_adj_nice_source_range(RD->getSourceRange(), state1, Rewrite);
-					named_record_type_defined_in_declaration |= first_is_a_subset_of_second(RD_SR, SR);
-					named_record_type_definition_text = getRewrittenTextOrEmpty(Rewrite, RD_SR);
+					/* The type (or some indirection of the type) is some kind of struct (or class). */
+					RD = RD->getDefinition();
 				}
-			}
-			if (named_record_type_defined_in_declaration) {
-				static const std::string anonymous_struct_prefix = "struct (anonymous struct";
-				auto qtype_str = DD->getType().getAsString();
-				if (string_begins_with(qtype_str, anonymous_struct_prefix)) {
-					named_record_type_defined_in_declaration = false;
+				if (RD) {
+					auto RDSR = cm1_adj_nice_source_range(RD->getSourceRange(), state1, Rewrite);
+					DEBUG_SOURCE_LOCATION_STR(RD_debug_source_location_str, RDSR, Rewrite);
+					if (RDSR.isValid() && (SR.getBegin() <= RDSR.getBegin()) && (RDSR.getEnd() <= SR.getEnd())) {
+						/* The record type itself seems to have been defined within this variable declaration statement. */
+						DEBUG_SOURCE_TEXT_STR(RD_debug_source_text, RDSR, Rewrite);
+
+						auto res1 = state1.m_recdecl_conversion_state_map.insert(*RD, Rewrite, state1);
+						auto rdcs_map_iter = res1.first;
+						auto& rdcs_ref = (*rdcs_map_iter).second;
+						//bool update_declaration_flag = res1.second;
+
+						std::string rd_name = rdcs_ref.recdecl_ptr()->getNameAsString();
+						if ("" != rd_name) {
+							if (rdcs_ref.recdecl_ptr()->isThisDeclarationADefinition()) {
+								/* Some declarations combine a (named) struct definition with one or more variable definitions.
+								For example, somethng like "struct abc_t { int m_a; } acb1;". In these cases we'll separate the
+								the definition and declaration to something like "struct abc_t { int m_a; }; abc_t acb1;". */
+								replacement_code += rdcs_ref.m_current_text_str + "; ";
+							}
+						} else {
+							/* We are unable to handle this case at the moment. */
+							return;
+						}
+						int q = 5;
+					}
+
 				}
 			}
 
@@ -9936,22 +10107,32 @@ namespace convc2validcpp {
 					}
 				}
 
-				if (true || (2 <= ddecls.size()) || UsesPointerTypedef(DD->getType()) || is_macro_instantiation(DD->getSourceRange(), Rewrite)
-				|| IsUnwieldyDecl(*DD) || named_record_type_defined_in_declaration || ContainsFunctionPointerOfConcernDecl(*DD)) {
-					if (named_record_type_defined_in_declaration) {
-						replacement_code += named_record_type_definition_text + "; ";
-					}
+				if ((true || (2 <= ddecls.size()) || UsesPointerTypedef(DD->getType()) || is_macro_instantiation(DD->getSourceRange(), Rewrite)
+					|| IsUnwieldyDecl(*DD) || ContainsFunctionPointerOfConcernDecl(*DD))) {
+
 					std::string l_replacement_code;
 					/* Instead of modifying the existing declaration(s), here we're completely
 					replacing (overwriting) them. */
 					static const std::string semicolon_space_str = "; ";
 					std::vector<std::string> action_species_list;
-					for (const auto& ddecl_cref : ddecls) {
-						auto res = generate_declaration_replacement_code(ddecl_cref, Rewrite, &state1, state1.m_ddecl_conversion_state_map, options_str);
-						changed_from_original |= res.m_changed_from_original;
+					for (auto ddecl_ptr : ddecls) {
+						if ((state1.m_ast_context_ptr) && (state1.m_suppress_check_region_set.contains(ddecl_ptr, Rewrite, *(state1.m_ast_context_ptr)))) {
+							auto DDSR = cm1_adj_nice_source_range(ddecl_ptr->getSourceRange(), state1, Rewrite);
+							if (DDSR.isValid()) {
+								l_replacement_code += getRewrittenTextOrEmpty(Rewrite, DDSR);
+							} else {
+								int q = 3;
+							}
+						} else {
+							THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
 
-						action_species_list.push_back(res.m_action_species);
-						l_replacement_code += res.m_replacement_code;
+							auto res = generate_declaration_replacement_code(ddecl_ptr, Rewrite, &state1, state1.m_ddecl_conversion_state_map, options_str);
+							changed_from_original |= res.m_changed_from_original;
+
+							action_species_list.push_back(res.m_action_species);
+							l_replacement_code += res.m_replacement_code;
+						}
+
 						l_replacement_code += semicolon_space_str;
 					}
 					if (l_replacement_code.size() >= 3) {
@@ -9966,8 +10147,11 @@ namespace convc2validcpp {
 					/* (Only) the source range of the last individual declaration in the declaration statement
 					* should encompass the whole statement. */
 					auto last_ddecl = ddecls.back();
-					//auto last_decl_source_range = rewritable_source_range(cm1_adj_nice_source_range(last_ddecl->getSourceRange(), Rewrite));
-					auto last_decl_source_range = rewritable_source_range(cm1_adj_nice_source_range(last_ddecl->getSourceRange(), state1, Rewrite));
+
+					auto last_ddecl_qtype = last_ddecl->getType();
+					IF_DEBUG(auto last_ddecl_qtype_str = last_ddecl_qtype.getAsString();)
+
+					auto last_decl_source_range = get_potentially_rewritable_source_range(*last_ddecl, Rewrite, state1);
 
 					IF_DEBUG(std::string last_decl_source_text = last_decl_source_range.isValid() ? getRewrittenTextOrEmpty(Rewrite, last_decl_source_range) : std::string("[invalid]");)
 
@@ -10008,9 +10192,27 @@ namespace convc2validcpp {
 					auto res = declaration_modifier_helper1(&ddecl, Rewrite, &state1, state1.m_ddecl_conversion_state_map, ESuppressModifications::No, options_str);
 
 					for (const auto& unsupported_element_encounterred : unsupported_elements_encounterred) {
-						/* This modification needs to be queued so that it will be executed after any other
-						modifications that might affect the relevant part of the source text. */
-						state1.m_pending_code_modification_actions.add_replacement_of_whole_instances_of_given_string_action(Rewrite, SR, unsupported_element_encounterred.m_element_type_name, unsupported_element_encounterred.m_replacement_element_type_name);
+						if (SR.is_rewritable()) {
+							/* This modification needs to be queued so that it will be executed after any other
+							modifications that might affect the relevant part of the source text. */
+							state1.m_pending_code_modification_actions.add_replacement_of_whole_instances_of_given_string_action(Rewrite, SR, unsupported_element_encounterred.m_element_type_name, unsupported_element_encounterred.m_replacement_element_type_name);
+						} else {
+							/* If the source range is not rewritable then this may be the one and only chance to write anything 
+							to the source range, so we cannot queue the modification for later execution, we must execute the 
+							modification here and now. */
+							std::string replacement_code = getRewrittenTextOrEmpty(Rewrite, SR);
+							bool changed_flag = replace_whole_instances_of_given_string(replacement_code, unsupported_element_encounterred.m_element_type_name, unsupported_element_encounterred.m_replacement_element_type_name);
+							if (changed_flag) {
+#ifndef NDEBUG
+								if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+									int q = 5;
+								}
+#endif /*!NDEBUG*/
+
+								auto res2 = state1.m_pending_code_modification_actions.ReplaceText(Rewrite, SR, replacement_code);
+								state1.m_pending_code_modification_actions.m_already_modified_regions.insert(SR);
+							}
+						}
 					}
 				}
 			} else {
@@ -11944,55 +12146,457 @@ namespace convc2validcpp {
 	/**********************************************************************************************************************/
 
 	struct CAllocFunctionInfo {
-		bool m_seems_to_be_some_kind_of_malloc_or_realloc = false;
+		bool seems_to_be_some_kind_of_malloc_or_realloc_or_dup() const { return m_seems_to_be_some_kind_of_malloc_or_realloc_or_dup; }
+		void set_seems_to_be_some_kind_of_malloc_or_realloc_or_dup(bool b) { m_seems_to_be_some_kind_of_malloc_or_realloc_or_dup = b; }
+		bool seems_to_be_some_kind_of_alloc() const { return m_seems_to_be_some_kind_of_alloc; }
+		void set_seems_to_be_some_kind_of_alloc(bool b) { m_seems_to_be_some_kind_of_alloc = b; }
+		bool seems_to_be_some_kind_of_calloc() const { return m_seems_to_be_some_kind_of_calloc; }
+		void set_seems_to_be_some_kind_of_calloc(bool b) { m_seems_to_be_some_kind_of_calloc = b; }
+		bool seems_to_be_some_kind_of_realloc() const { return m_seems_to_be_some_kind_of_realloc; }
+		void set_seems_to_be_some_kind_of_realloc(bool b) { m_seems_to_be_some_kind_of_realloc = b; }
+		bool seems_to_be_some_kind_of_free() const { return m_seems_to_be_some_kind_of_free; }
+		void set_seems_to_be_some_kind_of_free(bool b) { m_seems_to_be_some_kind_of_free = b; }
+		bool seems_to_be_some_kind_of_memdup() const { return m_seems_to_be_some_kind_of_memdup; }
+		void set_seems_to_be_some_kind_of_memdup(bool b) { m_seems_to_be_some_kind_of_memdup = b; }
+
+		private:
+		bool m_seems_to_be_some_kind_of_malloc_or_realloc_or_dup = false;
+		bool m_seems_to_be_some_kind_of_alloc = false;
+		bool m_seems_to_be_some_kind_of_calloc = false;
 		bool m_seems_to_be_some_kind_of_realloc = false;
+		bool m_seems_to_be_some_kind_of_free = false;
+		bool m_seems_to_be_some_kind_of_memdup = false;
+		public:
 		std::string m_num_bytes_arg_source_text;
-		std::string m_realloc_pointer_arg_source_text;
-		clang::ValueDecl const * m_realloc_pointer_arg_DD = nullptr;
+		std::string m_realloc_or_free_pointer_arg_source_text;
+		std::string m_realloc_or_free_pointer_arg_adjusted_source_text;
+		clang::ValueDecl const * m_realloc_or_free_pointer_arg_DD = nullptr;
+		std::string m_function_name;
+		size_t m_num_params = 0;
+		std::string m_resembling_invoked_macro_name;
 	};
-	CAllocFunctionInfo analyze_malloc_resemblance(const clang::CallExpr& call_expr, Rewriter &Rewrite) {
+	struct CAllocFunctionInfoCacheItem : public CAllocFunctionInfo {
+		typedef CAllocFunctionInfo base_class;
+		CAllocFunctionInfoCacheItem(const CAllocFunctionInfoCacheItem&) = default;
+		CAllocFunctionInfoCacheItem(CAllocFunctionInfoCacheItem&&) = default;
+		CAllocFunctionInfoCacheItem() = default;
+		CAllocFunctionInfoCacheItem(base_class alloc_function_info, clang::FunctionDecl const * FND) 
+			: base_class(std::move(alloc_function_info)), m_FND(FND)  {}
+
+		CAllocFunctionInfoCacheItem& operator=(const CAllocFunctionInfoCacheItem&) = default;
+
+		clang::FunctionDecl const * m_FND = nullptr;
+	};
+
+	static std::vector<CAllocFunctionInfoCacheItem>& s_encountered_alloc_infos_ref() {
+		thread_local std::vector<CAllocFunctionInfoCacheItem> tl_list;
+		return tl_list;
+	}
+
+	CAllocFunctionInfo analyze_malloc_resemblance(const clang::FunctionDecl& function_decl_ref, CTUState& state1, Rewriter &Rewrite, std::optional<std::string_view> maybe_function_name_override_sv = {}) {
 		CAllocFunctionInfo retval;
 
-		auto CE = &call_expr;
-		auto function_decl = CE->getDirectCallee();
-		auto num_args = CE->getNumArgs();
-		if (function_decl && (1 <= num_args)) {
+		auto function_decl = &function_decl_ref;
+		auto num_params = function_decl->getNumParams();
+		if (function_decl && (1 <= num_params)) {
 			std::string return_type_str = definition_qtype(function_decl->getReturnType()).getAsString();
-			bool return_type_is_void_star = ("void *" == return_type_str);
+			bool return_type_is_void_star = is_void_star_or_const_void_star(definition_qtype(function_decl->getReturnType()));
+			std::string function_name = function_decl->getNameAsString();
+			if (maybe_function_name_override_sv.has_value()) {
+				function_name = std::string(maybe_function_name_override_sv.value());
+			}
 
-			const std::string function_name = function_decl->getNameAsString();
+			/* Preliminary observations seem to confirm the net benefits of this one-element cache. But 
+			further testing would be warranted. */
+			thread_local CAllocFunctionInfoCacheItem last_item;
+			if ((function_decl == last_item.m_FND) && (function_name == last_item.m_function_name)) {
+				return last_item;
+			} else {
+				int q = 5;
+			}
+
+			retval.m_function_name = function_name;
+			retval.m_num_params = num_params;
 			static const std::string alloc_str = "alloc";
 			static const std::string realloc_str = "realloc";
+			static const std::string memdup_str = "memdup";
 			const auto lc_function_name = tolowerstr(function_name);
 
+			/*
 			bool ends_with_alloc = ((lc_function_name.size() >= alloc_str.size())
 					&& (0 == lc_function_name.compare(lc_function_name.size() - alloc_str.size(), alloc_str.size(), alloc_str)));
 			bool ends_with_realloc = (ends_with_alloc && (lc_function_name.size() >= realloc_str.size())
 					&& (0 == lc_function_name.compare(lc_function_name.size() - realloc_str.size(), realloc_str.size(), realloc_str)));
+			bool ends_with_memdup = (lc_function_name.size() >= memdup_str.size()
+					&& (0 == lc_function_name.compare(lc_function_name.size() - memdup_str.size(), memdup_str.size(), memdup_str)));
+			*/
 
 			bool contains_alloc = (std::string::npos != lc_function_name.find(alloc_str));
 			bool contains_realloc = (std::string::npos != lc_function_name.find(realloc_str));
+			bool contains_memdup = (std::string::npos != lc_function_name.find(memdup_str));
+			bool contains_realloc_or_memdup = contains_realloc || contains_memdup;
 
-			bool not_yet_ruled_out1 = (contains_alloc && (1 <= num_args)) || (contains_realloc && (2 <= num_args));
-			not_yet_ruled_out1 = (not_yet_ruled_out1 && return_type_is_void_star);
+			bool not_yet_ruled_out1 = ((1 <= num_params) && contains_alloc) || ((2 <= num_params) && contains_realloc_or_memdup);
+			//not_yet_ruled_out1 = (not_yet_ruled_out1 && return_type_is_void_star);
+			if (not_yet_ruled_out1 && !return_type_is_void_star) {
+				not_yet_ruled_out1 = false;
+				if (function_decl->getReturnType()->isPointerType()) {
+					/* We've encountered "realloc" function templates that return the same pointer type they were passed. */
+					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(function_decl_ref, &Rewrite);
+					//auto return_type_source_range = cm1_adj_nice_source_range(function_decl->getReturnTypeSourceRange(), state1, Rewrite);
+					auto return_type_source_range = write_once_source_range(ddcs_ref.m_function_return_type_SR_plus);
+					if (!(return_type_source_range.isValid())) {
+						not_yet_ruled_out1 = true;
+					} else {
+						//std::string return_type_source_text_str = getRewrittenTextOrEmpty(Rewrite, return_type_source_range);
+						auto const& return_type_source_text_str = ddcs_ref.m_function_return_type_original_source_text_str;
+						auto maybe_tparam_usage_info = seems_to_contain_an_instantiation_of_a_template_parameter(*function_decl, return_type_source_text_str, Rewrite, &state1);
+						if (true || maybe_tparam_usage_info.has_value()) {
+							/* We're requiring that the return type text contains a template parameter. This might be too strict? */
+							not_yet_ruled_out1 = true;
+						} else {
+							int q = 5;
+						}
+					}
+				}
+			}
 			if (not_yet_ruled_out1) {
+				for (auto const& info : s_encountered_alloc_infos_ref()) {
+					if (function_decl == info.m_FND) {
+						last_item = info;
+						return info;
+					}
+				}
+				if (false && !location_seems_to_be_in_a_header_file(function_decl->getSourceRange().getBegin(), Rewrite)) {
+					return retval;
+				}
+
+				static const std::string calloc_str = "calloc";
+				bool contains_calloc = (std::string::npos != lc_function_name.find(calloc_str));
+				bool already_encountered_calloc_first_param = false;
+				std::string realloc_pointer_param_source_text;
+				clang::ValueDecl const * realloc_pointer_param_DD = nullptr;
+				std::string num_bytes_param_source_text;
+				for (auto param : function_decl->parameters()) {
+					auto param_qtype = param->getType();
+					IF_DEBUG(std::string param_qtype_str = param_qtype.getAsString();)
+					auto raw_param_source_range = param->getSourceRange();
+					auto param_source_range = cm1_adjusted_source_range(param->getSourceRange(), state1, Rewrite);
+					if (!param_source_range.isValid()) {
+						/*assert(false); */continue;
+					}
+					if (param->getSourceRange().getBegin().isMacroID()) {
+						int q = 5;
+						//continue;
+					}
+					std::string l_param_source_text = getRewrittenTextOrEmpty(Rewrite, param_source_range);
+					clang::ValueDecl const * DD = nullptr;
+					if (contains_realloc_or_memdup && param->getType()->isPointerType()) {
+						realloc_pointer_param_source_text = l_param_source_text;
+					} else if (param_qtype->isIntegerType()) {
+						if (contains_calloc) {
+							if (already_encountered_calloc_first_param) {
+								num_bytes_param_source_text = "(" + num_bytes_param_source_text + ") * (" + l_param_source_text + ")";
+								retval.set_seems_to_be_some_kind_of_calloc(true);
+								break;
+							} else {
+								num_bytes_param_source_text = l_param_source_text;
+								already_encountered_calloc_first_param = true;
+								continue;
+							}
+						} else {
+							num_bytes_param_source_text = l_param_source_text;
+							break;
+						}
+					}
+				}
+
+				if (!num_bytes_param_source_text.empty()) {
+					retval.set_seems_to_be_some_kind_of_malloc_or_realloc_or_dup(true);
+					retval.m_num_bytes_arg_source_text = num_bytes_param_source_text;
+					if (contains_realloc_or_memdup && (2 <= num_params)) {
+						retval.set_seems_to_be_some_kind_of_realloc(contains_realloc);
+						retval.set_seems_to_be_some_kind_of_memdup(contains_memdup);
+						retval.m_realloc_or_free_pointer_arg_source_text = realloc_pointer_param_source_text;
+						retval.m_realloc_or_free_pointer_arg_adjusted_source_text = realloc_pointer_param_source_text;
+						retval.m_realloc_or_free_pointer_arg_DD = realloc_pointer_param_DD;
+					} else {
+						retval.set_seems_to_be_some_kind_of_alloc(true);
+					}
+					s_encountered_alloc_infos_ref().push_back(CAllocFunctionInfoCacheItem{ retval, function_decl});
+				}
+			}
+
+			if (!(retval.seems_to_be_some_kind_of_malloc_or_realloc_or_dup())) {
+				bool return_type_is_void = ("void" == return_type_str);
+
+				static const std::string free_str = "free";
+
+				bool ends_with_free = ((lc_function_name.size() >= free_str.size())
+						&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
+
+				bool contains_free = (std::string::npos != lc_function_name.find(free_str));
+
+				bool not_yet_ruled_out1 = (contains_free && (1 <= num_params));
+				not_yet_ruled_out1 = (not_yet_ruled_out1 && return_type_is_void);
+				if (not_yet_ruled_out1) {
+					for (auto const& info : s_encountered_alloc_infos_ref()) {
+						if (function_decl == info.m_FND) {
+							last_item = info;
+							return info;
+						}
+					}
+					if (false && !location_seems_to_be_in_a_header_file(function_decl->getSourceRange().getBegin(), Rewrite)) {
+						return retval;
+					}
+
+					std::string free_pointer_param_source_text;
+					clang::ValueDecl const * free_pointer_param_DD = nullptr;
+					for (auto param : function_decl->parameters()) {
+						auto param_qtype = param->getType();
+						IF_DEBUG(std::string param_qtype_str = param_qtype.getAsString();)
+						auto raw_param_source_range = param->getSourceRange();
+						auto param_source_range = cm1_adjusted_source_range(param->getSourceRange(), state1, Rewrite);
+						if (!param_source_range.isValid()) {
+							/*assert(false); */continue;
+						}
+						if (param->getSourceRange().getBegin().isMacroID()) {
+							int q = 5;
+							//continue;
+						}
+						std::string l_param_source_text = getRewrittenTextOrEmpty(Rewrite, param_source_range);
+						clang::ValueDecl const * DD = nullptr;
+						if (contains_free && param->getType()->isPointerType()) {
+							free_pointer_param_source_text = l_param_source_text;
+							break;
+						}
+					}
+
+					if (!free_pointer_param_source_text.empty()) {
+						/* We don't want to mess with a "free" function unless we've encountered a corrsponding "alloc" 
+						function. But how do we know if a previously encountered "alloc" function corresponds to this 
+						"free" function? I don't know if there's a good answer to that, but for now we're going to 
+						require that the names at least start with the same prefix. */
+						bool prefix_match = ("free" == function_name);
+						if (!prefix_match) {
+							auto free_start_index = function_name.find("free");
+							if (std::string::npos == free_start_index) {
+								free_start_index = function_name.find("Free");
+							}
+							if (std::string::npos == free_start_index) {
+								free_start_index = function_name.find("FREE");
+							}
+							if (std::string::npos != free_start_index) {
+								const std::string prefix = function_name.substr(0, free_start_index);
+								if (1 <= prefix.length()) {
+									for (auto const& info : s_encountered_alloc_infos_ref()) {
+										if (string_begins_with(info.m_function_name, prefix)) {
+											prefix_match = true;
+											break;
+										}
+									}
+								} else {
+									int q = 3;
+								}
+							} else {
+								int q = 3;
+							}
+						}
+						if (prefix_match) {
+							retval.set_seems_to_be_some_kind_of_free(true);
+
+							retval.m_realloc_or_free_pointer_arg_source_text = free_pointer_param_source_text;
+							retval.m_realloc_or_free_pointer_arg_adjusted_source_text = free_pointer_param_source_text;
+							retval.m_realloc_or_free_pointer_arg_DD = free_pointer_param_DD;
+						} else {
+							int q = 5;
+						}
+					}
+				}
+			}
+			last_item = CAllocFunctionInfoCacheItem{ retval, function_decl };
+		}
+		return retval;
+	}
+	CAllocFunctionInfo analyze_malloc_resemblance(const clang::CallExpr& call_expr, CTUState& state1, Rewriter &Rewrite) {
+		CAllocFunctionInfo retval;
+
+		auto CE = &call_expr;
+		std::optional<CSourceRangePlus> maybe_call_expression_SR_plus;
+		std::optional<CExprTextInfoContext> maybe_context;
+		const auto CE_rawSR = CE->getSourceRange();
+
+		auto function_decl = CE->getDirectCallee();
+		auto num_args = CE->getNumArgs();
+		if (function_decl && (1 <= num_args)) {
+			auto res2 = analyze_malloc_resemblance(*function_decl, state1, Rewrite);
+			bool seems_to_be_some_kind_of_malloc_or_realloc_or_dup1 = res2.seems_to_be_some_kind_of_malloc_or_realloc_or_dup();
+
+			if ((!seems_to_be_some_kind_of_malloc_or_realloc_or_dup1) && (!res2.seems_to_be_some_kind_of_free()) && CE_rawSR.isValid()) {
+				bool b3 = CE_rawSR.getBegin().isMacroID();
+				bool b4 = CE_rawSR.getEnd().isMacroID();
+				if (b3) {
+					/* Our call to `analyze_malloc_resemblance()` didn't conclude that it sufficiently resembled an allocation 
+					or free call. But the heuristic is particularly reticent in concluding that a call expression is 
+					essentially equivalent to a `free()` call, basically doing so only if a corresponding allocation call has 
+					already been encountered. Given the propensity for false negatives, and the fact that this particular call 
+					expression seems to be a macro invocation, we're going to check if the code is using a macro to redefine 
+					the `free()` function, or a standard allocation function while we're at it, to something else. */
+					auto is_recognized_alloc_function_name = [](std::string_view sv1) -> bool {
+						if (("free" == sv1) || ("malloc" == sv1) || ("realloc" == sv1) || ("memdup" == sv1) || ("calloc" == sv1)
+							|| ("xfree" == sv1)|| ("rpl_free" == sv1)) {
+							return true;
+						}
+						return false;
+					};
+					auto extracted_function_name = [] (std::string_view sv1) -> std::string {
+						auto retval = std::string(sv1);
+						ltrim(retval);
+						auto open_paren_index = retval.find("\(");
+						if (std::string::npos != open_paren_index) {
+							retval = retval.substr(0, open_paren_index);
+						}
+						rtrim(retval);
+						return retval;
+					};
+					auto SR_plus = cm1_adjusted_source_range(*CE, state1, Rewrite);
+					if (is_recognized_alloc_function_name(extracted_function_name(SR_plus.m_adjusted_source_text_as_if_expanded))) {
+						res2 = analyze_malloc_resemblance(*function_decl, state1, Rewrite, extracted_function_name(SR_plus.m_adjusted_source_text_as_if_expanded));
+						seems_to_be_some_kind_of_malloc_or_realloc_or_dup1 = res2.seems_to_be_some_kind_of_malloc_or_realloc_or_dup();
+						if (seems_to_be_some_kind_of_malloc_or_realloc_or_dup1 || res2.seems_to_be_some_kind_of_free()) {
+							retval.m_resembling_invoked_macro_name = extracted_function_name(SR_plus.m_adjusted_source_text_as_if_expanded);
+						}
+					}
+					if ((!seems_to_be_some_kind_of_malloc_or_realloc_or_dup1) && (!res2.seems_to_be_some_kind_of_free())) {
+						for (auto const& adjusted_source_text_info : SR_plus.m_adjusted_source_text_infos) {
+							adjusted_source_text_info.m_text;
+							if (is_recognized_alloc_function_name(extracted_function_name(adjusted_source_text_info.m_text))) {
+								res2 = analyze_malloc_resemblance(*function_decl, state1, Rewrite, extracted_function_name(adjusted_source_text_info.m_text));
+								seems_to_be_some_kind_of_malloc_or_realloc_or_dup1 = res2.seems_to_be_some_kind_of_malloc_or_realloc_or_dup();
+								if (seems_to_be_some_kind_of_malloc_or_realloc_or_dup1 || res2.seems_to_be_some_kind_of_free()) {
+									retval.m_resembling_invoked_macro_name = extracted_function_name(adjusted_source_text_info.m_text);
+									break;
+								}
+							}
+						}
+					}
+				}
+			}
+			if (seems_to_be_some_kind_of_malloc_or_realloc_or_dup1) {
+				bool already_encountered_calloc_first_arg = false;
 				std::string realloc_pointer_arg_source_text;
+				std::string realloc_pointer_arg_adjusted_source_text;
 				clang::ValueDecl const * realloc_pointer_arg_DD = nullptr;
 				clang::MemberExpr const * ME = nullptr;
 				std::string num_bytes_arg_source_text;
+				int signed_arg_index = -1;
 				for (auto arg : CE->arguments()) {
+					signed_arg_index += 1;
 					auto arg_qtype = arg->getType();
 					IF_DEBUG(std::string arg_qtype_str = arg_qtype.getAsString();)
-					auto arg_source_range = cm1_nice_source_range(arg->getSourceRange(), Rewrite);
-					if (!arg_source_range.isValid()) {
-						assert(false); continue;
+					const auto arg_rawSR = arg->getSourceRange();
+					auto arg_SR_plus = cm1_adjusted_source_range(*arg, state1, Rewrite);
+					if (!arg_SR_plus.isValid()) {
+						/*assert(false); */continue;
 					}
-					std::string l_arg_source_text = getRewrittenTextOrEmpty(Rewrite, arg_source_range);
+					std::string l_arg_source_text;
+					//std::string l_arg_source_text = getRewrittenTextOrEmpty(Rewrite, arg_SR_plus);
+
+					auto& arg_ecs_ref = state1.get_expr_conversion_state_ref(*arg, Rewrite);
+
+					//if (arg->getSourceRange().getBegin().isMacroID() && ("" != arg_SR_plus.m_adjusted_source_text_as_if_expanded))
+					if (arg_rawSR.getBegin().isMacroID() && arg_rawSR.getEnd().isMacroID()) {
+						/* At this point, l_arg_source_text should have the actual text of the argument expression from the source 
+						code. But if the text is in the body of a macro function, then we might want any macro parameters 
+						in the text to be replaced by their corresponding macro argument. */
+
+						if (CE_rawSR.getBegin().isMacroID() && CE_rawSR.getEnd().isMacroID()) {
+							/* The call expression seems to be (also) contained in the body of a macro. */
+
+							if (!(maybe_call_expression_SR_plus.has_value())) {
+								maybe_call_expression_SR_plus = cm1_adjusted_source_range(*CE, state1, Rewrite);
+							}
+							assert(maybe_call_expression_SR_plus.has_value());
+							auto const& call_expression_SR_plus = maybe_call_expression_SR_plus.value();
+							if (call_expression_SR_plus.isValid()) {
+								maybe_context = { call_expression_SR_plus };
+
+								if (("" == l_arg_source_text) && maybe_context.has_value()) {
+									/* This element is being rendered as a component of a containing element. The representation of that 
+									containing element may be in the definition body of a macro. And the representation of this element 
+									may be in the body of another macro that is invoked in the body of the containing macro. In such 
+									case the representation of this element will presumably be used in the body of the containing macro, 
+									so we'll try to return a representation that is valid in the containing macro. The 
+									arg_ecs_ref.m_SR_plus value actually (hopefully) stores representations valid for each containing 
+									macro at various levels of (macro invocation) nesting. So we'll try to find one that seems to 
+									correspond to the element associated with the context. */
+
+									auto maybe_text_info_cptr = cpointer_targeting_the_source_text_info_record_corresponding_to_the_given_context_if_any(arg_ecs_ref.m_SR_plus, maybe_context.value());
+									if (maybe_text_info_cptr.has_value()) {
+										l_arg_source_text = maybe_text_info_cptr.value()->m_text;
+									}
+								}
+
+#ifndef NDEBUG
+								if ("pairs" == l_arg_source_text) {
+									auto test_text1 = arg_ecs_ref.current_text(maybe_context);
+									int q = 5;
+								}
+#endif /*!NDEBUG*/
+
+							}
+						}
+
+						if (("" == l_arg_source_text) && ("" != arg_SR_plus.m_adjusted_source_text_as_if_expanded)) {
+							l_arg_source_text = arg_SR_plus.m_adjusted_source_text_as_if_expanded;
+						}
+					}
+					if ("" == l_arg_source_text) {
+						l_arg_source_text = getRewrittenTextOrEmpty(Rewrite, arg_SR_plus);
+					}
+
+#ifndef NDEBUG
+					if ("pairs" == l_arg_source_text) {
+						//auto test_text1 = arg_ecs_ref.current_text(maybe_context);
+						auto arg_SR_plus2 = cm1_adjusted_source_range(*arg, state1, Rewrite);
+						int q = 5;
+					}
+#endif /*!NDEBUG*/
+
 					clang::ValueDecl const * DD = nullptr;
-					if (contains_realloc && arg->getType()->isPointerType()) {
+					if ((res2.seems_to_be_some_kind_of_realloc() || res2.seems_to_be_some_kind_of_memdup()) && arg->getType()->isPointerType() && (!realloc_pointer_arg_DD)) {
 						realloc_pointer_arg_source_text = l_arg_source_text;
+						realloc_pointer_arg_adjusted_source_text = l_arg_source_text;
 
 						auto arg_ii = IgnoreParenImpCasts(arg);
+						auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_ii);
+						if (CSCE) {
+							auto csce_QT = definition_qtype(CSCE->getType());
+							IF_DEBUG(std::string csce_QT_str = csce_QT.getAsString();)
+							//MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(csce_QT);
+							auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
+							assert(precasted_expr_ptr);
+							auto precasted_expr_QT = precasted_expr_ptr->getType();
+							IF_DEBUG(std::string precasted_expr_QT_str = precasted_expr_QT.getAsString();)
+							arg_ii = precasted_expr_ptr;
+
+							auto adj_arg_qtype = arg_ii->getType();
+							IF_DEBUG(std::string adj_arg_qtype_str = adj_arg_qtype.getAsString();)
+							auto adj_arg_SR_plus = cm1_adjusted_source_range(arg_ii->getSourceRange(), state1, Rewrite);
+							if (!adj_arg_SR_plus.isValid()) {
+								/*assert(false); */continue;
+							}
+							if (arg_ii->getSourceRange().getBegin().isMacroID()) {
+								int q = 5;
+								//continue;
+							}
+							std::string l_adj_arg_source_text = getRewrittenTextOrEmpty(Rewrite, adj_arg_SR_plus);
+							if (!(l_adj_arg_source_text.empty())) {
+								realloc_pointer_arg_adjusted_source_text = l_adj_arg_source_text;
+							} else {
+								int q = 5;
+							}
+						}
 						auto DRE = dyn_cast<const clang::DeclRefExpr>(arg_ii);
 						auto ME = dyn_cast<const clang::MemberExpr>(arg_ii);
 						if (DRE) {
@@ -12000,68 +12604,158 @@ namespace convc2validcpp {
 						} else if (ME) {
 							realloc_pointer_arg_DD = ME->getMemberDecl();
 						}
-					} else if (arg_qtype->isIntegerType()) {
-						num_bytes_arg_source_text = l_arg_source_text;
-						//auto num_bytes_arg_source_text_sans_ws = with_whitespace_removed(num_bytes_arg_source_text);
-						break;
+					} else if (arg_qtype->isIntegerType() && (num_bytes_arg_source_text.empty() || res2.seems_to_be_some_kind_of_calloc())) {
+						if (res2.seems_to_be_some_kind_of_calloc()) {
+							/* So, calloc() takes two integer arguments, which can be multiplied together get the total number of 
+							bytes to be allocated. Since the SaferCPlusPlus library does not (yet) provide an allocator function 
+							that takes two corresponding arguments, for now we're just going to use the total number of bytes as 
+							a single argument to the allocator function. */
+							if (already_encountered_calloc_first_arg) {
+								num_bytes_arg_source_text = "(" + num_bytes_arg_source_text + ") * (" + l_arg_source_text + ")";
+								break;
+							} else {
+								num_bytes_arg_source_text = l_arg_source_text;
+								already_encountered_calloc_first_arg = true;
+								continue;
+							}
+						} else {
+							num_bytes_arg_source_text = l_arg_source_text;
+							break;
+						}
 					}
 				}
 
 				if (!num_bytes_arg_source_text.empty()) {
-					{
-						bool asterisk_found = false;
-						auto sizeof_start_index = num_bytes_arg_source_text.find("sizeof(");
-						if (std::string::npos != sizeof_start_index) {
-							auto sizeof_end_index = num_bytes_arg_source_text.find(")", sizeof_start_index);
-							if (std::string::npos != sizeof_end_index) {
-								assert(sizeof_end_index > sizeof_start_index);
-								std::string before_str = num_bytes_arg_source_text.substr(0, sizeof_start_index);
-								std::string after_str;
-								if (sizeof_end_index + 1 < num_bytes_arg_source_text.size()) {
-									after_str = num_bytes_arg_source_text.substr(sizeof_end_index + 1);
+					bool asterisk_found = false;
+					auto sizeof_start_index = num_bytes_arg_source_text.find("sizeof(");
+					if (std::string::npos != sizeof_start_index) {
+						auto sizeof_end_index = num_bytes_arg_source_text.find(")", sizeof_start_index);
+						if (std::string::npos != sizeof_end_index) {
+							assert(sizeof_end_index > sizeof_start_index);
+							std::string before_str = num_bytes_arg_source_text.substr(0, sizeof_start_index);
+							std::string after_str;
+							if (sizeof_end_index + 1 < num_bytes_arg_source_text.size()) {
+								after_str = num_bytes_arg_source_text.substr(sizeof_end_index + 1);
+							}
+
+							auto index = before_str.size() - 1;
+							while (0 <= index) {
+								if ('*' == before_str[index]) {
+									asterisk_found = true;
+								}
+								if (!std::isspace(before_str[index])) {
+									break;
 								}
 
-								auto index = before_str.size() - 1;
-								while (0 <= index) {
-									if ('*' == before_str[index]) {
+								index -= 1;
+							}
+							if (asterisk_found) {
+								before_str = before_str.substr(0, index);
+							} else {
+								size_t index2 = 0;
+								while (after_str.size() > index2) {
+									if ('*' == after_str[index2]) {
 										asterisk_found = true;
 									}
-									if (!std::isspace(before_str[index])) {
+									if (!std::isspace(after_str[index2])) {
 										break;
 									}
 
-									index -= 1;
+									index2 += 1;
 								}
 								if (asterisk_found) {
-									before_str = before_str.substr(0, index);
-								} else {
-									size_t index2 = 0;
-									while (after_str.size() > index2) {
-										if ('*' == after_str[index2]) {
-											asterisk_found = true;
-										}
-										if (!std::isspace(after_str[index2])) {
-											break;
-										}
-
-										index2 += 1;
-									}
-									if (asterisk_found) {
-										after_str = after_str.substr(index2 + 1);
-									}
+									after_str = after_str.substr(index2 + 1);
 								}
-							}
-						}
-						if (true || asterisk_found) {
-							retval.m_seems_to_be_some_kind_of_malloc_or_realloc = true;
-							retval.m_num_bytes_arg_source_text = num_bytes_arg_source_text;
-							if (contains_realloc && (2 <= num_args)) {
-								retval.m_seems_to_be_some_kind_of_realloc = true;
-								retval.m_realloc_pointer_arg_source_text = realloc_pointer_arg_source_text;
-								retval.m_realloc_pointer_arg_DD = realloc_pointer_arg_DD;
 							}
 						}
 					}
+					if (true || asterisk_found) {
+						retval.set_seems_to_be_some_kind_of_malloc_or_realloc_or_dup(true);
+						retval.m_num_bytes_arg_source_text = num_bytes_arg_source_text;
+						if ((!(realloc_pointer_arg_source_text.empty())) && (2 <= num_args)) {
+							retval.set_seems_to_be_some_kind_of_realloc(res2.seems_to_be_some_kind_of_realloc());
+							retval.set_seems_to_be_some_kind_of_memdup(res2.seems_to_be_some_kind_of_memdup());
+							retval.m_realloc_or_free_pointer_arg_source_text = realloc_pointer_arg_source_text;
+							retval.m_realloc_or_free_pointer_arg_adjusted_source_text = realloc_pointer_arg_adjusted_source_text;
+							retval.m_realloc_or_free_pointer_arg_DD = realloc_pointer_arg_DD;
+						} else {
+							retval.set_seems_to_be_some_kind_of_alloc(res2.seems_to_be_some_kind_of_alloc());
+						}
+					}
+				} else {
+					int q = 3;
+				}
+			} else if (res2.seems_to_be_some_kind_of_free()) {
+				std::string free_pointer_arg_source_text;
+				std::string free_pointer_arg_adjusted_source_text;
+				clang::ValueDecl const * free_pointer_arg_DD = nullptr;
+				clang::MemberExpr const * ME = nullptr;
+				std::string num_bytes_arg_source_text;
+				for (auto arg : CE->arguments()) {
+					auto arg_qtype = arg->getType();
+					IF_DEBUG(std::string arg_qtype_str = arg_qtype.getAsString();)
+					auto arg_source_range = cm1_adjusted_source_range(arg->getSourceRange(), state1, Rewrite);
+					if (!arg_source_range.isValid()) {
+						/*assert(false); */continue;
+					}
+					if (arg->getSourceRange().getBegin().isMacroID()) {
+						int q = 5;
+						//continue;
+					}
+					std::string l_arg_source_text = getRewrittenTextOrEmpty(Rewrite, arg_source_range);
+					clang::ValueDecl const * DD = nullptr;
+					if (arg->getType()->isPointerType() && (!free_pointer_arg_DD)) {
+						free_pointer_arg_source_text = l_arg_source_text;
+						free_pointer_arg_adjusted_source_text = l_arg_source_text;
+
+						auto arg_ii = IgnoreParenImpCasts(arg);
+						auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg_ii);
+						if (CSCE) {
+							auto csce_QT = definition_qtype(CSCE->getType());
+							IF_DEBUG(std::string csce_QT_str = csce_QT.getAsString();)
+							//MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(csce_QT);
+							auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
+							assert(precasted_expr_ptr);
+							auto precasted_expr_QT = precasted_expr_ptr->getType();
+							IF_DEBUG(std::string precasted_expr_QT_str = precasted_expr_QT.getAsString();)
+							arg_ii = precasted_expr_ptr;
+
+							auto adj_arg_qtype = arg_ii->getType();
+							IF_DEBUG(std::string adj_arg_qtype_str = adj_arg_qtype.getAsString();)
+							auto adj_arg_source_range = cm1_adjusted_source_range(arg_ii->getSourceRange(), state1, Rewrite);
+							if (!adj_arg_source_range.isValid()) {
+								/*assert(false); */continue;
+							}
+							if (arg_ii->getSourceRange().getBegin().isMacroID()) {
+								int q = 5;
+								//continue;
+							}
+							std::string l_adj_arg_source_text = getRewrittenTextOrEmpty(Rewrite, adj_arg_source_range);
+							if (!(l_adj_arg_source_text.empty())) {
+								free_pointer_arg_adjusted_source_text = l_adj_arg_source_text;
+							} else {
+								int q = 5;
+							}
+						}
+						auto DRE = dyn_cast<const clang::DeclRefExpr>(arg_ii);
+						auto ME = dyn_cast<const clang::MemberExpr>(arg_ii);
+						if (DRE) {
+							free_pointer_arg_DD = DRE->getDecl();
+						} else if (ME) {
+							free_pointer_arg_DD = ME->getMemberDecl();
+						}
+						break;
+					}
+				}
+
+				if (!free_pointer_arg_source_text.empty()) {
+					retval.set_seems_to_be_some_kind_of_free(true);
+
+					retval.m_realloc_or_free_pointer_arg_source_text = free_pointer_arg_source_text;
+					retval.m_realloc_or_free_pointer_arg_adjusted_source_text = free_pointer_arg_adjusted_source_text;
+					retval.m_realloc_or_free_pointer_arg_DD = free_pointer_arg_DD;
+				} else {
+					int q = 3;
 				}
 			}
 		}
@@ -12159,8 +12853,8 @@ namespace convc2validcpp {
 								auto casted_expr_ptr = CCE->IgnoreCasts();
 								if (llvm::isa<const clang::CallExpr>(casted_expr_ptr->IgnoreParenCasts())) {
 									auto CE = llvm::cast<const clang::CallExpr>(casted_expr_ptr->IgnoreParenCasts());
-									auto alloc_function_info1 = analyze_malloc_resemblance(*CE, Rewrite);
-									if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+									auto alloc_function_info1 = analyze_malloc_resemblance(*CE, m_state1, Rewrite);
+									if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
 										/* This seems to be some kind of malloc/realloc function. These case should not be
 										* handled here. They are handled elsewhere. */
 										return;
@@ -12239,8 +12933,8 @@ namespace convc2validcpp {
 
 						if (llvm::isa<const clang::CallExpr>(RHS->IgnoreParenCasts())) {
 							auto CE = llvm::cast<const clang::CallExpr>(RHS->IgnoreParenCasts());
-							auto alloc_function_info1 = analyze_malloc_resemblance(*CE, Rewrite);
-							if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+							auto alloc_function_info1 = analyze_malloc_resemblance(*CE, m_state1, Rewrite);
+							if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
 								/* This seems to be some kind of malloc/realloc function. These case should not be
 								* handled here. They are handled elsewhere. */
 								return;
@@ -12725,8 +13419,8 @@ namespace convc2validcpp {
 					return;
 				}
 
-				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, Rewrite);
-				if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
+				if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
 					/* The argument is in the form "something * sizeof(something_else)" or
 					* "sizeof(something) * something_else". So we're just going to assume that
 					* this is an instance of an array being allocated. */
@@ -12809,22 +13503,22 @@ namespace convc2validcpp {
 							auto lhs_source_range = cm1_adj_nice_source_range(LHS->getSourceRange(), state1, Rewrite);
 							auto lhs_source_text = getRewrittenTextOrEmpty(Rewrite, lhs_source_range);
 
-							if (alloc_function_info1.m_seems_to_be_some_kind_of_realloc) {
+							if (alloc_function_info1.seems_to_be_some_kind_of_realloc()) {
 								if ("Dual" == ConvertMode) {
 									bo_replacement_code = lhs_source_text;
 									bo_replacement_code += " = MSE_LH_REALLOC(";
 									bo_replacement_code += lhs_element_type_str + ", ";
-									bo_replacement_code += alloc_function_info1.m_realloc_pointer_arg_source_text + ", ";
+									bo_replacement_code += alloc_function_info1.m_realloc_or_free_pointer_arg_source_text + ", ";
 									bo_replacement_code += adjusted_num_bytes_str + ")";
 								} else if ("FasterAndStricter" == ConvertMode) {
 									bo_replacement_code = lhs_source_text;
 									bo_replacement_code += " = mse::lh::reallocate(";
-									bo_replacement_code += alloc_function_info1.m_realloc_pointer_arg_source_text + ", ";
+									bo_replacement_code += alloc_function_info1.m_realloc_or_free_pointer_arg_source_text + ", ";
 									bo_replacement_code += adjusted_num_bytes_str + ")";
 								} else {
 									bo_replacement_code = lhs_source_text;
 									bo_replacement_code += " = mse::lh::reallocate(";
-									bo_replacement_code += alloc_function_info1.m_realloc_pointer_arg_source_text + ", ";
+									bo_replacement_code += alloc_function_info1.m_realloc_or_free_pointer_arg_source_text + ", ";
 									bo_replacement_code += adjusted_num_bytes_str + ")";
 								}
 							} else {
@@ -13774,6 +14468,116 @@ namespace convc2validcpp {
 		CTUState& m_state1;
 	};
 
+	struct CFConversionInfo {
+		std::string OriginalFunctionQName;
+		std::string NewFunctionQName;
+		std::string NewDualModeFunctionQName;
+		std::optional<size_t> m_maybe_num_parameters;
+		typedef size_t bitfield1_t;
+		bitfield1_t m_necessarily_an_iterator_param_bit_field = 0;
+		std::vector<std::pair<std::string, std::string> > m_string_options;
+
+		bool is_necessarily_an_iterator_by_param_bit_mask(const bitfield1_t param_bit_mask) const {
+			return (0 != (m_necessarily_an_iterator_param_bit_field & param_bit_mask));
+		}
+
+		typedef size_t param_zero_based_index1_t;
+		static const param_zero_based_index1_t RETVAL_INDEX = ((sizeof(param_zero_based_index1_t))*8 - 1);
+
+		bool is_necessarily_an_iterator_by_param_zbindex(const param_zero_based_index1_t param_zero_based_index) const {
+			auto bitmask = (bitfield1_t{1} << param_zero_based_index);
+			return is_necessarily_an_iterator_by_param_bit_mask(bitmask);
+		}
+		bool is_likely_an_iterator_by_param_zbindex(const param_zero_based_index1_t param_zero_based_index) const {
+			auto bitmask = (bitfield1_t{1} << param_zero_based_index);
+			if (is_necessarily_an_iterator_by_param_bit_mask(bitmask)) {
+				return true;
+			} else if (("memset" == OriginalFunctionQName) || ("std::memset" == OriginalFunctionQName)
+				|| ("memcpy" == OriginalFunctionQName) || ("std::memcpy" == OriginalFunctionQName)
+				|| ("memcmp" == OriginalFunctionQName) || ("std::memcmp" == OriginalFunctionQName)) {
+				return true;
+			}
+			return false;
+		}
+
+		static const bitfield1_t NONE = 0;
+		static const bitfield1_t _1ST = (bitfield1_t{1} >> (1 - 1));
+		static const bitfield1_t _2ND = (bitfield1_t{1} >> (2 - 1));
+		static const bitfield1_t _3RD = (bitfield1_t{1} >> (3 - 1));
+		static const bitfield1_t _4TH = (bitfield1_t{1} >> (4 - 1));
+		static const bitfield1_t RETVAL = (bitfield1_t{1} >> ((sizeof(bitfield1_t))*8 - 1));
+		static const bitfield1_t ALL = bitfield1_t(-1);
+	};
+	static std::vector<CFConversionInfo> const& s_function_conversion_infos() {
+		using FCI = CFConversionInfo;
+		static std::vector<CFConversionInfo> sl_function_conversion_infos = {
+#if 0
+			{ "memset", "mse::lh::memset", "MSE_LH_MEMSET", {3}, FCI::NONE }
+			, { "memcpy", "mse::lh::memcpy", "MSE_LH_MEMCPY", {3}, FCI::NONE }
+			, { "memcmp", "mse::lh::memcmp", "MSE_LH_MEMCMP", {3}, FCI::NONE }
+			, { "memchr", "mse::lh::memchr", "MSE_LH_MEMCHR", {3}, FCI::ALL }
+			, { "strcpy", "mse::lh::strcpy", "MSE_LH_STRCPY", {2}, FCI::ALL }
+			, { "strcmp", "mse::lh::strcmp", "MSE_LH_STRCMP", {2}, FCI::ALL }
+			, { "strncmp", "mse::lh::strncmp", "MSE_LH_STRNCMP", {3}, FCI::ALL }
+			, { "strchr", "mse::lh::strchr", "MSE_LH_STRCMP", {2}, FCI::ALL }
+			, { "strlen", "mse::lh::strlen", "MSE_LH_STRLEN", {1}, FCI::ALL }
+			, { "strnlen_s", "mse::lh::strnlen_s", "MSE_LH_STRNLEN_S", {2}, FCI::ALL }
+			, { "strtol", "mse::lh::strtol", "MSE_LH_STRTOL", {3}, FCI::ALL }
+			, { "strtoll", "mse::lh::strtoll", "MSE_LH_STRTOLL", {3}, FCI::ALL }
+			, { "strtoul", "mse::lh::strtoul", "MSE_LH_STRTOUL", {3}, FCI::ALL }
+			, { "strtoull", "mse::lh::strtoull", "MSE_LH_STRTOULL", {3}, FCI::ALL }
+			, { "strtoimax", "mse::lh::strtoimax", "MSE_LH_STRTOIMAX", {3}, FCI::ALL }
+			, { "strtoumax", "mse::lh::strtoumax", "MSE_LH_STRTOUMAX", {3}, FCI::ALL }
+			, { "strtof", "mse::lh::strtof", "MSE_LH_STRTOF", {2}, FCI::ALL }
+			, { "strtod", "mse::lh::strtod", "MSE_LH_STRTOD", {2}, FCI::ALL }
+			, { "strtold", "mse::lh::strtold", "MSE_LH_STRTOLD", {2}, FCI::ALL }
+			, { "strtok", "mse::lh::strtok", "MSE_LH_STRTOK", {2}, FCI::ALL }
+			, { "strtok_r", "mse::lh::strtok_r", "MSE_LH_STRTOK_R", {3}, FCI::ALL }
+			, { "fread", "mse::lh::fread", "MSE_LH_FREAD", {4}, FCI::_1ST }
+			, { "fwrite", "mse::lh::fwrite", "MSE_LH_FWRITE", {4}, FCI::_1ST }
+			, { "getline", "mse::lh::getline", "MSE_LH_GETLINE", {3}, FCI::_1ST }
+			, { "iconv", "MSE_LH_ICONV", "MSE_LH_ICONV", {5}, FCI::NONE }
+			, { "strndup", "mse::lh::strndup", "MSE_LH_STRNDUP", {2}, FCI::ALL }
+			, { "strdup", "mse::lh::strdup", "MSE_LH_STRDUP", {1}, FCI::ALL }
+			, { "xstrdup", "mse::lh::strdup", "MSE_LH_STRDUP", {1}, FCI::ALL }
+
+			, { "std::memset", "mse::lh::memset", "MSE_LH_MEMSET", {3}, FCI::NONE }
+			, { "std::memcpy", "mse::lh::memcpy", "MSE_LH_MEMCPY", {3}, FCI::NONE }
+			, { "std::memcmp", "mse::lh::memcmp", "MSE_LH_MEMCMP", {3}, FCI::NONE }
+			, { "std::memchr", "mse::lh::memchr", "MSE_LH_MEMCHR", {3}, FCI::ALL }
+			, { "std::strcpy", "mse::lh::strcpy", "MSE_LH_STRCPY", {2}, FCI::ALL }
+			, { "std::strcmp", "mse::lh::strcmp", "MSE_LH_STRCMP", {2}, FCI::ALL }
+			, { "std::strncmp", "mse::lh::strncmp", "MSE_LH_STRNCMP", {3}, FCI::ALL }
+			, { "std::strchr", "mse::lh::strchr", "MSE_LH_STRCMP", {2}, FCI::ALL }
+			, { "std::strlen", "mse::lh::strlen", "MSE_LH_STRLEN", {1}, FCI::ALL }
+			, { "std::strnlen_s", "mse::lh::strnlen_s", "MSE_LH_STRNLEN_S", {2}, FCI::ALL }
+			, { "std::strtol", "mse::lh::strtol", "MSE_LH_STRTOL", {3}, FCI::ALL }
+			, { "std::strtoll", "mse::lh::strtoll", "MSE_LH_STRTOLL", {3}, FCI::ALL }
+			, { "std::strtoul", "mse::lh::strtoul", "MSE_LH_STRTOUL", {3}, FCI::ALL }
+			, { "std::strtoull", "mse::lh::strtoull", "MSE_LH_STRTOULL", {3}, FCI::ALL }
+			, { "std::strtoimax", "mse::lh::strtoimax", "MSE_LH_STRTOIMAX", {3}, FCI::ALL }
+			, { "std::strtoumax", "mse::lh::strtoumax", "MSE_LH_STRTOUMAX", {3}, FCI::ALL }
+			, { "std::strtof", "mse::lh::strtof", "MSE_LH_STRTOF", {2}, FCI::ALL }
+			, { "std::strtod", "mse::lh::strtod", "MSE_LH_STRTOD", {2}, FCI::ALL }
+			, { "std::strtold", "mse::lh::strtold", "MSE_LH_STRTOLD", {2}, FCI::ALL }
+			, { "std::strtok", "mse::lh::strtok", "MSE_LH_STRTOK", {2}, FCI::ALL }
+			, { "std::fread", "mse::lh::fread", "MSE_LH_FREAD", {4}, FCI::_1ST }
+			, { "std::fwrite", "mse::lh::fwrite", "MSE_LH_FWRITE", {4}, FCI::_1ST }
+#endif // 0
+		};
+		return sl_function_conversion_infos;
+	}
+	static std::optional<size_t> s_function_conversion_index_if_any(std::string_view target_fqname) {
+		size_t count = 0;
+		for (auto& function_conversion_info : s_function_conversion_infos()) {
+			if (target_fqname == function_conversion_info.OriginalFunctionQName) {
+				return count;
+			}
+			count += 1;
+		}
+		return {};
+	}
+
 	/* This class addresses the initialized declarations in the form "type var = cond ? lhs : rhs;". */
 	class MCSSSConditionalInitializer : public MatchFinder::MatchCallback
 	{
@@ -14056,7 +14860,7 @@ namespace convc2validcpp {
 	}
 
 	template<typename TOptions/* = options_t<> */>
-	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1, clang::Expr const* E /*= nullptr*/) {
+	bool is_non_modifiable(clang::Decl const& decl, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1, clang::Expr const* E /*= nullptr*/, bool function_return_value_only/* = false*/) {
 		bool non_modifiable_flag = false;
 		do {
 			auto suppress_check_flag = state1.m_suppress_check_region_set.contains(&decl, Rewrite, Ctx);
@@ -14070,24 +14874,26 @@ namespace convc2validcpp {
 				if (FND) {
 					IF_DEBUG(const auto qfname_str = FND->getQualifiedNameAsString();)
 
-					/* So technically, the fact that the Begin and End of the item's range are in a "filtered out" location 
-					out doesn't *necessarily* mean that the whole item is in a "filtered out" location, though we'll 
-					generally presume it to be. But in this case the item is a function declaration, so we'll just check if 
-					all the parameter declarations are also "filtered out" by location. */
-					bool an_arg_is_modifiable = false;
-					const auto num_params = FND->getNumParams();
-					for (size_t i = 0; num_params > i; i += 1) {
-						auto PVD = FND->getParamDecl(i);
-						if (PVD && !is_non_modifiable(*PVD, Ctx, Rewrite, state1)) {
-							an_arg_is_modifiable = true;
-							break;
+					if (!function_return_value_only) {
+						/* So technically, the fact that the Begin and End of the item's range are in a "filtered out" location 
+						out doesn't *necessarily* mean that the whole item is in a "filtered out" location, though we'll 
+						generally presume it to be. But in this case the item is a function declaration, so we'll just check if 
+						all the parameter declarations are also "filtered out" by location. */
+						bool an_arg_is_modifiable = false;
+						const auto num_params = FND->getNumParams();
+						for (size_t i = 0; num_params > i; i += 1) {
+							auto PVD = FND->getParamDecl(i);
+							if (PVD && !is_non_modifiable(*PVD, Ctx, Rewrite, state1)) {
+								an_arg_is_modifiable = true;
+								break;
+							}
 						}
-					}
-					if (!an_arg_is_modifiable) {
-						non_modifiable_flag = true;
-						break;
-					} else {
-						int q = 5;
+						if (!an_arg_is_modifiable) {
+							non_modifiable_flag = true;
+							break;
+						} else {
+							int q = 5;
+						}
 					}
 				} else {
 					non_modifiable_flag = true;
@@ -14100,6 +14906,16 @@ namespace convc2validcpp {
 			}
 			auto DD = dyn_cast<const clang::DeclaratorDecl>(&decl);
 			if (DD) {
+				auto effective_qtype = DD->getType();
+
+				if (function_return_value_only) {
+					auto FND = dyn_cast<const clang::FunctionDecl>(&decl);
+					if (FND) {
+						IF_DEBUG(const auto qfname_str = FND->getQualifiedNameAsString();)
+						effective_qtype = FND->getReturnType();
+					}
+				}
+
 				auto tsi = DD->getTypeSourceInfo();
 				if (tsi) {
 					auto type_SL = tsi->getTypeLoc().getBeginLoc();
@@ -14119,6 +14935,29 @@ namespace convc2validcpp {
 						IF_DEBUG(std::string cannonical_qtype_str = cannonical_qtype.getAsString();)
 
 						auto definition_type_SL = definition_TypeLoc(tsi->getTypeLoc()).getBeginLoc();
+						auto definition_qtype = tsi->getType();
+
+						if (function_return_value_only) {
+							auto FND = dyn_cast<const clang::FunctionDecl>(&decl);
+							if (FND) {
+								IF_DEBUG(const auto qfname_str = FND->getQualifiedNameAsString();)
+								auto ret_qtype = FND->getReturnType();
+
+								const TypedefType * TDT = ret_qtype.getTypePtr()->getAs<TypedefType>();
+								if (TDT) {
+									/* The function's return type seems to be a `typedef`ed type. */
+									auto TDTD = TDT->getDecl();
+									if (TDTD) {
+										auto TDTD_tsi = TDTD->getTypeSourceInfo();
+										if (TDTD_tsi) {
+											definition_qtype = TDTD_tsi->getType();
+											definition_type_SL = definition_TypeLoc(TDTD_tsi->getTypeLoc()).getBeginLoc();
+										}
+									}
+								}
+							}
+						}
+
 						if (!(definition_type_SL.isValid())) {
 							non_modifiable_flag = true;
 							break;
@@ -14132,7 +14971,7 @@ namespace convc2validcpp {
 							types as "non-modifiable" is that it technically may include arithmetic types like `int64_t`, which, 
 							although (typically) a platform-specific typedef, has no properties, relevant to us, that are 
 							non-portable. */
-							if (!tsi->getType()->isArithmeticType()) {
+							if (!definition_qtype->isArithmeticType()) {
 								non_modifiable_flag = true;
 								break;
 							}
@@ -14140,21 +14979,21 @@ namespace convc2validcpp {
 					}
 				}
 
-				std::string qtype_str = DD->getType().getAsString();
+				std::string qtype_str = effective_qtype.getAsString();
 				if ("FILE *" == qtype_str) {
 					return true;
 				}
 
-				if (DD->getType()->isArrayType()) {
-					if (llvm::isa<const clang::ArrayType>(DD->getType().getTypePtr())) {
-						auto ATP = llvm::cast<const clang::ArrayType>(DD->getType().getTypePtr());
+				if (effective_qtype->isArrayType()) {
+					if (llvm::isa<const clang::ArrayType>(effective_qtype.getTypePtr())) {
+						auto ATP = llvm::cast<const clang::ArrayType>(effective_qtype.getTypePtr());
 						auto element_qtype = ATP->getElementType();
 						std::string element_qtype_str = element_qtype.getAsString();
 
 						static const std::string anonymous_struct_prefix = "struct (anonymous struct";
 						static const std::string unnamed_struct_prefix = "struct (unnamed struct";
 						if ((std::string::npos != element_qtype_str.find(anonymous_struct_prefix)) || (std::string::npos != element_qtype_str.find(unnamed_struct_prefix))) {
-							/* The declaration seeems to be a (native) array of an unnamed struct type. But `lh::TNativeArrayReplacement<>` 
+							/* The declaration seems to be a (native) array of an unnamed struct type. But `lh::TNativeArrayReplacement<>` 
 							(like `std::array<>`) doesn't support unnamed struct types. Ultimately the solution would presumably be to just 
 							give the struct a name in a separate declaration, but for now we're just going to treat it as if it were 
 							unmodifiable. */
@@ -14163,7 +15002,7 @@ namespace convc2validcpp {
 
 					}
 				}
-				if (DD->getType()->isFunctionPointerType()) {
+				if (effective_qtype->isFunctionPointerType()) {
 					auto found_it = state1.m_ddecl_conversion_state_map.find(DD);
 					if (state1.m_ddecl_conversion_state_map.end() != found_it) {
 						auto& ddcs_ref = found_it->second;
@@ -14175,7 +15014,10 @@ namespace convc2validcpp {
 								function_decl_ptr = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state.m_function_decl_ptr;
 							}
 							if (function_decl_ptr) {
-								if (is_non_modifiable(*function_decl_ptr, Ctx, Rewrite, state1, E)) {
+								/* It is now the case that function pointers that were originally assigned a non-modifiable function target 
+								should be converted to be assigned a safe "function wrapper" for the original function target. So such 
+								function pointers no longer need to be reported as non-modifiable. */
+								if (false && is_non_modifiable(*function_decl_ptr, Ctx, Rewrite, state1, E)) {
 									/* Currently we, don't maintain conversion states for the parameters of the target of a function 
 									pointer. If the the function pointer is know to have been assigned a function value with an associated 
 									DeclaratorDecl, then currently we use just presume that the the converted types of the function 
@@ -14217,8 +15059,8 @@ namespace convc2validcpp {
 					}
 				}
 
-#if 0
 				if constexpr (!std::is_base_of_v<do_not_exclude_functions_with_conversions_t, TOptions>) {
+					//auto maybe_function_conversion_index = s_function_conversion_index_if_any(function_qname);
 					auto maybe_function_conversion_index = s_function_conversion_index_if_any(function_qname);
 					if (maybe_function_conversion_index.has_value()) {
 						/* While the function would've otherwise been "non-modifiable", it may be one of the recognized 
@@ -14271,17 +15113,31 @@ namespace convc2validcpp {
 					}
 				}
 				auto res1 = analyze_malloc_resemblance(*FND, state1, Rewrite);
-				if (res1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup() || res1.seems_to_be_some_kind_of_free()) {
-					/* malloc() and free() calls will presumably be converted. */
-					return false;
+				if (E && !(res1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup() || res1.seems_to_be_some_kind_of_free())) {
+					auto CE = dyn_cast<const clang::CallExpr>(IgnoreParenImpNoopCasts(E, Ctx));
+					if (CE) {
+						res1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
+					}
 				}
-#endif /*0*/
+				if (res1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup() || res1.seems_to_be_some_kind_of_free()) {
+					bool expression_seems_to_be_in_a_nonmodifiable_location = false;
+					if (E) {
+						auto E_SR = cm1_adj_nice_source_range(E->getSourceRange(), state1, Rewrite);
+						if ((!E_SR.isValid()) || cm1_filtered_out_by_location(Ctx, E_SR) || state1.m_suppress_check_region_set.contains(E, Rewrite, Ctx)) {
+							expression_seems_to_be_in_a_nonmodifiable_location = true;
+						}
+					}
+					if (true || !expression_seems_to_be_in_a_nonmodifiable_location) {
+						/* malloc() and free() calls will presumably be converted. */
+						return false;
+					}
+				}
 			}
 		}
 		return non_modifiable_flag;
 	}
-	bool is_non_modifiable(clang::Decl const& decl, const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::Rewriter &Rewrite, CTUState& state1, clang::Expr const* E = nullptr) {
-		return is_non_modifiable(decl, *(MR.Context), Rewrite, state1, E);
+	bool is_non_modifiable(clang::Decl const& decl, const clang::ast_matchers::MatchFinder::MatchResult &MR, clang::Rewriter &Rewrite, CTUState& state1, clang::Expr const* E = nullptr, bool function_return_value_only = false) {
+		return is_non_modifiable(decl, *(MR.Context), Rewrite, state1, E, function_return_value_only);
 	}
 
 	inline static void handle_c_style_cast_without_context(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
@@ -15133,8 +15989,8 @@ namespace convc2validcpp {
 
 						auto precasted_CE = llvm::dyn_cast<const clang::CallExpr>(precasted_expr_ptr->IgnoreParenCasts());
 						if (precasted_CE) {
-							auto alloc_function_info1 = analyze_malloc_resemblance(*precasted_CE, Rewrite);
-							if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+							auto alloc_function_info1 = analyze_malloc_resemblance(*precasted_CE, state1, Rewrite);
+							if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
 								/* This case is handled elsewhere. */
 								finished_cast_handling_flag = true;
 							}
@@ -15203,8 +16059,8 @@ namespace convc2validcpp {
 
 				if (llvm::isa<const clang::CallExpr>(RHS->IgnoreParenCasts())) {
 					auto CE = llvm::cast<const clang::CallExpr>(RHS->IgnoreParenCasts());
-					auto alloc_function_info1 = analyze_malloc_resemblance(*CE, Rewrite);
-					if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+					auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
+					if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
 						/* This seems to be some kind of malloc/realloc function. These case should not be
 						* handled here. They are handled elsewhere. */
 						return;
@@ -15498,8 +16354,8 @@ namespace convc2validcpp {
 					bool ends_with_free = ((lc_function_name.size() >= free_str.size())
 							&& (0 == lc_function_name.compare(lc_function_name.size() - free_str.size(), free_str.size(), free_str)));
 
-					auto res1 = analyze_malloc_resemblance(*CE, Rewrite);
-					bool seems_to_be_some_kind_of_malloc_or_realloc = res1.m_seems_to_be_some_kind_of_malloc_or_realloc;
+					auto res1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
+					bool seems_to_be_some_kind_of_malloc_or_realloc = res1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup();
 
 					bool begins_with__builtin_ = string_begins_with(function_name, "__builtin_");
 					bool is_memcpy = false;
@@ -15966,8 +16822,8 @@ namespace convc2validcpp {
 					return;
 				}
 
-				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, Rewrite);
-				if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, state1, Rewrite);
+				if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
 					/* The argument is in the form "something * sizeof(something_else)" or
 					* "sizeof(something) * something_else". So we're just going to assume that
 					* this is an instance of an array being allocated. */
@@ -16044,18 +16900,18 @@ namespace convc2validcpp {
 							std::string array_initializer_info_str;
 							std::string pointer_initializer_info_str;
 
-							if (alloc_function_info1.m_seems_to_be_some_kind_of_realloc) {
-								array_initializer_info_str = "MSE_LH_REALLOC(" + element_type_str + ", " + alloc_function_info1.m_realloc_pointer_arg_source_text;
+							if (alloc_function_info1.seems_to_be_some_kind_of_realloc()) {
+								array_initializer_info_str = "MSE_LH_REALLOC(" + element_type_str + ", " + alloc_function_info1.m_realloc_or_free_pointer_arg_source_text;
 								array_initializer_info_str += ", " + adjusted_num_bytes_str + ")";
 
 								if ("Dual" == ConvertMode) {
-									array_initializer_info_str = "MSE_LH_REALLOC(" + element_type_str + ", " + alloc_function_info1.m_realloc_pointer_arg_source_text;
+									array_initializer_info_str = "MSE_LH_REALLOC(" + element_type_str + ", " + alloc_function_info1.m_realloc_or_free_pointer_arg_source_text;
 									array_initializer_info_str += ", " + adjusted_num_bytes_str + ")";
 								} else if ("FasterAndStricter" == ConvertMode) {
-									array_initializer_info_str = "mse::lh::reallocate(" + alloc_function_info1.m_realloc_pointer_arg_source_text;
+									array_initializer_info_str = "mse::lh::reallocate(" + alloc_function_info1.m_realloc_or_free_pointer_arg_source_text;
 									array_initializer_info_str += ", " + adjusted_num_bytes_str + ")";
 								} else {
-									array_initializer_info_str = "mse::lh::reallocate(" + alloc_function_info1.m_realloc_pointer_arg_source_text;
+									array_initializer_info_str = "mse::lh::reallocate(" + alloc_function_info1.m_realloc_or_free_pointer_arg_source_text;
 									array_initializer_info_str += ", " + adjusted_num_bytes_str + ")";
 								}
 
@@ -16063,7 +16919,7 @@ namespace convc2validcpp {
 								array. */
 								pointer_initializer_info_str = array_initializer_info_str;
 
-								if (alloc_function_info1.m_realloc_pointer_arg_DD) {
+								if (alloc_function_info1.m_realloc_or_free_pointer_arg_DD) {
 									auto VLD = dyn_cast<const clang::ValueDecl>(DD);
 									auto first_arg_ii = IgnoreParenImpNoopCasts(CE->getArg(0), *(MR.Context));
 									IF_DEBUG(std::string first_arg_ii_qtype_str = first_arg_ii->getType().getAsString();)
@@ -16153,8 +17009,8 @@ namespace convc2validcpp {
 					return;
 				}
 
-				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, Rewrite);
-				if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+				auto alloc_function_info1 = analyze_malloc_resemblance(*CE, m_state1, Rewrite);
+				if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
 					/* The argument is in the form "something * sizeof(something_else)" or
 					* "sizeof(something) * something_else". So we're just going to assume that
 					* this is an instance of an array being allocated. */
@@ -16788,11 +17644,18 @@ namespace convc2validcpp {
 					auto VD = dyn_cast<const clang::VarDecl>(D);
 					auto FD = dyn_cast<const clang::FieldDecl>(D);
 					auto FND = dyn_cast<const clang::FunctionDecl>(DD);
-					if (false && VD) {
+					if (VD) {
 						const auto storage_duration = VD->getStorageDuration();
 						const auto var_qualified_name = VD->getQualifiedNameAsString();
 						const auto* CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
+						const auto storage_class = VD->getStorageClass();
 
+						if ((clang::StorageClass::SC_Register == storage_class)) {
+							if (true || update_declaration_flag) {
+								update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), state1);
+							}
+						}
+#if 0
 						if ((clang::StorageDuration::SD_Static == storage_duration) || (clang::StorageDuration::SD_Thread == storage_duration)) {
 							bool satisfies_checks = satisfies_restrictions_for_static_storage_duration(qtype);
 							if (!satisfies_checks) {
@@ -16977,6 +17840,7 @@ namespace convc2validcpp {
 								}
 							}
 						}
+#endif //0
 					} else if (false && FD) {
 						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 							ddcs_ref.m_indirection_state_stack.at(0).set_xscope_eligibility(false);
@@ -18049,7 +18913,7 @@ namespace convc2validcpp {
 					auto precasted_CE = llvm::dyn_cast<const clang::CallExpr>(IgnoreParenImpNoopCasts(precasted_expr_ptr, *(MR.Context)));
 					if (precasted_CE) {
 						auto alloc_function_info1 = analyze_malloc_resemblance(*precasted_CE, Rewrite);
-						if (alloc_function_info1.m_seems_to_be_some_kind_of_malloc_or_realloc) {
+						if (alloc_function_info1.seems_to_be_some_kind_of_malloc_or_realloc_or_dup()) {
 							/* This case is handled elsewhere. */
 							finished_cast_handling_flag = true;
 						}

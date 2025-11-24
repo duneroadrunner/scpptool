@@ -7351,6 +7351,7 @@ namespace convm1 {
 		bool m_seems_to_involve_a_template_param_or_nonmodifiable_type_originally = false;
 		std::string m_tparam_or_nonmodifiable_type_that_encompasses_the_direct_type_str;
 		std::string m_complete_type_str;
+		std::string m_return_type_str;
 	};
 
 	class CDeclarationReplacementCodeItem {
@@ -8882,7 +8883,12 @@ namespace convm1 {
 			}
 		}
 
-		retval.m_complete_type_str = retval.m_prefix_str + direct_qtype_str + retval.m_suffix_str;
+		retval.m_complete_type_str = retval.m_prefix_str + direct_qtype_str + retval.m_suffix_str + retval.m_post_name_suffix_str;
+		retval.m_return_type_str = retval.m_prefix_str + direct_qtype_str + retval.m_suffix_str;
+		if (string_begins_with(retval.m_post_name_suffix_str, "[")) {
+			/* The post-name suffix seems to be the size expression of an array, not the parameter list of a function. */
+			retval.m_return_type_str += retval.m_post_name_suffix_str;
+		}
 
 		return retval;
 	}
@@ -13046,7 +13052,7 @@ namespace convm1 {
 
 												auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_asignee, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
 
-												auto new_asignee_qtype_str = res3.m_complete_type_str;
+												auto new_asignee_qtype_str = res3.m_return_type_str;
 
 												if (0 == indirection_state_stack_of_asignee.size()) {
 													/* The type of the LHS expression does not seem to be indirect. So the LHS type is the 
@@ -13151,7 +13157,7 @@ namespace convm1 {
 
 										auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_pointee, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
 
-										arg_pointee_qtype_str = res3.m_complete_type_str;
+										arg_pointee_qtype_str = res3.m_return_type_str;
 
 										if (0 == indirection_state_stack_of_pointee.size()) {
 											/* The type of the conditional operator argument(/alternative/option/branch) expressions seems to have
@@ -13237,7 +13243,7 @@ namespace convm1 {
 								if (ddcs_ptr) {
 									auto& ddcs_ref = *ddcs_ptr;
 									auto res3 = generate_type_indirection_prefix_and_suffix(ddcs_ref.m_indirection_state_stack, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
-									adj_arg_qtype_str = res3.m_complete_type_str;
+									adj_arg_qtype_str = res3.m_return_type_str;
 								}
 							}
 							if ("" == adj_arg_qtype_str) {
@@ -17971,7 +17977,7 @@ namespace convm1 {
 				}
 
 				auto res3 = generate_type_indirection_prefix_and_suffix(indirection_state_stack_of_LHS, Rewrite, EIsFunctionParam::No, {}/*maybe_storage_duration*/, &state1);
-				new_LHS_qtype_str = res3.m_complete_type_str;
+				new_LHS_qtype_str = res3.m_return_type_str;
 
 				bool use_decltype = false;
 				bool decltype_vetoed = false;
