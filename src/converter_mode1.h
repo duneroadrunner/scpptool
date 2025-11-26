@@ -18422,8 +18422,16 @@ namespace convm1 {
 			}
 
 			auto lhs_qtype = LHS ? LHS->getType() : maybe_VLD_effective_qtype.value();
+			auto adjusted_lhs_qtype = [&]() {
+				if (maybe_adjusted_lhs_qtype.has_value()) {
+					return maybe_adjusted_lhs_qtype.value();
+				}
+				return lhs_qtype;
+			};
+			const auto adj_lhs_qtype = adjusted_lhs_qtype();
 
-			IF_DEBUG(std::string LHS_qtype_str = LHS ? LHS->getType().getAsString() : (maybe_VLD_effective_qtype.has_value() ? maybe_VLD_effective_qtype.value().getAsString() : "");)
+			IF_DEBUG(std::string LHS_qtype_str = lhs_qtype.getAsString();)
+			IF_DEBUG(std::string adj_lhs_qtype_str = adj_lhs_qtype.getAsString();)
 			IF_DEBUG(std::string RHS_qtype_str = RHS->getType().getAsString();)
 			IF_DEBUG(std::string RHS_ii_qtype_str = RHS_ii->getType().getAsString();)
 
@@ -19212,14 +19220,7 @@ namespace convm1 {
 					auto ILE = dyn_cast<const clang::InitListExpr>(RHS_ii);
 					if (ILE && lhs_res2.ddecl_conversion_state_ptr) {
 						if (lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size() >= (lhs_res2.indirection_level + lhs_indirection_level_adjustment)) {
-							auto adjusted_lhs_qtype = [&]() {
-								if (maybe_adjusted_lhs_qtype.has_value()) {
-									return maybe_adjusted_lhs_qtype.value();
-								}
-								return lhs_qtype;
-							};
 							bool is_array_type = false;
-							const auto adj_lhs_qtype = adjusted_lhs_qtype();
 							if (adj_lhs_qtype->isArrayType()) {
 								auto element_TypePtr = adj_lhs_qtype->getPointeeOrArrayElementType();
 								const auto num_int_items = ILE->getNumInits();

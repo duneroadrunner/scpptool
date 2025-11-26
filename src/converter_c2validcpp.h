@@ -15450,7 +15450,7 @@ namespace convc2validcpp {
 
 		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
 			, const clang::Expr* LHS, const clang::Expr* RHS, const clang::ValueDecl* VLD = nullptr
-			, EIsAnInitialization is_an_initialization = EIsAnInitialization::No) {
+			, EIsAnInitialization is_an_initialization = EIsAnInitialization::No, std::optional<int> maybe_lhs_indirection_level_adjustment = {}) {
 
 			if (!RHS) {
 				return;
@@ -15564,6 +15564,38 @@ namespace convc2validcpp {
 					return;
 				}
 			}
+			if (maybe_lhs_indirection_level_adjustment.has_value()) {
+				auto& lhs_indirection_level_adjustment_param = maybe_lhs_indirection_level_adjustment.value();
+				/* The maybe_lhs_indirection_level_adjustment is intended to enable synthesized assignment operations 
+				where the intended lhs declaration (or expression) is not available, but is an indirection of one that 
+				is available. In such case, one can pass the available declaration (or expression) and also an 
+				lhs_indirection_level_adjustment value indicating which indirecction level of the provided declaration 
+				(or expression) is intended to as the lhs.  */
+				if (lhs_res2.ddecl_conversion_state_ptr) {
+					if (lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size() >= (lhs_res2.indirection_level + lhs_indirection_level_adjustment_param)) {
+						lhs_res2.indirection_level += lhs_indirection_level_adjustment_param;
+					} else {
+						int q = 3;
+						return;
+					}
+				}
+			}
+			std::optional<clang::QualType> maybe_adjusted_lhs_qtype;
+			if (lhs_res2.ddecl_conversion_state_ptr) {
+				if (lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size() > (lhs_res2.indirection_level)) {
+					auto& indirection_state_ref = lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.at(lhs_res2.indirection_level);
+					maybe_adjusted_lhs_qtype = indirection_state_ref.m_maybe_original_qtype;
+				} else if (lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size() == (lhs_res2.indirection_level)) {
+					maybe_adjusted_lhs_qtype = lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.m_direct_type_state.maybe_original_qtype();
+				} else {
+					int q = 3;
+				}
+			}
+			std::string adjusted_lhs_qtype_str;
+			if (maybe_adjusted_lhs_qtype.has_value()) {
+				adjusted_lhs_qtype_str = maybe_adjusted_lhs_qtype.value().getAsString();
+			}
+
 			auto DD = lhs_res2.ddecl_cptr;
 			MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(RHS->getType());
 
@@ -15581,15 +15613,120 @@ namespace convc2validcpp {
 			}
 
 			auto lhs_qtype = LHS ? LHS->getType() : maybe_VLD_effective_qtype.value();
+			auto adjusted_lhs_qtype = [&]() {
+				if (maybe_adjusted_lhs_qtype.has_value()) {
+					return maybe_adjusted_lhs_qtype.value();
+				}
+				return lhs_qtype;
+			};
+			const auto adj_lhs_qtype = adjusted_lhs_qtype();
 
-			std::string LHS_qtype_str = LHS ? LHS->getType().getAsString() : (maybe_VLD_effective_qtype.has_value() ? maybe_VLD_effective_qtype.value().getAsString() : "");
-			std::string RHS_ii_qtype_str = RHS_ii->getType().getAsString();
+			IF_DEBUG(std::string LHS_qtype_str = lhs_qtype.getAsString();)
+			IF_DEBUG(std::string adj_lhs_qtype_str = adj_lhs_qtype.getAsString();)
+			IF_DEBUG(std::string RHS_qtype_str = RHS->getType().getAsString();)
+			IF_DEBUG(std::string RHS_ii_qtype_str = RHS_ii->getType().getAsString();)
+
+			RETURN_IF_DEPENDENT_TYPE_CONV1(RHS->getType());
 
 			assert(LHS || VLD);
 			auto LHS_qtype = LHS ? LHS->getType() : VLD->getType();
 			auto RHS_ii_qtype = RHS_ii->getType();
-			if ((!LHS_qtype->isPointerType()) || (!RHS_ii_qtype->isPointerType())) {
-				//return;
+
+			//auto lhs_res2 = infer_array_type_info_from_stmt(*LHS, "", state1);
+			auto rhs_res2 = infer_array_type_info_from_stmt(*RHS, "", state1);
+			bool lhs_is_an_indirect_type = LHS ? is_an_indirect_type(LHS->getType()) : (VLD ? is_an_indirect_type(VLD->getType()) : false);
+			bool rhs_is_an_indirect_type = is_an_indirect_type(RHS->getType());
+			if (lhs_is_an_indirect_type != rhs_is_an_indirect_type) {
+				/* This might happen if one side is a reference type and the other side isn't. */
+				int q = 5;
+			}
+
+			int lhs_indirection_level_adjustment = 0;
+			auto rhs_res3 = leading_addressof_operator_info_from_stmt(*RHS);
+			if (rhs_res3.without_leading_addressof_operator_expr_cptr) {
+				assert(rhs_res3.leading_addressof_operator_detected && rhs_res3.addressof_unary_operator_cptr);
+
+				RHS = rhs_res3.without_leading_addressof_operator_expr_cptr;
+				rhs_res2 = infer_array_type_info_from_stmt(*RHS, "", state1);
+
+				auto without_leading_addressof_operator_expr_cptr_ii = IgnoreParenImpNoopCasts(rhs_res3.without_leading_addressof_operator_expr_cptr, *(MR.Context));
+				if (false && (clang::Stmt::StmtClass::ArraySubscriptExprClass == (*(without_leading_addressof_operator_expr_cptr_ii)).getStmtClass())) {
+					assert(llvm::isa<const clang::ArraySubscriptExpr>(without_leading_addressof_operator_expr_cptr_ii));
+					if (1 <= rhs_res2.indirection_level) {
+						rhs_res2.indirection_level -= 1;
+					} else {
+						int q = 3;
+					}
+				} else {
+					lhs_indirection_level_adjustment += 1;
+				}
+			}
+
+			auto check_for_and_handle_InitListExpr = [&]() -> bool {
+					auto ILE = dyn_cast<const clang::InitListExpr>(RHS_ii);
+					if (ILE && lhs_res2.ddecl_conversion_state_ptr) {
+						if (lhs_res2.ddecl_conversion_state_ptr->m_indirection_state_stack.size() >= (lhs_res2.indirection_level + lhs_indirection_level_adjustment)) {
+							bool is_array_type = false;
+							if (adj_lhs_qtype->isArrayType()) {
+								auto element_TypePtr = adj_lhs_qtype->getPointeeOrArrayElementType();
+								const auto num_int_items = ILE->getNumInits();
+								for (size_t i = 0; num_int_items > i; i += 1) {
+									auto init_item_E = ILE->getInit(i);
+									if (init_item_E) {
+										/* For each item in the initializer list, we'll process a synthesized assignment operation. We need 
+										to pass 1 as the argument for the maybe_lhs_indirection_level_adjustment parameter to indicate that 
+										the provided RHS expression should not be assigned to the provided (native) array declaration, but 
+										rather some element of the array. */
+										auto l_maybe_lhs_indirection_level_adjustment = maybe_lhs_indirection_level_adjustment;
+										if (l_maybe_lhs_indirection_level_adjustment.has_value()) {
+											l_maybe_lhs_indirection_level_adjustment.value() += 1;
+										} else {
+											l_maybe_lhs_indirection_level_adjustment = 1;
+										}
+										/* recursion */
+										MCSSSAssignment::s_handler1(MR, Rewrite, state1, LHS/*LHS*//*presumably null in this case*/, init_item_E/*RHS*/
+											, VLD/*VLD*/, is_an_initialization, l_maybe_lhs_indirection_level_adjustment);
+									} else {
+										int q = 3;
+									}
+								}
+							} else {
+								const auto RD = adj_lhs_qtype->getAsRecordDecl();
+								if (RD) {
+									auto field_range = RD->fields();
+									int num_fields = 0;
+									for (auto iter = field_range.begin(); field_range.end() != iter; ++iter) {
+										num_fields += 1;
+									}
+									const auto num_int_items = ILE->getNumInits();
+									if (num_int_items <= num_fields) {
+										size_t init_item_index = 0;
+										for (auto iter = field_range.begin(); (field_range.end() != iter) && (num_int_items > init_item_index); ++iter) {
+											clang::Expr const* init_item_E = nullptr;
+											init_item_E = ILE->getInit(init_item_index);
+											auto FD = *iter;
+											if (FD && init_item_E) {
+												IF_DEBUG(std::string init_item_qtype_str = init_item_E->getType().getAsString();)
+												/* recursion */
+												MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_item_E/*RHS*/, FD/*VLD*/, is_an_initialization, {}/*maybe_lhs_indirection_level_adjustment*/);
+											} else {
+												int q = 3;
+											}
+
+											init_item_index += 1;
+										}
+									} else {
+										int q = 7;
+									}
+								}
+							}
+						}
+						return true;
+					}
+					return false;
+				};
+			if (check_for_and_handle_InitListExpr()) {
+				return;
 			}
 
 			bool rhs_needs_hard_cast_to_lhs = false;
@@ -15694,11 +15831,11 @@ namespace convc2validcpp {
 					}
 				}
 			} else if ((EIsAnInitialization::Yes == is_an_initialization) && (dyn_cast<const clang::StringLiteral>(RHS_ii)) 
-				&& (LHS_qtype->isConstantArrayType())) {
+				&& (adj_lhs_qtype->isConstantArrayType())) {
 
 				/* This seems to be a case of a native array being initialized with a string literal. */
 				const auto SL = dyn_cast<const clang::StringLiteral>(RHS_ii); 
-				const auto CAT = dyn_cast<const clang::ConstantArrayType>(LHS_qtype.getTypePtr());
+				const auto CAT = dyn_cast<const clang::ConstantArrayType>(adj_lhs_qtype.getTypePtr());
 				if (SL && CAT) {
 					//const auto array_size = CAT->getLimitedSize();
 					const auto maybe_array_size = CAT->getSize().tryZExtValue();
@@ -15710,13 +15847,42 @@ namespace convc2validcpp {
 						if (str.length() == array_size) {
 							/* But the array doesn't seem to be big enough to include the null terminator. This is apparently permitted 
 							in C, but not C++. */
+
+							auto charToHex = [](char c) -> std::string {
+									// ai generated lambda:
+									// Convert to unsigned so negative chars don't produce signed hex
+									unsigned char uc = static_cast<unsigned char>(c);
+
+									std::ostringstream oss;
+									oss << std::hex        // switch to hexadecimal output
+										<< std::setw(2)    // always two digits
+										<< std::setfill('0') // pad with 0s if needed
+										<< static_cast<int>(uc); // insert the numeric value
+
+									return oss.str(); // e.g. for 'A' this returns "41"
+								};
+
+							bool use_hex_representation = false;
+							for (size_t i = 0; array_size > i; i += 1) {
+								auto uch = (unsigned char)(str.at(i));
+								if ((32 > uch) || (127 < uch)) {
+									use_hex_representation = true;
+									break;
+								}
+							}
+
 							std::string replacement_init_expr_text = "{ ";
 							for (size_t i = 0; array_size > i; i += 1) {
 								if (1 <= i) {
 									replacement_init_expr_text += ", ";
 								}
 								replacement_init_expr_text += "\'";
-								replacement_init_expr_text += str.at(i);
+								if (use_hex_representation) {
+									replacement_init_expr_text += "\\x";
+									replacement_init_expr_text += charToHex(str.at(i));
+								} else {
+									replacement_init_expr_text += str.at(i);
+								}
 								replacement_init_expr_text += "\'";
 							}
 							replacement_init_expr_text += " }";
@@ -15899,6 +16065,7 @@ namespace convc2validcpp {
 				potentially modified. */
 				auto& ecs_ref = state1.get_expr_conversion_state_ref(*RHS2, Rewrite);
 			}
+
 
 			if (false) {
 				//auto lhs_res2 = infer_array_type_info_from_stmt(*LHS, "", state1);
@@ -17933,6 +18100,88 @@ namespace convc2validcpp {
 						} else {
 							ddcs_ref.direct_type_state_ref().set_xscope_eligibility(false);
 							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FND, CDDeclIndirection::no_indirection));
+						}
+					}
+
+					if (false && FND) {
+						if (FND->hasAttrs()) {
+							auto vec = FND->getAttrs();
+							struct CAttrInfo {
+								CAttrInfo(std::string_view text, clang::Attr const * attr_ptr, bool is_a_lifetime_note = false)
+									: m_text(text), m_attr_ptr(attr_ptr), m_is_a_format_attribute(is_a_lifetime_note) {}
+								std::string m_text;
+								clang::Attr const * m_attr_ptr = nullptr;
+								bool m_is_a_format_attribute = false;
+							};
+							std::vector<CAttrInfo> attr_infos;
+							for (const auto& attr : vec) {
+								auto attr_SR = attr->getRange();
+								std::string raw_pretty_str;
+								llvm::raw_string_ostream pretty_stream(raw_pretty_str);
+								attr->printPretty(pretty_stream, clang::PrintingPolicy(clang::LangOptions()));
+								pretty_stream.flush();
+
+								std::string& pretty_str = raw_pretty_str;
+								auto first_format_range = Parse::find_token_sequence({ "format", "(" }, raw_pretty_str);
+								if (raw_pretty_str.length() <= first_format_range.begin) {
+									//continue;
+								}
+								attr_infos.push_back( CAttrInfo{ pretty_str, attr, true/*m_is_a_format_attribute*/ } );
+							}
+							for (const auto& attr_info : attr_infos) {
+								if (attr_info.m_attr_ptr) {
+									auto attr_SR = write_once_source_range(cm1_adj_nice_source_range(attr_info.m_attr_ptr->getRange(), state1, Rewrite));
+									std::string text1 = getRewrittenTextOrEmpty(Rewrite, attr_SR);
+									auto FA = dyn_cast<const clang::FormatAttr>(attr_info.m_attr_ptr);
+									auto RA = dyn_cast<const clang::RestrictAttr>(attr_info.m_attr_ptr);
+									auto AA = dyn_cast<const clang::AllocSizeAttr>(attr_info.m_attr_ptr);
+									auto RNNA = dyn_cast<const clang::ReturnsNonNullAttr>(attr_info.m_attr_ptr);
+									if (FA || RA || AA || RNNA) {
+										/* These (function) attributes apply to C elements that we replace. So we need to 
+										get rid of these attributes as well. */
+
+										/* The problem is that attr_SR refers to the gnu attribute argument, but we really want the 
+										whole "expression" including the `__attribute__` part, but that entity doesn't seem to have
+										a corresponding node in the AST tree, so it's not clear how one would properly obtain the source
+										range. So we'll ask cm1_adj_nice_source_range(), via its `may_be_a_gnu_attr` parameter, to try 
+										to give us an extended range that covers the entire gnu attribute specifier. */
+										auto adj_attr_SR_plus = cm1_adjusted_source_range(attr_info.m_attr_ptr->getRange(), state1, Rewrite
+											, CSourceRangeContext1{ CSourceRangeContext1::may_be_a_gnu_attr_tag{} });
+										auto adj_attr_SR2 = clang::SourceRange{ adj_attr_SR_plus };
+
+										if (adj_attr_SR_plus.m_range_is_essentially_the_entire_body_of_a_macro && !adj_attr_SR_plus.m_macro_expansion_range_substituted_with_macro_invocation_range) { 
+											/* So this is a situation where the __attribute__(...) element is essentially equivalent to the macro 
+											invoked to produce it. (I.e. The definition body of the macro contains only the __attribute__(...) 
+											element.) Usually when this is the case, cm1_adjusted_source_range() will return the source range of 
+											the macro invocation instead of the ("spelling") range of the __attribute__(...) element within the 
+											body of macro definition. That is, unless (as seems to be the case here) the the macro definition is 
+											in a "filtered out" location (i.e. in a system or 3rd party library, or config.h header, etc.). If 
+											the element is defined in such a "filtered out" location then it may be platform-specific and should 
+											be treated as "opaque" (and not eligible for conversion) by default. 
+											And indeed our attribute element of interest is likely plaform-specific. But we're not trying to 
+											convert it, but rather just get rid of it. To that end, we'd want to remove the macro invocation 
+											rather than the element in the macro definition body, which may be located in a "filtered out" (and 
+											potentially not-writable) location. */
+											if (1 <= adj_attr_SR_plus.m_adjusted_source_text_infos.size()) {
+												auto const& adjusted_source_text_info = adj_attr_SR_plus.m_adjusted_source_text_infos.back();
+												if (adjusted_source_text_info.m_macro_invocation_range.isValid()) {
+													adj_attr_SR2 = adjusted_source_text_info.m_macro_invocation_range;
+												}
+											}
+										}
+
+										auto adj_attr_SR = write_once_source_range(adj_attr_SR2);
+										std::string attr_text = getRewrittenTextOrEmpty(Rewrite, adj_attr_SR);
+										std::string blank_text = attr_text;
+										for (auto& ch : blank_text) {
+											ch = ' ';
+										}
+										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, adj_attr_SR, blank_text);
+									} else {
+										int q = 3;
+									}
+								}
+							}
 						}
 					}
 
