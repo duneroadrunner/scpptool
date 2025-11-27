@@ -20932,13 +20932,13 @@ namespace convc2validcpp {
 						}
 
 						{
-							auto found_it = s_file_conversion_record_map.find(file_path.filename());
+							auto found_it = s_file_conversion_record_map.find(std::string(file_path));
 							if (s_file_conversion_record_map.end() == found_it) {
 								CFileConversionRecord file_conversion_record;
 								file_conversion_record.m_path = file_path.parent_path();
 								file_conversion_record.m_original_filename = file_path.filename();
 								file_conversion_record.m_target_filename = converted_version_filename;
-								std::map<std::string, CFileConversionRecord>::value_type item(file_path.filename(), file_conversion_record);
+								std::map<std::string, CFileConversionRecord>::value_type item(std::string(file_path), file_conversion_record);
 								found_it = s_file_conversion_record_map.insert(item).first;
 								assert(s_file_conversion_record_map.end() != found_it);
 							}
@@ -21362,7 +21362,7 @@ namespace convc2validcpp {
 		} else {
 			for (auto& item_ref : MyFrontendActionPass1::s_file_conversion_record_map) {
 				CFileConversionRecord& file_conversion_record_ref = item_ref.second;
-				const std::string& original_filename_cref = item_ref.first;
+				const std::string& original_filename_cref = item_ref.second.m_original_filename;
 				std::string original_pathname = file_conversion_record_ref.m_path + "/" + original_filename_cref;
 				if (1 <= file_conversion_record_ref.m_converted_version_tu_numbers.size()) {
 					std::vector<size_t> converted_version_tu_numbers = file_conversion_record_ref.m_converted_version_tu_numbers;
