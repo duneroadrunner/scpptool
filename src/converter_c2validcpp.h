@@ -5395,7 +5395,7 @@ namespace convc2validcpp {
 				std::string SP2SR_source_text;
 				if ((SP2SR).isValid() && (((SP2SR).getBegin() < (SP2SR).getEnd()) || ((SP2SR).getBegin() == (SP2SR).getEnd()))) {
 					auto [adjusted_macro_SPSR, macro_name, macro_args] = macro_spelling_range_extended_to_include_any_arguments(sr2);
-					if (adjusted_macro_SPSR.getBegin() != SP2SL) {
+					if ((adjusted_macro_SPSR.getBegin() != SP2SL) || (adjusted_macro_SPSR.getEnd() < SP2SLE)) {
 						adjusted_macro_SPSR = clang::SourceRange{ SP2SL, SP2SLE };
 					}
 					SP2SR_source_text = getRewrittenTextOrEmpty(Rewrite, adjusted_macro_SPSR);
@@ -20809,7 +20809,30 @@ namespace convc2validcpp {
 
 						auto& SM = TheRewriter.getSourceMgr();
 
-						static const std::string if_cpp_def_str = "\n\n#ifndef IF_CPP_ELSE \n#ifdef __cplusplus \n#define IF_CPP_ELSE(x, y) x \n#else /*__cplusplus*/ \n#define IF_CPP_ELSE(x, y) y \n#endif /*__cplusplus*/ \n#define IF_CPP(x) IF_CPP_ELSE(x, ) \n#endif /*!defined(IF_CPP_ELSE)*/ \n";
+#if 0
+						static const std::string if_cpp_def_str = 
+							"\n\n#ifndef IF_CPP_ELSE \n"
+								"#ifdef __cplusplus \n"
+									"#define IF_CPP_ELSE(x, y) x \n"
+								"#else /*__cplusplus*/ \n"
+									"#define IF_CPP_ELSE(x, y) y \n"
+								"#endif /*__cplusplus*/ \n"
+								"#define IF_CPP(x) IF_CPP_ELSE(x, ) \n"
+							"#endif /*!defined(IF_CPP_ELSE)*/ \n";
+#else /* 0 */
+						static const std::string if_cpp_def_str = 
+							"\n\n#ifndef IF_CPP_ELSE \n"
+								"#ifdef __cplusplus \n"
+									"#define IF_CPP_ELSE(x, y) x \n"
+									"#define IF_CPP(...) __VA_ARGS__ \n"
+									"#define IF_C(...) \n"
+								"#else /*__cplusplus*/ \n"
+									"#define IF_CPP_ELSE(x, y) y \n"
+									"#define IF_CPP(...) \n"
+									"#define IF_C(...) __VA_ARGS__ \n"
+								"#endif /*__cplusplus*/ \n"
+							"#endif /*!defined(IF_CPP_ELSE)*/ \n";
+#endif /* 0 */
 						auto file_id = SM.getFileID(fii_ref.m_beginning_of_file_loc);
 						const auto maybe_file_text = SM.getBufferDataOrNone(file_id);
 						if (maybe_file_text.has_value() && (files_that_use_the_if_cpp_macro.end() != files_that_use_the_if_cpp_macro.find(file_id))) {

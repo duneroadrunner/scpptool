@@ -5662,7 +5662,7 @@ namespace convm1 {
 				std::string SP2SR_source_text;
 				if ((SP2SR).isValid() && (((SP2SR).getBegin() < (SP2SR).getEnd()) || ((SP2SR).getBegin() == (SP2SR).getEnd()))) {
 					auto [adjusted_macro_SPSR, macro_name, macro_args] = macro_spelling_range_extended_to_include_any_arguments(sr2);
-					if (adjusted_macro_SPSR.getBegin() != SP2SL) {
+					if ((adjusted_macro_SPSR.getBegin() != SP2SL) || (adjusted_macro_SPSR.getEnd() < SP2SLE)) {
 						adjusted_macro_SPSR = clang::SourceRange{ SP2SL, SP2SLE };
 					}
 					SP2SR_source_text = getRewrittenTextOrEmpty(Rewrite, adjusted_macro_SPSR);
