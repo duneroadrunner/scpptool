@@ -324,7 +324,7 @@ class CModifiablePathInfo {
 	std::vector<std::filesystem::path> m_unmodifiable_paths;
 };
 
-inline auto second_is_a_subpath_of_first(std::filesystem::path const& container, std::filesystem::path const& contained) -> bool {
+inline auto second_is_subpath_of_or_same_as_first(std::filesystem::path const& container, std::filesystem::path const& contained) -> bool {
 	if ((!std::filesystem::exists(container)) || (!std::filesystem::exists(contained))) {
 		return false;
 	}
@@ -361,7 +361,10 @@ inline auto second_is_a_subpath_of_first(std::filesystem::path const& container,
 	}
 
 	// All container components matched, and contained has extra components
-	return contained_it != contained_norm.end();
+	//return contained_it != contained_norm.end();
+
+	// changed to return true if they are the same
+	return true;
 }
 
 template<typename TOptions = options_t<> >
@@ -376,7 +379,7 @@ inline CFilteringResult evaluate_filtering_by_full_path_name(const std::string &
 		auto const& modifiable_path_info = maybe_specified_modifiable_path_info.value();
 
 		for (auto const& unmodifiable_path : modifiable_path_info.unmodifiable_paths()) {
-			if (second_is_a_subpath_of_first(unmodifiable_path, full_path_name_str)) {
+			if (second_is_subpath_of_or_same_as_first(unmodifiable_path, full_path_name_str)) {
 				retval.m_do_not_process = true;
 				retval.m_suppress_errors = true;
 				return retval;
@@ -384,7 +387,7 @@ inline CFilteringResult evaluate_filtering_by_full_path_name(const std::string &
 		}
 		if (1 <= modifiable_path_info.modifiable_paths().size()) {
 			for (auto const& modifiable_path : modifiable_path_info.modifiable_paths()) {
-				if (second_is_a_subpath_of_first(modifiable_path, full_path_name_str)) {
+				if (second_is_subpath_of_or_same_as_first(modifiable_path, full_path_name_str)) {
 					auto modifiable_path_str = std::string(modifiable_path);
 					std::string filename = get_filename(full_path_name_str);
 					auto res1 = evaluate_filtering_by_filename<TOptions>(filename);
@@ -496,14 +499,14 @@ inline CFilteringResultByLocation evaluate_filtering_by_location(const clang::So
 
 			bool is_in_unmodifiable_path = false;
 			for (auto const& unmodifiable_path : modifiable_path_info.unmodifiable_paths()) {
-				if (second_is_a_subpath_of_first(unmodifiable_path, full_path_name_str)) {
+				if (second_is_subpath_of_or_same_as_first(unmodifiable_path, full_path_name_str)) {
 					is_in_unmodifiable_path = true;
 					break;
 				}
 			}
 			if ((!is_in_unmodifiable_path) && (1 <= modifiable_path_info.modifiable_paths().size())) {
 				for (auto const& modifiable_path : modifiable_path_info.modifiable_paths()) {
-					if (second_is_a_subpath_of_first(modifiable_path, full_path_name_str)) {
+					if (second_is_subpath_of_or_same_as_first(modifiable_path, full_path_name_str)) {
 						is_effectively_a_system_header = false;
 						break;
 					}
