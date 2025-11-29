@@ -4028,6 +4028,9 @@ namespace convm1 {
 
 		for (size_t i = 0; ddcs_ref.m_indirection_state_stack.size() > i; i += 1) {
 			auto& indirection_state_ref = ddcs_ref.m_indirection_state_stack.at(i);
+
+			indirection_state_ref.set_xscope_eligibility(false);
+
 			bool is_a_native_array = false;
 			if (indirection_state_ref.m_maybe_original_qtype.has_value()) {
 				auto original_qtype = indirection_state_ref.m_maybe_original_qtype.value();
@@ -8997,6 +9000,7 @@ namespace convm1 {
 	inline bool satisfies_restrictions_for_static_storage_duration(clang::QualType qtype) {
 		bool satisfies_checks = false;
 		static const std::string const_char_star_str = "const char *";
+		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
 		if ((qtype.isConstQualified()) && (is_async_shareable(qtype))) {
 			satisfies_checks = true;
 		} else if (qtype.getAsString() == const_char_star_str) {
