@@ -20369,7 +20369,44 @@ namespace convm1 {
 										auto& fc_info = s_function_conversion_infos().at(maybe_function_conversion_index.value());
 										if (fc_info.m_maybe_num_parameters.has_value()) {
 											if (num_args == fc_info.m_maybe_num_parameters.value()) {
-												if (fc_info.is_likely_an_iterator_by_param_zbindex(arg_index)) {
+												auto is_likely_an_iterator1 = [&]() {
+														if (!(fc_info.is_likely_an_iterator_by_param_zbindex(arg_index))) {
+															return false;
+														}
+														auto last_arg_EX = CE->getArg(CE->getNumArgs() - 1);
+
+														auto last_arg_source_range = write_once_source_range(cm1_adj_nice_source_range(*last_arg_EX, state1, Rewrite));
+														std::string last_arg_source_text;
+														if (last_arg_source_range.isValid()) {
+															last_arg_source_text = getRewrittenTextOrEmpty(Rewrite, last_arg_source_range);
+														}
+														auto first_token_range = Parse::find_potential_noncomment_token_v1(last_arg_source_text);
+														auto sv1 = Parse::substring_view(last_arg_source_text, first_token_range);
+														if ("sizeof" == sv1) {
+															auto remaining_sv1 = Parse::substring_view(last_arg_source_text, Parse::range_t{ first_token_range.end, last_arg_source_text.length() });
+															auto token2_range = Parse::find_potential_noncomment_token_v1(remaining_sv1);
+															auto sv2 = Parse::substring_view(remaining_sv1, token2_range);
+															if ("(" == sv2) {
+																auto matching_right_parenthesis_pos = Parse::find_matching_right_parenthesis(remaining_sv1, token2_range.end);
+																if (remaining_sv1.length() > matching_right_parenthesis_pos) {
+																	auto remaining_sv2 = Parse::substring_view(remaining_sv1, Parse::range_t{ matching_right_parenthesis_pos + 1, remaining_sv1.length() });
+																	auto token3_range = Parse::find_potential_noncomment_token_v1(remaining_sv2);
+																	if (remaining_sv2.length() <= token3_range.begin) {
+																		/* There are no non-comment tokens after the matching right parenthesis. So the last argument text seems 
+																		to be of the form "sizeof ( something )". So the call expression might be something like 
+																		"memset(pointer1, 0, sizeof(something))". In such case, we would not assume that the "pointer1" argument 
+																		is an iterator. If it were an iterator we would expect the call expression to be more like 
+																		"memset(pointer_iterator1, 0, some_int_val * sizeof(something))" or 
+																		"memset(pointer_iterator1, 0, sizeof(something) * some_int_val)". */
+																		return false;
+																	}
+																}
+															}
+														}
+
+														return true;
+													};
+												if (is_likely_an_iterator1()) {
 													auto [param_ddcs_ref, param_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*param_VD, &Rewrite);
 													if (param_ddcs_ref.m_indirection_state_stack.size() >= 1) {
 														auto& indirection_state_ref = param_ddcs_ref.m_indirection_state_stack.at(0);
@@ -20379,6 +20416,7 @@ namespace convm1 {
 															indirection_state_ref.set_is_known_to_be_used_as_an_iterator(true);
 															state1.m_conversion_state_change_action_map.execute_matching_actions(state1, param_ddecl_indirection);
 															state1.m_array2_contingent_replacement_map.execute_matching_actions(state1, param_ddecl_indirection);
+															update_declaration_if_not_suppressed(*param_VD, Rewrite, *(MR.Context), state1);
 														}
 													}
 
@@ -20393,6 +20431,7 @@ namespace convm1 {
 																indirection_state_ref.set_is_known_to_be_used_as_an_iterator(true);
 																state1.m_conversion_state_change_action_map.execute_matching_actions(state1, rhs_ddecl_indirection);
 																state1.m_array2_contingent_replacement_map.execute_matching_actions(state1, rhs_ddecl_indirection);
+																update_declaration_if_not_suppressed(*(rhs_res2.ddecl_conversion_state_ptr->m_ddecl_cptr), Rewrite, *(MR.Context), state1);
 															}
 														}
 													}
