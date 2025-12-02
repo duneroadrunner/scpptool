@@ -2861,32 +2861,36 @@ namespace convm1 {
 			return {};
 		}
 
-		void add_straight_text_replacement_modifier(std::string_view replacement_text) {
+		bool add_straight_text_replacement_modifier(std::string_view replacement_text) {
+			bool retval = true;
 			auto shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(replacement_text);
 			if (1 <= m_expr_text_modifier_stack.size()) {
 				if ("straight replacement" == (*(m_expr_text_modifier_stack.back())).species_str()) {
 					if (shptr1->is_equal_to(*(m_expr_text_modifier_stack.back()))) {
 						/* We seem to be adding a repeat of the already existing modifier.*/
-						return;
+						return false;
 					}
 				}
 			}
 			m_expr_text_modifier_stack.push_back(shptr1);
 			update_current_text();
+			return retval;
 		}
 
-		void add_wrap_text_modifier(std::string_view prefix, std::string_view suffix) {
+		bool add_wrap_text_modifier(std::string_view prefix, std::string_view suffix) {
+			bool retval = true;
 			auto shptr1 = std::make_shared<CWrapExprTextModifier>(prefix, suffix);
 			if (1 <= m_expr_text_modifier_stack.size()) {
 				if ("wrap" == (*(m_expr_text_modifier_stack.back())).species_str()) {
 					if (shptr1->is_equal_to(*(m_expr_text_modifier_stack.back()))) {
 						/* We seem to be adding a repeat of the already existing modifier.*/
-						return;
+						return false;
 					}
 				}
 			}
 			m_expr_text_modifier_stack.push_back(shptr1);
 			update_current_text();
+			return retval;
 		}
 
 		CExprTextModifierStack m_expr_text_modifier_stack;
@@ -16443,7 +16447,7 @@ namespace convm1 {
 							cecs.m_function_name = callee_name_replacement_text;
 							cecs.update_current_text();
 
-							state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, SR, state1, CE);
+							state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, write_once_source_range(SR), state1, CE);
 						} else {
 							auto callee_SR = write_once_source_range(cm1_adj_nice_source_range(CE->getCallee()->getSourceRange(), state1, Rewrite));
 							auto callee_raw_SR = CE->getCallee()->getSourceRange();
@@ -18760,7 +18764,7 @@ namespace convm1 {
 										ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
 										ecs_ref.update_current_text();
 
-										auto rhs_ii_SR = cm1_adj_nice_source_range(*RHS_ii, state1, Rewrite);
+										auto rhs_ii_SR = write_once_source_range(cm1_adj_nice_source_range(*RHS_ii, state1, Rewrite));
 										if (rhs_ii_SR.isValid()) {
 											state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, rhs_ii_SR, state1, RHS_ii);
 										}
@@ -22660,7 +22664,7 @@ namespace convm1 {
 											sacecs_ref.m_function_name = blank_text;
 											sacecs_ref.update_current_text();
 
-											auto CSCE_SR = cm1_adj_nice_source_range(CSCE->getSourceRange(), state1, Rewrite);
+											auto CSCE_SR = write_once_source_range(cm1_adj_nice_source_range(CSCE->getSourceRange(), state1, Rewrite));
 											if (CSCE_SR.isValid()) {
 												state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, CSCE_SR, state1, CSCE);
 												//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, CSCE_SR, (*csce_shptr_ref).current_text());
@@ -22693,6 +22697,103 @@ namespace convm1 {
 				if (CXXCCE) {
 					handle_cxx_const_cast_without_context(MR, Rewrite, state1, CXXCCE);
 					return;
+				}
+
+				auto UEOTTE = dyn_cast<const clang::UnaryExprOrTypeTraitExpr>(E);
+				if (UEOTTE) {
+					/* This is apparently either a `sizeof` or `alignof` expression. For now we'll presume it's a 
+					`sizeof` expression. */
+					if (UEOTTE->isArgumentType()) {
+					} else {
+						const auto arg_E = UEOTTE->getArgumentExpr();
+						if (arg_E) {
+							const auto arg_qtype = arg_E->getType();
+							if (arg_qtype->isArrayType()) {
+								/* So the problem is that sizeof(native_array_expression) is usually used as the size of the array 
+								contents, which, for native arrays, happens to be the same as the size of the array "conatiner". 
+								But this would not be true for the safe container that the native array might be replaced with 
+								(presumably lh::TNativeArrayReplacement<>). So we're going to replace sizeof(native_array_expression) 
+								with sizeof(native_array_type) so that it will continue to yield the size of the array contents 
+								rather than the size of the array container. */
+								const std::string arg_qtype_str = arg_qtype.getAsString();
+								bool already_handled_flag = false;
+
+								if (true || std::string::npos != arg_qtype_str.find(" (unnamed ")) {
+									/* A straightforward way to address the issue would be to just replace the (array) expression argument 
+									of the `sizeof` operator with the (original native) type of the expression. But this wouldn't always 
+									work. For example in the case that the array element type is an unnamed type. So we're going to 
+									synthesize a (more reliable but uglier) representation of the (native array original) argument type 
+									that uses `decltype()`. */
+									const auto lbracket_pos = arg_qtype_str.find("[");
+									if (std::string::npos != lbracket_pos) {
+										auto& ecs_ref = state1.get_expr_conversion_state_ref(*arg_E, Rewrite);
+
+										const std::string arg_text = ecs_ref.current_text();
+										if ("" != arg_text) {
+											std::string bracketted_suffix = arg_qtype_str.substr(lbracket_pos);
+											std::string arg_inner_prefix = "mse::lh::adjusted_for_sizeof_t<decltype(";
+											std::string arg_inner_suffix = ")>";
+
+											std::string arg_prefix = "(MSE_LH_IF_ENABLED(" + arg_inner_prefix;
+											std::string arg_suffix = arg_inner_suffix + ") MSE_LH_IF_DISABLED(" + ecs_ref.m_original_source_text_str + "))";
+
+											bool res1 = ecs_ref.add_wrap_text_modifier(arg_prefix, arg_suffix);
+
+											if (res1) {
+												/* Since we modified the arg_E (argument) expression, it would make sense to just queue an update for 
+												that expression. But for some reason modifiying the expression of a clang::UnaryExprOrTypeTraitExpr 
+												seems to mess up clang's source location tracking. So instead we'll update the 
+												clang::UnaryExprOrTypeTraitExpr expression itself which, if its argument source text is contained 
+												within the range of its own source text, will hopefully render an updated version of its argument as 
+												well. Todo: handle the case where the argument source text is not contained within the range of the 
+												parent clang::UnaryExprOrTypeTraitExpr's source text (due to it being a function macro argument or 
+												whatever). */
+												if (false) {
+													state1.add_pending_expression_update(*arg_E, Rewrite);
+												} else {
+													state1.add_pending_expression_update(*UEOTTE, Rewrite);
+												}
+												already_handled_flag = true;
+											}
+										} else {
+											int q = 3;
+										}
+									} else {
+										int q = 3;
+									}
+								}
+								if (!already_handled_flag) {
+									/* It seems that for whatever reason we were unable to synthesize a (reliable) representation of the 
+									argument type, so here we'll just use the string clang gives us for the type. */
+
+									/* But first we want to make sure the argument isn't part of a macro. It might not be appropriate to 
+									use a hard-coded (array) type when, as part of a macro, the source text might end up referring to 
+									multiple different types. */
+									const auto arg_rawSR = arg_E->getSourceRange();
+									const auto SL = arg_rawSR.getBegin();
+									const auto SLE = arg_rawSR.getEnd();
+									const bool b3 = SL.isMacroID();
+									const bool b4 = SLE.isMacroID();
+
+									auto& SM = Rewrite.getSourceMgr();
+									const auto SPSL = SM.getSpellingLoc(SL);
+									const auto SPSLE = SM.getSpellingLoc(SLE);
+
+									if ((!(b3 || b4)) && (SPSL == SL) && (SPSLE == SLE)) {
+										auto& ecs_ref = state1.get_expr_conversion_state_ref(*arg_E, Rewrite);
+										bool res1 = ecs_ref.add_straight_text_replacement_modifier(arg_qtype_str);
+										if (res1) {
+											state1.add_pending_expression_update(*UEOTTE, Rewrite);
+										}
+									} else {
+										int q = 3;
+									}
+								}
+							}
+						} else {
+							int q = 3;
+						}
+					}
 				}
 
 				auto CO = dyn_cast<const clang::ConditionalOperator>(E);
