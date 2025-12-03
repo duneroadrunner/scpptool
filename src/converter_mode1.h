@@ -2511,6 +2511,7 @@ namespace convm1 {
 		virtual std::string species_str() const {
 			return "no op";
 		}
+		virtual bool is_equal_to(CExprTextModifier const& rhs) const = 0;
 	};
 
 	class CWrapExprTextModifier : public CExprTextModifier {
@@ -2524,7 +2525,7 @@ namespace convm1 {
 		virtual std::string species_str() const {
 			return "wrap";
 		}
-		bool is_equal_to(CExprTextModifier const& rhs) const {
+		virtual bool is_equal_to(CExprTextModifier const& rhs) const {
 			if (species_str() == rhs.species_str()) {
 				typedef std::remove_reference_t<decltype(*this)> this_type;
 				auto& rhs_as_this_type_cref = static_cast<this_type const&>(rhs);
@@ -2540,11 +2541,18 @@ namespace convm1 {
 
 	class CNullableAnyRandomAccessIterCastExprTextModifier : public CWrapExprTextModifier {
 	public:
+		typedef CWrapExprTextModifier base_class;
 		CNullableAnyRandomAccessIterCastExprTextModifier(const clang::QualType& qtype, EXScopeEligibility xscope_eligibility/* = EXScopeEligibility::Yes*/) :
 			CWrapExprTextModifier(prefix_str(qtype, xscope_eligibility), ")"), m_qtype(qtype), m_xscope_eligibility(xscope_eligibility) {}
 		virtual ~CNullableAnyRandomAccessIterCastExprTextModifier() {}
 		virtual std::string species_str() const {
 			return "nullable any random access iter cast";
+		}
+		virtual bool is_equal_to(CExprTextModifier const& rhs) const {
+			if (species_str() == rhs.species_str()) {
+				return base_class::is_equal_to(rhs);
+			}
+			return false;
 		}
 
 		std::string prefix_str(const clang::QualType& qtype, EXScopeEligibility xscope_eligibility/* = EXScopeEligibility::Yes*/) {
@@ -2573,6 +2581,7 @@ namespace convm1 {
 
 	class CUnsafeCastExprTextModifier : public CWrapExprTextModifier {
 	public:
+		typedef CWrapExprTextModifier base_class;
 		CUnsafeCastExprTextModifier(const clang::QualType& qtype) :
 			CWrapExprTextModifier(("Dual" == ConvertMode)
 				? "MSE_LH_UNSAFE_CAST(" + qtype.getAsString() + ", "
@@ -2582,12 +2591,19 @@ namespace convm1 {
 		virtual std::string species_str() const {
 			return "unsafe cast";
 		}
+		virtual bool is_equal_to(CExprTextModifier const& rhs) const {
+			if (species_str() == rhs.species_str()) {
+				return base_class::is_equal_to(rhs);
+			}
+			return false;
+		}
 
 		clang::QualType m_qtype;
 	};
 
 	class CCastExprTextModifier : public CWrapExprTextModifier {
 	public:
+		typedef CWrapExprTextModifier base_class;
 		CCastExprTextModifier(std::string_view qtype_sv) :
 			CWrapExprTextModifier(("Dual" == ConvertMode)
 				? "MSE_LH_CAST(" + std::string(qtype_sv) + ", "
@@ -2597,12 +2613,19 @@ namespace convm1 {
 		virtual std::string species_str() const {
 			return "cast";
 		}
+		virtual bool is_equal_to(CExprTextModifier const& rhs) const {
+			if (species_str() == rhs.species_str()) {
+				return base_class::is_equal_to(rhs);
+			}
+			return false;
+		}
 
 		std::string m_qtype_str;
 	};
 
 	class CUnsafeMakeRawPointerFromExprTextModifier : public CWrapExprTextModifier {
 	public:
+		typedef CWrapExprTextModifier base_class;
 		CUnsafeMakeRawPointerFromExprTextModifier() :
 			CWrapExprTextModifier(("Dual" == ConvertMode)
 				? "MSE_LH_UNSAFE_MAKE_RAW_POINTER_FROM("
@@ -2612,10 +2635,17 @@ namespace convm1 {
 		virtual std::string species_str() const {
 			return "unsafe make raw pointer from";
 		}
+		virtual bool is_equal_to(CExprTextModifier const& rhs) const {
+			if (species_str() == rhs.species_str()) {
+				return base_class::is_equal_to(rhs);
+			}
+			return false;
+		}
 	};
 
 	class CUnsafeAsIfNonAddressableExprTextModifier : public CWrapExprTextModifier {
 	public:
+		typedef CWrapExprTextModifier base_class;
 		CUnsafeAsIfNonAddressableExprTextModifier() :
 			CWrapExprTextModifier(("Dual" == ConvertMode)
 				? "MSE_LH_UNSAFE_AS_IF_NONADDRESSABLE("
@@ -2625,10 +2655,17 @@ namespace convm1 {
 		virtual std::string species_str() const {
 			return "unsafe as if nonaddressable";
 		}
+		virtual bool is_equal_to(CExprTextModifier const& rhs) const {
+			if (species_str() == rhs.species_str()) {
+				return base_class::is_equal_to(rhs);
+			}
+			return false;
+		}
 	};
 
 	class CUnsafeMakeTemporaryArrayOfRawPointersFromExprTextModifier : public CWrapExprTextModifier {
 	public:
+		typedef CWrapExprTextModifier base_class;
 		CUnsafeMakeTemporaryArrayOfRawPointersFromExprTextModifier() :
 			CWrapExprTextModifier(("Dual" == ConvertMode)
 				? "MSE_LH_UNSAFE_MAKE_TEMPORARY_RAW_POINTER_TO_POINTER_PROXY_FROM("
@@ -2638,10 +2675,17 @@ namespace convm1 {
 		virtual std::string species_str() const {
 			return "unsafe make temporary array of raw pointers from";
 		}
+		virtual bool is_equal_to(CExprTextModifier const& rhs) const {
+			if (species_str() == rhs.species_str()) {
+				return base_class::is_equal_to(rhs);
+			}
+			return false;
+		}
 	};
 
 	class CUnsafeMakeLHNullableAnyRandomAccessIteratorFromExprTextModifier : public CWrapExprTextModifier {
 	public:
+		typedef CWrapExprTextModifier base_class;
 		CUnsafeMakeLHNullableAnyRandomAccessIteratorFromExprTextModifier() :
 			CWrapExprTextModifier(("Dual" == ConvertMode)
 				? "MSE_LH_UNSAFE_MAKE_ARRAY_ITERATOR_FROM("
@@ -2651,10 +2695,17 @@ namespace convm1 {
 		virtual std::string species_str() const {
 			return "unsafe make lh_nullable_any_random_access_iterator from";
 		}
+		virtual bool is_equal_to(CExprTextModifier const& rhs) const {
+			if (species_str() == rhs.species_str()) {
+				return base_class::is_equal_to(rhs);
+			}
+			return false;
+		}
 	};
 
 	class CUnsafeMakeLHNullableAnyPointerFromExprTextModifier : public CWrapExprTextModifier {
 	public:
+		typedef CWrapExprTextModifier base_class;
 		CUnsafeMakeLHNullableAnyPointerFromExprTextModifier() :
 			CWrapExprTextModifier(("Dual" == ConvertMode)
 				? "MSE_LH_UNSAFE_MAKE_POINTER_FROM("
@@ -2663,6 +2714,12 @@ namespace convm1 {
 		virtual ~CUnsafeMakeLHNullableAnyPointerFromExprTextModifier() {}
 		virtual std::string species_str() const {
 			return "unsafe make lh_nullable_any_pointer from";
+		}
+		virtual bool is_equal_to(CExprTextModifier const& rhs) const {
+			if (species_str() == rhs.species_str()) {
+				return base_class::is_equal_to(rhs);
+			}
+			return false;
 		}
 	};
 
@@ -2677,7 +2734,7 @@ namespace convm1 {
 		virtual std::string species_str() const {
 			return "straight replacement";
 		}
-		bool is_equal_to(CExprTextModifier const& rhs) const {
+		virtual bool is_equal_to(CExprTextModifier const& rhs) const {
 			if (species_str() == rhs.species_str()) {
 				typedef std::remove_reference_t<decltype(*this)> this_type;
 				auto& rhs_as_this_type_cref = static_cast<this_type const&>(rhs);
@@ -2700,6 +2757,17 @@ namespace convm1 {
 		}
 		virtual std::string species_str() const {
 			return "given function";
+		}
+		virtual bool is_equal_to(CExprTextModifier const& rhs) const {
+			if (species_str() == rhs.species_str()) {
+				typedef std::remove_reference_t<decltype(*this)> this_type;
+				auto& rhs_as_this_type_cref = static_cast<this_type const&>(rhs);
+				/* Is the std::function<>::target_type() member function not available because rtti is disabled? */
+				//return (rhs_as_this_type_cref.m_function.target_type() == m_function.target_type());
+				assert(false);
+				return false;
+			}
+			return false;
 		}
 		std::function<std::string (const std::string&, const clang::Expr*)> m_function;
 	};
@@ -2861,11 +2929,13 @@ namespace convm1 {
 			return {};
 		}
 
-		bool add_straight_text_replacement_modifier(std::string_view replacement_text) {
+		bool add_text_modifier(std::shared_ptr<CExprTextModifier> shptr1) {
+			if (!shptr1) {
+				return false;
+			}
 			bool retval = true;
-			auto shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(replacement_text);
 			if (1 <= m_expr_text_modifier_stack.size()) {
-				if ("straight replacement" == (*(m_expr_text_modifier_stack.back())).species_str()) {
+				if (shptr1->species_str() == (*(m_expr_text_modifier_stack.back())).species_str()) {
 					if (shptr1->is_equal_to(*(m_expr_text_modifier_stack.back()))) {
 						/* We seem to be adding a repeat of the already existing modifier.*/
 						return false;
@@ -2877,20 +2947,14 @@ namespace convm1 {
 			return retval;
 		}
 
+		bool add_straight_text_replacement_modifier(std::string_view replacement_text) {
+			auto shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(replacement_text);
+			return add_text_modifier(shptr1);
+		}
+
 		bool add_wrap_text_modifier(std::string_view prefix, std::string_view suffix) {
-			bool retval = true;
 			auto shptr1 = std::make_shared<CWrapExprTextModifier>(prefix, suffix);
-			if (1 <= m_expr_text_modifier_stack.size()) {
-				if ("wrap" == (*(m_expr_text_modifier_stack.back())).species_str()) {
-					if (shptr1->is_equal_to(*(m_expr_text_modifier_stack.back()))) {
-						/* We seem to be adding a repeat of the already existing modifier.*/
-						return false;
-					}
-				}
-			}
-			m_expr_text_modifier_stack.push_back(shptr1);
-			update_current_text();
-			return retval;
+			return add_text_modifier(shptr1);
 		}
 
 		CExprTextModifierStack m_expr_text_modifier_stack;
@@ -18535,12 +18599,28 @@ namespace convm1 {
 								}
 							}
 
-							if (csce_QT->isPointerType() /*"void *" == csce_QT.getAsString()*/) {
+							if (csce_QT->isPointerType()) {
 								auto IL = dyn_cast<const clang::IntegerLiteral>(precasted_expr_ptr);
 								if (IL) {
 									/* This case is handled in the handle_c_style_cast_without_context() handler. */
 									finished_cast_handling_flag = true;
 									break;
+								}
+							}
+
+							if (precasted_expr_ptr->getType()->isFunctionType() && is_void_star_or_const_void_star(csce_QT)) {
+								/* It seems that a function is being cast to a `void*`. In the cast to an actual native `void*` pointer, 
+								the function will be implicitly cast to a function pointer, right? But if the `void*` gets converted to 
+								an lh::void_star_replacement, then the implicit conversion to a function pointer wouldn't happen, so we 
+								need to insert an explicit conversion of the function to a function pointer. */
+								const std::string precasted_qtype_str = precasted_expr_ptr->getType().getAsString();
+								std::string prefix = "MSE_LH_IF_ENABLED(mse::lh::TNativeFunctionPointerReplacement<" + precasted_qtype_str + ">)(";
+								std::string suffix = ")";
+
+								auto& ecs_ref = state1.get_expr_conversion_state_ref(*precasted_expr_ptr, Rewrite);
+								bool res1 = ecs_ref.add_wrap_text_modifier(prefix, suffix);
+								if (res1) {
+									state1.add_pending_expression_update(*precasted_expr_ptr, Rewrite);
 								}
 							}
 						} while (false);
