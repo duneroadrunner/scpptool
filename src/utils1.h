@@ -1874,8 +1874,16 @@ inline bool is_void_or_const_void(clang::QualType qtype) {
 inline bool is_void_star_or_const_void_star(const clang::QualType& qtype) {
 	bool retval = false;
 	if (qtype->isPointerType()) {
-		const auto direct_type = qtype->getPointeeType();
-		retval = is_void_or_const_void(direct_type);
+		const auto direct_qtype = qtype->getPointeeType();
+		retval = is_void_or_const_void(direct_qtype);
+	}
+	return retval;
+}
+inline bool is_void_star_star_or_const_void_star_star(const clang::QualType& qtype) {
+	bool retval = false;
+	if (qtype->isPointerType()) {
+		const auto pointee_qtype = qtype->getPointeeType();
+		retval = is_void_star_or_const_void_star(pointee_qtype);
 	}
 	return retval;
 }

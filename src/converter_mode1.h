@@ -8072,7 +8072,7 @@ namespace convm1 {
 						/* We'll just leave it as a native pointer. */
 						suffix_str = "* ";
 						retval.m_action_species = "other_untranslatable_indirect_type";
-					} else if (is_void_star && (!seems_to_involve_a_template_param_originally)) {
+					} else if (is_void_star && (!seems_to_involve_a_template_param_originally) && (!is_function_pointer)) {
 						/* In the case of "void*" we're going to effectively "remove" one level of indirection
 						by making it a "transparent"/"pass-through"/"no-op" indirection, and replacing the
 						direct type (i.e. "void") with a type that replaces "void*" (i.e. the "void" and its
@@ -8106,6 +8106,45 @@ namespace convm1 {
 							direct_type_state_ref.set_current_function_qtype_str(new_qtype_str , params_str);
 						}
 						retval.m_action_species = "void*";
+					} else if (is_void_star_star && (!seems_to_involve_a_template_param_originally) 
+						&& (!is_function_pointer) && (!og_direct_type_was_const_void_type)) {
+
+						/* In the case of "void**" we're going to effectively "remove" two levels of indirection
+						by making it a "transparent"/"pass-through"/"no-op" indirection, and replacing the
+						direct type (i.e. "void") with a type that replaces "void**" (i.e. the "void" and its
+						indirections). */
+						l_changed_from_original = true;
+						prefix_str = "";
+						suffix_str = " ";
+
+						/* This "void**" might actually be a function with a return value of "void**", in which
+						case the direct type should be a function type that includes its parameters. */
+						std::string params_str;
+						if (indirection_state_ref.current_is_function_type()) {
+							clang::FunctionProtoTypeLoc functionProtoTypeLoc;
+							if (indirection_state_ref.m_maybe_typeLoc.has_value()) {
+								functionProtoTypeLoc = definition_TypeLoc(indirection_state_ref.m_maybe_typeLoc.value()).getAsAdjusted<clang::FunctionProtoTypeLoc>();
+							}
+
+							params_str = current_params_string(Rewrite, indirection_state_ref.m_function_type_state
+								, functionProtoTypeLoc, suppress_modifications, state1_ptr);
+						}
+
+						std::string new_qtype_str;
+						if ("Dual" == ConvertMode) {
+							new_qtype_str = "MSE_LH_VOID_STAR_STAR ";
+						} else {
+							new_qtype_str = "mse::lh::void_star_star_replacement ";
+						}
+						/* The current direct qtype string should have been set to "mse::lh::void_star_star_replacement" (or 
+						"MSE_LH_VOID_STAR_STAR") in the previous loop iteration, right? */
+						IF_DEBUG(std::string last_qtype_str = direct_type_state_ref.current_return_qtype_str();)
+						if (params_str.empty()) {
+							direct_type_state_ref.set_current_non_function_qtype_str(new_qtype_str);
+						} else {
+							direct_type_state_ref.set_current_function_qtype_str(new_qtype_str , params_str);
+						}
+						retval.m_action_species = "void**";
 					} else if (is_function_pointer) {
 						l_changed_from_original = true;
 
@@ -9148,16 +9187,18 @@ namespace convm1 {
 					//initializer_info_str += "0" + comment1_str;
 					initializer_info_str = "{}";
 				} else {
+					auto l_qtype_str = qtype_str;
 					static const auto enum_space_str = std::string("enum ");
-					if (string_begins_with(qtype_str, enum_space_str)) {
-						qtype_str = qtype_str.substr(enum_space_str.length());
+					if (string_begins_with(l_qtype_str, enum_space_str)) {
+						//l_qtype_str = l_qtype_str.substr(enum_space_str.length());
+						l_qtype_str = "(" + l_qtype_str + ")";
 					}
 					if ("Dual" == ConvertMode) {
 						initializer_info_str += "MSE_LH_CAST(";
-						initializer_info_str += qtype_str;
+						initializer_info_str += l_qtype_str;
 						initializer_info_str += ", 0)" + comment1_str;
 					} else {
-						initializer_info_str += qtype_str;
+						initializer_info_str += l_qtype_str;
 						initializer_info_str += "(0)" + comment1_str;
 					}
 				}
@@ -12326,14 +12367,14 @@ namespace convm1 {
 								related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info = false;
 							}
 							if (related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info) {
-								if (is_void_star_or_const_void_star(CSCE_qtype)) {
+								if (is_void_star_or_const_void_star(CSCE_qtype) || is_void_star_star_or_const_void_star_star(CSCE_qtype)) {
 									/* If the cast expression is a `void *`, it could be legitimate to cast to a pointer with more levels 
-									of indirection than the one apparent one thet `void *` does. */
+									of indirection than the one apparent one that `void *` has. */
 									related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info = false;
 								}
 							}
 							if (!related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info) {
-								if (is_void_star_or_const_void_star(res1.ddecl_cptr->getType())) {
+								if (is_void_star_or_const_void_star(res1.ddecl_cptr->getType()) || is_void_star_star_or_const_void_star_star(res1.ddecl_cptr->getType())) {
 									/* While the fact that the related ddecl is a `void *` prevents us from concluding that its degree of 
 									indirection is mismatched with that of our cast expression, it also means that meaningful information 
 									about the original type of the value it holds is not available. */
@@ -12342,7 +12383,7 @@ namespace convm1 {
 							}
 
 							if ((0 == res1.indirection_level) && !related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info) {
-								/* For now we only support the case where there are no (net) dereferencing or address_of operations. */
+								/* For now we only support the case where there are no (net) dereferencing or addressof operations. */
 
 								auto res4 = generate_declaration_replacement_code(res1.ddecl_cptr, Rewrite, &state1, state1.m_ddecl_conversion_state_map);
 								if ("" != res4.m_replacement_return_type_str) {
@@ -12357,7 +12398,7 @@ namespace convm1 {
 						}
 					}
 					if (!(maybe_replacement_qtype_str.has_value())) {
-						/* We're still haven't found a suitable associated DeclRefExpr from which to obtain the neede type 
+						/* We're still haven't found a suitable associated DeclRefExpr from which to obtain the needed type 
 						conversion information. Next we'll try to determine if the cast expression is part of (an 
 						initialization expression of) a (variable) declaration. */
 						auto containing_VD = Tget_containing_element_of_type<clang::VarDecl>(CSCE, context_ref);
@@ -12371,12 +12412,12 @@ namespace convm1 {
 								related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info = false;
 							}
 							if (related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info) {
-								if (is_void_star_or_const_void_star(CSCE_qtype)) {
+								if (is_void_star_or_const_void_star(CSCE_qtype) || is_void_star_star_or_const_void_star_star(CSCE_qtype)) {
 									related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info = false;
 								}
 							}
 							if (!related_ddecl_type_does_not_seem_to_match_or_has_no_useful_info) {
-								if (is_void_star_or_const_void_star(containing_VD->getType())) {
+								if (is_void_star_or_const_void_star(containing_VD->getType()) || is_void_star_star_or_const_void_star_star(containing_VD->getType())) {
 									/* While the fact that the related ddecl is a `void *` prevents us from concluding that its degree of 
 									indirection is mismatched with that of our cast expression, it also means that meaningful information 
 									about the original type of the value it holds is not available. */
@@ -15559,6 +15600,15 @@ namespace convm1 {
 		const auto EX_ii = IgnoreImplicit(EX);
 		const auto EX_ii_SR = write_once_source_range(cm1_adj_nice_source_range(*EX_ii, state1, Rewrite));
 		if (EX_ii_SR.isValid()) {
+			auto& SR = EX_ii_SR;
+			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+#ifndef NDEBUG
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
+
 			const auto EX_iinoop = IgnoreParenImpNoopCasts(EX_ii, *(MR.Context));
 			const auto EX_iinoop_SR = (EX_iinoop == EX_ii) ? EX_ii_SR : write_once_source_range(cm1_adj_nice_source_range(*EX_iinoop, state1, Rewrite));
 			if (!cm1_filtered_out_by_location(MR, EX_iinoop_SR)) {
@@ -16390,6 +16440,96 @@ namespace convm1 {
 		return {};
 	}
 
+	struct CIsIneligibleMemsetResult {
+		operator bool() const { return b1; }
+		bool b1 = false;
+		std::optional<clang::QualType> maybe_arg1_ii_pointee_qtype;
+	};
+
+	inline CIsIneligibleMemsetResult is_memset_expression_that_is_ineligible_for_conversion(clang::CallExpr const& call_expr, clang::ASTContext& Ctx) {
+		CIsIneligibleMemsetResult retval;
+		auto CE = &call_expr;
+		auto function_decl = CE->getDirectCallee();
+		auto num_args = CE->getNumArgs();
+		if (function_decl) {
+			const std::string function_name = function_decl->getNameAsString();
+			const std::string function_qname = function_decl->getQualifiedNameAsString();
+
+			if ((3 == num_args) && (("memset" == function_qname) || ("std::memset" == function_qname))) {
+				auto* const arg2_E = CE->getArg(1); /* the second argument */
+				if (arg2_E) {
+					auto* const arg2_ii_E = IgnoreParenImpNoopCasts(arg2_E, Ctx);
+					const auto arg2_ii_qtype = arg2_ii_E->getType();
+					IF_DEBUG(const auto arg2_ii_qtype_str = arg2_ii_qtype.getAsString();)
+
+					bool memset_value_seems_to_be_a_zero_literal = false;
+					auto IL = dyn_cast<const clang::IntegerLiteral>(arg2_ii_E);
+					if (!IL) {
+						const auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg2_ii_E);
+						if (CSCE) {
+							auto precasted_E_ii = IgnoreParenImpNoopCasts(CSCE->getSubExprAsWritten(), Ctx);
+							const auto precasted_E_ii_qtype = precasted_E_ii->getType();
+							IF_DEBUG(const auto precasted_E_ii_qtype_str = precasted_E_ii_qtype.getAsString();)
+							IL = dyn_cast<const clang::IntegerLiteral>(precasted_E_ii);
+						}
+					}
+					if (IL) {
+						const auto value = IL->getValue().getLimitedValue();
+						if (0 == value) {
+							memset_value_seems_to_be_a_zero_literal = true;
+						}
+					} else {
+						auto CL = dyn_cast<const clang::CharacterLiteral>(arg2_ii_E);
+						if (!CL) {
+							const auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg2_ii_E);
+							if (CSCE) {
+								auto precasted_E_ii = IgnoreParenImpNoopCasts(CSCE->getSubExprAsWritten(), Ctx);
+								const auto precasted_E_ii_qtype = precasted_E_ii->getType();
+								IF_DEBUG(const auto precasted_E_ii_qtype_str = precasted_E_ii_qtype.getAsString();)
+								CL = dyn_cast<const clang::CharacterLiteral>(precasted_E_ii);
+							}
+						}
+						if (CL) {
+							const auto value = CL->getValue();
+							if (0 == value) {
+								memset_value_seems_to_be_a_zero_literal = true;
+							}
+						}
+					}
+					if (!memset_value_seems_to_be_a_zero_literal) {
+						/* This might be a memset() to a value other than zero. If the type of the objects having their (representation 
+						in) memory set are of some kind of (native) non-pointer scalar type, then conversion to corresponding safe code 
+						might be fine. But if the target type is something else, like a pointer, or a struct, then it's probably less 
+						likely that a conversion to safe code would work (without producing compile errors or run-time exceptions being 
+						thrown). */
+						bool mark_memset_call_as_unsafe = true;
+						std::optional<clang::QualType> maybe_arg1_ii_pointee_qtype;
+						auto* const arg1_E = CE->getArg(0); /* the first argument */
+						if (arg1_E) {
+							auto* const arg1_ii_E = IgnoreParenImpCasts(arg1_E);
+							const auto arg1_ii_qtype = arg1_ii_E->getType();
+							IF_DEBUG(const auto arg1_ii_qtype_str = arg1_ii_qtype.getAsString();)
+							if (arg1_ii_qtype->isPointerType()) {
+								const auto arg1_ii_pointee_qtype = arg1_ii_qtype->getPointeeType();
+								IF_DEBUG(const auto arg1_ii_pointee_qtype_str = arg1_ii_pointee_qtype.getAsString();)
+								maybe_arg1_ii_pointee_qtype = arg1_ii_pointee_qtype;
+								if (arg1_ii_pointee_qtype->isScalarType() && (!arg1_ii_pointee_qtype->isPointerType())) {
+									mark_memset_call_as_unsafe = false;
+								}
+							}
+						} else {
+							int q = 3;
+						}
+						retval = CIsIneligibleMemsetResult{ mark_memset_call_as_unsafe, maybe_arg1_ii_pointee_qtype };
+					}
+				} else {
+					int q = 3;
+				}
+			}
+		}
+		return retval;
+	}
+
 	class MCSSSFunctionCall1 : public MatchFinder::MatchCallback
 	{
 	public:
@@ -16437,6 +16577,62 @@ namespace convm1 {
 
 					const std::string function_name = function_decl->getNameAsString();
 					const std::string function_qname = function_decl->getQualifiedNameAsString();
+
+					auto res1 = is_memset_expression_that_is_ineligible_for_conversion(*CE, *(MR.Context));
+					if (res1 && res1.maybe_arg1_ii_pointee_qtype.has_value()) {
+						/* This is apparently a `memset()` call that is ineligible for conversion (to a safe replacement) (presumably 
+						because it's doing something that doesn't have an obvious safe interpretation, like setting the bits of 
+						pointers or structs to some not-obviously-zero value). But this means that the type of whatever it's setting 
+						the bits of must also remain in its original form. So here we'll make sure that all component types of the 
+						memset() target are marked as "unmodifiable". */
+						auto const& arg1_ii_pointee_qtype = res1.maybe_arg1_ii_pointee_qtype.value();
+						auto def_pointee_qtype = definition_qtype(arg1_ii_pointee_qtype);
+
+						struct CB {
+							static void deep_mark_decl_as_unmodifiable(clang::QualType const& qtype, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1) {
+								auto RD = qtype->getAsRecordDecl();
+								if (RD) {
+									for (auto FD : RD->fields()) {
+										if (FD) {
+											auto def_FD_qtype = definition_qtype(FD->getType());
+											IF_DEBUG(const auto def_FD_qtype_str = def_FD_qtype.getAsString();)
+											deep_mark_decl_as_unmodifiable(def_FD_qtype, Ctx, Rewrite, state1);
+										}
+									}
+
+									auto suppress_check_flag = state1.m_suppress_check_region_set.contains(RD, Rewrite, Ctx);
+									if (!suppress_check_flag) {
+										/* Here we mark the declaration as "check suppressed" (and so by implication "unmodifiable"). */
+										auto l_ISR = instantiation_source_range(RD->getSourceRange(), Rewrite);
+										state1.m_suppress_check_region_set.emplace(l_ISR);
+										state1.m_suppress_check_region_set.insert(RD);
+									}
+								}
+							}
+
+							static void deep_update(clang::QualType const& qtype, clang::ASTContext& Ctx, clang::Rewriter &Rewrite, CTUState& state1) {
+								auto RD = qtype->getAsRecordDecl();
+								if (RD) {
+									for (auto FD : RD->fields()) {
+										if (FD) {
+											auto def_FD_qtype = definition_qtype(FD->getType());
+											IF_DEBUG(const auto def_FD_qtype_str = def_FD_qtype.getAsString();)
+											deep_update(def_FD_qtype, Ctx, Rewrite, state1);
+											update_declaration(*FD, Rewrite, state1);
+										}
+									}
+								}
+							}
+						};
+						/* We also need to mark the definition of the pointee type as "nonmodifiable". */
+						CB::deep_mark_decl_as_unmodifiable(def_pointee_qtype, *(MR.Context), Rewrite, state1);
+
+						CB::deep_update(def_pointee_qtype, *(MR.Context), Rewrite, state1);
+
+						return;
+					}
+
+
 					auto maybe_function_index = s_function_conversion_index_if_any(function_qname);
 					if (maybe_function_index.has_value()) {
 						auto& fc_info = s_function_conversion_infos().at(maybe_function_index.value());
@@ -17468,7 +17664,8 @@ namespace convm1 {
 											int q = 3;
 										}
 									}
-									return false;
+									auto res1 = is_memset_expression_that_is_ineligible_for_conversion(*CE, Ctx);
+									return bool(res1);
 								}
 							}
 						} else {
@@ -17557,7 +17754,7 @@ namespace convm1 {
 
 		if (CSCE) {
 			auto csce_QT = definition_qtype(CSCE->getType());
-			IF_DEBUG(std::string csce_QT_str = csce_QT.getAsString();)
+			std::string csce_QT_str = csce_QT.getAsString();
 			MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(csce_QT);
 			auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
 			assert(precasted_expr_ptr);
@@ -17603,6 +17800,28 @@ namespace convm1 {
 				scheduling the execution of) any modifications in a way that might interfere with the already 
 				queued action. */
 				there_seems_to_be_a_contending_pending_code_modification_action = true;
+			}
+
+			if (!there_seems_to_be_a_contending_pending_code_modification_action) {
+				if (false && string_ends_with(csce_QT_str, "void **")) {
+					/* Yeah, we don't really have a good way to make `void **` casts safe, so we'll just mark the declaration, 
+					if available, of the precasted expression item as "unmodifiable." */
+					auto maybe_DD = ddecl_of_expression_if_available(precasted_expr_ptr, *(MR.Context));
+					if (maybe_DD.has_value()) {
+						auto const& DD = maybe_DD.value();
+						const auto DD_qtype = DD->getType();
+						IF_DEBUG(std::string DD_qtype_str = DD_qtype.getAsString();)
+
+						auto suppress_check_flag = state1.m_suppress_check_region_set.contains(DD, Rewrite, *(MR.Context));
+						if (!suppress_check_flag) {
+							/* Here we mark the declaration as "check suppressed" (and so by implication "unmodifiable"). */
+							auto l_ISR = instantiation_source_range(DD->getSourceRange(), Rewrite);
+							state1.m_suppress_check_region_set.emplace(l_ISR);
+							state1.m_suppress_check_region_set.insert(DD);
+						}
+					}
+					return;
+				}
 			}
 
 			if ((csce_QT->isPointerType() || csce_QT->isArrayType()) && (!precasted_expr_is_function_type)
@@ -18567,7 +18786,7 @@ namespace convm1 {
 
 						if (precasted_expr_qtype->isPointerType()) {
 							IF_DEBUG(const std::string precasted_expr_qtype_str = precasted_expr_qtype.getAsString();)
-							if (is_void_star_or_const_void_star(precasted_expr_qtype)) {
+							if (is_void_star_or_const_void_star(precasted_expr_qtype) || is_void_star_star_or_const_void_star_star(precasted_expr_qtype)) {
 								/* At this point, `void *` (or rather, its replacement) doesn't preserve "xscope" eligibility information, 
 								so we'll mark any object that is assigned a value from a `void *` as ineligible for "xscope" status. */
 								if (lhs_res2.ddecl_conversion_state_ptr) {
@@ -19215,8 +19434,10 @@ namespace convm1 {
 							}
 
 							IF_DEBUG(auto RHS_ii_qtype_str = RHS_ii->getType().getAsString();)
-							if (is_void_star_or_const_void_star(RHS_ii->getType()) && !is_void_star_or_const_void_star(RHS_qtype)) {
-								/* RHS expression seems to consist of an ("non-modifiable") void pointer being converted to something 
+							if ((is_void_star_or_const_void_star(RHS_ii->getType()) && !is_void_star_or_const_void_star(RHS_qtype))
+								|| (is_void_star_star_or_const_void_star_star(RHS_ii->getType()) && !is_void_star_star_or_const_void_star_star(RHS_qtype))) {
+
+								/* RHS expression seems to consist of a ("non-modifiable") void pointer being converted to something 
 								else. (Presumably some non-void pointer.) Being non-modifiable, presumably we're going to wrap it in 
 								a function call that (unsafely) creates a "safe" iterator interface wrapping for the raw pointer. But 
 								in the case of void pointers, we'd want to cast it to the non-void pointer type first so that the 
@@ -19376,6 +19597,23 @@ namespace convm1 {
 				by, and (the function exited after) the previous code block. */
 				assert(false);
 				return;
+			}
+
+			if (LHS) {
+				auto UO = dyn_cast<const clang::UnaryOperator>(IgnoreParenImpCasts(LHS));
+				if (UO) {
+					if (clang::UnaryOperatorKind::UO_Deref == UO->getOpcode()) {
+						auto CSCE = dyn_cast<const clang::CStyleCastExpr>(IgnoreParenImpCasts(UO->getSubExpr()));
+						if (CSCE) {
+							const auto CSCE_qtype = CSCE->getType();
+							std::string CSCE_qtype_str = CSCE_qtype.getAsString();
+							if (string_ends_with(CSCE_qtype_str, "void **")) {
+								/* So this seems to be an assignment expression in the form of `*(void**)something1 = RHS;` */
+								int q = 5;
+							}
+						}
+					}
+				}
 			}
 
 			if ((lhs_res2.ddecl_conversion_state_ptr) && (rhs_res2.ddecl_conversion_state_ptr) && lhs_is_an_indirect_type && lhs_res2.ddecl_cptr) {
@@ -19548,7 +19786,7 @@ namespace convm1 {
 						IF_DEBUG(auto LHS_qtype_str = LHS_qtype.getAsString();)
 						bool is_initialization_of_native_array = (bool(VLD) && VLD->getType()->isArrayType() && (EIsAnInitialization::Yes == is_an_initialization) 
 							&& ((!maybe_lhs_indirection_level_adjustment.has_value()) || (0 == maybe_lhs_indirection_level_adjustment.value())));
-						if (!(is_void_star_or_const_void_star(LHS_qtype) || is_initialization_of_native_array)) {
+						if (!(is_void_star_or_const_void_star(LHS_qtype) || is_void_star_star_or_const_void_star_star(LHS_qtype) || is_initialization_of_native_array)) {
 							/* Here we're establishing and "enforcing" the constraint that the lhs value must
 							* be of an (array) type that can be assigned the rhs string literal. */
 							if (!lhs_indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
@@ -20181,41 +20419,23 @@ namespace convm1 {
 
 									std::shared_ptr<CExprTextModifier> shptr1;
 									IF_DEBUG(auto arg_EX_ii_qtype_str = arg_EX_ii_qtype.getAsString();)
-									if (true || (!is_void_star_or_const_void_star(arg_EX_ii_qtype))) {
 
-										if (is_pointer_to_pointer) {
-											if ((!string_begins_with(function_qname, "mse::")) && (!string_begins_with(arg_function_qname_if_any, "mse::"))) {
-												shptr1 = std::make_shared<CUnsafeMakeTemporaryArrayOfRawPointersFromExprTextModifier>();
-												for (auto& expr_text_modifier_shptr_ref : arg_EX_ii_ecs_ref.m_expr_text_modifier_stack) {
-													if (shptr1->species_str() == expr_text_modifier_shptr_ref->species_str()) {
-														/* already applied */
-														shptr1 = nullptr;
-														break;
-													}
+									if (is_pointer_to_pointer) {
+										if ((!string_begins_with(function_qname, "mse::")) && (!string_begins_with(arg_function_qname_if_any, "mse::"))) {
+											shptr1 = std::make_shared<CUnsafeMakeTemporaryArrayOfRawPointersFromExprTextModifier>();
+											for (auto& expr_text_modifier_shptr_ref : arg_EX_ii_ecs_ref.m_expr_text_modifier_stack) {
+												if (shptr1->species_str() == expr_text_modifier_shptr_ref->species_str()) {
+													/* already applied */
+													shptr1 = nullptr;
+													break;
 												}
-											} else {
-												int q = 5;
 											}
 										} else {
-											if ((!string_begins_with(function_qname, "mse::")) && (!string_begins_with(arg_function_qname_if_any, "mse::"))) {
-												shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
-												for  (auto& expr_text_modifier_shptr_ref : arg_EX_ii_ecs_ref.m_expr_text_modifier_stack) {
-													if (shptr1->species_str() == expr_text_modifier_shptr_ref->species_str()) {
-														/* already applied */
-														shptr1 = nullptr;
-														break;
-													}
-												}
-											} else {
-												int q = 5;
-											}
+											int q = 5;
 										}
 									} else {
-										/* mse::us::lh::make_raw_pointer_from() now supoorts making a `void*` from an 
-										mse::void_star_replacement, so this branch shouldn't be needed anymore. Right? */
-										IF_DEBUG(auto param_VD_qtype_str = param_VD_qtype.getAsString();)
-										if (!is_void_star_or_const_void_star(param_VD_qtype)) {
-											shptr1 = std::make_shared<CUnsafeCastExprTextModifier>(param_VD_qtype);
+										if ((!string_begins_with(function_qname, "mse::")) && (!string_begins_with(arg_function_qname_if_any, "mse::"))) {
+											shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
 											for  (auto& expr_text_modifier_shptr_ref : arg_EX_ii_ecs_ref.m_expr_text_modifier_stack) {
 												if (shptr1->species_str() == expr_text_modifier_shptr_ref->species_str()) {
 													/* already applied */
@@ -20223,6 +20443,8 @@ namespace convm1 {
 													break;
 												}
 											}
+										} else {
+											int q = 5;
 										}
 									}
 									if (shptr1) {
@@ -20312,19 +20534,17 @@ namespace convm1 {
 										if (ConvertToSCPP) {
 											std::shared_ptr<CExprTextModifier> shptr1;
 											IF_DEBUG(auto arg_EX_qtype_str = arg_EX_qtype.getAsString();)
-											if (true || !is_void_star_or_const_void_star(arg_EX_qtype)) {
-												if ((!string_begins_with(function_qname, "mse::")) && (!string_begins_with(arg_function_qname_if_any, "mse::"))) {
-													shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
-													for  (auto& expr_text_modifier_shptr_ref : arg_ecs_ref.m_expr_text_modifier_stack) {
-														if (shptr1->species_str() == expr_text_modifier_shptr_ref->species_str()) {
-															/* already applied */
-															shptr1 = nullptr;
-															break;
-														}
+											if ((!string_begins_with(function_qname, "mse::")) && (!string_begins_with(arg_function_qname_if_any, "mse::"))) {
+												shptr1 = std::make_shared<CUnsafeMakeRawPointerFromExprTextModifier>();
+												for  (auto& expr_text_modifier_shptr_ref : arg_ecs_ref.m_expr_text_modifier_stack) {
+													if (shptr1->species_str() == expr_text_modifier_shptr_ref->species_str()) {
+														/* already applied */
+														shptr1 = nullptr;
+														break;
 													}
-												} else {
-													int q = 5;
 												}
+											} else {
+												int q = 5;
 											}
 											if (shptr1) {
 												arg_ecs_ref.m_expr_text_modifier_stack.push_back(shptr1);
@@ -22077,7 +22297,8 @@ namespace convm1 {
 													initializer_info_str += qtype.getAsString();
 													static const std::string enum_space_str = "enum ";
 													if (string_begins_with(initializer_info_str, enum_space_str)) {
-														initializer_info_str = initializer_info_str.substr(enum_space_str.length());
+														//initializer_info_str = initializer_info_str.substr(enum_space_str.length());
+														initializer_info_str = "(" + initializer_info_str + ")";
 													}
 													initializer_info_str += "(0)/*auto-generated init val*/";
 												}
@@ -22201,7 +22422,7 @@ namespace convm1 {
 						}
 					}
 
-					if (qtype->isPointerType() && !is_void_star_or_const_void_star(qtype)) {
+					if (qtype->isPointerType() && !is_void_star_or_const_void_star(qtype) && !is_void_star_star_or_const_void_star_star(qtype)) {
 						auto maybe_typeLoc = typeLoc_if_available(*DD);
 						if (maybe_typeLoc.has_value()) {
 							auto& typeLoc = maybe_typeLoc.value();
@@ -22521,9 +22742,9 @@ namespace convm1 {
 
 				auto CE = dyn_cast<const clang::CallExpr>(E);
 				if (CE) {
+					MCSSSFunctionCall1::modifier(MR, Rewrite, state1, CE);
 					MCSSSArgToParameterPassingArray2::s_handler1(MR, Rewrite, state1, CE);
 					MCSSSArgToReferenceParameterPassing::s_handler1(MR, Rewrite, state1, CE);
-					MCSSSFunctionCall1::modifier(MR, Rewrite, state1, CE);
 
 					if ((1 <= CE->getNumArgs()) && (CE->getArg(0)->getType()->isPointerType())) {
 						auto arg_EX = CE->getArg(0);
