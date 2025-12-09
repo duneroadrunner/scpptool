@@ -16382,7 +16382,8 @@ namespace convm1 {
 			, { "strcpy", "mse::lh::strcpy", "MSE_LH_STRCPY", {2}, FCI::ALL }
 			, { "strcmp", "mse::lh::strcmp", "MSE_LH_STRCMP", {2}, FCI::ALL }
 			, { "strncmp", "mse::lh::strncmp", "MSE_LH_STRNCMP", {3}, FCI::ALL }
-			, { "strchr", "mse::lh::strchr", "MSE_LH_STRCMP", {2}, FCI::ALL }
+			, { "strchr", "mse::lh::strchr", "MSE_LH_STRCHR", {2}, FCI::ALL }
+			, { "strrchr", "mse::lh::strrchr", "MSE_LH_STRRCHR", {2}, FCI::ALL }
 			, { "strlen", "mse::lh::strlen", "MSE_LH_STRLEN", {1}, FCI::ALL }
 			, { "strnlen_s", "mse::lh::strnlen_s", "MSE_LH_STRNLEN_S", {2}, FCI::ALL }
 			, { "strtol", "mse::lh::strtol", "MSE_LH_STRTOL", {3}, FCI::ALL }
@@ -16411,7 +16412,8 @@ namespace convm1 {
 			, { "std::strcpy", "mse::lh::strcpy", "MSE_LH_STRCPY", {2}, FCI::ALL }
 			, { "std::strcmp", "mse::lh::strcmp", "MSE_LH_STRCMP", {2}, FCI::ALL }
 			, { "std::strncmp", "mse::lh::strncmp", "MSE_LH_STRNCMP", {3}, FCI::ALL }
-			, { "std::strchr", "mse::lh::strchr", "MSE_LH_STRCMP", {2}, FCI::ALL }
+			, { "std::strchr", "mse::lh::strchr", "MSE_LH_STRCHR", {2}, FCI::ALL }
+			, { "std::strrchr", "mse::lh::strrchr", "MSE_LH_STRRCHR", {2}, FCI::ALL }
 			, { "std::strlen", "mse::lh::strlen", "MSE_LH_STRLEN", {1}, FCI::ALL }
 			, { "std::strnlen_s", "mse::lh::strnlen_s", "MSE_LH_STRNLEN_S", {2}, FCI::ALL }
 			, { "std::strtol", "mse::lh::strtol", "MSE_LH_STRTOL", {3}, FCI::ALL }
