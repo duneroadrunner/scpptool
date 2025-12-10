@@ -2879,7 +2879,36 @@ namespace convm1 {
 			}
 #endif /*!NDEBUG*/
 
-			if (m_child_text_infos.size() + 1 == m_non_child_dependent_text_fragments.size()) {
+			std::optional<std::string> maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range;
+			if (maybe_context.has_value()) {
+				auto const& context = maybe_context.value();
+				clang::SourceRange default_SR = m_SR_plus;
+				if (m_maybe_override_SR_due_to_being_a_macro_whose_definition_is_in_a_filtered_out_location) {
+					auto const& override_SR = m_maybe_override_SR_due_to_being_a_macro_whose_definition_is_in_a_filtered_out_location.value();
+					default_SR = override_SR;
+				}
+				if (!first_is_a_subset_of_second(default_SR, context.m_root_SR)) {
+					/* The default source range does not seem to be contained within the source range of the given context. So we're going to check if there 
+					is a corresponding nested macro range that is, and if so, use the corresponding stored text from that nested macro range. */
+					std::string premodified_text = m_original_source_text_str;
+					if (maybe_context.has_value()) {
+						auto const& context = maybe_context.value();
+						for (auto const& adjusted_source_text_info : m_SR_plus.m_adjusted_source_text_infos) {
+							if (adjusted_source_text_info.m_macro_invocation_range.isValid()) {
+								if (first_is_a_subset_of_second(adjusted_source_text_info.m_macro_invocation_range, context.m_root_SR)) {
+									/* One of the macro nesting levels of the expression seems to be contained within the given context range, 
+									so we'll use the (original) text from that macro nesting level. */
+									maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range = adjusted_source_text_info.m_text;
+									break;
+								}
+							}
+						}
+					}
+					m_current_text_str = modified_copy(premodified_text);
+				}
+			}
+
+			if ((m_child_text_infos.size() + 1 == m_non_child_dependent_text_fragments.size()) && (!maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range.has_value())) {
 				std::string working_text;
 				for (size_t i = 0; i < m_child_text_infos.size(); i += 1) {
 					working_text += m_non_child_dependent_text_fragments.at(i);
@@ -2888,7 +2917,11 @@ namespace convm1 {
 				working_text += m_non_child_dependent_text_fragments.back();
 				m_current_text_str = modified_copy(working_text);
 			} else {
-				m_current_text_str = modified_copy(m_original_source_text_str);
+				std::string premodified_text = m_original_source_text_str;
+				if (maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range.has_value()) {
+					premodified_text = maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range.value();
+				}
+				m_current_text_str = modified_copy(premodified_text);
 			}
 		}
 		static std::string const& s_species() {
@@ -2902,6 +2935,21 @@ namespace convm1 {
 		const std::string& current_text(std::optional<CExprTextInfoContext> maybe_context = {}) {
 			update_current_text(maybe_context);
 			return m_current_text_str;
+		}
+
+		const std::string& original_text(std::optional<CExprTextInfoContext> maybe_context = {}) const {
+			if (maybe_context.has_value()) {
+				auto const& context = maybe_context.value();
+				for (auto const& adjusted_source_text_info : m_SR_plus.m_adjusted_source_text_infos) {
+					if (adjusted_source_text_info.m_macro_invocation_range.isValid()) {
+						if (first_is_a_subset_of_second(adjusted_source_text_info.m_macro_invocation_range, context.m_root_SR)) {
+							/* One of the macro nesting levels of the expression seems to be contained within the context range. */
+							return adjusted_source_text_info.m_text;
+						}
+					}
+				}
+			}
+			return m_original_source_text_str;
 		}
 
 		clang::SourceRange source_range() const {
@@ -4529,7 +4577,7 @@ namespace convm1 {
 
 						auto OSR = write_once_source_range(cm1_adj_nice_source_range(*E, m_state1, Rewrite));
 						if (OSR.isValid()) {
-							auto not_considered_an_updatable_visible_child_lambda = [this, &whole_SR](COrderedSourceRange const& OSR, clang::SourceRange const& rawSR) {
+							auto not_considered_an_updatable_visible_child_lambda = [this, &SM, &whole_SR](COrderedSourceRange const& OSR, clang::SourceRange const& rawSR) {
 									const bool b3 = rawSR.getBegin().isMacroID();
 									const bool b4 = rawSR.getEnd().isMacroID();
 									const bool b5 = OSR.getBegin().isMacroID();
@@ -4540,15 +4588,22 @@ namespace convm1 {
 									if ((!not_considered_an_updatable_visible_child) && b3 && b4) {
 										const auto sr2 = source_range_with_both_ends_in_the_same_macro_body(rawSR, Rewrite);
 										if (sr2 == rawSR) {
-											auto E_SR_plus = cm1_adjusted_source_range(sr2, m_state1, Rewrite);
-											if (2 <= E_SR_plus.m_adjusted_source_text_infos.size()) {
-												auto const& adjusted_source_text_info_cref = E_SR_plus.m_adjusted_source_text_infos.at(E_SR_plus.m_adjusted_source_text_infos.size() - 2);
-												auto const& md_SR_cref = adjusted_source_text_info_cref.m_macro_definition_range;
-												if (md_SR_cref.isValid()) {
-													auto& SM = Rewrite.getSourceMgr();
-													bool filtered_out_flag = cm1_filtered_out_by_location(SM, md_SR_cref);
-													if (filtered_out_flag) {
-														not_considered_an_updatable_visible_child = true;
+											auto SL_macro_arg_expansion_start = sr2.getBegin();
+											bool SL_isMacroArgExpansion_flag = SM.isMacroArgExpansion(sr2.getBegin(), &SL_macro_arg_expansion_start);
+											auto SLE_macro_arg_expansion_start = sr2.getEnd();
+											bool SLE_isMacroArgExpansion_flag = SM.isMacroArgExpansion(sr2.getEnd(), &SLE_macro_arg_expansion_start);
+											bool seems_to_be_a_macro_arg = (SL_isMacroArgExpansion_flag && SLE_isMacroArgExpansion_flag && (SL_macro_arg_expansion_start == SLE_macro_arg_expansion_start));
+											if (!seems_to_be_a_macro_arg) {
+												auto E_SR_plus = cm1_adjusted_source_range(sr2, m_state1, Rewrite);
+												if (2 <= E_SR_plus.m_adjusted_source_text_infos.size()) {
+													auto const& adjusted_source_text_info_cref = E_SR_plus.m_adjusted_source_text_infos.at(E_SR_plus.m_adjusted_source_text_infos.size() - 2);
+													auto const& md_SR_cref = adjusted_source_text_info_cref.m_macro_definition_range;
+													if (md_SR_cref.isValid()) {
+														auto& SM = Rewrite.getSourceMgr();
+														bool filtered_out_flag = cm1_filtered_out_by_location(SM, md_SR_cref);
+														if (filtered_out_flag) {
+															not_considered_an_updatable_visible_child = true;
+														}
 													}
 												}
 											}
@@ -14579,34 +14634,46 @@ namespace convm1 {
 							}
 						}
 						if (VD) {
-							if (VD->hasInit()) {
+							if ((!(ddcs_ref.m_original_initialization_has_been_noted)) && VD->hasInit()) {
 								auto pInitExpr = IgnoreImplicit(VD->getInit());
 								if (pInitExpr) {
-									auto init_expr_source_range = cm1_adj_nice_source_range(pInitExpr->getSourceRange(), m_state1, Rewrite);
+									/* Aside from our use here, obtaining an expression conversion state reference here ensures that the 
+									initialization expression has an associated CExprConversionState at this point. This will allow any 
+									(modified) subexpressions to establish an ancestor-descendant relationship and facilitate the 
+									incorporation of any subexpression modifications into the rendering of the initialization expression. */
+									auto& ecs_ref = m_state1.get_expr_conversion_state_ref(*pInitExpr, Rewrite);
+									auto const& init_expr_SR_plus = ecs_ref.m_SR_plus;
 
 									/* It seems that getInit() will return the initalization expression even if it
 									was expressed in another redeclaration of the variable rather than this declaration.
 									We're using source ranges to determine whether the initializtion expression is
 									part of this declaration because it's not immediately clear how else to do it. */
-									auto init_expr_located_in_this_decl = first_is_a_subset_of_second(init_expr_source_range, SR);
+									auto init_expr_located_in_this_decl = first_is_a_subset_of_second(init_expr_SR_plus, SR);
+									if (!init_expr_located_in_this_decl) {
+										for (auto const& adjusted_source_text_info : init_expr_SR_plus.m_adjusted_source_text_infos) {
+											if (adjusted_source_text_info.m_macro_invocation_range.isValid()) {
+												init_expr_located_in_this_decl |= first_is_a_subset_of_second(adjusted_source_text_info.m_macro_invocation_range, SR);
+												if (init_expr_located_in_this_decl) {
+													/* One of the macro nesting levels of the init expression seems to be contained within the declaration statement. */
+													break;
+												}
+											}
+										}
+									}
 
-									if (init_expr_source_range.isValid() && init_expr_located_in_this_decl) {
-										auto initialization_expr_str = getRewrittenTextOrEmpty(Rewrite, init_expr_source_range);
+									if (init_expr_located_in_this_decl) {
+										//auto initialization_expr_str = getRewrittenTextOrEmpty(Rewrite, init_expr_SR_plus);
+										auto context = CExprTextInfoContext{ SR, &Rewrite, &m_state1 };
+										auto initialization_expr_str = ecs_ref.original_text(context);
 										if (variable_name == initialization_expr_str) {
 											/* We encountered a weird bug where the initialization expression sometimes
 											* was indicated as being present and the source range set to the variable name
 											* when actually no initialization expression was present in the original source. */
 											initialization_expr_str = "";
 										} else {
-											ddcs_ref.m_initializer_SR_or_insert_before_point = init_expr_source_range;
+											ddcs_ref.m_initializer_SR_or_insert_before_point = init_expr_SR_plus;
 											ddcs_ref.m_original_initialization_expr_str = initialization_expr_str;
 											if (true || ddcs_ref.current_initialization_expr_str(Rewrite, &m_state1, CExprTextInfoContext{ SR, &Rewrite, &m_state1 }).empty()) {
-												/* This line ensures that the initialization expression has an associated CExprConversionState. This 
-												will allow any (modified) subexpressions to establish an ancestor-descendant relationship and 
-												facilitate the incorporation of any subexpression modifications into the rendering of the 
-												initialization expression. */
-												m_state1.get_expr_conversion_state_ref(*pInitExpr, Rewrite);
-
 												ddcs_ref.m_maybe_initialization_expr_text_info.emplace(CExprTextInfo(pInitExpr, Rewrite, m_state1));
 												ddcs_ref.m_fallback_current_initialization_expr_str = initialization_expr_str;
 											} else {
@@ -16448,6 +16515,17 @@ namespace convm1 {
 		std::optional<clang::QualType> maybe_arg1_ii_pointee_qtype;
 	};
 
+	/* Generally used to ignore a potential negative sign preceding(/wrapping) a clang::IntegerLiteral. */
+	template<typename TPtr>
+	inline auto IgnoreUnaryOperator(TPtr ptr) -> clang::Expr const* {
+		if (!ptr) { return ptr; }
+		auto UO = dyn_cast<const clang::UnaryOperator>(ptr);
+		if (UO) {
+			return UO->getSubExpr();
+		}
+		return ptr;
+	}
+
 	inline CIsIneligibleMemsetResult is_memset_expression_that_is_ineligible_for_conversion(clang::CallExpr const& call_expr, clang::ASTContext& Ctx) {
 		CIsIneligibleMemsetResult retval;
 		auto CE = &call_expr;
@@ -16465,14 +16543,14 @@ namespace convm1 {
 					IF_DEBUG(const auto arg2_ii_qtype_str = arg2_ii_qtype.getAsString();)
 
 					bool memset_value_seems_to_be_a_zero_literal = false;
-					auto IL = dyn_cast<const clang::IntegerLiteral>(arg2_ii_E);
+					auto IL = dyn_cast<const clang::IntegerLiteral>(IgnoreUnaryOperator(arg2_ii_E));
 					if (!IL) {
 						const auto CSCE = dyn_cast<const clang::CStyleCastExpr>(arg2_ii_E);
 						if (CSCE) {
 							auto precasted_E_ii = IgnoreParenImpNoopCasts(CSCE->getSubExprAsWritten(), Ctx);
 							const auto precasted_E_ii_qtype = precasted_E_ii->getType();
 							IF_DEBUG(const auto precasted_E_ii_qtype_str = precasted_E_ii_qtype.getAsString();)
-							IL = dyn_cast<const clang::IntegerLiteral>(precasted_E_ii);
+							IL = dyn_cast<const clang::IntegerLiteral>(IgnoreUnaryOperator(precasted_E_ii));
 						}
 					}
 					if (IL) {
@@ -17861,7 +17939,7 @@ namespace convm1 {
 					std::string og_cast_operation_str = getRewrittenTextOrEmpty(Rewrite, cast_operation_SR);
 					std::string expression_replacement_code;
 					if (csce_QT->isPointerType() /*"void *" == csce_QT.getAsString()*/) {
-						auto IL = dyn_cast<const clang::IntegerLiteral>(precasted_expr_ptr);
+						auto IL = dyn_cast<const clang::IntegerLiteral>(IgnoreUnaryOperator(IgnoreParenImpNoopCasts(precasted_expr_ptr, *(MR.Context))));
 						if (IL) {
 							if (0 == IL->getValue().getLimitedValue()) {
 								/* The expression seems to be (something like) "(void*)0" which is equivalent to NULL. */
@@ -18821,7 +18899,7 @@ namespace convm1 {
 							}
 
 							if (csce_QT->isPointerType()) {
-								auto IL = dyn_cast<const clang::IntegerLiteral>(precasted_expr_ptr);
+								auto IL = dyn_cast<const clang::IntegerLiteral>(IgnoreUnaryOperator(precasted_expr_ptr));
 								if (IL) {
 									/* This case is handled in the handle_c_style_cast_without_context() handler. */
 									finished_cast_handling_flag = true;
