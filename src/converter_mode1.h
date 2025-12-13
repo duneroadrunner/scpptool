@@ -18497,6 +18497,42 @@ namespace convm1 {
 								IF_DEBUG(std::string pointee_qtype_str = pointee_qtype.getAsString();)
 								if (pointee_type_ptr->isPointerType() || pointee_type_ptr->isArrayType()) {
 									is_pointer_to_pointer = true;
+
+									if (!pointee_qtype.isConstQualified()) {
+										auto const& rhs_res2 = precasted_res2;
+										if (rhs_res2.ddecl_conversion_state_ptr && rhs_res2.ddecl_conversion_state_ptr->m_ddecl_cptr) {
+											auto& rhs_ddecl_ref = *rhs_res2.ddecl_conversion_state_ptr;
+											auto i_pointee_indirection_level = int(rhs_res2.indirection_level) + 1;
+											if (rhs_res2.maybe_indirection_level_adjustment.has_value()) {
+												i_pointee_indirection_level += rhs_res2.maybe_indirection_level_adjustment.value();
+											}
+											if ((i_pointee_indirection_level < int(rhs_ddecl_ref.m_indirection_state_stack.size())) && (0 <= i_pointee_indirection_level)) {
+												const auto pointee_indirection_level = size_t(i_pointee_indirection_level);
+												auto& indirection_state_ref = rhs_ddecl_ref.m_indirection_state_stack.at(pointee_indirection_level);
+												auto ddecl_indirection = CDDeclIndirection(*(rhs_res2.ddecl_conversion_state_ptr->m_ddecl_cptr), pointee_indirection_level);
+
+												/* The argument is being cast to a (raw) pointer-to-nonconst-pointer. We'll be presumably using a 
+												"proxy" to provide the raw pointer and reflect any changes back to the (presumably) safe smart 
+												pointer-to-iterator argument. Since we don't know what the pointee pointer will end up pointing at 
+												after the expression is executed, we should make the pointee pointer type general enough to handle 
+												both malloc()ed and non-malloc()ed targets. */
+												if (!indirection_state_ref.is_known_to_have_malloc_target()) {
+													indirection_state_ref.set_is_known_to_have_malloc_target(true);
+													state1.m_conversion_state_change_action_map.execute_matching_actions(state1, ddecl_indirection);
+													if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+														state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, ddecl_indirection);
+													}
+												}
+												if (!indirection_state_ref.is_known_to_have_non_malloc_target()) {
+													indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
+													state1.m_conversion_state_change_action_map.execute_matching_actions(state1, ddecl_indirection);
+													if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+														state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, ddecl_indirection);
+													}
+												}
+											}
+										}
+									}
 								}
 							} else { assert(false); }
 
@@ -20480,6 +20516,42 @@ namespace convm1 {
 											IF_DEBUG(std::string pointee_qtype_str = pointee_qtype.getAsString();)
 											if (pointee_type_ptr->isPointerType() || pointee_type_ptr->isArrayType()) {
 												is_pointer_to_pointer = true;
+
+												if (!pointee_qtype.isConstQualified()) {
+													auto rhs_res2 = infer_array_type_info_from_stmt(*arg_EX_ii, "", state1);
+													if (rhs_res2.ddecl_conversion_state_ptr && rhs_res2.ddecl_conversion_state_ptr->m_ddecl_cptr) {
+														auto& rhs_ddecl_ref = *rhs_res2.ddecl_conversion_state_ptr;
+														auto i_pointee_indirection_level = int(rhs_res2.indirection_level) + 1;
+														if (rhs_res2.maybe_indirection_level_adjustment.has_value()) {
+															i_pointee_indirection_level += rhs_res2.maybe_indirection_level_adjustment.value();
+														}
+														if ((i_pointee_indirection_level < int(rhs_ddecl_ref.m_indirection_state_stack.size())) && (0 <= i_pointee_indirection_level)) {
+															const auto pointee_indirection_level = size_t(i_pointee_indirection_level);
+															auto& indirection_state_ref = rhs_ddecl_ref.m_indirection_state_stack.at(pointee_indirection_level);
+															auto ddecl_indirection = CDDeclIndirection(*(rhs_res2.ddecl_conversion_state_ptr->m_ddecl_cptr), pointee_indirection_level);
+
+															/* The argument is being passed to a non-modifiable function as a (raw) pointer-to-nonconst-pointer 
+															parameter. We'll be presumably using a "proxy" to provide the raw pointer and reflect any changes back 
+															to the (presumably) safe smart pointer-to-iterator argument. Since we don't know what the pointee 
+															pointer will end up pointing at after the function call, we should make the pointee pointer type 
+															general enough to handle both malloc()ed and non-malloc()ed targets. */
+															if (!indirection_state_ref.is_known_to_have_malloc_target()) {
+																indirection_state_ref.set_is_known_to_have_malloc_target(true);
+																state1.m_conversion_state_change_action_map.execute_matching_actions(state1, ddecl_indirection);
+																if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+																	state1.m_dynamic_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, ddecl_indirection);
+																}
+															}
+															if (!indirection_state_ref.is_known_to_have_non_malloc_target()) {
+																indirection_state_ref.set_is_known_to_have_non_malloc_target(true);
+																state1.m_conversion_state_change_action_map.execute_matching_actions(state1, ddecl_indirection);
+																if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+																	state1.m_native_array2_contingent_replacement_map.do_and_dispose_matching_replacements(state1, ddecl_indirection);
+																}
+															}
+														}
+													}
+												}
 											}
 										} else { assert(false); }
 									}
