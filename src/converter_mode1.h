@@ -17572,8 +17572,8 @@ namespace convm1 {
 						non_modifiable_flag = true;
 						break;
 					} else if (true) {
-						const auto cannonical_qtype = get_cannonical_type(tsi->getType());
-						IF_DEBUG(std::string cannonical_qtype_str = cannonical_qtype.getAsString();)
+						const auto canonical_qtype = get_canonical_type(tsi->getType());
+						IF_DEBUG(std::string canonical_qtype_str = canonical_qtype.getAsString();)
 
 						auto definition_type_SL = definition_TypeLoc(tsi->getTypeLoc()).getBeginLoc();
 						auto definition_qtype = tsi->getType();
@@ -19627,7 +19627,15 @@ namespace convm1 {
 										//return;
 									}
 								};
+								/* This modification needs to be queued so that it will be executed after any other
+								modifications that might affect the relevant part of the source text. */
 								state1.m_pending_code_modification_actions.add_replacement_action(rhs_source_range, lambda1);
+
+								/* We've queued the modification action for deferred execution, but we don't want to delay the
+								establishment of the expression conversion state because, among other reasons, it reads from 
+								and stores the original source text and we want that done before the source text gets 
+								potentially modified. */
+								auto& rhs_ecs_ref = state1.get_expr_conversion_state_ref(*RHS_ii, Rewrite);
 							}
 						} else {
 							int q = 5;
@@ -22284,7 +22292,7 @@ namespace convm1 {
 										auto set_pointer_field_conversion_properties = [&state1, &MR, &Rewrite](clang::QualType qtype_param, std::optional<clang::Decl const *> maybe_D = {}, std::optional<clang::CXXBaseSpecifier const *> maybe_CXXBS = {}) {
 											MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype_param);
 
-											const auto qtype = get_cannonical_type(qtype_param);
+											const auto qtype = get_canonical_type(qtype_param);
 											IF_DEBUG(std::string qtype_str = qtype.getAsString();)
 											if (!(qtype->isPointerType())) {
 												return;
@@ -23157,6 +23165,174 @@ namespace convm1 {
 					/* This is apparently either a `sizeof` or `alignof` expression. For now we'll presume it's a 
 					`sizeof` expression. */
 					if (UEOTTE->isArgumentType()) {
+						const auto arg_qtype = UEOTTE->getArgumentType();
+						IF_DEBUG(auto arg_qtype_str = arg_qtype.getAsString();)
+						const auto TSI = UEOTTE->getArgumentTypeInfo();
+						if (TSI && arg_qtype->isPointerType()) {
+							/* So the argument is a (raw) pointer type (as opposed to an expression). Presumably that pointer type 
+							corresponds to the type of some object(s) that may get converted to a smart pointer (which are often 
+							not the same size as their corresponding raw pointer). In general, may not know for sure which are the 
+							corresponding object(s). For now we're going to use a heuristic where we look for a parent call 
+							expression, and if the first argument of that call expression is a pointer to the pointer type in 
+							question, then we'll assume that the first argument points to (an array or buffer of) a/the 
+							corresponding (pointer) object. So this would cover call expressions like 
+							`memset(int_pointer_pointer, 0, n * sizeof(int*))`. */
+							const auto typeLoc = TSI->getTypeLoc();
+							const auto arg_SR = write_once_source_range(cm1_adjusted_source_range(typeLoc.getSourceRange(), state1, Rewrite));
+							DEBUG_SOURCE_LOCATION_STR(debug_arg_source_location_str, arg_SR, Rewrite);
+							if ((!arg_SR.isValid()) || cm1_filtered_out_by_location(MR, arg_SR.getBegin())) {
+								return void();
+							}
+#ifndef NDEBUG
+							if (std::string::npos != debug_arg_source_location_str.find(g_target_debug_source_location_str1)) {
+								int q = 5;
+							}
+#endif /*!NDEBUG*/
+
+							const auto containing_CE = Tget_containing_element_of_type<clang::CallExpr>(UEOTTE, *(MR.Context));
+							const auto arg_text = getRewrittenTextOrEmpty(Rewrite, arg_SR);
+							if (("" != arg_text) && containing_CE && (2 <= containing_CE->getNumArgs())) {
+								const auto num_args = containing_CE->getNumArgs();
+								const auto first_CE_arg_E_ii = IgnoreParenImpCasts(containing_CE->getArg(0));
+								const auto first_CE_arg_E_ii_qtype = first_CE_arg_E_ii->getType();
+								IF_DEBUG(auto first_CE_arg_E_ii_qtype_str = first_CE_arg_E_ii_qtype.getAsString();)
+								if (first_CE_arg_E_ii_qtype->isPointerType() && first_CE_arg_E_ii_qtype->getPointeeType()->isPointerType()) {
+
+									const auto pointee_qtype = first_CE_arg_E_ii_qtype->getPointeeType();
+									const auto pointee_pointee_qtype = pointee_qtype->getPointeeType();
+									IF_DEBUG(auto pointee_pointee_qtype_str = pointee_pointee_qtype.getAsString();)
+									const auto arg_pointee_qtype = arg_qtype->getPointeeType();
+									IF_DEBUG(auto arg_pointee_qtype_str = arg_pointee_qtype.getAsString();)
+									const auto cn_pointee_pointee_qtype = get_canonical_type(pointee_pointee_qtype);
+									IF_DEBUG(auto cn_pointee_pointee_qtype_str = cn_pointee_pointee_qtype.getAsString();)
+									const auto cn_arg_pointee_qtype = get_canonical_type(arg_pointee_qtype);
+									IF_DEBUG(auto cn_arg_pointee_qtype_str = cn_arg_pointee_qtype.getAsString();)
+									if (cn_pointee_pointee_qtype == cn_arg_pointee_qtype) {
+										auto& Ctx = *(MR.Context);
+
+										const auto arg_rawSR = typeLoc.getSourceRange();
+										bool arg_seems_to_be_a_whole_macro_argument = false;
+										if (arg_rawSR.getBegin().isMacroID() && arg_rawSR.getEnd().isMacroID()) {
+											auto& SM = Rewrite.getSourceMgr();
+											auto SL_macro_arg_expansion_start = arg_rawSR.getBegin();
+											const bool SL_isMacroArgExpansion_flag = SM.isMacroArgExpansion(arg_rawSR.getBegin(), &SL_macro_arg_expansion_start);
+											auto SLE_macro_arg_expansion_start = arg_rawSR.getEnd();
+											const bool SLE_isMacroArgExpansion_flag = SM.isMacroArgExpansion(arg_rawSR.getEnd(), &SLE_macro_arg_expansion_start);
+											if (SL_isMacroArgExpansion_flag && SLE_isMacroArgExpansion_flag && (SL_macro_arg_expansion_start == SLE_macro_arg_expansion_start)) {
+												arg_seems_to_be_a_whole_macro_argument = true;
+												/* The type argument seems to be at least part of a macro argument. Next we'll check if it's a (distinct, 
+												whole) macro argument that does not include the parent clang::UnaryExprOrTypeTraitExpr (i.e. `sizeof` 
+												expression). */
+												const auto UEOTTE_rawSR = UEOTTE->getSourceRange();
+												auto UEOTTE_SL_macro_arg_expansion_start = UEOTTE_rawSR.getBegin();
+												const bool UEOTTE_SL_isMacroArgExpansion_flag = SM.isMacroArgExpansion(UEOTTE_rawSR.getBegin(), &UEOTTE_SL_macro_arg_expansion_start);
+												auto UEOTTE_SLE_macro_arg_expansion_start = UEOTTE_rawSR.getEnd();
+												const bool UEOTTE_SLE_isMacroArgExpansion_flag = SM.isMacroArgExpansion(UEOTTE_rawSR.getEnd(), &UEOTTE_SLE_macro_arg_expansion_start);
+												if (UEOTTE_SL_isMacroArgExpansion_flag && UEOTTE_SLE_isMacroArgExpansion_flag && (UEOTTE_SL_macro_arg_expansion_start == UEOTTE_SLE_macro_arg_expansion_start)) {
+													/* The parent clang::UnaryExprOrTypeTraitExpr (i.e. `sizeof` expression) also seems to be (at least 
+													part of) a macro argument. Now we'll check if the type argument and its parent are part of the same 
+													macro argument. */
+													if (UEOTTE_SL_macro_arg_expansion_start == SL_macro_arg_expansion_start) {
+														/* The type argument and its parent expression seem to be part of the same macro argument, indicating 
+														that the type argument is not a whole macro argument. */
+														arg_seems_to_be_a_whole_macro_argument = false;
+													}
+												}
+											}
+										}
+
+										auto lambda1 = [&Rewrite, &state1, first_CE_arg_E_ii, arg_text, typeLoc, arg_SR, UEOTTE, &Ctx, arg_seems_to_be_a_whole_macro_argument]() {
+											auto& first_CE_arg_ecs_ref = state1.get_expr_conversion_state_ref(*first_CE_arg_E_ii, Rewrite);
+											std::string first_CE_arg_text = first_CE_arg_ecs_ref.current_text();
+
+											/* So we're assuming that the pointer type argument of the `sizeof` expression corresponds to whatever 
+											the first argument of the containing call expression points to, and we'll replace the `sizeof` argument 
+											accordingly. */
+											std::string replacement_arg_text = "(*(" + first_CE_arg_text + "))";
+											if ((std::string::npos == arg_text.find("*/")) && ((std::string::npos == arg_text.find("//")))) {
+												replacement_arg_text += "/* replacement of original sizeof argument: '" + arg_text + "' */";
+											}
+
+											/* If the type argument were an expression, then we could just use our standard mechanism for modifying 
+											an expression, which automatically propagates the changes to any and all relevant containing/ancestor 
+											expressions. But since the type argument is not an expression (it's a type) and we don't have a 
+											standard mechanism that handles it, we're going to resort to manually changing the stored "base" 
+											source text of this clang::UnaryExprOrTypeTraitExpr and each ancestor expression (that already has an 
+											established corresponding "expression conversion state"). 
+											There are "base" text versions for each expression stored in a number of places, including the 
+											`m_original_source_text_str` data member and potentially in multiple components of the `m_SR_plus` 
+											data members. */
+											auto update_string_ref = [&](std::string& string_ref) {
+													if (std::string::npos == string_ref.find(replacement_arg_text)) {
+														std::string namespace_qualified_source_text_str = string_ref;
+														replace_whole_instances_of_given_string(namespace_qualified_source_text_str, arg_text, replacement_arg_text);
+														if (string_ref != namespace_qualified_source_text_str) {
+															string_ref = namespace_qualified_source_text_str;
+														} else {
+															int q = 5;
+														}
+													}
+												};
+											auto update_ecs_ref = [&](CExprConversionState& ecs_ref) {
+													update_string_ref(ecs_ref.m_original_source_text_str);
+													update_string_ref(ecs_ref.m_current_text_str);
+													for (auto& non_child_dependent_text_fragment_ref : ecs_ref.m_non_child_dependent_text_fragments) {
+														update_string_ref(non_child_dependent_text_fragment_ref);
+													}
+													update_string_ref(ecs_ref.m_SR_plus.m_adjusted_source_text_as_if_expanded);
+													for (auto& adjusted_source_text_info_ref : ecs_ref.m_SR_plus.m_adjusted_source_text_infos) {
+														update_string_ref(adjusted_source_text_info_ref.m_text);
+													}
+												};
+
+											auto& ecs_ref = state1.get_expr_conversion_state_ref(*UEOTTE, Rewrite);
+											update_ecs_ref(ecs_ref);
+											state1.add_pending_expression_update(*UEOTTE, Rewrite);
+
+											if (true || arg_seems_to_be_a_whole_macro_argument) {
+												bool visibly_containing_expression_scheduled_for_rendering_update =false;
+												auto parent_E = NonImplicitParentOfType<clang::Expr>(UEOTTE, Ctx);
+												auto E1 = parent_E;
+												while (E1) {
+													IF_DEBUG(auto E1_qtype_str = E1->getType().getAsString();)
+
+													auto iter = state1.m_expr_conversion_state_map.find(E1);
+													if (state1.m_expr_conversion_state_map.end() != iter) {
+														auto& l_ecs_ref = *((*iter).second);
+														update_ecs_ref(l_ecs_ref);
+													}
+													if (!visibly_containing_expression_scheduled_for_rendering_update) {
+														const auto E1_SR = write_once_source_range(cm1_adj_nice_source_range(E1->getSourceRange(), state1, Rewrite));
+														if ((E1_SR.getBegin() <= arg_SR.getBegin()) && (arg_SR.getEnd() <= E1_SR.getEnd())) {
+															/* This expression seems to contain the (macro) argument in its visible range. So we'll schedule it 
+															for a rendering update reflect the changes we made to the (macro) argument. (We don't have a proper 
+															mechanism to update the (macro) argument directly because it's a type, not an expression.) */
+															state1.add_pending_expression_update(*E1, Rewrite);
+
+															visibly_containing_expression_scheduled_for_rendering_update = true;
+														}
+													}
+
+													E1 = NonImplicitParentOfType<clang::Expr>(E1, Ctx);
+												}
+												int q = 5;
+											}
+										};
+										auto UEOTTE_SR = write_once_source_range(cm1_adj_nice_source_range(*UEOTTE, state1, Rewrite));
+										/* This modification needs to be queued so that it will be executed after any other
+										modifications that might affect the relevant part of the source text. */
+										state1.m_pending_code_modification_actions.add_replacement_action(UEOTTE_SR, lambda1);
+
+										/* We've queued the modification action for deferred execution, but we don't want to delay the
+										establishment of the expression conversion state because, among other reasons, it reads from 
+										and stores the original source text and we want that done before the source text gets 
+										potentially modified. */
+										auto& ecs_ref = state1.get_expr_conversion_state_ref(*UEOTTE, Rewrite);
+										auto& first_CE_arg_ecs_ref = state1.get_expr_conversion_state_ref(*first_CE_arg_E_ii, Rewrite);
+									}
+								}
+							}
+						}
 					} else {
 						const auto arg_E = UEOTTE->getArgumentExpr();
 						if (arg_E) {

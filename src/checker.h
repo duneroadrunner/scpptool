@@ -208,28 +208,28 @@ namespace checker {
 	std::string get_as_quoted_string_for_errmsg(clang::QualType qtype) {
 		std::string qtype_str = qtype.getAsString();
 		std::string retval = "'" + qtype_str + "'";
-		const auto cannonical_qtype = get_cannonical_type(qtype);
-		if (cannonical_qtype != qtype) {
-			const auto cannonical_qtype_str = cannonical_qtype.getAsString();
-			if (cannonical_qtype_str != qtype_str) {
-				auto cannonical_qtype_wo_class_space_str = cannonical_qtype_str;
+		const auto canonical_qtype = get_canonical_type(qtype);
+		if (canonical_qtype != qtype) {
+			const auto canonical_qtype_str = canonical_qtype.getAsString();
+			if (canonical_qtype_str != qtype_str) {
+				auto canonical_qtype_wo_class_space_str = canonical_qtype_str;
 				static const std::string class_space_str = "class ";
-				auto class_index = cannonical_qtype_wo_class_space_str.find(class_space_str);
+				auto class_index = canonical_qtype_wo_class_space_str.find(class_space_str);
 				while (std::string::npos != class_index) {
-					cannonical_qtype_wo_class_space_str.replace(class_index, class_space_str.length(), "");
-					class_index = cannonical_qtype_wo_class_space_str.find(class_space_str);
+					canonical_qtype_wo_class_space_str.replace(class_index, class_space_str.length(), "");
+					class_index = canonical_qtype_wo_class_space_str.find(class_space_str);
 				}
-				if (cannonical_qtype_wo_class_space_str != qtype_str) {
-					auto cannonical_qtype_wo_struct_space_str = cannonical_qtype_wo_class_space_str;
+				if (canonical_qtype_wo_class_space_str != qtype_str) {
+					auto canonical_qtype_wo_struct_space_str = canonical_qtype_wo_class_space_str;
 					static const std::string struct_space_str = "struct ";
-					auto struct_index = cannonical_qtype_wo_struct_space_str.find(struct_space_str);
+					auto struct_index = canonical_qtype_wo_struct_space_str.find(struct_space_str);
 					while (std::string::npos != struct_index) {
-						cannonical_qtype_wo_struct_space_str.replace(struct_index, struct_space_str.length(), "");
-						struct_index = cannonical_qtype_wo_struct_space_str.find(struct_space_str);
+						canonical_qtype_wo_struct_space_str.replace(struct_index, struct_space_str.length(), "");
+						struct_index = canonical_qtype_wo_struct_space_str.find(struct_space_str);
 					}
-					if (cannonical_qtype_wo_struct_space_str != qtype_str) {
+					if (canonical_qtype_wo_struct_space_str != qtype_str) {
 						if (("std::string" != qtype_str) && ("std::string_view" != qtype_str)) {
-							retval += std::string(" (aka '") + cannonical_qtype_str + "')";
+							retval += std::string(" (aka '") + canonical_qtype_str + "')";
 						}
 					}
 				}
@@ -468,17 +468,17 @@ namespace checker {
 		void insert_or_assign_type_lifetime_annotations(const clang::Type * TypePtr, CTypeLifetimeAnnotations const& tlta) {
 			(*this).m_type_lifetime_annotations_map.insert_or_assign(TypePtr, tlta);
 
-			const auto cannonical_TypePtr = get_cannonical_type_ptr(TypePtr);
-			if (cannonical_TypePtr != TypePtr) {
-				auto found_it = (*this).m_type_lifetime_annotations_map.find(cannonical_TypePtr);
+			const auto canonical_TypePtr = get_canonical_type_ptr(TypePtr);
+			if (canonical_TypePtr != TypePtr) {
+				auto found_it = (*this).m_type_lifetime_annotations_map.find(canonical_TypePtr);
 				if ((*this).m_type_lifetime_annotations_map.end() != found_it) {
 					if (tlta.m_lifetime_set.m_primary_lifetimes.size() > found_it->second.m_lifetime_set.m_primary_lifetimes.size()) {
 						/* Ideally this won't happen. It seems that we've processed this type before and came up with a 
 						different result. This would sometimes occur when we used to evaluate uninstantiated templates. */
-						(*this).m_type_lifetime_annotations_map.insert_or_assign(cannonical_TypePtr, tlta);
+						(*this).m_type_lifetime_annotations_map.insert_or_assign(canonical_TypePtr, tlta);
 					}
 				} else {
-					(*this).m_type_lifetime_annotations_map.insert_or_assign(cannonical_TypePtr, tlta);
+					(*this).m_type_lifetime_annotations_map.insert_or_assign(canonical_TypePtr, tlta);
 				}
 			}
 		}
@@ -487,17 +487,17 @@ namespace checker {
 		void insert_or_assign_implicit_type_lifetime_annotations(const clang::Type * TypePtr, CTypeLifetimeAnnotations const& tlta) {
 			(*this).m_implicit_type_lifetime_annotations_map.insert_or_assign(TypePtr, tlta);
 
-			const auto cannonical_TypePtr = get_cannonical_type_ptr(TypePtr);
-			if (cannonical_TypePtr != TypePtr) {
-				auto found_it = (*this).m_implicit_type_lifetime_annotations_map.find(cannonical_TypePtr);
+			const auto canonical_TypePtr = get_canonical_type_ptr(TypePtr);
+			if (canonical_TypePtr != TypePtr) {
+				auto found_it = (*this).m_implicit_type_lifetime_annotations_map.find(canonical_TypePtr);
 				if ((*this).m_implicit_type_lifetime_annotations_map.end() != found_it) {
 					if (tlta.m_lifetime_set.m_primary_lifetimes.size() > found_it->second.m_lifetime_set.m_primary_lifetimes.size()) {
 						/* Ideally this won't happen. It seems that we've processed this type before and came up with a 
 						different result. This would sometimes occur when we used to evaluate uninstantiated templates. */
-						(*this).m_implicit_type_lifetime_annotations_map.insert_or_assign(cannonical_TypePtr, tlta);
+						(*this).m_implicit_type_lifetime_annotations_map.insert_or_assign(canonical_TypePtr, tlta);
 					}
 				} else {
-					(*this).m_implicit_type_lifetime_annotations_map.insert_or_assign(cannonical_TypePtr, tlta);
+					(*this).m_implicit_type_lifetime_annotations_map.insert_or_assign(canonical_TypePtr, tlta);
 				}
 			}
 		}
@@ -506,17 +506,17 @@ namespace checker {
 		void insert_or_assign_const_qualified_type_lifetime_annotations(const clang::QualType qtype, CTypeLifetimeAnnotations const& tlta) {
 			(*this).m_const_qualified_type_lifetime_annotations_map.insert_or_assign(qtype.getAsString(), tlta);
 
-			const auto cannonical_qtype = get_cannonical_type(qtype);
-			if (cannonical_qtype != qtype) {
-				auto found_it = (*this).m_const_qualified_type_lifetime_annotations_map.find(cannonical_qtype.getAsString());
+			const auto canonical_qtype = get_canonical_type(qtype);
+			if (canonical_qtype != qtype) {
+				auto found_it = (*this).m_const_qualified_type_lifetime_annotations_map.find(canonical_qtype.getAsString());
 				if ((*this).m_const_qualified_type_lifetime_annotations_map.end() != found_it) {
 					if (tlta.m_lifetime_set.m_primary_lifetimes.size() > found_it->second.m_lifetime_set.m_primary_lifetimes.size()) {
 						/* Ideally this won't happen. It seems that we've processed this type before and came up with a 
 						different result. This would sometimes occur when we used to evaluate uninstantiated templates. */
-						(*this).m_const_qualified_type_lifetime_annotations_map.insert_or_assign(cannonical_qtype.getAsString(), tlta);
+						(*this).m_const_qualified_type_lifetime_annotations_map.insert_or_assign(canonical_qtype.getAsString(), tlta);
 					}
 				} else {
-					(*this).m_const_qualified_type_lifetime_annotations_map.insert_or_assign(cannonical_qtype.getAsString(), tlta);
+					(*this).m_const_qualified_type_lifetime_annotations_map.insert_or_assign(canonical_qtype.getAsString(), tlta);
 				}
 			}
 		}
@@ -965,7 +965,7 @@ namespace checker {
 		if (!type_ptr) {
 			return false;
 		}
-		type_ptr = get_cannonical_type_ptr(type_ptr);
+		type_ptr = get_canonical_type_ptr(type_ptr);
 
 		IF_DEBUG(std::string type_str = get_as_string(type_ptr);)
 		IF_DEBUG(std::string type_classname_str = type_ptr->getTypeClassName();)
@@ -1003,7 +1003,7 @@ namespace checker {
 		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(peeled_qtype, retval);
 		if (is_raw_pointer_or_equivalent(peeled_qtype)) {
 			if (peeled_qtype->isPointerType()) {
-				retval = get_cannonical_type(peeled_qtype->getPointeeType());
+				retval = get_canonical_type(peeled_qtype->getPointeeType());
 			} else {
 				auto RD = peeled_qtype->getAsRecordDecl();
 				if (RD) {
@@ -1019,7 +1019,7 @@ namespace checker {
 				}
 			}
 		} else if (peeled_qtype->isReferenceType()) {
-			retval = get_cannonical_type(peeled_qtype->getPointeeType());
+			retval = get_canonical_type(peeled_qtype->getPointeeType());
 		}
 		return retval;
 	}
@@ -1722,7 +1722,7 @@ namespace checker {
 	inline bool contains_non_owning_scope_reference(const clang::Type& type, const CCommonTUState1& tu_state_cref, MatchFinder::MatchResult const * MR_ptr = nullptr, Rewriter* Rewrite_ptr = nullptr) {
 		bool retval = false;
 
-		const auto qtype = get_cannonical_type(clang::QualType(&type, 0/*I'm just assuming zero specifies no qualifiers*/));
+		const auto qtype = get_canonical_type(clang::QualType(&type, 0/*I'm just assuming zero specifies no qualifiers*/));
 		IF_DEBUG(std::string qtype_str = qtype.getAsString();)
 
 		auto contains_non_owning_scope_reference_shallow = [&retval, &tu_state_cref, &MR_ptr, &Rewrite_ptr](clang::QualType qtype_param, std::optional<clang::Decl const *> maybe_D = {}, std::optional<clang::CXXBaseSpecifier const *> maybe_CXXBS = {}) {
@@ -1731,7 +1731,7 @@ namespace checker {
 			}
 			MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype_param);
 
-			const auto qtype = get_cannonical_type(qtype_param);
+			const auto qtype = get_canonical_type(qtype_param);
 			IF_DEBUG(std::string qtype_str = qtype.getAsString();)
 
 			DECLARE_CACHED_CONST_STRING(ContainsNonOwningScopeReference_tag_str, mse_namespace_str() + "::us::impl::ContainsNonOwningScopeReferenceTagBase");
@@ -1915,7 +1915,7 @@ namespace checker {
 			if (CXXMD) {
 				auto this_qtype = CXXMD->getThisType();
 				//IF_DEBUG(auto this_qtype_str = this_qtype.getAsString();)
-				retval = get_cannonical_type(this_qtype);
+				retval = get_canonical_type(this_qtype);
 			} else {
 				if (FND->getNumParams() < 1) {
 					/* This should never happen, right? */
@@ -1924,7 +1924,7 @@ namespace checker {
 					argument. I think. */
 					auto PVD = FND->getParamDecl(0);
 					if (PVD) {
-						auto qtype = get_cannonical_type(PVD->getType());
+						auto qtype = get_canonical_type(PVD->getType());
 						retval = qtype;
 					}
 				}
@@ -1938,7 +1938,7 @@ namespace checker {
 			} else {
 				auto PVD = FND->getParamDecl(zb_index);
 				if (PVD) {
-					auto qtype = get_cannonical_type(PVD->getType());
+					auto qtype = get_canonical_type(PVD->getType());
 					retval = qtype;
 				}
 			}
@@ -2059,7 +2059,7 @@ namespace checker {
 					return retval;
 				}
 				IF_DEBUG(const std::string qtype_str = CXXMD->getThisType()->getPointeeType().getAsString();)
-				auto Type_ptr = get_cannonical_type(CXXMD->getThisType()->getPointeeType()).getTypePtr();
+				auto Type_ptr = get_canonical_type(CXXMD->getThisType()->getPointeeType()).getTypePtr();
 				auto containing_RD = Type_ptr->getAsRecordDecl();
 				if (containing_RD) {
 					maybe_containing_RD = containing_RD;
@@ -3385,7 +3385,7 @@ namespace checker {
 		if (CXXMD) {
 			auto This_qtype = CXXMD->getThisType();
 			MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(This_qtype);
-			auto This_pointee_qtype = get_cannonical_type(This_qtype->getPointeeType());
+			auto This_pointee_qtype = get_canonical_type(This_qtype->getPointeeType());
 			MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(This_pointee_qtype);
 			IF_DEBUG(const std::string qtype_str = This_pointee_qtype.getAsString();)
 			auto Type_ptr = This_pointee_qtype.getTypePtr();
@@ -4039,7 +4039,7 @@ namespace checker {
 						if (!(alts1.is_empty())) {
 							size_t num_declared_primary_lifetimes = 0;
 
-							auto found_iter2 = state1.m_type_lifetime_annotations_map.find(get_cannonical_type(param->getType()).getTypePtr());
+							auto found_iter2 = state1.m_type_lifetime_annotations_map.find(get_canonical_type(param->getType()).getTypePtr());
 							if (state1.m_type_lifetime_annotations_map.end() != found_iter2) {
 								auto const & tlta = found_iter2->second;
 								num_declared_primary_lifetimes = tlta.m_lifetime_set.m_primary_lifetimes.size();
@@ -4090,7 +4090,7 @@ namespace checker {
 							if (!(alts1.is_empty())) {
 								size_t num_declared_primary_lifetimes = 0;
 
-								auto found_iter2 = state1.m_type_lifetime_annotations_map.find(get_cannonical_type(param->getType()).getTypePtr());
+								auto found_iter2 = state1.m_type_lifetime_annotations_map.find(get_canonical_type(param->getType()).getTypePtr());
 								if (state1.m_type_lifetime_annotations_map.end() != found_iter2) {
 									auto const & tlta = found_iter2->second;
 									num_declared_primary_lifetimes = tlta.m_lifetime_set.m_primary_lifetimes.size();
@@ -4760,7 +4760,7 @@ namespace checker {
 						}
 						taltas1_ptr = &(tlta_for_nonconst_pointer_parameter.m_lifetime_set);
 					} else {
-						auto maybe_taltas_ptr = type_lifetime_annotations_if_available(get_cannonical_type(qtype), state1, MR_ptr, Rewrite_ptr);
+						auto maybe_taltas_ptr = type_lifetime_annotations_if_available(get_canonical_type(qtype), state1, MR_ptr, Rewrite_ptr);
 						if (maybe_taltas_ptr.has_value()) {
 							taltas1_ptr = &(maybe_taltas_ptr.value()->m_lifetime_set);
 						}
@@ -5159,7 +5159,7 @@ namespace checker {
 							int num_declared_primary_lifetimes = 0;
 
 							if (!(param->getType().isNull())) {
-								auto found_iter2 = state1.m_type_lifetime_annotations_map.find(get_cannonical_type(param->getType()).getTypePtr());
+								auto found_iter2 = state1.m_type_lifetime_annotations_map.find(get_canonical_type(param->getType()).getTypePtr());
 								if (state1.m_type_lifetime_annotations_map.end() != found_iter2) {
 									auto const & tlta = found_iter2->second;
 									num_declared_primary_lifetimes = tlta.m_lifetime_set.m_primary_lifetimes.size();
@@ -5747,7 +5747,7 @@ namespace checker {
 	struct CStaticLifetimeOwnerInfo1Set {
 		CStaticLifetimeOwnerInfo1Set() {}
 		CStaticLifetimeOwnerInfo1Set(const CTUState& state1, const clang::Type * Type_ptr) {
-			auto found_iter = state1.m_type_lifetime_annotations_map.find(get_cannonical_type_ptr(Type_ptr));
+			auto found_iter = state1.m_type_lifetime_annotations_map.find(get_canonical_type_ptr(Type_ptr));
 			if (state1.m_type_lifetime_annotations_map.end() != found_iter) {
 				auto const & tlta = found_iter->second;
 				m_maybe_primary_lifetime_owner_infos.resize(tlta.m_lifetime_set.m_primary_lifetimes.size());
@@ -5807,7 +5807,7 @@ namespace checker {
 					TypePtr = TypePtr2;
 				}
 			}
-			const auto cn_type_ptr = get_cannonical_type_ptr(TypePtr);
+			const auto cn_type_ptr = get_canonical_type_ptr(TypePtr);
 			IF_DEBUG(auto cn_qtype_str = cn_type_ptr->getCanonicalTypeInternal().getAsString();)
 			auto tlta_iter1 = state1.m_type_lifetime_annotations_map.find(cn_type_ptr);
 			if (state1.m_type_lifetime_annotations_map.end() != tlta_iter1) {
@@ -5877,7 +5877,7 @@ namespace checker {
 			operation by adding a lifetime annotation. So, we give const pointer types an implicit lifetime 
 			label (but store it in a separate map for const qualified types). */
 
-			const auto cn_qtype = get_cannonical_type(qtype);
+			const auto cn_qtype = get_canonical_type(qtype);
 			IF_DEBUG(auto cn_qtype_str = cn_qtype.getAsString();)
 			auto tlta_iter1 = state1.m_const_qualified_type_lifetime_annotations_map.find(cn_qtype.getAsString());
 			if (state1.m_const_qualified_type_lifetime_annotations_map.end() != tlta_iter1) {
@@ -6028,7 +6028,7 @@ namespace checker {
 					}
 					if (sub_E_ii && (sub_E_ii != CXXILE)) {
 						/* We're expecting sub_E_ii to be a clang::InitListExpr (pointer). */
-						retval = type_lifetime_annotations_if_available(get_cannonical_type(sub_E_ii->getType()), state1, MR_ptr, Rewrite_ptr);
+						retval = type_lifetime_annotations_if_available(get_canonical_type(sub_E_ii->getType()), state1, MR_ptr, Rewrite_ptr);
 						return retval;
 					}
 				}
@@ -7093,7 +7093,7 @@ namespace checker {
 
 						auto RD = VD_qtype.getTypePtr()->getAsRecordDecl();
 						if (RD) {
-							auto maybe_tlta_ptr = type_lifetime_annotations_if_available(get_cannonical_type_ptr(RD->getTypeForDecl()), tu_state_ref);
+							auto maybe_tlta_ptr = type_lifetime_annotations_if_available(get_canonical_type_ptr(RD->getTypeForDecl()), tu_state_ref);
 							if (maybe_tlta_ptr.has_value()) {
 								auto const & tlta = *(maybe_tlta_ptr.value());
 								if (VD->hasInit()) {
@@ -8139,7 +8139,7 @@ namespace checker {
 
 								auto RD = VD->getType().getTypePtr()->getAsRecordDecl();
 								if (RD) {
-									auto maybe_tlta_ptr = type_lifetime_annotations_if_available(get_cannonical_type_ptr(RD->getTypeForDecl()), tu_state_ref);
+									auto maybe_tlta_ptr = type_lifetime_annotations_if_available(get_canonical_type_ptr(RD->getTypeForDecl()), tu_state_ref);
 									if (maybe_tlta_ptr.has_value()) {
 										auto const & tlta = *(maybe_tlta_ptr.value());
 										if (VD->hasInit()) {
@@ -11539,10 +11539,10 @@ namespace checker {
 		condition1 |= (EX2_qtype != E_qtype);
 		if (condition1) {
 			IF_DEBUG(const std::string E_qtype_str = E_qtype.getAsString();)
-			IF_DEBUG(const std::string E_qtype_cann_str = get_cannonical_type(E_qtype).getAsString();)
+			IF_DEBUG(const std::string E_qtype_cann_str = get_canonical_type(E_qtype).getAsString();)
 			IF_DEBUG(const std::string E_qtype_cann_tail_str = E_qtype_cann_str.substr((E_qtype_cann_str.length() > 64) ? (E_qtype_cann_str.length() - 64) : 0);)
 			IF_DEBUG(const std::string EX2_qtype_str = EX2_qtype.getAsString();)
-			IF_DEBUG(const std::string EX2_qtype_cann_str = get_cannonical_type(EX2_qtype).getAsString();)
+			IF_DEBUG(const std::string EX2_qtype_cann_str = get_canonical_type(EX2_qtype).getAsString();)
 			IF_DEBUG(const std::string EX2_qtype_cann_tail_str = EX2_qtype_cann_str.substr((EX2_qtype_cann_str.length() > 64) ? (EX2_qtype_cann_str.length() - 64) : 0);)
 			int q = 5;
 		} else {
@@ -11856,7 +11856,7 @@ namespace checker {
 					MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(CSTE_qtype, retval);
 					const auto sub_E_ip_qtype = sub_E_ip->getType();
 					IF_DEBUG(auto sub_E_ip_qtype_str = sub_E_ip_qtype.getAsString();)
-					const auto cn_sub_E_ip_qtype = get_cannonical_type(sub_E_ip_qtype);
+					const auto cn_sub_E_ip_qtype = get_canonical_type(sub_E_ip_qtype);
 					IF_DEBUG(auto cn_sub_E_ip_qtype_str = cn_sub_E_ip_qtype.getAsString();)
 
 					const auto cast_kind = CSTE->getCastKind();
@@ -13961,7 +13961,7 @@ namespace checker {
 							auto D = maybe_D.value();
 							auto DD = dyn_cast<DeclaratorDecl>(D);
 							if (DD) {
-								if (get_cannonical_type(DD->getType()) == get_cannonical_type(qtype)) {
+								if (get_canonical_type(DD->getType()) == get_canonical_type(qtype)) {
 									auto FD = dyn_cast<const clang::FieldDecl>(DD);
 									if (FD) {
 										is_field = true;

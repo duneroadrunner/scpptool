@@ -716,50 +716,50 @@ inline auto get_as_string(clang::Type const * type_ptr) -> std::string {
 	return qtype_str;
 }
 
-inline auto get_cannonical_type(clang::QualType qtype) -> clang::QualType {
+inline auto get_canonical_type(clang::QualType qtype) -> clang::QualType {
 	if (qtype.isNull()) {
 		return qtype;
 	}
-	auto cannonical_qtype = qtype.getCanonicalType();
-	if (cannonical_qtype.isNull()) {
+	auto canonical_qtype = qtype.getCanonicalType();
+	if (canonical_qtype.isNull()) {
 		return qtype;
 	}
 
 #ifndef NDEBUG
 	const std::string qtype_str = qtype.getAsString();
-	if (cannonical_qtype != qtype) {
-		const std::string cannonical_qtype_str = cannonical_qtype.getAsString();
-		if (cannonical_qtype_str != qtype_str) {
+	if (canonical_qtype != qtype) {
+		const std::string canonical_qtype_str = canonical_qtype.getAsString();
+		if (canonical_qtype_str != qtype_str) {
 			int q = 5;
 		}
 	}
 #endif /*!NDEBUG*/
 
-	return cannonical_qtype;
+	return canonical_qtype;
 }
-inline auto get_cannonical_type_ptr(clang::Type const * type_ptr) -> clang::Type const * {
+inline auto get_canonical_type_ptr(clang::Type const * type_ptr) -> clang::Type const * {
 	if (!type_ptr) {
 		return type_ptr;
 	}
-	auto cannonical_type = type_ptr->getCanonicalTypeUnqualified();
-	if (cannonical_type.isNull()) {
+	auto canonical_type = type_ptr->getCanonicalTypeUnqualified();
+	if (canonical_type.isNull()) {
 		return type_ptr;
 	}
-	auto cannonical_type_ptr = cannonical_type->getTypePtr();
+	auto canonical_type_ptr = canonical_type->getTypePtr();
 
 #ifndef NDEBUG
 	const std::string type_str = get_as_string(type_ptr);
 	const std::string type_classname_str = type_ptr->getTypeClassName();
-	if (cannonical_type_ptr != type_ptr) {
-		const std::string cannonical_type_str = get_as_string(cannonical_type_ptr);
-		const std::string cannonical_type_classname_str = cannonical_type_ptr->getTypeClassName();
-		if (cannonical_type_str != type_str) {
+	if (canonical_type_ptr != type_ptr) {
+		const std::string canonical_type_str = get_as_string(canonical_type_ptr);
+		const std::string canonical_type_classname_str = canonical_type_ptr->getTypeClassName();
+		if (canonical_type_str != type_str) {
 			int q = 5;
 		}
 	}
 #endif /*!NDEBUG*/
 
-	return cannonical_type_ptr;
+	return canonical_type_ptr;
 }
 
 template<typename TPtr>
@@ -1590,7 +1590,7 @@ inline std::vector<std::optional<clang::QualType> > get_template_args_maybe_type
 				if ((clang::TemplateArgument::ArgKind::Type != template_arg.getKind()) || template_arg.isNull()) {
 					retval.push_back({});
 				} else {
-					const auto ta_qtype = get_cannonical_type(template_arg.getAsType());
+					const auto ta_qtype = get_canonical_type(template_arg.getAsType());
 					IF_DEBUG(const auto ta_qtype_str = ta_qtype.getAsString();)
 					retval.push_back(ta_qtype);
 				}
@@ -1634,7 +1634,7 @@ inline clang::QualType remove_reference(const clang::QualType& qtype) {
 
 inline clang::QualType remove_fparam_wrappers(clang::QualType qtype) {
 	MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, qtype);
-	qtype = get_cannonical_type(qtype);
+	qtype = get_canonical_type(qtype);
 	const auto CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 	if (CXXRD) {
 		auto qname = CXXRD->getQualifiedNameAsString();
@@ -1672,7 +1672,7 @@ inline clang::QualType remove_fparam_wrappers(clang::QualType qtype) {
 
 inline clang::QualType remove_return_value_wrappers(clang::QualType qtype) {
 	MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, qtype);
-	qtype = get_cannonical_type(qtype);
+	qtype = get_canonical_type(qtype);
 	const auto CXXRD = qtype.getTypePtr()->getAsCXXRecordDecl();
 	if (CXXRD) {
 		auto qname = CXXRD->getQualifiedNameAsString();
@@ -1710,7 +1710,7 @@ inline clang::QualType remove_return_value_wrappers(clang::QualType qtype) {
 
 inline clang::QualType remove_mse_transparent_wrappers(clang::QualType qtype) {
 	MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, qtype);
-	qtype = get_cannonical_type(qtype);
+	qtype = get_canonical_type(qtype);
 	clang::QualType retval = remove_return_value_wrappers(remove_fparam_wrappers(qtype));
 	const auto CXXRD = retval.getTypePtr()->getAsCXXRecordDecl();
 	if (CXXRD) {
@@ -1770,7 +1770,7 @@ inline auto remove_cast_from_TPointerForLegacy_to_raw_pointer(const clang::Expr*
 	if (CXXMCE) {
 		auto IOAEX = IgnoreParenImpNoopCasts(CXXMCE->getImplicitObjectArgument(), Ctx);
 		assert(IOAEX);
-		const auto IOA_qtype = get_cannonical_type(IOAEX->getType());
+		const auto IOA_qtype = get_canonical_type(IOAEX->getType());
 		IF_DEBUG(const auto IOA_qtype_str = IOA_qtype.getAsString();)
 		//DEBUG_SOURCE_TEXT_STR(IOAEX_source_text, nice_source_range(IOAEX->getSourceRange(), Rewrite), Rewrite);
 
@@ -1807,7 +1807,7 @@ inline auto definition_qtype(clang::QualType qtype) {
 		if (TDT) {
 			auto TDND = TDT->getDecl();
 			if (TDND) {
-				qtype = get_cannonical_type(TDND->getUnderlyingType());
+				qtype = get_canonical_type(TDND->getUnderlyingType());
 				IF_DEBUG(std::string qtype_str2 = qtype.getAsString();)
 				int q = 5;
 			} else { assert(false); }
@@ -1822,7 +1822,7 @@ inline auto definition_qtype(clang::QualType qtype) {
 
 inline bool is_char_or_const_char(clang::QualType qtype) {
 	bool retval = false;
-	qtype = get_cannonical_type(qtype);
+	qtype = get_canonical_type(qtype);
 	static const std::string char_str = "char";
 	static const std::string const_char_str = "const char";
 	std::string qtype_str = qtype.getAsString();
@@ -1842,7 +1842,7 @@ inline bool is_char_star_or_const_char_star(const clang::QualType& qtype) {
 
 inline bool is_FILE_or_const_FILE(clang::QualType qtype) {
 	bool retval = false;
-	qtype = get_cannonical_type(qtype);
+	qtype = get_canonical_type(qtype);
 	static const std::string FILE_str = "FILE";
 	static const std::string const_FILE_str = "const FILE";
 	std::string qtype_str = qtype.getAsString();
@@ -1862,7 +1862,7 @@ inline bool is_FILE_star_or_const_FILE_star(const clang::QualType& qtype) {
 
 inline bool is_void_or_const_void(clang::QualType qtype) {
 	bool retval = false;
-	qtype = get_cannonical_type(qtype);
+	qtype = get_canonical_type(qtype);
 	static const std::string void_str = "void";
 	static const std::string const_void_str = "const void";
 	std::string qtype_str = qtype.getAsString();
@@ -2136,7 +2136,7 @@ public:
 	bool raw_pointer_scope_restrictions_are_disabled_for_this_pointer_type(clang::QualType qtype) const {
 		bool retval = false;
 		MSE_RETURN_VALUE_IF_TYPE_IS_NULL_OR_AUTO(qtype, retval);
-		qtype = get_cannonical_type(qtype);
+		qtype = get_canonical_type(qtype);
 		if (qtype.getTypePtr()->isPointerType()) {
 			const auto pointee_qtype = qtype->getPointeeType();
 			return raw_pointer_scope_restrictions_are_disabled_for_raw_pointers_with_this_target_type(pointee_qtype);
@@ -2166,7 +2166,7 @@ inline bool is_async_shareable(const clang::QualType qtype);
 inline bool is_async_shareable(const clang::Type& type) {
 	bool retval = false;
 
-	const auto TP = get_cannonical_type_ptr(&type);
+	const auto TP = get_canonical_type_ptr(&type);
 	const auto CXXRD = TP->getAsCXXRecordDecl();
 	if (CXXRD) {
 		IF_DEBUG(auto qname = CXXRD->getQualifiedNameAsString();)
@@ -2240,7 +2240,7 @@ inline bool is_async_passable(const clang::QualType qtype);
 inline bool is_async_passable(const clang::Type& type) {
 	bool retval = false;
 
-	const auto TP = get_cannonical_type_ptr(&type);
+	const auto TP = get_canonical_type_ptr(&type);
 	const auto CXXRD = TP->getAsCXXRecordDecl();
 	if (CXXRD) {
 		IF_DEBUG(auto qname = CXXRD->getQualifiedNameAsString();)

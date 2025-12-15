@@ -14931,8 +14931,8 @@ namespace convc2validcpp {
 						non_modifiable_flag = true;
 						break;
 					} else if (true) {
-						const auto cannonical_qtype = get_cannonical_type(tsi->getType());
-						IF_DEBUG(std::string cannonical_qtype_str = cannonical_qtype.getAsString();)
+						const auto canonical_qtype = get_canonical_type(tsi->getType());
+						IF_DEBUG(std::string canonical_qtype_str = canonical_qtype.getAsString();)
 
 						auto definition_type_SL = definition_TypeLoc(tsi->getTypeLoc()).getBeginLoc();
 						auto definition_qtype = tsi->getType();
