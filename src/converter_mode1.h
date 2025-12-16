@@ -12679,6 +12679,14 @@ namespace convm1 {
 		return retval;
 	}
 
+	inline bool is_char_star_or_const_char_star(CDDeclConversionState& ddcs_ref, size_t indirection_level = 0) {
+		if (ddcs_ref.m_indirection_state_stack.size() == 1 + indirection_level) {
+			auto direct_qtype_str = ddcs_ref.m_indirection_state_stack.m_direct_type_state.current_qtype_str();
+			return (("char" == direct_qtype_str) || ("const char" == direct_qtype_str));
+		}
+		return false;
+	};
+
 	void CConditionalOperatorReconciliation2ReplacementAction::do_replacement(CTUState& state1) const {
 		const clang::ConditionalOperator* CO = m_CO;
 		const Expr* COND = nullptr;
@@ -13452,15 +13460,6 @@ namespace convm1 {
 								maybe_lone_modifiable_arg_info = { rhs_DD, rhs_inference_info.indirection_level, RHS, LHS };
 							}
 						}
-
-
-						auto is_char_star_or_const_char_star = [](CDDeclConversionState& ddcs_ref, size_t indirection_level = 0) {
-							if (ddcs_ref.m_indirection_state_stack.size() == 1 + indirection_level) {
-								auto direct_qtype_str = ddcs_ref.m_indirection_state_stack.m_direct_type_state.current_qtype_str();
-								return (("char" == direct_qtype_str) || ("const char" == direct_qtype_str));
-							}
-							return false;
-						};
 
 						if (maybe_lone_modifiable_arg_info.has_value()) {
 							auto& lone_modifiable_arg_info = maybe_lone_modifiable_arg_info.value();
@@ -14427,6 +14426,42 @@ namespace convm1 {
 		return retval;
 	}
 
+	struct CCheckForUnsafeTypeElements {
+		CCheckForUnsafeTypeElements(bool& conversion_vetoed_due_to_use_of_elements_of_an_intrinsically_unsafe_interface) 
+			: m_conversion_vetoed_due_to_use_of_elements_of_an_intrinsically_unsafe_interface_ptr(&conversion_vetoed_due_to_use_of_elements_of_an_intrinsically_unsafe_interface) {}
+
+		void operator() (clang::QualType qtype_param, std::optional<clang::Decl const *> maybe_D = {}, std::optional<clang::CXXBaseSpecifier const *> maybe_CXXBS = {}) const {
+			MSE_RETURN_IF_TYPE_IS_NULL_OR_AUTO(qtype_param);
+
+			const auto qtype = get_canonical_type(qtype_param);
+			const std::string qtype_str = qtype.getAsString();
+
+			static const std::vector<std::string> unsafe_typenames = { "sockaddr", "sockaddr_storage" };
+			auto const& unsafe_typenames_cref = unsafe_typenames;
+			auto generated_qualified_unsafe_typenames = [&unsafe_typenames_cref]() {
+				std::vector<std::string> retval;
+				for (auto const& unsafe_typename : unsafe_typenames_cref) {
+					retval.push_back(unsafe_typename);
+					retval.push_back("struct " + unsafe_typename);
+					retval.push_back("const " + unsafe_typename);
+					retval.push_back("const struct " + unsafe_typename);
+				}
+				return retval;
+			};
+			static const std::vector<std::string> qualified_unsafe_typenames = generated_qualified_unsafe_typenames();
+
+			for (auto const& qualified_unsafe_typename : qualified_unsafe_typenames) {
+				if (qualified_unsafe_typename == qtype_str) {
+					(*m_conversion_vetoed_due_to_use_of_elements_of_an_intrinsically_unsafe_interface_ptr) = true;
+					break;
+				}
+			}
+		}
+
+	private:
+		bool* m_conversion_vetoed_due_to_use_of_elements_of_an_intrinsically_unsafe_interface_ptr = nullptr;
+	};
+
 	class MCSSSVarDecl2 : public MatchFinder::MatchCallback
 	{
 	public:
@@ -14484,6 +14519,17 @@ namespace convm1 {
 					if (qtype.isVolatileQualified()) {
 						/* Uh, not sure what to do with volatile qualified objects. For now we'll just mark them as "check suppressed" 
 						and leave them alone. */
+						auto l_ISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
+						m_state1.m_suppress_check_region_set.emplace(l_ISR);
+						m_state1.m_suppress_check_region_set.insert(VD);
+						return;
+					}
+
+					bool conversion_vetoed_due_to_use_of_elements_of_an_intrinsically_unsafe_interface = false;
+					CCheckForUnsafeTypeElements check_for_unsafe_type_elements{ conversion_vetoed_due_to_use_of_elements_of_an_intrinsically_unsafe_interface };
+					checker::apply_to_all_owned_types(qtype, check_for_unsafe_type_elements, VD, {}, std::tuple{m_state1, &MR, &Rewrite});
+					if (conversion_vetoed_due_to_use_of_elements_of_an_intrinsically_unsafe_interface) {
+						/* We'll mark this declaration as "check-suppressed" to prevent modification. */
 						auto l_ISR = instantiation_source_range(VD->getSourceRange(), Rewrite);
 						m_state1.m_suppress_check_region_set.emplace(l_ISR);
 						m_state1.m_suppress_check_region_set.insert(VD);
@@ -17857,6 +17903,17 @@ namespace convm1 {
 			}
 #endif /*!NDEBUG*/
 
+			bool conversion_vetoed_due_to_use_of_elements_of_an_intrinsically_unsafe_interface = false;
+			CCheckForUnsafeTypeElements check_for_unsafe_type_elements{ conversion_vetoed_due_to_use_of_elements_of_an_intrinsically_unsafe_interface };
+			checker::apply_to_all_owned_types(csce_QT, check_for_unsafe_type_elements, {}, {}, std::tuple{state1, &MR, &Rewrite});
+			if (conversion_vetoed_due_to_use_of_elements_of_an_intrinsically_unsafe_interface) {
+				/* We'll mark this cast expression as "check-suppressed" to prevent modification. */
+				auto l_ISR = instantiation_source_range(CSCE->getSourceRange(), Rewrite);
+				state1.m_suppress_check_region_set.emplace(l_ISR);
+				state1.m_suppress_check_region_set.insert(CSCE);
+				return;
+			}
+
 			auto CE = NonImplicitParentOfType<clang::CallExpr>(CSCE, *(MR.Context));
 			if (CE) {
 				/* This case should be handle by the MCSSSArgToParameterPassingArray2 handler. */
@@ -18308,6 +18365,7 @@ namespace convm1 {
 				return;
 			}
 			auto* CSCE = &CSCE_ref;
+			auto csce_QT = CSCE->getType();
 
 			auto precasted_expr_ptr = CSCE->getSubExprAsWritten();
 			assert(precasted_expr_ptr);
@@ -18322,6 +18380,17 @@ namespace convm1 {
 				int q = 5;
 			}
 #endif /*!NDEBUG*/
+
+			bool conversion_vetoed_due_to_use_of_elements_of_an_intrinsically_unsafe_interface = false;
+			CCheckForUnsafeTypeElements check_for_unsafe_type_elements{ conversion_vetoed_due_to_use_of_elements_of_an_intrinsically_unsafe_interface };
+			checker::apply_to_all_owned_types(csce_QT, check_for_unsafe_type_elements, {}, {}, std::tuple{state1/*, &MR*/, &Rewrite});
+			if (conversion_vetoed_due_to_use_of_elements_of_an_intrinsically_unsafe_interface) {
+				/* We'll mark this cast expression as "check-suppressed" to prevent modification. */
+				auto l_ISR = instantiation_source_range(CSCE->getSourceRange(), Rewrite);
+				state1.m_suppress_check_region_set.emplace(l_ISR);
+				state1.m_suppress_check_region_set.insert(CSCE);
+				return;
+			}
 
 			auto& SM = Rewrite.getSourceMgr();
 
@@ -19595,7 +19664,8 @@ namespace convm1 {
 									if (!string_begins_with(rhs_function_qname_if_any, "mse::") && (lhs_ddcs_ref.m_indirection_state_stack.size() >= 1)) {
 										auto& indirection_state_ref = lhs_ddcs_ref.m_indirection_state_stack.at(0);
 										bool seems_to_be_already_applied = false;
-										if (indirection_state_ref.is_known_to_be_used_as_an_iterator()) {
+										const bool is_char_star = is_char_star_or_const_char_star(lhs_ddcs_ref, 0/*indirection_level*/);
+										if (indirection_state_ref.is_known_to_be_used_as_an_iterator() || is_char_star) {
 											for (auto& expr_text_modifier_shptr : rhs_ecs_ref.m_expr_text_modifier_stack) {
 												if ("unsafe make lh_nullable_any_random_access_iterator from" == expr_text_modifier_shptr->species_str()) {
 													seems_to_be_already_applied = true;
@@ -22039,6 +22109,17 @@ namespace convm1 {
 				if (DD) {
 					const auto qtype = DD->getType();
 					const std::string qtype_str = DD->getType().getAsString();
+
+					bool conversion_vetoed_due_to_use_of_elements_of_an_intrinsically_unsafe_interface = false;
+					CCheckForUnsafeTypeElements check_for_unsafe_type_elements{ conversion_vetoed_due_to_use_of_elements_of_an_intrinsically_unsafe_interface };
+					checker::apply_to_all_owned_types(qtype, check_for_unsafe_type_elements, DD, {}, std::tuple{state1, &MR, &Rewrite});
+					if (conversion_vetoed_due_to_use_of_elements_of_an_intrinsically_unsafe_interface) {
+						/* We'll mark this declaration as "check-suppressed" to prevent modification. */
+						auto l_ISR = instantiation_source_range(DD->getSourceRange(), Rewrite);
+						state1.m_suppress_check_region_set.emplace(l_ISR);
+						state1.m_suppress_check_region_set.insert(DD);
+						return;
+					}
 
 					auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
