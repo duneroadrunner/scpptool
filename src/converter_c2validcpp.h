@@ -12772,7 +12772,7 @@ namespace convc2validcpp {
 		{
 			const DeclaratorDecl* DD = MR.Nodes.getNodeAs<clang::DeclaratorDecl>("mcsssvardecl");
 			const Expr* RHS = MR.Nodes.getNodeAs<clang::Expr>("mcsssvardecl2");
-			const clang::CStyleCastExpr* CCE = MR.Nodes.getNodeAs<clang::CStyleCastExpr>("mcsssvardecl3");
+			const clang::CStyleCastExpr* CSCE = MR.Nodes.getNodeAs<clang::CStyleCastExpr>("mcsssvardecl3");
 			//const DeclStmt* DS = MR.Nodes.getNodeAs<clang::DeclStmt>("mcsssvardecl4");
 
 			if ((DD != nullptr))
@@ -12843,14 +12843,14 @@ namespace convc2validcpp {
 							update_declaration_if_not_suppressed(*(rhs_res2.ddecl_cptr), Rewrite, *(MR.Context), m_state1);
 						}
 
-						if ((nullptr != CCE) && (rhs_res2.ddecl_conversion_state_ptr)) {
-							auto cce_QT = CCE->getType();
+						if ((nullptr != CSCE) && (rhs_res2.ddecl_conversion_state_ptr)) {
+							auto csce_QT = CSCE->getType();
 							auto rhs_QT = RHS->getType();
-							if (cce_QT == rhs_QT) {
+							if (csce_QT == rhs_QT) {
 								CIndirectionStateStack rhs_qtype_indirection_state_stack;
 								auto direct_rhs_qtype = populateQTypeIndirectionStack(rhs_qtype_indirection_state_stack, rhs_QT);
 								auto direct_rhs_qtype_str = direct_rhs_qtype.getAsString();
-								auto casted_expr_ptr = CCE->IgnoreCasts();
+								auto casted_expr_ptr = CSCE->IgnoreCasts();
 								if (llvm::isa<const clang::CallExpr>(casted_expr_ptr->IgnoreParenCasts())) {
 									auto CE = llvm::cast<const clang::CallExpr>(casted_expr_ptr->IgnoreParenCasts());
 									auto alloc_function_info1 = analyze_malloc_resemblance(*CE, m_state1, Rewrite);
@@ -12868,8 +12868,8 @@ namespace convc2validcpp {
 
 									std::string rhs_ddecl_current_direct_qtype_str = (*rhs_res2.ddecl_conversion_state_ptr).current_direct_qtype_str();
 									auto casted_expr_SR = cm1_adj_nice_source_range(casted_expr_ptr->getSourceRange(), m_state1, Rewrite);
-									auto CCESR = cm1_adj_nice_source_range(CCE->getSourceRange(), m_state1, Rewrite);
-									auto cast_operation_SR = clang::SourceRange(CCE->getLParenLoc(), CCE->getRParenLoc());
+									auto CSCESR = cm1_adj_nice_source_range(CSCE->getSourceRange(), m_state1, Rewrite);
+									auto cast_operation_SR = clang::SourceRange(CSCE->getLParenLoc(), CSCE->getRParenLoc());
 
 									if (cast_operation_SR.isValid()
 											&& (("void" == rhs_ddecl_current_direct_qtype_str) || ("const void" == rhs_ddecl_current_direct_qtype_str))) {
@@ -12938,6 +12938,46 @@ namespace convc2validcpp {
 								/* This seems to be some kind of malloc/realloc function. These case should not be
 								* handled here. They are handled elsewhere. */
 								return;
+							}
+						}
+
+						clang::Expr const* pInitExpr = get_init_expr_if_any(DD);
+						if (pInitExpr) {
+							auto ILE = llvm::dyn_cast<const clang::InitListExpr>(pInitExpr);
+							if (ILE && ILE->hasDesignatedInit()) {
+								/* The InitListExpr uses designated initializers. */
+								const auto num_inits = ILE->getNumInits();
+								for (size_t i = 0; num_inits > i; i += 1) {
+									auto init_E = ILE->getInit(i);
+									auto ILE2 = llvm::dyn_cast<const clang::InitListExpr>(init_E);
+									if (ILE2 && ILE2->hasDesignatedInit()) {
+										/* We've just encountered a nested designated initializer. */
+										auto& ecs_ref = m_state1.get_expr_conversion_state_ref(*ILE2, Rewrite);
+										auto og_string = ecs_ref.m_original_source_text_str;
+										lrtrim(og_string);
+										auto equals_range = Parse::find_uncommented_token("=", og_string);
+										if ((og_string.length() > equals_range.begin) && (1 <= equals_range.begin) && (3 <= og_string.length()) && ('.' == og_string.at(0))) {
+											auto lhs_str = og_string.substr(0, equals_range.begin);
+											auto second_dot_range = Parse::find_uncommented_token(".", lhs_str, 1);
+											if (lhs_str.length() > second_dot_range.begin) {
+												/* The designated field specifier seems to have two separate dot/period/'.' characters, so presumably 
+												something like `.outer_field.inner_field = 7`. Apparently C supports these kinds of nested designated 
+												field specifiers, but C++ doesn't? So we're going to change the init expression to be more like 
+												`.outer_field = { .inner_field = 7 }`, which is valid C++. If the outer_field is used in more than 
+												one (nested) initialization expression, then you'll get a compiler error complaining about 
+												`designator used multiple times in the same initializer list`. But we have yet to encounter such a 
+												scenario in the wild, so for now we won't bother handling that case. */
+												std::string outer_designated_field_str = og_string.substr(0, second_dot_range.begin);
+												std::string inner_init_expression_str = og_string.substr(second_dot_range.begin);
+												std::string replacement_str = outer_designated_field_str + " = { " + inner_init_expression_str + " }";
+												ecs_ref.add_straight_text_replacement_modifier(replacement_str);
+												ecs_ref.update_current_text();
+												m_state1.add_pending_expression_update(*ILE2, Rewrite);
+												int q = 5;
+											}
+										}
+									}
+								}
 							}
 						}
 
