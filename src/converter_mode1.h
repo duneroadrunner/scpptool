@@ -7463,6 +7463,24 @@ namespace convm1 {
 		return seems_to_contain_an_instantiation_of_a_template_parameter(ddecl, SR, Rewrite, state1_ptr);
 	}
 
+	inline std::string as_undecorated_type_string(std::string_view sv) {
+		auto retval = std::string(sv);
+		static const std::string attr_prefix = " __attribute__(";
+		auto found_pos = retval.find(attr_prefix);
+		while (std::string::npos != found_pos) {
+			auto rparen_pos = Parse::find_matching_right_parenthesis(retval, found_pos + attr_prefix.length());
+			if (retval.length() > rparen_pos) {
+				retval.replace(found_pos, rparen_pos + 1 - found_pos, "");
+			}
+			found_pos = retval.find(attr_prefix);
+		}
+		return retval;
+	}
+
+	inline std::string as_undecorated_string(clang::QualType const& qtype) {
+		return as_undecorated_type_string(qtype.getAsString());
+	}
+
 	class CTypeIndirectionPrefixAndSuffixItem {
 	public:
 		std::string m_prefix_str;
@@ -13171,12 +13189,12 @@ namespace convm1 {
 									std::string make_fn_wrapper_prefix_str;
 									if ("Dual" == ConvertMode) {
 										auto direct_return_qtype_str = ddcs_ref.current_direct_return_qtype_str();
-										function_pointer_type_str = std::string("(MSE_LH_FUNCTION_POINTER_TYPE_PREFIX") + direct_return_qtype_str 
-											+ "MSE_LH_FUNCTION_POINTER_TYPE_SUFFIX(" + changed_function_state.m_params_current_str  + "))";
+										function_pointer_type_str = std::string("(MSE_LH_FUNCTION_POINTER_TYPE_PREFIX ") + as_undecorated_type_string(direct_return_qtype_str) 
+											+ " MSE_LH_FUNCTION_POINTER_TYPE_SUFFIX(" + changed_function_state.m_params_current_str + ") MSE_LH_FUNCTION_POINTER_TYPE_POST_NAME_SUFFIX(" + changed_function_state.m_params_current_str + "))";
 										arg_prefix_str = "(" + function_pointer_type_str + ")(";
 										make_fn_wrapper_prefix_str = "MSE_LH_UNSAFE_MAKE_FN_WRAPPER(";
 									} else {
-										function_pointer_type_str = std::string("mse::lh::TNativeFunctionPointerReplacement<") + direct_qtype_str + ">";
+										function_pointer_type_str = std::string("mse::lh::TNativeFunctionPointerReplacement<") + as_undecorated_type_string(direct_qtype_str) + ">";
 										arg_prefix_str = function_pointer_type_str + "(";
 										make_fn_wrapper_prefix_str = "mse::us::lh::unsafe_make_fn_wrapper(";
 									}
@@ -19017,7 +19035,7 @@ namespace convm1 {
 								the function will be implicitly cast to a function pointer, right? But if the `void*` gets converted to 
 								an lh::void_star_replacement, then the implicit conversion to a function pointer wouldn't happen, so we 
 								need to insert an explicit conversion of the function to a function pointer. */
-								const std::string precasted_qtype_str = precasted_expr_ptr->getType().getAsString();
+								const std::string precasted_qtype_str = as_undecorated_string(precasted_expr_ptr->getType());
 								std::string prefix = "MSE_LH_IF_ENABLED(mse::lh::TNativeFunctionPointerReplacement<" + precasted_qtype_str + ">)(";
 								std::string suffix = ")";
 
@@ -19503,12 +19521,12 @@ namespace convm1 {
 						if ("Dual" == ConvertMode) {
 							auto direct_return_qtype_str = ddcs_ref.current_direct_return_qtype_str();
 							auto function_state = ddcs_ref.m_indirection_state_stack.m_direct_type_state.m_function_type_state;
-							function_pointer_type_str = std::string("(MSE_LH_FUNCTION_POINTER_TYPE_PREFIX") + direct_return_qtype_str 
-								+ "MSE_LH_FUNCTION_POINTER_TYPE_SUFFIX(" + function_state.m_params_current_str  + "))";
+							function_pointer_type_str = std::string("(MSE_LH_FUNCTION_POINTER_TYPE_PREFIX ") + as_undecorated_type_string(direct_return_qtype_str) 
+								+ " MSE_LH_FUNCTION_POINTER_TYPE_SUFFIX(" + function_state.m_params_current_str  + ") MSE_LH_FUNCTION_POINTER_TYPE_POST_NAME_SUFFIX(" + function_state.m_params_current_str + "))";
 							fnptr_cast_prefix_str = "(" + function_pointer_type_str + ")(";
 							make_fn_wrapper_prefix_str = "MSE_LH_UNSAFE_MAKE_FN_WRAPPER(";
 						} else {
-							function_pointer_type_str = std::string("mse::lh::TNativeFunctionPointerReplacement<") + direct_qtype_str + ">";
+							function_pointer_type_str = std::string("mse::lh::TNativeFunctionPointerReplacement<") + as_undecorated_type_string(direct_qtype_str) + ">";
 							fnptr_cast_prefix_str = function_pointer_type_str + "(";
 							make_fn_wrapper_prefix_str = "mse::us::lh::unsafe_make_fn_wrapper(";
 						}
@@ -25433,7 +25451,7 @@ namespace convm1 {
 					int q = 7;
 				}
 			}
-			std::cout << "\n\nThe specified and dependent source files have been replaced. \n";
+			std::cout << "\n\nThe specified and dependent source files have been replaced. (If any of the files were C source files with a '.c' filename extension, it may be appropriate to rename them to have a '.cpp' extension now.)\n";
 		}
 
 		return retval;
