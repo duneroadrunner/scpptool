@@ -5062,8 +5062,14 @@ namespace convm1 {
 					auto iter = state1.m_expr_conversion_state_map.find(E);
 					if (state1.m_expr_conversion_state_map.end() != iter) {
 						auto& ecs_ref = *((*iter).second);
-						auto& current_text_ref = ecs_ref.current_text(CExprTextInfoContext{ OSR, &Rewrite, &state1 });
-						if (current_text_ref != ecs_ref.m_original_source_text_str) {
+						auto context = CExprTextInfoContext{ OSR, &Rewrite, &state1 };
+						auto& current_text_ref = ecs_ref.current_text(context);
+						auto& original_text_ref = ecs_ref.original_text(context);
+						/* For contexts where (ecs_ref.m_original_source_text_str != original_text_ref), for the moment we won't 
+						consider the original_text_ref as necessarily credible due to the presence of hacks that potentially modify 
+						the referenced stored string. */
+						bool maybe_changed = (ecs_ref.m_original_source_text_str != original_text_ref) || (current_text_ref != original_text_ref);
+						if (maybe_changed) {
 							//ReplaceText(Rewrite, OSR, current_text_ref);
 							state1.m_pending_code_modification_actions.ReplaceText(Rewrite, OSR, current_text_ref);
 							this->m_already_modified_regions.insert(OSR);

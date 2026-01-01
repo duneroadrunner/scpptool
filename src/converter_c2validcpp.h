@@ -2395,6 +2395,7 @@ namespace convc2validcpp {
 		virtual std::string species_str() const {
 			return "no op";
 		}
+		virtual bool is_equal_to(CExprTextModifier const& rhs) const = 0;
 	};
 
 	class CWrapExprTextModifier : public CExprTextModifier {
@@ -2572,12 +2573,24 @@ namespace convc2validcpp {
 		virtual std::string species_str() const {
 			return "given function";
 		}
+		virtual bool is_equal_to(CExprTextModifier const& rhs) const {
+			if (species_str() == rhs.species_str()) {
+				typedef std::remove_reference_t<decltype(*this)> this_type;
+				auto& rhs_as_this_type_cref = static_cast<this_type const&>(rhs);
+				/* Is the std::function<>::target_type() member function not available because rtti is disabled? */
+				//return (rhs_as_this_type_cref.m_function.target_type() == m_function.target_type());
+				assert(false);
+				return false;
+			}
+			return false;
+		}
 		std::function<std::string (const std::string&, const clang::Expr*)> m_function;
 	};
 
 	class CExprTextModifierStack : public std::vector<std::shared_ptr<CExprTextModifier>> {
 	public:
 	};
+
 
 	/* Note that the `CExprConversionState` corresponding to an expression should be constructed (generally 
 	indirectly via CTUState1::get_expr_conversion_state_ref()) after the establishment of any 
@@ -2682,7 +2695,36 @@ namespace convc2validcpp {
 			}
 #endif /*!NDEBUG*/
 
-			if (m_child_text_infos.size() + 1 == m_non_child_dependent_text_fragments.size()) {
+			std::optional<std::string> maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range;
+			if (maybe_context.has_value()) {
+				auto const& context = maybe_context.value();
+				clang::SourceRange default_SR = m_SR_plus;
+				if (m_maybe_override_SR_due_to_being_a_macro_whose_definition_is_in_a_filtered_out_location) {
+					auto const& override_SR = m_maybe_override_SR_due_to_being_a_macro_whose_definition_is_in_a_filtered_out_location.value();
+					default_SR = override_SR;
+				}
+				if (!first_is_a_subset_of_second(default_SR, context.m_root_SR)) {
+					/* The default source range does not seem to be contained within the source range of the given context. So we're going to check if there 
+					is a corresponding nested macro range that is, and if so, use the corresponding stored text from that nested macro range. */
+					std::string premodified_text = m_original_source_text_str;
+					if (maybe_context.has_value()) {
+						auto const& context = maybe_context.value();
+						for (auto const& adjusted_source_text_info : m_SR_plus.m_adjusted_source_text_infos) {
+							if (adjusted_source_text_info.m_macro_invocation_range.isValid()) {
+								if (first_is_a_subset_of_second(adjusted_source_text_info.m_macro_invocation_range, context.m_root_SR)) {
+									/* One of the macro nesting levels of the expression seems to be contained within the given context range, 
+									so we'll use the (original) text from that macro nesting level. */
+									maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range = adjusted_source_text_info.m_text;
+									break;
+								}
+							}
+						}
+					}
+					m_current_text_str = modified_copy(premodified_text);
+				}
+			}
+
+			if ((m_child_text_infos.size() + 1 == m_non_child_dependent_text_fragments.size()) && (!maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range.has_value())) {
 				std::string working_text;
 				for (size_t i = 0; i < m_child_text_infos.size(); i += 1) {
 					working_text += m_non_child_dependent_text_fragments.at(i);
@@ -2691,7 +2733,11 @@ namespace convc2validcpp {
 				working_text += m_non_child_dependent_text_fragments.back();
 				m_current_text_str = modified_copy(working_text);
 			} else {
-				m_current_text_str = modified_copy(m_original_source_text_str);
+				std::string premodified_text = m_original_source_text_str;
+				if (maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range.has_value()) {
+					premodified_text = maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range.value();
+				}
+				m_current_text_str = modified_copy(premodified_text);
 			}
 		}
 		static std::string const& s_species() {
@@ -2705,6 +2751,21 @@ namespace convc2validcpp {
 		const std::string& current_text(std::optional<CExprTextInfoContext> maybe_context = {}) {
 			update_current_text(maybe_context);
 			return m_current_text_str;
+		}
+
+		const std::string& original_text(std::optional<CExprTextInfoContext> maybe_context = {}) const {
+			if (maybe_context.has_value()) {
+				auto const& context = maybe_context.value();
+				for (auto const& adjusted_source_text_info : m_SR_plus.m_adjusted_source_text_infos) {
+					if (adjusted_source_text_info.m_macro_invocation_range.isValid()) {
+						if (first_is_a_subset_of_second(adjusted_source_text_info.m_macro_invocation_range, context.m_root_SR)) {
+							/* One of the macro nesting levels of the expression seems to be contained within the context range. */
+							return adjusted_source_text_info.m_text;
+						}
+					}
+				}
+			}
+			return m_original_source_text_str;
 		}
 
 		clang::SourceRange source_range() const {
@@ -2732,32 +2793,32 @@ namespace convc2validcpp {
 			return {};
 		}
 
-		void add_straight_text_replacement_modifier(std::string_view replacement_text) {
-			auto shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(replacement_text);
+		bool add_text_modifier(std::shared_ptr<CExprTextModifier> shptr1) {
+			if (!shptr1) {
+				return false;
+			}
+			bool retval = true;
 			if (1 <= m_expr_text_modifier_stack.size()) {
-				if ("straight replacement" == (*(m_expr_text_modifier_stack.back())).species_str()) {
+				if (shptr1->species_str() == (*(m_expr_text_modifier_stack.back())).species_str()) {
 					if (shptr1->is_equal_to(*(m_expr_text_modifier_stack.back()))) {
 						/* We seem to be adding a repeat of the already existing modifier.*/
-						return;
+						return false;
 					}
 				}
 			}
 			m_expr_text_modifier_stack.push_back(shptr1);
 			update_current_text();
+			return retval;
 		}
 
-		void add_wrap_text_modifier(std::string_view prefix, std::string_view suffix) {
+		bool add_straight_text_replacement_modifier(std::string_view replacement_text) {
+			auto shptr1 = std::make_shared<CStraightReplacementExprTextModifier>(replacement_text);
+			return add_text_modifier(shptr1);
+		}
+
+		bool add_wrap_text_modifier(std::string_view prefix, std::string_view suffix) {
 			auto shptr1 = std::make_shared<CWrapExprTextModifier>(prefix, suffix);
-			if (1 <= m_expr_text_modifier_stack.size()) {
-				if ("wrap" == (*(m_expr_text_modifier_stack.back())).species_str()) {
-					if (shptr1->is_equal_to(*(m_expr_text_modifier_stack.back()))) {
-						/* We seem to be adding a repeat of the already existing modifier.*/
-						return;
-					}
-				}
-			}
-			m_expr_text_modifier_stack.push_back(shptr1);
-			update_current_text();
+			return add_text_modifier(shptr1);
 		}
 
 		CExprTextModifierStack m_expr_text_modifier_stack;
@@ -4669,8 +4730,14 @@ namespace convc2validcpp {
 					auto iter = state1.m_expr_conversion_state_map.find(E);
 					if (state1.m_expr_conversion_state_map.end() != iter) {
 						auto& ecs_ref = *((*iter).second);
-						auto& current_text_ref = ecs_ref.current_text(CExprTextInfoContext{ OSR, &Rewrite, &state1 });
-						if (current_text_ref != ecs_ref.m_original_source_text_str) {
+						auto context = CExprTextInfoContext{ OSR, &Rewrite, &state1 };
+						auto& current_text_ref = ecs_ref.current_text(context);
+						auto& original_text_ref = ecs_ref.original_text(context);
+						/* For contexts where (ecs_ref.m_original_source_text_str != original_text_ref), for the moment we won't 
+						consider the original_text_ref as necessarily credible due to the presence of hacks that potentially modify 
+						the referenced stored string. */
+						bool maybe_changed = (ecs_ref.m_original_source_text_str != original_text_ref) || (current_text_ref != original_text_ref);
+						if (maybe_changed) {
 							//ReplaceText(Rewrite, OSR, current_text_ref);
 							state1.m_pending_code_modification_actions.ReplaceText(Rewrite, OSR, current_text_ref);
 							this->m_already_modified_regions.insert(OSR);
@@ -18048,7 +18115,57 @@ namespace convc2validcpp {
 							}
 						}
 #endif //0
-					} else if (false && FD) {
+					} else if (FD) {
+
+						if (("long_name" == name) && ("char[26]" == qtype_str)) {
+							/* This is a special case hard-coded fix for a bug in (older versions of) wget. */
+							auto const TSI = FD->getTypeSourceInfo();
+							if (TSI && TSI->getTypeLoc()) {
+								auto typeLoc = TSI->getTypeLoc();
+								auto arrayTypeLoc = typeLoc.getAsAdjusted<clang::ArrayTypeLoc>();
+								if (arrayTypeLoc && arrayTypeLoc.getSizeExpr()) {
+									auto const SZE = arrayTypeLoc.getSizeExpr();
+									if (SZE) {
+										auto& ecs_ref = state1.get_expr_conversion_state_ref(*SZE, Rewrite);
+										auto& ecs_SR_plus_ref = ecs_ref.m_SR_plus;
+										auto sze_text = getRewrittenTextOrEmpty(Rewrite, ecs_SR_plus_ref);
+										if (("MAX_LONGOPTION" == sze_text) && (2 <= ecs_SR_plus_ref.m_adjusted_source_text_infos.size())) {
+											auto& adjusted_source_text_info_ref = ecs_SR_plus_ref.m_adjusted_source_text_infos.at(0);
+											if ("26" == adjusted_source_text_info_ref.m_text) {
+												auto const SZE_SR1 = adjusted_source_text_info_ref.m_macro_invocation_range;
+												std::string source_location_str1;
+												if (SZE_SR1.isValid()) { source_location_str1 = (SZE_SR1).getBegin().printToString((Rewrite).getSourceMgr()); }
+												if (std::string::npos != source_location_str1.find("init.h")) {
+
+													std::string const new_source_text_str = "27 /* Special case modification to fix a bug in wget. (Original value was 26.) */";
+													//adjusted_source_text_info_ref.m_text = new_source_text_str;
+													ecs_ref.add_straight_text_replacement_modifier(new_source_text_str);
+													ecs_ref.update_current_text(CExprTextInfoContext{ SZE_SR1, &Rewrite, &state1 });
+
+													/* Note the source range we're specifying corresponds to a macro nesting level (namely, the deepest one) 
+													that is different from the one that would be used by default. */
+													state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, SZE_SR1, state1, SZE);
+												} else {
+													int q = 7;
+												}
+											} else {
+												int q = 3;
+											}
+										} else {
+											int q = 7;
+										}
+									} else {
+										int q = 3;
+									}
+								} else {
+									int q = 5;
+								}
+							} else {
+								int q = 5;
+							}
+						}
+
+#if 0
 						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
 							ddcs_ref.m_indirection_state_stack.at(0).set_xscope_eligibility(false);
 							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FD, 0));
@@ -18132,6 +18249,7 @@ namespace convc2validcpp {
 								}
 							}
 						}
+#endif //0
 					} else if (false && FND) {
 						/* Here we are not permtting functions to return scope types. */
 						if (1 <= ddcs_ref.m_indirection_state_stack.size()) {
