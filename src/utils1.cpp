@@ -54,7 +54,7 @@ using namespace clang::tooling;
 /**********************************************************************************************************************/
 
 /* Execute a shell command. */
-std::pair<std::string, bool> exec(const char* cmd) {
+std::pair<std::string, bool/*true indicates error*/> exec(const char* cmd) {
     std::array<char, 128> buffer;
     std::string result;
     std::shared_ptr<FILE> pipe(popen(cmd, "r"), pclose);

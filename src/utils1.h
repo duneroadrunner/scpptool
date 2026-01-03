@@ -196,7 +196,7 @@ inline const std::string& mse_namespace_str() {
 }
 
 /* Execute a shell command. */
-std::pair<std::string, bool> exec(const char* cmd);
+std::pair<std::string, bool/*true indicates error*/> exec(const char* cmd);
 
 namespace impl {
 	template <class T>

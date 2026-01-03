@@ -25359,9 +25359,9 @@ namespace convm1 {
 		AddPrecedingIncludeConfigDotHDirective = options.AddPrecedingIncludeConfigDotHDirective;
 
 		std::cout << "\nNote, this program attempts to modify the specified source files in place";
-		if (0 == ModifiablePaths.size()) {
+		if (0 != ModifiablePaths.size()) {
 			std::cout << ", and any directly or indirectly `#include`d files in the specified paths. ";
-			std::cout << "Please make sure you have appropriate backups before proceeding. ";
+			std::cout << "Please make sure you have appropriate backups before proceeding. \n";
 		} else {
 			std::cout << ", and any directly or indirectly `#include`d files, which may include headers from 3rd party libraries or other files you may not expect. ";
 			std::cout << "So be careful not to run this program with write permissions to files you can't risk being modified. ";
@@ -25385,6 +25385,49 @@ namespace convm1 {
 		}
 
 		int Status = Tool.buildASTs(Misc1::s_multi_tu_state_ref().ast_units);
+
+		if (2 <= Misc1::s_multi_tu_state_ref().ast_units.size()) {
+			std::string merge_command_str = "merge ";
+			if ("" != MergeCommand) {
+				merge_command_str = MergeCommand + " ";
+			}
+			bool merge_found = false;
+			{
+				auto merge_command_str2 = merge_command_str + "--version";
+				auto[result_str, err_flag] = exec(merge_command_str2.c_str());
+				if ("" != result_str) {
+					merge_found = true;
+				}
+			}
+			if (!merge_found) {
+				auto merge_command_str2 = merge_command_str + "/help";
+				auto[result_str, err_flag] = exec(merge_command_str2.c_str());
+				if ("" != result_str) {
+					merge_found = true;
+				}
+			}
+			if (!merge_found) {
+				std::cout << "warning: Cannot verify access to a valid merge command. If the specified or default merge command is not valid, the reliability of the conversion (of the given multi-file set of sources) is likely to be negatively affected. ";
+				if ("" == MergeCommand) {
+					std::cout << "You can specify a valid merge command using the `-MergeCommand` command line option. ";
+				}
+				std::cout << "\nContinue [y/n]? \n";
+				int ich2 = 0;
+				if (SuppressPrompts) {
+					ich2 = int('Y');
+				} else {
+					do {
+						ich2 = std::getchar();
+						//std::putchar(ich2);
+					} while ((int('y') != ich2) && (int('n') != ich2) && (int('Y') != ich2) && (int('N') != ich2));
+				}
+				if (((int('y') != ich2) && (int('Y') != ich2)) || (DoNotReplaceOriginalSource)) {
+					std::cout << "\n\nOperation cancelled. Source files were not replaced/modified. \n";
+					typedef decltype(Tool.run(newFrontendActionFactory<MyFrontendActionPass1>().get())) return_t;
+					return return_t{-1};
+				}
+			}
+		}
 
 		int ASTStatus = 0;
 		if (Status == 1) {
