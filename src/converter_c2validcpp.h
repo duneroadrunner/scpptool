@@ -4740,7 +4740,10 @@ namespace convc2validcpp {
 						if (maybe_changed) {
 							//ReplaceText(Rewrite, OSR, current_text_ref);
 							state1.m_pending_code_modification_actions.ReplaceText(Rewrite, OSR, current_text_ref);
-							this->m_already_modified_regions.insert(OSR);
+
+							if (!state1.m_pending_code_modification_actions.m_ReplaceText_supression_mode) {
+								this->m_already_modified_regions.insert(OSR);
+							}
 						}
 					}
 				}
@@ -10251,6 +10254,10 @@ namespace convc2validcpp {
 							to the source range, so we cannot queue the modification for later execution, we must execute the 
 							modification here and now. */
 							auto res2 = state1.m_pending_code_modification_actions.ReplaceText(Rewrite, last_decl_source_range, replacement_code);
+
+							if (!state1.m_pending_code_modification_actions.m_ReplaceText_supression_mode) {
+								state1.m_pending_code_modification_actions.m_already_modified_regions.insert(last_decl_source_range);
+							}
 						}
 					} else {
 						int q = 7;
@@ -10277,7 +10284,10 @@ namespace convc2validcpp {
 #endif /*!NDEBUG*/
 
 								auto res2 = state1.m_pending_code_modification_actions.ReplaceText(Rewrite, SR, replacement_code);
-								state1.m_pending_code_modification_actions.m_already_modified_regions.insert(SR);
+
+								if (!state1.m_pending_code_modification_actions.m_ReplaceText_supression_mode) {
+									state1.m_pending_code_modification_actions.m_already_modified_regions.insert(SR);
+								}
 							}
 						}
 					}
@@ -13143,14 +13153,90 @@ namespace convc2validcpp {
 
 	/**********************************************************************************************************************/
 
+	inline bool seems_to_be_already_disabled_for_compiling_as_cplusplus(clang::Expr const& expr, Rewriter &Rewrite, CTUState& state1) {
+		bool retval = false;
+		auto SR_plus = cm1_adjusted_source_range(expr.getSourceRange(), state1, Rewrite);
+		for (auto& adjusted_source_text_info : SR_plus.m_adjusted_source_text_infos) {
+			if (("IF_CPP_ELSE" == adjusted_source_text_info.m_macro_name) || ("IF_C" == adjusted_source_text_info.m_macro_name)) {
+				/* This item seems to already be part of an IF_CPP_ELSE() or IF_C() macro and so presumably will not be instantiated 
+				when compiled as C++, so there's presumably no need to adjust it to be valid C++. */
+				int q = 5;
+				return true;
+			}
+		}
+		return retval;
+	}
+
 	class MCSSSPointerArithmetic2 : public MatchFinder::MatchCallback
 	{
 	public:
 		MCSSSPointerArithmetic2 (Rewriter &Rewrite, CTUState& state1)
 	: Rewrite(Rewrite), m_state1(state1) {}
 		static void s_handler1(const MatchFinder::MatchResult &MR, Rewriter &Rewrite, CTUState& state1
-			, const Expr* E , const DeclRefExpr* DRE, const MemberExpr* ME = nullptr) {
+			, const Expr* E, const DeclRefExpr* DRE, const MemberExpr* ME = nullptr, const Expr* operator_E = nullptr) {
 
+			if (operator_E) {
+				auto SR = cm1_adj_nice_source_range(operator_E->getSourceRange(), state1, Rewrite);
+				RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+
+				RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V;
+
+				DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+#ifndef NDEBUG
+				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+					int q = 5;
+				}
+#endif /*!NDEBUG*/
+
+				auto suppress_check_flag = state1.m_suppress_check_region_set.contains(operator_E, Rewrite, *(MR.Context));
+				//auto suppress_check_flag = state1.m_suppress_check_region_set.contains(ISR);
+				if (false && suppress_check_flag) {
+					return;
+				}
+
+				const auto operator_E_qtype = operator_E->getType();
+				IF_DEBUG(std::string operator_E_qtype_str = operator_E_qtype.getAsString();)
+
+				if (is_void_star_or_const_void_star(operator_E_qtype)) {
+					/* clang++ doesn't seem to allow pointer arithmetic on `void *`s. So we're going to cast any `void *` children 
+					of the arithmetic expression to `char *`s. */
+					for (const auto child_ST : E->children()) {
+						if (!child_ST) {
+							int q = 3;
+							continue;
+						}
+						const auto child_E = dyn_cast<const clang::Expr>(child_ST);
+						const auto child_E_ii = IgnoreImplicit(child_E);
+						if (!child_E_ii) {
+							int q = 5;
+							continue;
+						}
+						const auto child_E_ii_qtype = child_E_ii->getType();
+						IF_DEBUG(std::string child_E_ii_qtype_str = child_E_ii_qtype.getAsString();)
+						if (is_void_star_or_const_void_star(child_E_ii_qtype)) {
+							const bool is_const_void_star = child_E_ii_qtype->getPointeeType().isConstQualified();
+							const std::string cast_type_str = is_const_void_star ? "const char *" : "char *";
+							auto& ecs_ref = state1.get_expr_conversion_state_ref(*child_E_ii, Rewrite);
+
+							const auto l_text_modifier = CCastExprTextModifier(cast_type_str);
+							bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && (l_text_modifier.species_str() == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+								&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+							if (!seems_to_be_already_applied) {
+								auto shptr2 = std::make_shared<CCastExprTextModifier>(cast_type_str);
+								ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+								ecs_ref.update_current_text();
+
+								state1.add_pending_expression_update(*child_E_ii, Rewrite);
+							}
+						}
+					}
+				}
+			}
+
+#if 0
 			if ((DRE != nullptr) && (E != nullptr))
 			{
 				auto SR = cm1_adj_nice_source_range(DRE->getSourceRange(), state1, Rewrite);
@@ -13197,6 +13283,7 @@ namespace convc2validcpp {
 					DEBUG_SOURCE_TEXT_STR(decl_debug_source_text, decl_source_range, Rewrite);
 
 					auto QT = DD->getType();
+					IF_DEBUG(std::string QT_str = QT.getAsString();)
 					std::string variable_name = DD->getNameAsString();
 
 					auto qualified_name = DD->getQualifiedNameAsString();
@@ -13227,6 +13314,7 @@ namespace convc2validcpp {
 					}
 				}
 			}
+#endif //0
 		}
 
 		virtual void run(const MatchFinder::MatchResult &MR)
@@ -13234,8 +13322,9 @@ namespace convc2validcpp {
 			const DeclRefExpr* DRE = MR.Nodes.getNodeAs<clang::DeclRefExpr>("mcssspointerarithmetic");
 			const MemberExpr* ME = MR.Nodes.getNodeAs<clang::MemberExpr>("mcssspointerarithmetic2");
 			const Expr* E = MR.Nodes.getNodeAs<clang::Expr>("mcssspointerarithmetic3");
+			const Expr* operator_E = MR.Nodes.getNodeAs<clang::Expr>("mcssspointerarithmetic4");
 
-			s_handler1(MR, Rewrite, m_state1, E, DRE, ME);
+			s_handler1(MR, Rewrite, m_state1, E, DRE, ME, operator_E);
 		}
 
 	private:
@@ -13377,7 +13466,7 @@ namespace convc2validcpp {
 				}
 
 				auto decl = DRE->getDecl();
-				auto DD = dyn_cast<const DeclaratorDecl>(decl);
+				auto DD = dyn_cast<const clang::DeclaratorDecl>(decl);
 
 				const clang::FieldDecl* FD = nullptr;
 				if (nullptr != ME) {
@@ -15442,6 +15531,11 @@ namespace convc2validcpp {
 	inline std::string with_namespace_qualification_added_if_necessary(std::string_view original_text_sv, clang::QualType qtype, clang::Expr const& expr, Rewriter &Rewrite, CTUState& state1, clang::ASTContext& Ctx) {
 		std::string retval = std::string(original_text_sv);
 		if ((std::string::npos == original_text_sv.find("::")) && qtype.getTypePtr()) {
+			if (seems_to_be_already_disabled_for_compiling_as_cplusplus(expr, Rewrite, state1)) {
+				int q = 5;
+				return retval;
+			}
+
 			/* original_text_sv does not seem to be namespace qualified. We'll check if it needs to be under C++. */
 
 			CIndirectionStateStack indirection_state_stack1;
@@ -19360,36 +19454,23 @@ namespace convc2validcpp {
 					}
 				}
 
-#if 0
-				auto parent_ST_ii = NonParenNoopCastParentStmt(E, *MR.Context);
-				if (parent_ST_ii) {
-					auto RS = dyn_cast<const clang::ReturnStmt>(parent_ST_ii);
-					if (RS) {
-						const auto* FND = Tget_containing_element_of_type<clang::FunctionDecl>(RS, *MR.Context);
-						auto DRE = given_or_descendant_DeclRefExpr(E, *(MR.Context));
-						if (FND && DRE) {
-							MCSSSReturnValue::s_handler1(MR, Rewrite, state1, FND, RS, DRE);
-						} else {
-							int q = 5;
-						}
-					}
-				}
-
 				if (E->getType()->isPointerType()) {
 					auto& Ctx = *(MR.Context);
-					auto parent_E_ii = NonParenNoopCastThisOrParent(Tget_immediately_containing_element_of_type<clang::Expr>(E, Ctx), Ctx);
-					if (parent_E_ii) {
+					auto parent_E_iinoop = NonParenImpNoopCastThisOrParent(Tget_immediately_containing_element_of_type<clang::Expr>(E, Ctx), Ctx);
+					if (parent_E_iinoop) {
 						/* For some reason our matcher for pointer arithmetic seems to be unreliable.
 						So here we identify some of the cases of pointer arithmetic that our matcher
 						has been observed to miss. */
 						bool pointer_arithmetic_flag = false;
-						auto ASE = dyn_cast<const clang::ArraySubscriptExpr>(parent_E_ii);
+						clang::Expr const* operator_E = nullptr;
+						auto ASE = dyn_cast<const clang::ArraySubscriptExpr>(parent_E_iinoop);
 						if (ASE) {
 							pointer_arithmetic_flag = true;
+							operator_E = ASE;
 						} else {
-							auto UO = dyn_cast<const clang::UnaryOperator>(parent_E_ii);
-							auto BO = dyn_cast<const clang::BinaryOperator>(parent_E_ii);
-							auto CAO = dyn_cast<const clang::CompoundAssignOperator>(parent_E_ii);
+							auto UO = dyn_cast<const clang::UnaryOperator>(parent_E_iinoop);
+							auto BO = dyn_cast<const clang::BinaryOperator>(parent_E_iinoop);
+							auto CAO = dyn_cast<const clang::CompoundAssignOperator>(parent_E_iinoop);
 							if (CAO && (!BO)) {
 								int q = 5;
 							}
@@ -19408,20 +19489,37 @@ namespace convc2validcpp {
 									) {
 
 									pointer_arithmetic_flag = true;
+									operator_E = BO;
 								}
 							} else if (UO) {
 								const auto opcode = UO->getOpcode();
 								const auto opcode_str= std::string(UO->getOpcodeStr(opcode));
 								if (("++" == opcode_str) || ("--" == opcode_str)) {
 									pointer_arithmetic_flag = true;
+									operator_E = UO;
 								}
 							}
 						}
 						if (pointer_arithmetic_flag) {
 							auto DRE = given_or_descendant_DeclRefExpr(E, *(MR.Context));
 							if (DRE) {
-								MCSSSPointerArithmetic2::s_handler1(MR, Rewrite, state1, E, DRE);
+								MCSSSPointerArithmetic2::s_handler1(MR, Rewrite, state1, E, DRE, nullptr, operator_E);
 							}
+						}
+					}
+				}
+
+#if 0
+				auto parent_ST_ii = NonParenNoopCastParentStmt(E, *MR.Context);
+				if (parent_ST_ii) {
+					auto RS = dyn_cast<const clang::ReturnStmt>(parent_ST_ii);
+					if (RS) {
+						const auto* FND = Tget_containing_element_of_type<clang::FunctionDecl>(RS, *MR.Context);
+						auto DRE = given_or_descendant_DeclRefExpr(E, *(MR.Context));
+						if (FND && DRE) {
+							MCSSSReturnValue::s_handler1(MR, Rewrite, state1, FND, RS, DRE);
+						} else {
+							int q = 5;
 						}
 					}
 				}
@@ -20246,17 +20344,16 @@ namespace convc2validcpp {
 
 		Matcher.addMatcher(expr().bind("mcsssexprutil1"), &HandlerForSSSExprUtil);
 
-#if 0
 		Matcher.addMatcher(expr(allOf(
 				hasParent(expr(anyOf(
-					unaryOperator(hasOperatorName("++")), unaryOperator(hasOperatorName("--")),
-					binaryOperator(hasOperatorName("+=")), binaryOperator(hasOperatorName("-=")),
+					unaryOperator(hasOperatorName("++")), unaryOperator(hasOperatorName("--")).bind("mcssspointerarithmetic4"),
+					binaryOperator(hasOperatorName("+=")), binaryOperator(hasOperatorName("-=")).bind("mcssspointerarithmetic4"),
 					castExpr(hasParent(expr(anyOf(
-							binaryOperator(hasOperatorName("+")), binaryOperator(hasOperatorName("+=")),
-							binaryOperator(hasOperatorName("-")), binaryOperator(hasOperatorName("-=")),
-							binaryOperator(hasOperatorName("<=")), binaryOperator(hasOperatorName("<")),
-							binaryOperator(hasOperatorName(">=")), binaryOperator(hasOperatorName(">")),
-							arraySubscriptExpr()
+							binaryOperator(hasOperatorName("+")), binaryOperator(hasOperatorName("+=")).bind("mcssspointerarithmetic4"),
+							binaryOperator(hasOperatorName("-")), binaryOperator(hasOperatorName("-=")).bind("mcssspointerarithmetic4"),
+							binaryOperator(hasOperatorName("<=")), binaryOperator(hasOperatorName("<")).bind("mcssspointerarithmetic4"),
+							binaryOperator(hasOperatorName(">=")), binaryOperator(hasOperatorName(">")).bind("mcssspointerarithmetic4"),
+							arraySubscriptExpr().bind("mcssspointerarithmetic4")
 						))))
 					))),
 				hasType(pointerType()),
@@ -20268,6 +20365,7 @@ namespace convc2validcpp {
 				)
 				)).bind("mcssspointerarithmetic3"), &HandlerForSSSPointerArithmetic2);
 
+#if 0
 		//Matcher.addMatcher(castExpr(allOf(hasCastKind(CK_ArrayToPointerDecay), unless(hasParent(arraySubscriptExpr())))).bind("mcsssarraytopointerdecay"), &HandlerForSSSArrayToPointerDecay);
 
 		Matcher.addMatcher(
