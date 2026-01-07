@@ -700,8 +700,10 @@ namespace convm1 {
 		}
 		bool is_const() const {
 			if (current_qtype_is_current()) {
+				IF_DEBUG(auto current_qtype_str = current_qtype_if_any().value().getAsString();)
 				return current_qtype_if_any().value().isConstQualified();
 			} else if (m_maybe_original_qtype.has_value() && (!qtype_has_been_changed())) {
+				IF_DEBUG(auto original_qtype_str = m_maybe_original_qtype.value().getAsString();)
 				return m_maybe_original_qtype.value().isConstQualified();
 			} else {
 				/* hack alert */
@@ -1376,7 +1378,10 @@ namespace convm1 {
 								: cm1_nice_source_range(typeLoc.getSourceRange(), Rewrite);
 							if ((l_SR).isValid() && (((l_SR).getBegin() < (l_SR).getEnd()) || ((l_SR).getBegin() == (l_SR).getEnd()))) {
 								DEBUG_SOURCE_LOCATION_STR(l_debug_source_location_str, l_SR, Rewrite);
-								return_type_original_source_text = getRewrittenTextOrEmpty(Rewrite, l_SR);
+								/* For some reason, typeLoc.getSourceRange() seems to leave out leading (and I assume trailing) `const` qualifiers. */
+								auto cq_SR = extended_to_include_west_const_if_any(Rewrite, l_SR);
+								cq_SR = extended_to_include_east_const_if_any(Rewrite, cq_SR);
+								return_type_original_source_text = getRewrittenTextOrEmpty(Rewrite, cq_SR);
 							}
 						}
 					}
@@ -3111,6 +3116,19 @@ namespace convm1 {
 		std::string m_replacement_code;
 	};
 
+	class CGivenFunctionReplacementAction : public CReplacementAction {
+	public:
+		CGivenFunctionReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, 
+			std::function<void(Rewriter& Rewrite, CTUState& state1)> given_function) : CReplacementAction(Rewrite, MR), m_given_function(std::move(given_function)) {}
+		virtual ~CGivenFunctionReplacementAction() {}
+
+		virtual void do_replacement(CTUState& state1) const {
+			m_given_function(m_Rewrite, state1);
+		}
+
+		std::function<void(Rewriter& Rewrite, CTUState& state1)> m_given_function;
+	};
+
 	class CDDeclIndirectionReplacementAction : public CReplacementAction {
 	public:
 		CDDeclIndirectionReplacementAction(Rewriter &Rewrite, const CDDeclIndirection& ddecl_indirection)
@@ -3140,6 +3158,20 @@ namespace convm1 {
 
 		const Expr* m_EX = nullptr;
 		std::string m_replacement_code;
+	};
+
+	class CGivenFunctionDDIReplacementAction : public CDDeclIndirectionReplacementAction {
+	public:
+		CGivenFunctionDDIReplacementAction(Rewriter &Rewrite, const MatchFinder::MatchResult &MR, const CDDeclIndirection& ddecl_indirection,
+				std::function<void(Rewriter& Rewrite, CTUState& state1, CDDeclIndirection ddecl_indirection)> given_function) :
+					CDDeclIndirectionReplacementAction(Rewrite, MR, ddecl_indirection), m_given_function(std::move(given_function)) {}
+		virtual ~CGivenFunctionDDIReplacementAction() {}
+
+		virtual void do_replacement(CTUState& state1) const {
+			m_given_function(m_Rewrite, state1, ddecl_indirection_cref());
+		}
+
+		std::function<void(Rewriter& Rewrite, CTUState& state1, CDDeclIndirection ddecl_indirection)> m_given_function;
 	};
 
 	class CAssignmentTargetConstrainsSourceReplacementAction : public CDDeclIndirectionReplacementAction {
@@ -5057,6 +5089,10 @@ namespace convm1 {
 					if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 						int q = 5;
 					}
+					const auto E_ii = IgnoreImplicit(E);
+					if (E_ii != E) {
+						int q = 5;
+					}
 #endif /*!NDEBUG*/
 
 					auto iter = state1.m_expr_conversion_state_map.find(E);
@@ -5072,7 +5108,10 @@ namespace convm1 {
 						if (maybe_changed) {
 							//ReplaceText(Rewrite, OSR, current_text_ref);
 							state1.m_pending_code_modification_actions.ReplaceText(Rewrite, OSR, current_text_ref);
-							this->m_already_modified_regions.insert(OSR);
+
+							if (!state1.m_pending_code_modification_actions.m_ReplaceText_supression_mode) {
+								this->m_already_modified_regions.insert(OSR);
+							}
 						}
 					}
 				}
@@ -5143,6 +5182,76 @@ namespace convm1 {
 					break;
 				}
 			}
+			if (eof_SL == SL2) {
+				return retval;
+			}
+		}
+		return SL.getLocWithOffset(offset2);
+	}
+
+	static std::optional<clang::SourceLocation> get_next_whitespace_SL_if_available(clang::SourceLocation SL, Rewriter &Rewrite) {
+		std::optional<clang::SourceLocation> retval;
+		auto& SM = Rewrite.getSourceMgr();
+		const auto FID1 = SM.getFileID(SL);
+		const auto eof_SL = SM.getLocForEndOfFile(FID1);
+		if (eof_SL == SL) {
+			return retval;
+		}
+		auto SL1 = SL;
+
+		bool last_offset_was_blank = false;
+		int offset2 = 0;
+		bool exit_flag = false;
+		while (!exit_flag) {
+			offset2 += 1;
+			const auto SL2 = SL.getLocWithOffset(offset2);
+			const auto FID2 = SM.getFileID(SL2);
+			if ((!SL2.isValid()) || (!FID2.isValid()) || (FID1 != FID2)) {
+				return retval;
+				//exit_flag = true;
+				//break;
+			}
+			if (SL == SL1) {
+				SL1 = SL2;
+			}
+			clang::SourceRange SR2 { SL2, SL2 };
+			auto text2 = getRewrittenTextOrEmpty(Rewrite, SR2);
+			for (const auto& ch : text2) {
+				if (std::isspace(ch)) {
+					/* not sure this ever happens */
+					if (last_offset_was_blank) {
+						offset2 -= 1;
+					}
+					exit_flag = true;
+					break;
+				}
+			}
+			if (last_offset_was_blank) {
+				/* If there was no text associated with the last iteration's offset, and that offset corresponds to whitespace 
+				in the source text, then we expect that whitespace to now appear in the text of the entire range from the 
+				search start offset to the current offset. */
+				clang::SourceRange SR3 { SL1, SL2 };
+				auto text3 = getRewrittenTextOrEmpty(Rewrite, SR3);
+				for (const auto& ch : text3) {
+					if (std::isspace(ch)) {
+						/* We've confirmed that the text of the range from the search start offset to the current offset now contains 
+						whitespace. */
+						if (last_offset_was_blank) {
+							offset2 -= 1;
+						}
+						exit_flag = true;
+						break;
+					}
+				}
+			}
+			if ("" == text2) {
+				/* No text associated with the source location could indicate whitespace. But we'll confirm it in the next 
+				loop iteration. */
+				last_offset_was_blank = true;
+			} else {
+				last_offset_was_blank = false;
+			}
+
 			if (eof_SL == SL2) {
 				return retval;
 			}
@@ -7182,6 +7291,7 @@ namespace convm1 {
 		/* look for (west) const qualifier */
 		/* This implementation is currently a quick hack that doesn't work correctly
 		in all cases. */
+		IF_DEBUG(auto debug_text1 = getRewrittenTextOrEmpty(Rewrite, SR);)
 		auto cq_SR = SR;
 		static const std::string const_str = "const";
 		auto maybe_SL2 = get_previous_non_whitespace_SL_if_available(cq_SR.getBegin(), Rewrite);
@@ -7190,6 +7300,7 @@ namespace convm1 {
 		}
 		auto const& SL2 = maybe_SL2.value();
 		const auto text2 = getRewrittenTextOrEmpty(Rewrite, clang::SourceRange{ SL2, SL2 });
+		IF_DEBUG(auto debug_text1b = getRewrittenTextOrEmpty(Rewrite, clang::SourceRange{ SL2, SR.getEnd() });)
 		if (!string_ends_with(text2, "t")) {
 			return SR;
 		}
@@ -7238,14 +7349,54 @@ namespace convm1 {
 		/* look for (west) const qualifier */
 		/* This implementation is currently a quick hack that doesn't work correctly
 		in all cases. */
+		IF_DEBUG(auto debug_text1 = getRewrittenTextOrEmpty(Rewrite, SR);)
 		auto cq_SR = SR;
 		static const std::string const_str = "const";
-		auto maybe_SL3 = get_next_non_whitespace_SL_if_available(cq_SR.getEnd(), Rewrite);
+		auto one_before_start_search_SL = cq_SR.getEnd();
+		if (cq_SR.getBegin() == cq_SR.getEnd()) {
+			/* In this case we'll presume that cq_SR.getEnd() may not represent the *end* of the token. So we'll try to 
+			see if we can identify the end location of the token. */
+			auto maybe_SL2 = get_next_whitespace_SL_if_available(cq_SR.getEnd(), Rewrite);
+			if (maybe_SL2.has_value()) {
+				auto const& SL2 = maybe_SL2.value();
+				auto text1c = getRewrittenTextOrEmpty(Rewrite, { cq_SR.getBegin(), SL2 });
+				/* Presumably, the next whitespace location would be an (exclusive) right bound for the end location of the 
+				token. */
+				auto token1_range = Parse::find_potential_noncomment_token_v1(text1c);
+				if (token1_range.end < text1c.length()) {
+					/* The end of the token seems to occur before reaching the whitespace location. */
+					/* But we're hypothesizing that it's possible that there might be some whitespace that does not have a 
+					corresponding (clang) source location. */
+					if (std::isspace(text1c.at(token1_range.end))) {
+						auto token2_range = Parse::find_potential_noncomment_token_v1(text1c, token1_range.end + 1);
+						if (token2_range.begin < text1c.length()) {
+							auto token2_str = text1c.substr(token2_range.begin, token2_range.end - token2_range.begin);
+							if (const_str == token2_str) {
+								auto maybe_SL2b = getLocWithOffsetIfAvailable(Rewrite, SL2, -1);
+								if (maybe_SL2b.has_value()) {
+									auto const& SL2b = maybe_SL2b.value();
+									auto retval_SR = clang::SourceRange{ cq_SR.getBegin(), SL2b };
+									if (retval_SR.isValid() && (retval_SR.getBegin() <= retval_SR.getEnd())) {
+										return retval_SR;
+									}
+								}
+							}
+						}
+					}
+					return SR;
+				}
+				one_before_start_search_SL = SL2;
+			} else {
+				return SR;
+			}
+		}
+		auto maybe_SL3 = get_next_non_whitespace_SL_if_available(one_before_start_search_SL, Rewrite);
 		if (!maybe_SL3.has_value()) {
 			return SR;
 		}
 		auto const& SL3 = maybe_SL3.value();
 		const auto text2 = getRewrittenTextOrEmpty(Rewrite, clang::SourceRange{ SL3, SL3 });
+		IF_DEBUG(auto debug_text1b = getRewrittenTextOrEmpty(Rewrite, clang::SourceRange{ SR.getBegin(), SL3 });)
 		if (const_str != text2) {
 			return SR;
 		}
@@ -9950,25 +10101,42 @@ namespace convm1 {
 						if (ILE) {
 							bool add_std_array_intermediary = false;
 
-							size_t num_init_elements_rough_estimate = std::count(initializer_append_str.begin(), initializer_append_str.end(), ',');
-							if (64/* arbitrary */ < num_init_elements_rough_estimate) {
-								/* The SaferCPlusPlus arrays emulate aggregate initialization (at compile-time). Some
-								compilers may have difficulty handling large initalizer lists. So we insert an
-								intermediate std::array<>. */
-								add_std_array_intermediary = true;
-							} else if (1 <= ILE->getNumInits()) {
-								auto init_item_E = ILE->getInit(0);
-								if (init_item_E) {
-									auto nested_ILE = dyn_cast<const clang::InitListExpr>(init_item_E);
-									if (nested_ILE) {
-										add_std_array_intermediary = true;
+							do {
+								size_t num_init_elements_rough_estimate = std::count(initializer_append_str.begin(), initializer_append_str.end(), ',');
+								if ((false && 64/* arbitrary */ < num_init_elements_rough_estimate)) {
+									/* Since the library no longer uses recursion to emulate aggregate initialization, this branch is no 
+									longer needed to work around the associated limitations. */
+
+									/* The SaferCPlusPlus arrays emulate aggregate initialization (at compile-time). Some
+									compilers may have difficulty handling large initalizer lists. So we insert an
+									intermediate std::array<>. */
+									add_std_array_intermediary = true;
+									break;
+								}
+								if ((false && 1 <= ILE->getNumInits())) {
+									auto init_item_E = ILE->getInit(0);
+									if (init_item_E) {
+										auto nested_ILE = dyn_cast<const clang::InitListExpr>(init_item_E);
+										if (nested_ILE) {
+											add_std_array_intermediary = true;
+											break;
+										}
 									}
 								}
-							}
-							if (false && add_std_array_intermediary) {
-								/* Since the library no longer uses recursion to emulate aggregate initialization, this branch is no 
-								longer needed to work around the associated limitations. */
+								if (state1_ptr) {
+									auto& state1 = *state1_ptr;
+									auto& ecs_ref = state1.get_expr_conversion_state_ref<CExprConversionState>(*ILE, Rewrite);
+									auto const& original_text = ecs_ref.original_text();
+									auto equals_token_range = Parse::find_uncommented_token("=", original_text);
+									if (original_text.length() > equals_token_range.begin) {
+										/* This might be a designated initalizer. */
+										add_std_array_intermediary = true;
+										break;
+									}
+								}
+							} while (false);
 
+							if (add_std_array_intermediary) {
 								std::string initializer_prefix = "std::array<";
 								if (1 == ddcs_ref.m_indirection_state_stack.size()) {
 									initializer_prefix += direct_qtype_str;
@@ -10603,6 +10771,10 @@ namespace convm1 {
 							to the source range, so we cannot queue the modification for later execution, we must execute the 
 							modification here and now. */
 							auto res2 = state1.m_pending_code_modification_actions.ReplaceText(Rewrite, last_decl_source_range, replacement_code);
+
+							if (!state1.m_pending_code_modification_actions.m_ReplaceText_supression_mode) {
+								state1.m_pending_code_modification_actions.m_already_modified_regions.insert(last_decl_source_range);
+							}
 						}
 					} else {
 						int q = 7;
@@ -10629,7 +10801,10 @@ namespace convm1 {
 #endif /*!NDEBUG*/
 
 								auto res2 = state1.m_pending_code_modification_actions.ReplaceText(Rewrite, SR, replacement_code);
-								state1.m_pending_code_modification_actions.m_already_modified_regions.insert(SR);
+
+								if (!state1.m_pending_code_modification_actions.m_ReplaceText_supression_mode) {
+									state1.m_pending_code_modification_actions.m_already_modified_regions.insert(SR);
+								}
 							}
 						}
 					}
@@ -11268,21 +11443,12 @@ namespace convm1 {
 		if (EX) {
 			auto EXSR = write_once_source_range(cm1_adj_nice_source_range(*EX, state1, (*this).m_Rewrite));
 			if (EXSR.isValid()) {
-				auto excs_iter = state1.m_expr_conversion_state_map.find(EX);
-				if (state1.m_expr_conversion_state_map.end() == excs_iter) {
-					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*EX, m_Rewrite, state1);
-					excs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
-				}
-				auto& excs_shptr_ref = (*excs_iter).second;
-
+				auto& ecs_ref = state1.get_expr_conversion_state_ref(*EX, Rewrite);
 				if (ConvertToSCPP) {
-					std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>((*this).m_replacement_code);
-					(*excs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
-					(*excs_shptr_ref).update_current_text();
-
-					state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, EXSR, state1, EX);
-					//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, EXSR, (*excs_shptr_ref).current_text());
-					//(*this).m_Rewrite.ReplaceText(EXSR, (*excs_shptr_ref).current_text());
+					bool res1 = ecs_ref.add_straight_text_replacement_modifier((*this).m_replacement_code);
+					if (res1) {
+						state1.add_pending_expression_update(*EX, Rewrite);
+					}
 				}
 			}
 		}
@@ -11297,21 +11463,11 @@ namespace convm1 {
 		if (EX) {
 			auto EXSR = write_once_source_range(cm1_adj_nice_source_range(*EX, state1, (*this).m_Rewrite));
 			if (EXSR.isValid()) {
-				auto excs_iter = state1.m_expr_conversion_state_map.find(EX);
-				if (state1.m_expr_conversion_state_map.end() == excs_iter) {
-					std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*EX, m_Rewrite, state1);
-					excs_iter = state1.m_expr_conversion_state_map.insert(shptr1);
-				}
-				auto& excs_shptr_ref = (*excs_iter).second;
-				if (0 == (*excs_shptr_ref).m_expr_text_modifier_stack.size()) {
-					if (ConvertToSCPP) {
-						std::shared_ptr<CExprTextModifier> shptr1 = std::make_shared<CStraightReplacementExprTextModifier>((*this).m_replacement_code);
-						(*excs_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
-						(*excs_shptr_ref).update_current_text();
-
-						state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, EXSR, state1, EX);
-						//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, EXSR, (*excs_shptr_ref).current_text());
-						//(*this).m_Rewrite.ReplaceText(EXSR, (*excs_shptr_ref).current_text());
+				auto& ecs_ref = state1.get_expr_conversion_state_ref(*EX, Rewrite);
+				if (ConvertToSCPP && (0 == ecs_ref.m_expr_text_modifier_stack.size())) {
+					bool res1 = ecs_ref.add_straight_text_replacement_modifier((*this).m_replacement_code);
+					if (res1) {
+						state1.add_pending_expression_update(*EX, Rewrite);
 					}
 				} else {
 					int q = 5;
@@ -13597,6 +13753,10 @@ namespace convm1 {
 							auto& current_text_ref = cocs_ref.current_text(CExprTextInfoContext{ COSR_plus, &Rewrite, &state1 });
 							if (current_text_ref != cocs_ref.m_original_source_text_str) {
 								state1.m_pending_code_modification_actions.ReplaceText(Rewrite, COSR, current_text_ref);
+
+								if (!state1.m_pending_code_modification_actions.m_ReplaceText_supression_mode) {
+									state1.m_pending_code_modification_actions.m_already_modified_regions.insert(COSR);
+								}
 							}
 						}
 					}
@@ -17851,7 +18011,7 @@ namespace convm1 {
 		return is_non_modifiable(decl, *(MR.Context), Rewrite, state1, E, function_return_value_only);
 	}
 
-	inline static void handle_c_style_cast_without_context_modification_action(Rewriter&Rewrite, CTUState& state1, clang::CStyleCastExpr const* CSCE, clang::Expr const* precasted_expr_ptr, clang::SourceRange CSCESR, clang::SourceRange precasted_expr_SR, ESuppressModifications suppress_modifications = ESuppressModifications::No) {
+	inline static void handle_c_style_cast_without_context_modification_action(Rewriter&Rewrite, CTUState& state1, clang::CStyleCastExpr const* CSCE, clang::Expr const* precasted_expr_ptr, COrderedSourceRange CSCESR, clang::SourceRange precasted_expr_SR, ESuppressModifications suppress_modifications = ESuppressModifications::No) {
 		auto SR = CSCESR;
 		RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
 		DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, CSCESR, Rewrite);
@@ -17894,6 +18054,10 @@ namespace convm1 {
 				auto& current_text_ref = cecs_ref.current_text(CExprTextInfoContext{ CSCESR, &Rewrite, &state1 });
 				if ((current_text_ref != cecs_ref.m_original_source_text_str) && (ESuppressModifications::No == suppress_modifications)) {
 					state1.m_pending_code_modification_actions.ReplaceText(Rewrite, CSCESR, current_text_ref);
+
+					if (!state1.m_pending_code_modification_actions.m_ReplaceText_supression_mode) {
+						state1.m_pending_code_modification_actions.m_already_modified_regions.insert(CSCESR);
+					}
 				}
 			}
 		}
@@ -18752,6 +18916,10 @@ namespace convm1 {
 						auto& current_text_ref = cecs_ref.current_text();
 						if (current_text_ref != cecs_ref.m_original_source_text_str) {
 							state1.m_pending_code_modification_actions.ReplaceText(Rewrite, CSCESR, current_text_ref);
+
+							if (!state1.m_pending_code_modification_actions.m_ReplaceText_supression_mode) {
+								state1.m_pending_code_modification_actions.m_already_modified_regions.insert(CSCESR);
+							}
 
 							/* We've just rendered the whole (updated) cast expression, which presumably includes an up-to-date 
 							precasted expression, so we won't need to render any updates to the precasted expression separately. */
@@ -20827,46 +20995,38 @@ namespace convm1 {
 											} else {
 												auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
 
-												auto arg_iter = state1.m_expr_conversion_state_map.find(arg_EX);
-												if (state1.m_expr_conversion_state_map.end() == arg_iter) {
-													std::shared_ptr<CExprConversionState> shptr1 = make_expr_conversion_state_shared_ptr<CExprConversionState>(*arg_EX, Rewrite, state1);
-													arg_iter = state1.m_expr_conversion_state_map.insert(shptr1);
-												}
-												auto& arg_shptr_ref = (*arg_iter).second;
-
-												auto arg_source_text = getRewrittenTextOrEmpty(Rewrite, arg_source_range);
-
-												std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();
-												std::string prefix;
-												std::string suffix = ")";
-												if ("Dual" == ConvertMode) {
-													prefix = "MSE_LH_CAST(" + arg_EX_qtype_str + ", ";
-												} else {
-													auto arg_EX_qtype_str_wwsr = with_whitespace_removed(arg_EX_qtype_str);
-													bool has_space = (arg_EX_qtype_str_wwsr != arg_EX_qtype_str);
-													if (has_space) {
-														prefix = "(";
-													}
-													prefix += arg_EX_qtype_str;
-													if (has_space) {
-														prefix += ")";
-													}
-													prefix += "(";
-												}
-
-												auto shptr1 = std::make_shared<CWrapExprTextModifier>(prefix, suffix);
-												if (1 <= (*arg_shptr_ref).m_expr_text_modifier_stack.size()) {
-													if (shptr1->species_str() == (*arg_shptr_ref).m_expr_text_modifier_stack.back()->species_str()) {
-														/* already applied */
-														return;
-													}
-												}
-												(*arg_shptr_ref).m_expr_text_modifier_stack.push_back(shptr1);
-												(*arg_shptr_ref).update_current_text();
+												auto& arg_ecs_ref = state1.get_expr_conversion_state_ref(*arg_EX, Rewrite);
 
 												if (ConvertToSCPP) {
-													std::shared_ptr<CDDeclIndirectionReplacementAction> cr_shptr = std::make_shared<CExprTextDDIReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, CDDeclIndirection::no_indirection), arg_EX, (*arg_shptr_ref).current_text());
+													std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();
+													std::string prefix;
+													std::string suffix = ")";
+													if ("Dual" == ConvertMode) {
+														prefix = "MSE_LH_CAST(" + arg_EX_qtype_str + ", ";
+													} else {
+														auto arg_EX_qtype_str_wwsr = with_whitespace_removed(arg_EX_qtype_str);
+														bool has_space = (arg_EX_qtype_str_wwsr != arg_EX_qtype_str);
+														if (has_space) {
+															prefix = "(";
+														}
+														prefix += arg_EX_qtype_str;
+														if (has_space) {
+															prefix += ")";
+														}
+														prefix += "(";
+													}
 
+													auto lambda1 = [arg_EX, prefix, suffix](Rewriter& Rewrite, CTUState& state1, CDDeclIndirection ddecl_indirection) {
+														auto& arg_ecs_ref = state1.get_expr_conversion_state_ref(*arg_EX, Rewrite);
+														auto shptr1 = std::make_shared<CWrapExprTextModifier>(prefix, suffix);
+														arg_ecs_ref.add_text_modifier(shptr1);
+
+														arg_ecs_ref.update_current_text();
+
+														state1.add_pending_expression_update(*arg_EX, Rewrite);
+													};
+
+													auto cr_shptr = std::make_shared<CGivenFunctionDDIReplacementAction>(Rewrite, MR, CDDeclIndirection(*DD, CDDeclIndirection::no_indirection), lambda1);
 													if (ddcs_ref.has_been_determined_to_be_a_pointer_target()) {
 														(*cr_shptr).do_replacement(state1);
 													} else {
