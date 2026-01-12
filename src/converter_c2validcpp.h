@@ -3901,6 +3901,9 @@ namespace convc2validcpp {
 		/* This container holds the locations where the IF_CPP_ELSE() macro has been inserted. */
 		std::set<clang::SourceLocation> m_if_cpp_macro_use_locations;
 
+		/* This container holds the locations where use of C++ type traits (presumably wrapped in the IF_CPP() macro) have been inserted. */
+		std::set<clang::SourceLocation> m_cpp_type_trait_use_locations;
+
 		/* This value seems to be required for certain AST traversing operations. We put
 		it here so that we don't have to pass it around separately, but we're not totally
 		sure that it will be valid for the entire lifetime of this state. */
@@ -13203,7 +13206,7 @@ namespace convc2validcpp {
 				if (is_void_star_or_const_void_star(operator_E_qtype)) {
 					/* clang++ doesn't seem to allow pointer arithmetic on `void *`s. So we're going to cast any `void *` children 
 					of the arithmetic expression to `char *`s. */
-					for (const auto child_ST : E->children()) {
+					for (const auto child_ST : operator_E->children()) {
 						if (!child_ST) {
 							int q = 3;
 							continue;
@@ -13217,19 +13220,46 @@ namespace convc2validcpp {
 						const auto child_E_ii_qtype = child_E_ii->getType();
 						IF_DEBUG(std::string child_E_ii_qtype_str = child_E_ii_qtype.getAsString();)
 						if (is_void_star_or_const_void_star(child_E_ii_qtype)) {
-							const bool is_const_void_star = child_E_ii_qtype->getPointeeType().isConstQualified();
-							const std::string cast_type_str = is_const_void_star ? "const char *" : "char *";
 							auto& ecs_ref = state1.get_expr_conversion_state_ref(*child_E_ii, Rewrite);
 
-							const auto l_text_modifier = CCastExprTextModifier(cast_type_str);
-							bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && (l_text_modifier.species_str() == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
-								&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
-							if (!seems_to_be_already_applied) {
-								auto shptr2 = std::make_shared<CCastExprTextModifier>(cast_type_str);
-								ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
-								ecs_ref.update_current_text();
+							const bool is_const_void_star = child_E_ii_qtype->getPointeeType().isConstQualified();
+							auto child_E_ii_raw_SR = child_E_ii->getSourceRange();
+							auto child_E_ii_SR_plus = cm1_adjusted_source_range(child_E_ii_raw_SR, state1, Rewrite);
+							if (1 <= child_E_ii_SR_plus.m_adjusted_source_text_infos.size()) {
+								/* The expression may be in a macro. It's possible that the cast we need to do is not appropriate 
+								for every instance of the macro. So we'll try to make it so that the cast is a benign identity 
+								cast except in cases when a the type cast is not needed. */
+								const std::string prefix_str = "IF_CPP( ([](auto ptr) { "
+									"/* This immediately executed lambda just casts the argument to `char*` iff the argument is a `void*`. */ "
+									"typedef std::conditional_t<std::is_same<void*, decltype(ptr)>::value, char*, decltype(ptr)> cast_type1; "
+									"typedef std::conditional_t<std::is_same<void const*, cast_type1>::value, char const*, cast_type1> c2v_nvs_t; "
+									"return (c2v_nvs_t)(ptr); }) )(";
+								const std::string suffix_str = ")";
 
-								state1.add_pending_expression_update(*child_E_ii, Rewrite);
+								const auto l_text_modifier = CWrapExprTextModifier(prefix_str, suffix_str);
+								bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && (l_text_modifier.species_str() == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+									&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+								if (!seems_to_be_already_applied) {
+									auto shptr2 = std::make_shared<CWrapExprTextModifier>(prefix_str, suffix_str);
+									ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+									ecs_ref.update_current_text();
+
+									state1.add_pending_expression_update(*child_E_ii, Rewrite);
+									state1.m_if_cpp_macro_use_locations.insert(child_E_ii_SR_plus.getBegin());
+									state1.m_cpp_type_trait_use_locations.insert(child_E_ii_SR_plus.getBegin());
+								}
+							} else {
+								std::string cast_type_str = is_const_void_star ? "const char *" : "char *";
+								const auto l_text_modifier = CCastExprTextModifier(cast_type_str);
+								bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && (l_text_modifier.species_str() == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+									&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+								if (!seems_to_be_already_applied) {
+									auto shptr2 = std::make_shared<CCastExprTextModifier>(cast_type_str);
+									ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+									ecs_ref.update_current_text();
+
+									state1.add_pending_expression_update(*child_E_ii, Rewrite);
+								}
 							}
 						}
 					}
@@ -21023,6 +21053,10 @@ namespace convc2validcpp {
 				for (auto const& SL : m_tu_state.m_if_cpp_macro_use_locations) {
 					files_that_use_the_if_cpp_macro.insert(SM.getFileID(SL));
 				}
+				std::set<clang::FileID> files_that_use_cpp_type_traits;
+				for (auto const& SL : m_tu_state.m_cpp_type_trait_use_locations) {
+					files_that_use_cpp_type_traits.insert(SM.getFileID(SL));
+				}
 
 				clang::CompilerInstance &ci = getCompilerInstance();
 				clang::Preprocessor &pp = ci.getPreprocessor();
@@ -21089,30 +21123,60 @@ namespace convc2validcpp {
 								"#endif /*__cplusplus*/ \n"
 							"#endif /*!defined(IF_CPP_ELSE)*/ \n";
 #endif /* 0 */
+						static const std::string include_type_traits_str = 
+							"\n\n#ifdef __cplusplus \n"
+								"#include <type_traits> \n"
+							"#endif /*__cplusplus*/ \n";
+
 						auto file_id = SM.getFileID(fii_ref.m_beginning_of_file_loc);
 						const auto maybe_file_text = SM.getBufferDataOrNone(file_id);
-						if (maybe_file_text.has_value() && (files_that_use_the_if_cpp_macro.end() != files_that_use_the_if_cpp_macro.find(file_id))) {
+						if (maybe_file_text.has_value()) {
 							std::string file_text = std::string(maybe_file_text.value());
-							if (std::string::npos == file_text.find("#ifndef IF_CPP_ELSE ")) {
-								/* The IF_CPP_ELSE() macro is reportedly used in the conversion of this file, so we'll add some code 
-								at the beginning of the file to define that macro if it hasn't already been defined. */
-								std::optional<clang::SourceLocation> maybe_include_guard_end_location;
-								if (fii_ref.m_first_macro_directive_ptr_is_valid && fii_ref.m_first_macro_directive_ptr) {
-									auto const& macro_directive = *(fii_ref.m_first_macro_directive_ptr);
-									if (clang::MacroDirective::MD_Define == macro_directive.getKind()) {
-										auto MI = macro_directive.getMacroInfo();
-										if (MI) {
-											auto const& macro_info = *MI;
-											auto macro_def_SLE = macro_info.getDefinitionEndLoc();
-											if (macro_def_SLE.isValid() && macro_info.isUsedForHeaderGuard()) {
-												maybe_include_guard_end_location = macro_def_SLE;
+							if (files_that_use_the_if_cpp_macro.end() != files_that_use_the_if_cpp_macro.find(file_id)) {
+								if (std::string::npos == file_text.find("#ifndef IF_CPP_ELSE ")) {
+									/* The IF_CPP_ELSE() macro is reportedly used in the conversion of this file, so we'll add some code 
+									at the beginning of the file to define that macro if it hasn't already been defined. */
+									std::optional<clang::SourceLocation> maybe_include_guard_end_location;
+									if (fii_ref.m_first_macro_directive_ptr_is_valid && fii_ref.m_first_macro_directive_ptr) {
+										auto const& macro_directive = *(fii_ref.m_first_macro_directive_ptr);
+										if (clang::MacroDirective::MD_Define == macro_directive.getKind()) {
+											auto MI = macro_directive.getMacroInfo();
+											if (MI) {
+												auto const& macro_info = *MI;
+												auto macro_def_SLE = macro_info.getDefinitionEndLoc();
+												if (macro_def_SLE.isValid() && macro_info.isUsedForHeaderGuard()) {
+													maybe_include_guard_end_location = macro_def_SLE;
+												}
 											}
 										}
 									}
+									const clang::SourceLocation insert_after_location = maybe_include_guard_end_location.has_value() 
+										? maybe_include_guard_end_location.value() : SM.getLocForStartOfFile(file_id);
+									Rewrite.InsertTextAfterToken(insert_after_location, if_cpp_def_str);
 								}
-								const clang::SourceLocation insert_after_location = maybe_include_guard_end_location.has_value() 
-									? maybe_include_guard_end_location.value() : SM.getLocForStartOfFile(file_id);
-								Rewrite.InsertTextAfterToken(insert_after_location, if_cpp_def_str);
+							}
+							if (files_that_use_cpp_type_traits.end() != files_that_use_cpp_type_traits.find(file_id)) {
+								if (std::string::npos == file_text.find("#include <type_traits>")) {
+									/* C++ type traits are reportedly used in the conversion of this file, so we'll add some code 
+									at the beginning of the file to include the type_trait header if it hasn't already been included. */
+									std::optional<clang::SourceLocation> maybe_include_guard_end_location;
+									if (fii_ref.m_first_macro_directive_ptr_is_valid && fii_ref.m_first_macro_directive_ptr) {
+										auto const& macro_directive = *(fii_ref.m_first_macro_directive_ptr);
+										if (clang::MacroDirective::MD_Define == macro_directive.getKind()) {
+											auto MI = macro_directive.getMacroInfo();
+											if (MI) {
+												auto const& macro_info = *MI;
+												auto macro_def_SLE = macro_info.getDefinitionEndLoc();
+												if (macro_def_SLE.isValid() && macro_info.isUsedForHeaderGuard()) {
+													maybe_include_guard_end_location = macro_def_SLE;
+												}
+											}
+										}
+									}
+									const clang::SourceLocation insert_after_location = maybe_include_guard_end_location.has_value() 
+										? maybe_include_guard_end_location.value() : SM.getLocForStartOfFile(file_id);
+									Rewrite.InsertTextAfterToken(insert_after_location, include_type_traits_str);
+								}
 							}
 						}
 
