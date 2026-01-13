@@ -20614,6 +20614,12 @@ namespace convm1 {
 				auto function_decl1 = CE->getDirectCallee();
 				const auto num_args = CE->getNumArgs();
 
+				/* We may end up establishing expression conversion states for the arguments. Here we're just making 
+				the expression conversion state of the parent call expression is established first, which is 
+				necessary to enable the child argument expression conversion states to automatically find and 
+				establish a relationship with the parent. */
+				auto& ce_ecs_ref = state1.get_expr_conversion_state_ref(*CE, Rewrite);
+
 				if (!function_decl1) {
 					/* The call expression did not report having an associated function declaration. This may be because 
 					the call expression is the invocation of a function pointer. If so, we'll check to see if we've 
@@ -20679,12 +20685,6 @@ namespace convm1 {
 #endif /*!NDEBUG*/
 						}
 					} while (false);
-
-					/* We may end up establishing expression conversion states for the arguments. Here we're just making 
-					the expression conversion state of the parent call expression is established first, which is 
-					necessary to enable the child argument expression conversion states to automatically find and 
-					establish a relationship with the parent. */
-					auto& ce_ecs_ref = state1.get_expr_conversion_state_ref(*CE, Rewrite);
 
 					if (FD_is_non_modifiable || function_is_variadic) {
 						const std::string function_qname = function_decl1->getQualifiedNameAsString();
@@ -20973,7 +20973,26 @@ namespace convm1 {
 										arg_EX_ii_ecs_ref.m_expr_text_modifier_stack.push_back(shptr1);
 										arg_EX_ii_ecs_ref.update_current_text();
 
-										state1.add_pending_expression_update(*arg_EX_ii, Rewrite);
+										bool done_flag1 = false;
+										if ((2 <= arg_EX_ii_ecs_ref.m_SR_plus.m_adjusted_source_text_infos.size()) 
+											&& (!arg_EX_ii_ecs_ref.m_SR_plus.m_range_is_essentially_the_entire_body_of_a_macro)) {
+
+											/* The argument is part of a ("non-trivial") macro. It might be a function macro argument, but if so, that 
+											argument could be used multiple times in different places within the macro body. So any modificatons need 
+											to be applied at the place where it is used (within the call expression) rather than the place where it is 
+											passed as a macro argument. */
+											auto CESR = cm1_adj_nice_source_range(*CE, state1, Rewrite);
+											auto maybe_text_info_cptr = cpointer_targeting_the_source_text_info_record_corresponding_to_the_given_context_if_any(arg_EX_ii_ecs_ref.m_SR_plus, CExprTextInfoContext{ CESR, &Rewrite, &state1 });
+											if (maybe_text_info_cptr.has_value()) {
+												auto const& text_info = *(maybe_text_info_cptr.value());
+												const auto arg_EX_ii_SR2 = write_once_source_range(text_info.m_macro_invocation_range);
+												state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, arg_EX_ii_SR2, state1, arg_EX_ii);
+												done_flag1 = true;
+											}
+										}
+										if (!done_flag1) {
+											state1.add_pending_expression_update(*arg_EX_ii, Rewrite);
+										}
 									}
 								}
 							} else {
@@ -23540,14 +23559,17 @@ namespace convm1 {
 						if (TSI && arg_qtype->isPointerType()) {
 							/* So the argument is a (raw) pointer type (as opposed to an expression). Presumably that pointer type 
 							corresponds to the type of some object(s) that may get converted to a smart pointer (which are often 
-							not the same size as their corresponding raw pointer). In general, may not know for sure which are the 
-							corresponding object(s). For now we're going to use a heuristic where we look for a parent call 
+							not the same size as their corresponding raw pointer). In general, we may not know for sure which are 
+							the corresponding object(s). For now we're going to use a heuristic where we look for a parent call 
 							expression, and if the first argument of that call expression is a pointer to the pointer type in 
 							question, then we'll assume that the first argument points to (an array or buffer of) a/the 
 							corresponding (pointer) object. So this would cover call expressions like 
 							`memset(int_pointer_pointer, 0, n * sizeof(int*))`. */
 							const auto typeLoc = TSI->getTypeLoc();
-							const auto arg_SR = write_once_source_range(cm1_adjusted_source_range(typeLoc.getSourceRange(), state1, Rewrite));
+							const auto arg_rawSR1 = typeLoc.getSourceRange();
+							const auto arg_rawSR = extended_to_include_east_const_if_any(Rewrite, extended_to_include_west_const_if_any(Rewrite, arg_rawSR1));
+							const auto arg_SR_plus = cm1_adjusted_source_range(arg_rawSR, state1, Rewrite);
+							const auto arg_SR = write_once_source_range(extended_to_include_east_const_if_any(Rewrite, extended_to_include_west_const_if_any(Rewrite, arg_SR_plus)));
 							DEBUG_SOURCE_LOCATION_STR(debug_arg_source_location_str, arg_SR, Rewrite);
 							if ((!arg_SR.isValid()) || cm1_filtered_out_by_location(MR, arg_SR.getBegin())) {
 								return void();
@@ -23661,6 +23683,7 @@ namespace convm1 {
 											if (true || arg_seems_to_be_a_whole_macro_argument) {
 												bool visibly_containing_expression_scheduled_for_rendering_update =false;
 												auto parent_E = NonImplicitParentOfType<clang::Expr>(UEOTTE, Ctx);
+												//auto parent_E = Tget_containing_element_of_type<clang::Expr>(UEOTTE, Ctx);
 												auto E1 = parent_E;
 												while (E1) {
 													IF_DEBUG(auto E1_qtype_str = E1->getType().getAsString();)
@@ -23683,6 +23706,23 @@ namespace convm1 {
 													}
 
 													E1 = NonImplicitParentOfType<clang::Expr>(E1, Ctx);
+													//E1 = Tget_containing_element_of_type<clang::Expr>(E1, Ctx);
+												}
+												if (!visibly_containing_expression_scheduled_for_rendering_update) {
+													std::string new_arg_text = arg_text;
+													update_string_ref(new_arg_text);
+													/* Ok, we're in an uncomfortable situation here situation here. We're trying to replace the source text 
+													of the type argument, but we while we have a robust mechanism for replacing expression text, the type 
+													argument is not an expression. So above we've been using the "trick" of replacing the type argument text 
+													within the all the expressions that contain it. But at this point we don't have a confirmed (scheduled visible) 
+													replacement of the type argument, which likely indicates that the original type argument source text is not 
+													contained within an expression. (This could be a result of the type argument being a function macro argument.) 
+													So it seems we can't just use the "trick" to piggyback on the (robust) mechanism for replacement of expression 
+													text. So for now we're just going to resort to trying to replace the type argument text directly. This can be 
+													unreliable in the presence of any other interfering or overlapping modifications. */
+													if (arg_text != new_arg_text) {
+														state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, arg_SR, new_arg_text);
+													}
 												}
 												int q = 5;
 											}
