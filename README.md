@@ -481,7 +481,7 @@ Note that we add a little qualification and modification to the rules as quoted.
 
 ##### Lifetime annotation implementation caveats
 
-(Note, that at the time of writing, implementation of lifetime safety enforcement is not complete. Safety can be subverted through, for example, cyclic references with user-defined destructors, or using a type-erased function container to neutralize lifetime annotation specified restrictions, etc.. Also note that while the most essential elements are already available, the process of adding lifetime annotated elements to the SaferCPlusPlus library is still in progress. And while there should be limited need for explicit lifetime annotations, it is fully supported (and used extensively in the library), but the error messages are currently quite lacking. It is still possible to write erroneous lifetime annotations with no feedback from the scpptool analyzer.)
+(Note, that at the time of writing, implementation of lifetime safety enforcement is not complete. Safety can be subverted through, for example, cyclic references with user-defined destructors, or using a type-erased function container to neutralize lifetime annotation specified restrictions, etc.. Also note that while the most essential elements are already available, the process of adding lifetime annotated elements to the SaferCPlusPlus library is still in progress. And while there should be limited need for explicit lifetime annotations, they are fully supported (and used extensively in the library), but the error messages are currently quite lacking. It is still very possible to write erroneous lifetime annotations with no feedback from the scpptool analyzer.)
 
 ##### third party lifetime annotations
 
