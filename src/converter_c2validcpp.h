@@ -13203,7 +13203,18 @@ namespace convc2validcpp {
 				const auto operator_E_qtype = operator_E->getType();
 				IF_DEBUG(std::string operator_E_qtype_str = operator_E_qtype.getAsString();)
 
-				if (is_void_star_or_const_void_star(operator_E_qtype)) {
+				bool void_pointer_arithmetic_flag = is_void_star_or_const_void_star(operator_E_qtype);
+				if (!void_pointer_arithmetic_flag) {
+					if (E) {
+						const auto E_qtype = E->getType();
+						IF_DEBUG(std::string E_qtype_str = E_qtype.getAsString();)
+						if (is_void_star_or_const_void_star(E_qtype) && operator_E_qtype->isSignedIntegerType()) {
+							void_pointer_arithmetic_flag = true;
+						}
+					}
+				}
+
+				if (void_pointer_arithmetic_flag) {
 					/* clang++ doesn't seem to allow pointer arithmetic on `void *`s. So we're going to cast any `void *` children 
 					of the arithmetic expression to `char *`s. */
 					for (const auto child_ST : operator_E->children()) {
