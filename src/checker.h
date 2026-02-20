@@ -2434,10 +2434,10 @@ namespace checker {
 
 			if ("" != alias.m_id) {
 				//auto template_args_maybe_types = get_template_args_maybe_types(TypePtr2);
-				CAbstractLifetimeSet unaliased_lifetimes;
 				if ((template_args_maybe_types.size() > target_targ_index)
 					&& (template_args_maybe_types.at(target_targ_index).has_value())) {
 
+					CAbstractLifetimeSet unaliased_lifetimes;
 					auto template_arg_type = template_args_maybe_types.at(target_targ_index).value();
 					if (!(template_arg_type.isNull())) {
 						auto maybe_tlta_ptr = type_lifetime_annotations_if_available(template_arg_type, state1, MR_ptr, Rewrite_ptr);
@@ -3609,24 +3609,55 @@ namespace checker {
 									const auto cxxrd_qname = CXXRD->getQualifiedNameAsString();
 									if ((std_pair_str == cxxrd_qname) && (2 == num_tparams)) {
 										if (2 == num_params) {
-											const auto ND1 = tparam_list.getParam(0);
-											const auto ND2 = tparam_list.getParam(1);
-											if (ND1 && ND2) {
-												auto tparam1_name = ND1->getNameAsString();
-												auto lta1_str = std::string("lifetime_set_alias_from_template_parameter_by_name(") + tparam1_name
-													+ ", alias__implicit_11_$)";
-												lta_statement_infos.push_back( CLTAStatementInfo{ lta1_str, nullptr } );
 
-												auto tparam2_name = ND2->getNameAsString();
-												auto lta2_str = std::string("lifetime_set_alias_from_template_parameter_by_name(") + tparam2_name
-													+ ", alias__implicit_12_$)";
-												lta_statement_infos.push_back( CLTAStatementInfo{ lta2_str, nullptr } );
+											auto RRPVD_tparam_list_ptr = get_template_param_list_ptr(CXXRD);
+											if (RRPVD_tparam_list_ptr) {
+												auto const& RRPVD_tparam_list = *RRPVD_tparam_list_ptr;
+												const auto RRPVD_num_tparams = RRPVD_tparam_list.size();
 
-												auto lta3_str = std::string("lifetime_labels(alias__implicit_11_$, alias__implicit_12_$)");
-												lta_statement_infos.push_back( CLTAStatementInfo{ lta3_str, nullptr } );
+												if ((2 == RRPVD_num_tparams) && (2 == num_tparams) && (2 == num_template_args)) {
+													/* This is the constructor of an `std::pair<T1, T2>`. The constructor may be a template function that 
+													has a couple of template parameters (lets say U1 and U2) of its own, but we're not interested in those 
+													template parameters directly. Presumably they should be types that are the same as or convertible to 
+													T1 and T2. And here we're assuming that they have lifetimes that match those of T1 and T2 (possibly 
+													minus a level of indirection if T1 or T2 is a reference type). Todo: check this assumption, which can, 
+													in theory, be violated. */
 
-												implicit_parameter_lifetime_labels_map.insert({ param_ordinal_t(1), "_ [alias__implicit_11_$]" });
-												implicit_parameter_lifetime_labels_map.insert({ param_ordinal_t(1), "_ [alias__implicit_12_$]" });
+													const auto ND1 = RRPVD_tparam_list.getParam(0);
+													const auto ND2 = RRPVD_tparam_list.getParam(1);
+													if (ND1 && ND2) {
+														auto tparam1_name = ND1->getNameAsString();
+														auto tparam2_name = ND2->getNameAsString();
+														auto stdpair_type_ptr = CXXRD->getTypeForDecl();
+														/* We're assuming the constructor parameter types are reference types here. Todo: check if this is indeed the case. */
+
+														auto maybe_targ_type1 = template_arg_type_by_name_if_available(stdpair_type_ptr, tparam1_name, state1, MR_ptr, Rewrite_ptr);
+														if (maybe_targ_type1.has_value()) {
+															auto const& targ_type1 = maybe_targ_type1.value();
+															if (targ_type1->isReferenceType()) {
+																implicit_parameter_lifetime_labels_map.insert({ param_ordinal_t(1), "alias__implicit_11_$" });
+															} else {
+																implicit_parameter_lifetime_labels_map.insert({ param_ordinal_t(1), "_ [alias__implicit_11_$]" });
+															}
+														} else {
+															/* unexpected */
+															int q = 3;
+														}
+
+														auto maybe_targ_type2 = template_arg_type_by_name_if_available(stdpair_type_ptr, tparam2_name, state1, MR_ptr, Rewrite_ptr);
+														if (maybe_targ_type2.has_value()) {
+															auto const& targ_type2 = maybe_targ_type2.value();
+															if (targ_type2->isReferenceType()) {
+																implicit_parameter_lifetime_labels_map.insert({ param_ordinal_t(2), "alias__implicit_12_$" });
+															} else {
+																implicit_parameter_lifetime_labels_map.insert({ param_ordinal_t(2), "_ [alias__implicit_12_$]" });
+															}
+														} else {
+															/* unexpected */
+															int q = 3;
+														}
+													}
+												}
 											}
 										}
 									}
@@ -3850,10 +3881,10 @@ namespace checker {
 								state1.register_error(*(MR_ptr->SourceManager), attr_SR, error_desc);
 							}
 						} else {
-							auto template_name = std::string(alts1.m_primary_lifetimes.at(0).m_id);
+							auto tparam_name = std::string(alts1.m_primary_lifetimes.at(0).m_id);
 							auto set_alias = alts1.m_primary_lifetimes.at(1);
 
-							auto lifetimes_from_specified_template_params = infer_alias_mapping_from_template_arg(func_decl, template_name, set_alias, state1, MR_ptr, Rewrite_ptr);
+							auto lifetimes_from_specified_template_params = infer_alias_mapping_from_template_arg(func_decl, tparam_name, set_alias, state1, MR_ptr, Rewrite_ptr);
 						}
 						break;
 					}
