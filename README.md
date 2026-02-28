@@ -1002,7 +1002,7 @@ Also note that (though we don't use them in the example) some (provisional) shor
 `xl_bf_optional<>` is an alias for `xslta_borrowing_fixed_optional<>`  
 `make_xl_bf_optional()` is an alias for `make_xslta_borrowing_fixed_optional()`
 
-usage example: ([link to interactive version](https://godbolt.org/z/x5YGxqzj9))
+usage example: ([link to interactive version](https://godbolt.org/z/bMa9Mrsdv))
 
 ```cpp
     #include "mseslta.h"
