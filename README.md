@@ -1047,7 +1047,7 @@ usage example: ([link to interactive version](https://godbolt.org/z/x5YGxqzj9))
         /* While not the preferred method, rsv::xslta_optional<> does (currently) have limited support for accessing
         its element (pseudo-)directly. */
 
-        /* As with rsv::xslta_vector<>, rsv::xslta_optional<>'s non-const accessor methods and operators do not
+        /* As with rsv::xslta_vector<>, rsv::xslta_optional<>'s accessor methods and operators do not
         return a raw reference. They return a "proxy reference" object that (while it exists, prevents the addition
         or removal of a value and) behaves like a (raw) reference in some situations. For example, like a reference,
         it can be cast to the element type. */
