@@ -1002,7 +1002,7 @@ Also note that (though we don't use them in the example) some (provisional) shor
 `xl_bf_optional<>` is an alias for `xslta_borrowing_fixed_optional<>`  
 `make_xl_bf_optional()` is an alias for `make_xslta_borrowing_fixed_optional()`
 
-usage example: ([link to interactive version](https://godbolt.org/z/z78W1xrqf))
+usage example: ([link to interactive version](https://godbolt.org/z/x5YGxqzj9))
 
 ```cpp
     #include "mseslta.h"
@@ -1061,11 +1061,6 @@ usage example: ([link to interactive version](https://godbolt.org/z/z78W1xrqf))
 
         /* Note that these returned "proxy reference" objects are designed to be used as temporary (rvalue) objects,
         not as (lvalue) declared variables or stored objects. */
-
-        /* Note again that we've been using a non-const rsv::xslta_optional<>. Perhaps unintuitively, the contents of
-        an rsv::xslta_optional<> cannot be safely accessed via const reference to the optional. */
-        auto const& maybe_int_xsltaptr6_cref1 = maybe_int_xsltaptr6;
-        //typename decltype(maybe_int_xsltaptr6)::value_type ilaptr3b = maybe_int_xsltaptr6_cref1.value();    // scpptool would complain
 
         {
             /* rsv::xslta_fixed_optional<> is a (lifetime annotated) optional that doesn't support any operations that
