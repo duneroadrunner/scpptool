@@ -48,6 +48,7 @@ By some request, a ["Rough Summary of the Approach to Lifetime Safety For Those 
         5. [TXSLTARandomAccessSection, TXSLTARandomAccessConstSection](#txsltarandomaccesssection-txsltarandomaccessconstsection)
         6. [TXSLTACSSSXSTERandomAccessIterator and TXSLTACSSSXSTERandomAccessSection](#txsltacsssxsterandomaccessiterator-and-txsltacsssxsterandomaccesssection)
         7. [xslta_optional, xslta_fixed_optional, xslta_borrowing_fixed_optional](#xslta_optional-xslta_fixed_optional-xslta_borrowing_fixed_optional)
+        8. [TXSLTARefCountingPointer, TXSLTARefCountingNotNullPointer, TXSLTARefCountingFixedPointer, xslta_borrowing_fixed_owning_pointer](txsltarefcountingpointer-txsltarefcountingnotnullpointer-txsltarefcountingfixedpointer-xslta_borrowing_fixed_owning_pointer)
         </details>
     5. [SaferCPlusPlus elements](#safercplusplus-elements)
     6. [Elements not (yet) addressed](#elements-not-yet-addressed)
@@ -1098,6 +1099,107 @@ usage example: ([link to interactive version](https://godbolt.org/z/Po3rdaW36))
 
             auto& elem_ref1 = af_opt2a.value();
             int i4 = *elem_ref1;
+        }
+    }
+```
+
+##### TXSLTARefCountingPointer, TXSLTARefCountingNotNullPointer, TXSLTARefCountingFixedPointer, xslta_borrowing_fixed_owning_pointer
+
+`rsv::TXSLTARefCountingPointer<>` is a [lifetime annotated](#annotating-lifetime-constraints) "shared ownership" pointer, like `std::shared_ptr<>`. `rsv::TXSLTARefCountingPointer<>`s would typically be obtained via the `rsv::make_xslta_nullable_refcounting<>()` function. But note that unlike `std::make_shared<>()`, with `rsv::make_xslta_nullable_refcounting<>()` you don't pass it the element type's contructor arguments, but rather just an already constructed (temporary) instance of its element type. So instead of something like `std::make_shared<std::string>("abc")`, it would be `rsv::make_xslta_nullable_refcounting(std::string{"abc"})`.
+
+`rsv::TXSLTARefCountingNotNullPointer<>` is basically the same, but does not support being assigned or initialized with null values. You'd typically use the `rsv::make_xslta_refcounting<>()` function to obtain one. `rsv::TXSLTARefCountingNotNullPointer<>`s are implicitly convertible to `rsv::TXSLTARefCountingPointer<>`s, but the reverse conversion would require explicit use of the `rsv::not_null_from_nullable()` function.
+
+`rsv::TXSLTARefCountingFixedPointer<>` is basically an `rsv::TXSLTARefCountingNotNullPointer<>` that cannot be retargeted (to point to a different object) after construction. I.e. sort of a `const rsv::TXSLTARefCountingNotNullPointer<>`.
+
+`rsv::xslta_borrowing_fixed_owning_not_null_pointer<>` is a lifetime annotated owning pointer that cannot be retargeted after construction and (exclusively) "borrows" the contents of the specified "not null" owning pointer (which might be, for example, an `rsv::TXSLTARefCountingNotNullPointer<>)`. Like the other "xslta_borrowing_fixed" types, it's used when you need to obtain a direct (raw) reference to the (owned) target object of the lending owning pointer. 
+
+Unlike their standard library counterpart (or `rsv::TXSLTARefCountingFixedPointer<>`), the dereference operators of `rsv::TXSLTARefCountingNotNullPointer<>` (and `rsv::TXSLTARefCountingPointer<>`) do not yield a raw reference, but rather a "proxy reference" object that can (safely) act like a raw reference in some cases. Typically, an `rsv::xslta_borrowing_fixed_owning_not_null_pointer<>` is obtained via the `rsv::make_xslta_borrowing_fixed_owning_not_null_pointer()` function.
+
+The reason the dereference operators of `rsv::TXSLTARefCountingNotNullPointer<>` and `rsv::TXSLTARefCountingPointer<>` return "proxy reference" objects instead of raw references to their (owned) target object is because they are "dynamic owning" pointers, and as such, face the same issue that dynamic owning containers (like [vectors](#xslta_vector-xslta_fixed_vector-xslta_borrowing_fixed_vector) and optionals) do with respect to the danger of references to their (owned) content becoming "dangling". (But note that `rsv::TXSLTARefCountingFixedPointer<>` is not a *dynamic* owning pointer, so its dereference operators do yield a raw reference.)
+
+`rsv::xslta_borrowing_fixed_owning_pointer<>` is the version of `rsv::xslta_borrowing_fixed_owning_not_null_pointer<>` for nullable owning pointers, like `rsv::TXSLTARefCountingPointer<>`. Typically, an `rsv::xslta_borrowing_fixed_owning_pointer<>` is obtained via the `rsv::make_xslta_borrowing_fixed_owning_pointer()` function.
+
+usage example: 
+
+```cpp
+    #include "mseslta.h"
+    #include "mserefcounting.h"
+    
+    int main(int argc, char* argv[]) {
+        int i1 = 3;
+        int i2 = 5;
+        int i3 = 7;
+        auto iltaptr4 = mse::rsv::TXSLTAPointer<int>{ &i2 };
+        auto iltaptr5 = mse::rsv::TXSLTAPointer<int>{ &i1 };
+        
+        mse::rsv::TXSLTARefCountingPointer<mse::rsv::TXSLTAPointer<int> > int_xlptr_xlrefcptr3 = mse::rsv::make_xslta_nullable_refcounting(iltaptr4);
+        
+        /* Even when you want to construct a null rsv::TXSLTARefCountingPointer<>, if the element type has an annotated
+        lifetime, you would still need to provide (a reference to) an initialization element object from which
+        a lower bound lifetime can be inferred. You could just initialize the refcounting pointer with a value, then reset()
+        the rsv::TXSLTARefCountingPointer<>. Alternatively, you can pass nullptr as the first constructor parameter,
+        and a second (otherwise unused) parameter from which the lower bound lifetime will be inferred. */
+        mse::rsv::TXSLTARefCountingPointer<mse::rsv::TXSLTAPointer<int> > int_xlptr_xlrefcptr2(nullptr, iltaptr4);
+        //mse::rsv::TXSLTARefCountingPointer<mse::rsv::TXSLTAPointer<int> > int_xlptr_xlrefcptr;    // scpptool would complain
+        mse::rsv::TXSLTARefCountingPointer<int> int_xlrefcptr;    // fine, the element type does not have an annotated lifetime
+        
+        auto int_xlptr_xlrefcptr5 = mse::rsv::make_xslta_nullable_refcounting(nullptr, iltaptr4);
+        auto int_xlptr_xlrefcptr6 = mse::rsv::make_xslta_nullable_refcounting(iltaptr4);
+        {
+            /* As with rsv::xslta_optional<>, the preferred way of accessing the (owned) target of an rsv::TXSLTARefCountingPointer<>
+            is via an associated rsv::xslta_borrowing_fixed_owning_pointer<> (which, while it exists, "borrows" exclusive
+            access to the (pointer) value of the given owning pointer and prevents it from being reset() or replaced in a way that 
+            might result in the deallocation of the owned target object. */
+            auto bfint_xlptr_xlrefcptr6 = mse::rsv::make_xslta_borrowing_fixed_owning_pointer(&int_xlptr_xlrefcptr6);
+            auto iltaptr26 = *bfint_xlptr_xlrefcptr6;
+            std::swap(iltaptr26, iltaptr4);
+        }
+        
+        /* While not the preferred method, rsv::TXSLTARefCountingPointer<> does (currently) have limited support for accessing
+        its owned target object (pseudo-)directly. */
+        
+        /* As with rsv::xslta_optional<>, rsv::TXSLTARefCountingPointer<>'s dereference methods and operators do not
+        return a raw reference. They return a "proxy reference" object that (while it exists, prevents the deallocation 
+        of the target object and) behaves like a (raw) reference in some situations. For example, like a reference,
+        it can be cast to the element type. */
+        typename decltype(int_xlptr_xlrefcptr6)::value_type iltaptr6 = (*int_xlptr_xlrefcptr6);
+        iltaptr6 = &i2;
+        //iltaptr6 = &i3; // scpptool would complain (because i3 does not live long enough)
+        
+        /* The returned "proxy reference" object also has limited support for assignment operations. */
+        *int_xlptr_xlrefcptr6 = &i1;
+        //*int_xlptr_xlrefcptr6 = &i3;    // scpptool would complain (because i3 does not live long enough)
+        
+        /* Note that these returned "proxy reference" objects are designed to be used as temporary (rvalue) objects,
+        not as (lvalue) declared variables or stored objects. */
+        
+        auto const& int_xlptr_xlrefcptr6_cref1 = int_xlptr_xlrefcptr6;
+        typename decltype(int_xlptr_xlrefcptr6)::value_type iltaptr3b = *int_xlptr_xlrefcptr6_cref1;
+        
+        {
+            /* rsv::TXSLTARefCountingFixedPointer<> is a (lifetime annotated) refcounting pointer that doesn't support any operations that
+            would change which object is being targeted/owned (subsequent to initialization). (Basically a "const rsv::TXSLTARefCountingNotNullPointer<>".) */
+            auto f_int_xlptr_xlrefcptr1 = mse::rsv::TXSLTARefCountingFixedPointer<mse::rsv::TXSLTAPointer<int> >(mse::rsv::make_xslta_refcounting<mse::rsv::TXSLTAPointer<int> >(*int_xlptr_xlrefcptr6));
+        }
+        
+        mse::rsv::TXSLTARefCountingFixedPointer<mse::rsv::TXSLTAPointer<int> > fint_xlptr_xlrefcptr2 = mse::rsv::make_xslta_refcounting<mse::rsv::TXSLTAPointer<int> >(iltaptr4);
+        auto fint_xlptr_xlrefcptr16 = mse::rsv::TXSLTARefCountingFixedPointer<mse::rsv::TXSLTAPointer<int> >(mse::rsv::make_xslta_refcounting<mse::rsv::TXSLTAPointer<int> >(iltaptr4));
+        auto iltaptr16 = *fint_xlptr_xlrefcptr16;
+        std::swap(iltaptr16, iltaptr4);
+        std::swap(iltaptr5, iltaptr16);
+        
+        {
+            int i21 = 11;
+            auto iltaptr21 = mse::rsv::TXSLTAPointer<int>{ &i21 };
+            auto int_xlptr_xlrefcptr21 = mse::rsv::make_xslta_nullable_refcounting(iltaptr21);
+            //int_xlptr_xlrefcptr6 = int_xlptr_xlrefcptr21; /* scpptool would complain */
+            /* because the lifetime associated with int_xlptr_xlrefcptr21's lifetime restriction is shorter than that 
+            of int_xlptr_xlrefcptr6 */
+            int_xlptr_xlrefcptr21 = int_xlptr_xlrefcptr6; // which means the reverse assignment is safe and permitted
+            
+            auto int_xlrefcptr21 = mse::rsv::make_xslta_nullable_refcounting(i21);
+            int_xlrefcptr = int_xlrefcptr21;    // but this is fine because the element type does not have an annotated lifetime
+            int_xlrefcptr21 = int_xlrefcptr;
         }
     }
 ```
