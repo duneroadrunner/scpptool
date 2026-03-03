@@ -65,6 +65,7 @@ sudo apt-get update
 sudo apt-get install zlib1g-dev
 sudo apt-get install libtinfo-dev
 sudo apt-get install libxml2-dev
+sudo apt-get install libzstd-dev
 ```
 scpptool also uses the `yaml-cpp` library which can be installed as follows:
 ```
