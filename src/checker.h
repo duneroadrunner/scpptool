@@ -14380,8 +14380,13 @@ namespace checker {
 			//CompilerInstance &CI = getCompilerInstance();
 
 			IntrusiveRefCntPtr<DiagnosticIDs> DiagIDs(CI.getDiagnostics().getDiagnosticIDs());
+#if MU_LLVM_MAJOR <= 20
 			IntrusiveRefCntPtr<DiagnosticsEngine> DiagEngine(new DiagnosticsEngine(DiagIDs, &CI.getDiagnosticOpts(),
 					new IgnoringDiagConsumer(),/*ShouldOwnClient=*/true));
+#else
+			IntrusiveRefCntPtr<DiagnosticsEngine> DiagEngine(new DiagnosticsEngine(DiagIDs, CI.getDiagnosticOpts(),
+					new IgnoringDiagConsumer(),/*ShouldOwnClient=*/true));
+#endif /*MU_LLVM_MAJOR*/
 			CDiag diag(DiagIDs, DiagEngine);
 			multi_tu_state_ptr->diags.push_back(diag);
 			//CI.setDiagnostics(DiagEngine.get());
@@ -14406,10 +14411,16 @@ namespace checker {
 				errs() << "LOOP\n";
 				//IntrusiveRefCntPtr<DiagnosticsEngine> DiagEngine(new DiagnosticsEngine(DiagIDs, &CI.getDiagnosticOpts(),
 				//		new ForwardingDiagnosticConsumer(*CI.getDiagnostics().getClient()),/*ShouldOwnClient=*/true));
+				IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
+#if MU_LLVM_MAJOR <= 20
 				IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts = new DiagnosticOptions();
 				TextDiagnosticPrinter *DiagClient = new TextDiagnosticPrinter(llvm::errs(), &*DiagOpts);
-				IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
 				IntrusiveRefCntPtr<DiagnosticsEngine> DiagEngine(new DiagnosticsEngine(DiagID, &*DiagOpts, DiagClient));
+#else
+				thread_local DiagnosticOptions tl_DiagOpts;
+				TextDiagnosticPrinter *DiagClient = new TextDiagnosticPrinter(llvm::errs(), tl_DiagOpts);
+				IntrusiveRefCntPtr<DiagnosticsEngine> DiagEngine(new DiagnosticsEngine(DiagID, tl_DiagOpts, DiagClient));
+#endif /*MU_LLVM_MAJOR*/
 				//multi_tu_state_ptr->ast_units.at(I)->getDiagnostics().setClient(DiagClient, true/*take ownership*/);
 
 				//CI.getDiagnostics().Reset();
@@ -14716,6 +14727,10 @@ namespace checker {
 			const clang::Module *imported
 		#if MU_LLVM_MAJOR <= 6
 		#elif MU_LLVM_MAJOR >= 8
+#if MU_LLVM_MAJOR <= 18
+#else
+			, bool ModuleImported
+#endif /*MU_LLVM_MAJOR*/
 			, SrcMgr::CharacteristicKind file_type
 		#endif /*MU_LLVM_MAJOR*/
 		) override {

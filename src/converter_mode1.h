@@ -276,6 +276,7 @@ namespace convm1 {
 			: m_original_species(original), m_current_species(current), m_array_size_expr(array_size_expr) {
 				set_current_species(current);
 			}
+		CIndirectionState& operator=(const CIndirectionState& src_cref) = default;
 
 		bool current_is_function_type() const { return m_current_is_function_type; }
 
@@ -1937,10 +1938,14 @@ namespace convm1 {
 	public:
 		CExprTextInfo(const clang::Expr * expr_ptr, Rewriter &Rewrite, CTUState& state1);
 		std::string const& current_text(std::optional<CExprTextInfoContext> maybe_context = {}) const;
+		CTUState& state1_ref() const {
+			assert(m_state1_ptr);
+			return *m_state1_ptr;
+		}
 		const Expr* m_expr_cptr = nullptr;
 		CSourceRangePlus m_SR_plus;
 		std::string m_original_source_text_str;
-		CTUState& m_state1;
+		CTUState* m_state1_ptr = nullptr;
 	};
 
 	inline bool location_seems_to_be_in_a_header_file(clang::SourceLocation SL, clang::SourceManager& SM) {
@@ -4271,7 +4276,7 @@ namespace convm1 {
 		return m_state1.m_ast_context_ptr;
 	}
 
-	CExprTextInfo::CExprTextInfo(const clang::Expr * expr_ptr, Rewriter &Rewrite, CTUState& state1) : m_expr_cptr(expr_ptr), m_state1(state1) {
+	CExprTextInfo::CExprTextInfo(const clang::Expr * expr_ptr, Rewriter &Rewrite, CTUState& state1) : m_expr_cptr(expr_ptr), m_state1_ptr(&state1) {
 		if (expr_ptr) {
 #ifndef NDEBUG
 			auto SR = cm1_adj_nice_source_range((*expr_ptr).getSourceRange(), state1, Rewrite);
@@ -4492,12 +4497,12 @@ namespace convm1 {
 			}
 #endif /*!NDEBUG*/
 
-		auto iter = m_state1.m_expr_conversion_state_map.find(m_expr_cptr);
-		if (m_state1.m_expr_conversion_state_map.end() == iter) {
+		auto iter = state1_ref().m_expr_conversion_state_map.find(m_expr_cptr);
+		if (state1_ref().m_expr_conversion_state_map.end() == iter) {
 			auto E_ii = IgnoreImplicit(m_expr_cptr);
-			iter = m_state1.m_expr_conversion_state_map.find(E_ii);
+			iter = state1_ref().m_expr_conversion_state_map.find(E_ii);
 		}
-		if (m_state1.m_expr_conversion_state_map.end() != iter) {
+		if (state1_ref().m_expr_conversion_state_map.end() != iter) {
 			return (*iter).second->current_text(maybe_context);
 		}
 		if (maybe_context.has_value() && maybe_context.value().m_root_SR.isValid()) {
@@ -4927,7 +4932,7 @@ namespace convm1 {
 			static const auto sc_species_str = std::string("conditional operator");
 			return sc_species_str;
 		}
-		virtual std::string const& species() const {
+		virtual std::string const& species() const override {
 			return s_species();
 		}
 
@@ -4969,7 +4974,7 @@ namespace convm1 {
 			static const auto sc_species_str = std::string("call expression");
 			return sc_species_str;
 		}
-		virtual std::string const& species() const {
+		virtual std::string const& species() const override {
 			return s_species();
 		}
 
@@ -4995,7 +5000,7 @@ namespace convm1 {
 			static const auto sc_species_str = std::string("single arg call expression");
 			return sc_species_str;
 		}
-		virtual std::string const& species() const {
+		virtual std::string const& species() const override {
 			return s_species();
 		}
 
@@ -5030,7 +5035,7 @@ namespace convm1 {
 			static const auto sc_species_str = std::string("cast expression");
 			return sc_species_str;
 		}
-		virtual std::string const& species() const {
+		virtual std::string const& species() const override {
 			return s_species();
 		}
 
@@ -5057,7 +5062,7 @@ namespace convm1 {
 			static const auto sc_species_str = std::string("address of array subscript");
 			return sc_species_str;
 		}
-		virtual std::string const& species() const {
+		virtual std::string const& species() const override {
 			return s_species();
 		}
 
@@ -5682,12 +5687,12 @@ namespace convm1 {
 
 				clang::SourceRange m_SR;
 			};
-			static const size_t CachSize = 0/*arbitrary*/;
-			thread_local std::array<CSourceRangePlusCacheItem, CachSize> tl_cache1;
+			static const size_t CacheSize = 0/*arbitrary*/;
+			thread_local std::array<CSourceRangePlusCacheItem, CacheSize> tl_cache1;
 			thread_local size_t cache1_mru_index = 0;
-			if constexpr (1 <= CachSize) {
-				for (size_t i = 0; tl_cache1.size() > i; i += 1) {
-					auto wrapped_i = ((i + cache1_mru_index) % tl_cache1.size());
+			if constexpr (1 <= CacheSize) {
+				for (size_t i = 0; CacheSize/*tl_cache1.size()*/ > i; i += 1) {
+					auto wrapped_i = ((i + cache1_mru_index) % CacheSize/*tl_cache1.size()*/);
 					auto const& cache_item = tl_cache1.at(wrapped_i);
 					if (cache_item.m_SR == sr) {
 						return cache_item;
@@ -7050,8 +7055,8 @@ namespace convm1 {
 					}
 				}
 
-				if constexpr (1 <= CachSize) {
-					size_t cache1_least_recently_used_index = ((cache1_mru_index + tl_cache1.size() - 1) % tl_cache1.size());
+				if constexpr (1 <= CacheSize) {
+					size_t cache1_least_recently_used_index = ((cache1_mru_index + CacheSize/*tl_cache1.size()*/ - 1) % CacheSize/*tl_cache1.size()*/);
 					tl_cache1.at(cache1_least_recently_used_index) = { retval, sr };
 					cache1_mru_index = cache1_least_recently_used_index;
 				}
@@ -14317,7 +14322,6 @@ namespace convm1 {
 					}
 					if ((!seems_to_be_some_kind_of_malloc_or_realloc_or_dup1) && (!res2.seems_to_be_some_kind_of_free())) {
 						for (auto const& adjusted_source_text_info : SR_plus.m_adjusted_source_text_infos) {
-							adjusted_source_text_info.m_text;
 							if (is_recognized_alloc_function_name(extracted_function_name(adjusted_source_text_info.m_text))) {
 								res2 = analyze_malloc_resemblance(*function_decl, state1, Rewrite, extracted_function_name(adjusted_source_text_info.m_text));
 								seems_to_be_some_kind_of_malloc_or_realloc_or_dup1 = res2.seems_to_be_some_kind_of_malloc_or_realloc_or_dup();
@@ -15351,7 +15355,6 @@ namespace convm1 {
 						DEBUG_SOURCE_LOCATION_STR(decl_uo_debug_source_location_str, D_UO->getSourceRange(), Rewrite);
 						DEBUG_SOURCE_TEXT_STR(decl_uo_debug_source_text, D_UO->getSourceRange(), Rewrite);
 						IF_DEBUG(auto b1 = D_UO->isImplicit();)
-						int(5);
 						/* Todo: Ensure that the ('&') operator hasn't been explicitly overloaded. */
 					}
 				}
@@ -24235,8 +24238,13 @@ namespace convm1 {
 			//CompilerInstance &CI = getCompilerInstance();
 
 			IntrusiveRefCntPtr<DiagnosticIDs> DiagIDs(CI.getDiagnostics().getDiagnosticIDs());
+#if MU_LLVM_MAJOR <= 20
 			IntrusiveRefCntPtr<DiagnosticsEngine> DiagEngine(new DiagnosticsEngine(DiagIDs, &CI.getDiagnosticOpts(),
 					new IgnoringDiagConsumer(),/*ShouldOwnClient=*/true));
+#else
+			IntrusiveRefCntPtr<DiagnosticsEngine> DiagEngine(new DiagnosticsEngine(DiagIDs, CI.getDiagnosticOpts(),
+					new IgnoringDiagConsumer(),/*ShouldOwnClient=*/true));
+#endif /*MU_LLVM_MAJOR*/
 			CDiag diag(DiagIDs, DiagEngine);
 			multi_tu_state_ptr->diags.push_back(diag);
 			//CI.setDiagnostics(DiagEngine.get());
@@ -24261,10 +24269,16 @@ namespace convm1 {
 				errs() << "LOOP\n";
 				//IntrusiveRefCntPtr<DiagnosticsEngine> DiagEngine(new DiagnosticsEngine(DiagIDs, &CI.getDiagnosticOpts(),
 				//		new ForwardingDiagnosticConsumer(*CI.getDiagnostics().getClient()),/*ShouldOwnClient=*/true));
+				IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
+#if MU_LLVM_MAJOR <= 20
 				IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts = new DiagnosticOptions();
 				TextDiagnosticPrinter *DiagClient = new TextDiagnosticPrinter(llvm::errs(), &*DiagOpts);
-				IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
 				IntrusiveRefCntPtr<DiagnosticsEngine> DiagEngine(new DiagnosticsEngine(DiagID, &*DiagOpts, DiagClient));
+#else
+				thread_local DiagnosticOptions tl_DiagOpts;
+				TextDiagnosticPrinter *DiagClient = new TextDiagnosticPrinter(llvm::errs(), tl_DiagOpts);
+				IntrusiveRefCntPtr<DiagnosticsEngine> DiagEngine(new DiagnosticsEngine(DiagID, tl_DiagOpts, DiagClient));
+#endif /*MU_LLVM_MAJOR*/
 				//multi_tu_state_ptr->ast_units.at(I)->getDiagnostics().setClient(DiagClient, true/*take ownership*/);
 
 				//CI.getDiagnostics().Reset();
@@ -24758,6 +24772,10 @@ namespace convm1 {
 			const clang::Module *imported
 		#if MU_LLVM_MAJOR <= 6
 		#elif MU_LLVM_MAJOR >= 8
+#if MU_LLVM_MAJOR <= 18
+#else
+			, bool ModuleImported
+#endif /*MU_LLVM_MAJOR*/
 			, SrcMgr::CharacteristicKind file_type
 		#endif /*MU_LLVM_MAJOR*/
 		) override {
