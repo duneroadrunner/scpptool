@@ -1,16 +1,27 @@
 TARGET=scpptool
 SHELL=bash
 SHELL?=bash
-CC=gcc
-CC?=gcc
+LLVM_CONF?=llvm-config
+
+# While historically you could reliably use (even somewhat dated versions of) gcc/g++ to build programs that use the clang libraries, 
+# recently it seems to have been more reliable to use the clang/clang++ (and ld.lld) executables included with the 
+# clang+llvm pre-built binaries that we're linking with
+
+#CC=gcc
+#CC?=gcc
+CC=$(shell $(LLVM_CONF) --obj-root)/bin/clang
+CC?=$(shell $(LLVM_CONF) --obj-root)/bin/clang
 CFLAGS=-fpic -std=c11
-CXX=g++
-CXX?=g++
+#CXX=g++
+#CXX?=g++
+CXX=$(shell $(LLVM_CONF) --obj-root)/bin/clang++
+CXX?=$(shell $(LLVM_CONF) --obj-root)/bin/clang++
 CXX_FLAGS=-fpic
 CXX_EXTRA?=
 CTAGS_I_PATH?=./
 LD_FLAGS=
-EXTRA_LD_FLAGS?=
+#EXTRA_LD_FLAGS?=
+EXTRA_LD_FLAGS?=-fuse-ld=$(shell $(LLVM_CONF) --obj-root)/bin/ld.lld
 ADD_SANITIZERS_CC= -g -fsanitize=address -fno-omit-frame-pointer
 ADD_SANITIZERS_LD= -g -fsanitize=address
 MEM_SANITIZERS_CC= -g -fsanitize=memory -fno-omit-frame-pointer
@@ -24,7 +35,7 @@ BUILD_MODE?=RELEASE
 OBJ_LIST:=$(patsubst %.cpp, %.o, $(wildcard *.cpp))
 ASM_LIST:=$(patsubst %.cpp, %.dis, $(wildcard *.cpp))
 
-LLVM_CONF?=llvm-config
+#LLVM_CONF?=llvm-config
 LLVM_CXX_FLAGS=$(shell $(LLVM_CONF) --cxxflags)
 LLVM_CXX_FLAGS+=\
 # -I$(shell $(LLVM_CONF) --src-root)/tools/clang/include\

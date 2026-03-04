@@ -266,7 +266,7 @@ namespace convc2validcpp {
 				bool current_is_function_type = false, const std::vector<clang::QualType>& param_qtypes = std::vector<clang::QualType>(),
 				const std::optional<clang::FunctionProtoTypeLoc>& maybe_functionProtoTypeLoc = {})
 			: m_original_species(original), m_current_species(current), m_current_is_function_type(current_is_function_type)
-				, m_maybe_typeLoc(maybe_typeLoc), m_function_type_state(param_qtypes, maybe_functionProtoTypeLoc) {
+				, m_function_type_state(param_qtypes, maybe_functionProtoTypeLoc), m_maybe_typeLoc(maybe_typeLoc) {
 					set_current_species(current);
 				}
 		CIndirectionState(const std::optional<clang::TypeLoc>& maybe_typeLoc, const std::string& original, const std::string& current,

@@ -7,30 +7,28 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 cd $SCRIPT_DIR
 
-#This script checks whether it's running on an x86_64 architecture with Ubuntu as its OS
+#This script checks whether it's running on an x86_64 architecture with Linux as its OS
 arch=$(uname -m) # Get system architecture using 'uname -m' command
 
-os=$(cat /etc/*release | grep DISTRIB_ID=Ubuntu) # Check if the current distribution is Ubuntu
+if [ "$arch" == "x86_64" ] || [ -f /etc/os-release ]; then # If architecture is x86_64 and OS is Linux, print a message
 
-if [ "$arch" == "x86_64" ] && [ ! -z $os ]; then # If architecture is x86_64 and OS is Ubuntu, print a message
+	echo "This script is running on an x86_64 Linux platform."
 
-	echo "This script is running on an x86_64 Ubuntu platform."
-
-	llvmsubdir="clang+llvm-18.1.7-x86_64-linux-gnu-ubuntu-18.04"
+	llvmsubdir="LLVM-21.1.8-Linux-X64"
 	llvmdir=$PWD/$llvmsubdir
 	if [ -d $llvmdir ]; then
 	    echo "The directory $llvmdir already exists."
 	else
 	    echo "The directory $llvmdir does not seem to exist."
 	    echo "Downloading llvm prebuilt binares..."
-	    wget "https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.7/clang+llvm-18.1.7-x86_64-linux-gnu-ubuntu-18.04.tar.xz"
-	    tar -xvf clang+llvm-18.1.7-x86_64-linux-gnu-ubuntu-18.04.tar.xz
+	    wget "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.8/LLVM-21.1.8-Linux-X64.tar.xz"
+	    tar -xvf LLVM-21.1.8-Linux-X64.tar.xz
 	fi
 else
 
-	echo "This script is not running on an x86_64 Ubuntu platform. Architecture: $arch"  # Print the detected architecture if it's not x86_64 or OS isn't Ubuntu
+	echo "This script is not running on an x86_64 Linux platform. Architecture: $arch"  # Print the detected architecture if it's not x86_64 or OS isn't Linux
 	echo ""
-	echo "Please download the clang+llvm-18.1.7 pre-built binaries tar file for your platform (located here: https://github.com/llvm/llvm-project/releases/tag/llvmorg-18.1.7 or in a sibling directory) and extract the contents. "
+	echo "Please download the LLVM-21.1.8 pre-built binaries tar file for your platform (located here: https://github.com/llvm/llvm-project/releases/tag/llvmorg-21.1.8 or in a sibling path) and extract the contents. "
 
 	read -p "Then enter the full path of the extracted directory: " dir_path
 
@@ -60,20 +58,20 @@ else
     exit -1
 fi
 
-srcclangincludedir=$llvmdir/lib/clang/18/include
+srcclangincludedir=$llvmdir/lib/clang/21/include
 
 mkdir ../lib
 mkdir ../lib/clang
-mkdir ../lib/clang/18
-cp -n -r $srcclangincludedir ../lib/clang/18
+mkdir ../lib/clang/21
+cp -n -r $srcclangincludedir ../lib/clang/21
 
 echo "
 Build complete. 
 
 
-Once you've verified that scpptool is working properly, you may then delete the clang+llvm-18.1.7 tar file that was downloaded manually or by this build script, and the directory extracted from it.
+Once you've verified that scpptool is working properly, you may then delete the clang+llvm-21.1.8 tar file that was downloaded manually or by this build script, and the directory extracted from it.
 
-Note that scpptool uses a clang include directory located in the relative path '../lib/clang/18' created by this script. So copying or moving the scpptool executable may also require moving that include directory so that the relative path remains the same.
+Note that scpptool uses a clang include directory located in the relative path '../lib/clang/21' created by this script. So copying or moving the scpptool executable may also require moving that include directory so that the relative path remains the same.
 
 
 The usage syntax is as follows:

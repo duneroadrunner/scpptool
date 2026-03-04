@@ -281,6 +281,7 @@ namespace checker {
 	struct CEncompasses : public CPairwiseLifetimeConstraint {
 		typedef CPairwiseLifetimeConstraint base_class;
 		CEncompasses(const CAbstractLifetime& first, const CAbstractLifetime& second) : base_class{ first, second } {}
+		virtual ~CEncompasses() {}
 		virtual std::string species_str() const override { return "encompasses"; }
 		virtual EYesNoDontKnow second_can_be_assigned_to_first(const std::optional<CAbstractLifetime> maybe_first = {}, const std::optional<CAbstractLifetime> maybe_second = {}) const override {
 			EYesNoDontKnow retval = EYesNoDontKnow::DontKnow;
@@ -297,6 +298,7 @@ namespace checker {
 	struct CFirstCanBeAssignedToSecond : public CPairwiseLifetimeConstraint {
 		typedef CPairwiseLifetimeConstraint base_class;
 		CFirstCanBeAssignedToSecond(const CAbstractLifetime& first, const CAbstractLifetime& second) : base_class{ first, second } {}
+		virtual ~CFirstCanBeAssignedToSecond() {}
 		virtual std::string species_str() const override { return "first_can_be_assigned_to_second"; }
 		virtual EYesNoDontKnow second_can_be_assigned_to_first(const std::optional<CAbstractLifetime> maybe_first = {}, const std::optional<CAbstractLifetime> maybe_second = {}) const override {
 			EYesNoDontKnow retval = EYesNoDontKnow::DontKnow;
