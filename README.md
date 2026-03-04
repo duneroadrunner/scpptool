@@ -74,7 +74,7 @@ sudo apt-get install libyaml-cpp-dev
 
 Next, [download](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract the repository (or clone it). Then just run the `build_myscpptool.sh` script. 
 
-If you're not running an Ubuntu x86_64 system, then it will instruct you to download the clang+llvm pre-built binaries for your system and indicate the directory where they were extracted to. (On some systems, clang+llvm may require you to install other prerequisites. Those should be indicated by link errors. At which point you can just install the requirements and rerun the build script.)
+If you're not running a Linux x86_64 system, then it will instruct you to download the clang+llvm pre-built binaries for your system and indicate the directory where they were extracted to. (On some systems, clang+llvm may require you to install other prerequisites. Those should be indicated by link errors. At which point you can just install the requirements and rerun the build script.)
 
 The build script does not require root privileges. 
 
