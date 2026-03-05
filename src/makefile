@@ -4,7 +4,7 @@ SHELL?=bash
 LLVM_CONF?=llvm-config
 
 # While historically you could reliably use (even somewhat dated versions of) gcc/g++ to build programs that use the clang libraries, 
-# recently it seems to have been more reliable to use the clang/clang++ (and lld) executables included with the 
+# recently it seems to have been more reliable to use the clang/clang++ (and ld.lld) executables included with the 
 # clang+llvm pre-built binaries that we're linking with
 
 #CC=gcc
@@ -21,7 +21,7 @@ CXX_EXTRA?=
 CTAGS_I_PATH?=./
 LD_FLAGS=
 #EXTRA_LD_FLAGS?=
-EXTRA_LD_FLAGS?=-fuse-ld=$(shell $(LLVM_CONF) --obj-root)/bin/lld
+EXTRA_LD_FLAGS?=-fuse-ld=$(shell $(LLVM_CONF) --obj-root)/bin/ld.lld
 ADD_SANITIZERS_CC= -g -fsanitize=address -fno-omit-frame-pointer
 ADD_SANITIZERS_LD= -g -fsanitize=address
 MEM_SANITIZERS_CC= -g -fsanitize=memory -fno-omit-frame-pointer
