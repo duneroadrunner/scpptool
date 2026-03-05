@@ -48,7 +48,12 @@ cd $srcdir
 
 echo "Compiling scpptool... "
 
-make LLVM_CONF=$llvmdir/bin/llvm-config BUILD_MODE=DEBUG
+# By default the makefile will assign LLVM_LD_SYSLIB_FLAGS the value resulting from `$(shell $(LLVM_CONF) --system-libs)`.
+# But the output of `llvm_config --system-libs` (which is just a set of linker options) for llvm version 21.1.8 is observed to be "-lrt -ldl -lm -lz /usr/lib/x86_64-linux-gnu/libzstd.a -lxml2", which seems to be not quite right and results in linker errors in fedora 4.2 at least.
+# We might surmise that this problematic output was overlooked by the llvm team because nobody else still uses it? 
+# In any case, we are going to override this default value with an explicit "corrected" version in our invokation of `make` here:
+
+make LLVM_CONF=$llvmdir/bin/llvm-config BUILD_MODE=DEBUG LLVM_LD_SYSLIB_FLAGS="-lrt -ldl -lm -lz -lzstd"
 
 scpptoolfilename=scpptool    # The filename we're checking for existence.
 if [ -f "$scpptoolfilename" ]; then  # Test if $FILE exists and is a regular file.
