@@ -16,11 +16,11 @@ fi
 echo "LLVM_CONF is set to '$LLVM_CONF'"
 
 # While historically you could reliably use (even somewhat dated versions of) gcc/g++ to build programs that use the clang libraries, 
-# recently it seems to have been more reliable to use the clang/clang++ (and ld.lld) executables included with the 
+# recently it seems to have been more reliable to use the clang/clang++ (and lld) executables included with the 
 # clang+llvm pre-built binaries that we're linking with
 
 CXX="$($LLVM_CONF --obj-root)/bin/clang++"
-EXTRA_LD_FLAGS="-fuse-ld=$($LLVM_CONF --obj-root)/bin/ld.lld"
+EXTRA_LD_FLAGS="-fuse-ld=$($LLVM_CONF --obj-root)/bin/lld"
 
 CXXFLAGS="$($LLVM_CONF --cxxflags)"
 LDFLAGS1="$($LLVM_CONF --ldflags)"

@@ -4,7 +4,7 @@ SHELL?=bash
 LLVM_CONF?=llvm-config
 
 # While historically you could reliably use (even somewhat dated versions of) gcc/g++ to build programs that use the clang libraries, 
-# recently it seems to have been more reliable to use the clang/clang++ (and ld.lld) executables included with the 
+# recently it seems to have been more reliable to use the clang/clang++ (and lld) executables included with the 
 # clang+llvm pre-built binaries that we're linking with
 
 #CC=gcc
@@ -21,7 +21,7 @@ CXX_EXTRA?=
 CTAGS_I_PATH?=./
 LD_FLAGS=
 #EXTRA_LD_FLAGS?=
-EXTRA_LD_FLAGS?=-fuse-ld=$(shell $(LLVM_CONF) --obj-root)/bin/ld.lld
+EXTRA_LD_FLAGS?=-fuse-ld=$(shell $(LLVM_CONF) --obj-root)/bin/lld
 ADD_SANITIZERS_CC= -g -fsanitize=address -fno-omit-frame-pointer
 ADD_SANITIZERS_LD= -g -fsanitize=address
 MEM_SANITIZERS_CC= -g -fsanitize=memory -fno-omit-frame-pointer
@@ -52,7 +52,10 @@ LLVM_LD_FLAGS=-Wl,--start-group -lclangAPINotes -lclangAST -lclangAnalysis -lcla
  -lclangStaticAnalyzerCheckers -lclangStaticAnalyzerCore\
  -lclangSerialization -lclangToolingCore -lclangTooling -lclangToolingSyntax -lstdc++\
  -lLLVMRuntimeDyld -lm -Wl,--end-group -lclangSupport
-LLVM_LD_FLAGS+=$(shell $(LLVM_CONF) --ldflags --libs --system-libs)
+
+LLVM_LD_FLAGS+=$(shell $(LLVM_CONF) --ldflags --libs)
+LLVM_LD_SYSLIB_FLAGS=$(shell $(LLVM_CONF) --system-libs)
+LLVM_LD_FLAGS+=$(LLVM_LD_SYSLIB_FLAGS)
 
 CXX_FLAGS+=$(LLVM_CXX_FLAGS)
 LD_FLAGS+=$(LLVM_LD_FLAGS)
