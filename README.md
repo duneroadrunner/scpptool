@@ -67,7 +67,7 @@ sudo apt-get update
 sudo apt-get install libzstd-dev
 ```
 
-Fedora 43 x64 seems to have all the library dependencies preinstalled by default.
+Fedora 43 x64 seems to have all the library dependencies preinstalled by default. (The build script is also going to need the `make` command if you don't already have it installed.)
 
 Next, [download](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract the repository (or clone it). Then just run the `build_myscpptool.sh` script. 
 
