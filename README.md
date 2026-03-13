@@ -1174,17 +1174,16 @@ usage example:
         auto const& int_xlptr_xlrefcptr6_cref1 = int_xlptr_xlrefcptr6;
         typename decltype(int_xlptr_xlrefcptr6)::value_type iltaptr3b = *int_xlptr_xlrefcptr6_cref1;
         
-        {
-            /* rsv::TXSLTARefCountingFixedPointer<> is a (lifetime annotated) refcounting pointer that doesn't support any operations that
-            would change which object is being targeted/owned (subsequent to initialization). (Basically a "const rsv::TXSLTARefCountingNotNullPointer<>".) */
-            auto f_int_xlptr_xlrefcptr1 = mse::rsv::TXSLTARefCountingFixedPointer<mse::rsv::TXSLTAPointer<int> >(mse::rsv::make_xslta_refcounting<mse::rsv::TXSLTAPointer<int> >(*int_xlptr_xlrefcptr6));
-        }
-        
+        /* rsv::TXSLTARefCountingFixedPointer<> is a (lifetime annotated) refcounting pointer that doesn't support 
+        any operations that would change which object is being targeted/owned (subsequent to initialization). (Basically 
+        a "const rsv::TXSLTARefCountingNotNullPointer<>".) Because the owned target object is fixed, its dereference 
+        operators just return raw references, so unlike its "dynamic" counterparts, there's no need to involve a 
+        "borrowing fixed owning pointer". */
         mse::rsv::TXSLTARefCountingFixedPointer<mse::rsv::TXSLTAPointer<int> > fint_xlptr_xlrefcptr2 = mse::rsv::make_xslta_refcounting<mse::rsv::TXSLTAPointer<int> >(iltaptr4);
         auto fint_xlptr_xlrefcptr16 = mse::rsv::TXSLTARefCountingFixedPointer<mse::rsv::TXSLTAPointer<int> >(mse::rsv::make_xslta_refcounting<mse::rsv::TXSLTAPointer<int> >(iltaptr4));
-        auto iltaptr16 = *fint_xlptr_xlrefcptr16;
-        std::swap(iltaptr16, iltaptr4);
-        std::swap(iltaptr5, iltaptr16);
+        auto& iltaptr16_ref = *fint_xlptr_xlrefcptr16;
+        std::swap(iltaptr16_ref, iltaptr4);
+        std::swap(iltaptr5, iltaptr16_ref);
         
         {
             int i21 = 11;
