@@ -49,6 +49,7 @@ By some request, a ["Rough Summary of the Approach to Lifetime Safety For Those 
         6. [TXSLTACSSSXSTERandomAccessIterator and TXSLTACSSSXSTERandomAccessSection](#txsltacsssxsterandomaccessiterator-and-txsltacsssxsterandomaccesssection)
         7. [xslta_optional, xslta_fixed_optional, xslta_borrowing_fixed_optional](#xslta_optional-xslta_fixed_optional-xslta_borrowing_fixed_optional)
         8. [TXSLTARefCountingPointer, TXSLTARefCountingNotNullPointer, TXSLTARefCountingFixedPointer, xslta_borrowing_fixed_owning_pointer](#txsltarefcountingpointer-txsltarefcountingnotnullpointer-txsltarefcountingfixedpointer-xslta_borrowing_fixed_owning_pointer)
+        9. [TXSLTASingleOwnerPointer, TXSLTASingleOwnerFixedPointer](#txsltasingleownerpointer-txsltasingleownerfixedpointer)
         </details>
     5. [SaferCPlusPlus elements](#safercplusplus-elements)
     6. [Elements not (yet) addressed](#elements-not-yet-addressed)
