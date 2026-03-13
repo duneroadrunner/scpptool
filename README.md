@@ -1235,6 +1235,99 @@ usage example:
     }
 ```
 
+##### TXSLTASingleOwnerPointer, TXSLTASingleOwnerFixedPointer
+
+`rsv::TXSLTASingleOwnerPointer<>` is a [lifetime annotated](#annotating-lifetime-constraints) "unique" owning pointer, like `std::unique_ptr<>`. `rsv::TXSLTASingleOwnerPointer<>`s would typically be obtained via the `rsv::make_xslta_nullable_single_owner<>()` function. But note that unlike `std::make_unique<>()`, with `rsv::make_xslta_nullable_single_owner<>()` you don't pass it the element type's constructor arguments, but rather just an already constructed (temporary) instance of its element type. So instead of something like `std::make_unique<std::string>("abc")`, it would be `rsv::make_xslta_nullable_single_owner(std::string{"abc"})`.
+
+`rsv::TXSLTASingleOwnerFixedPointer<>` is like an `rsv::TXSLTASingleOwnerPointer<>` that cannot be retargeted (to point to a different object) after construction and cannot be set to or initialized with a null value. You can use the `rsv::make_xslta_fixed_single_owner<>()` function to obtain one. If you have an `rsv::TXSLTASingleOwnerPointer<>` that is not null, you can also use the `rsv::not_null_from_nullable()` function to move the owned target object to a newly created `rsv::TXSLTASingleOwnerFixedPointer<>`.
+
+Because `rsv::TXSLTASingleOwnerFixedPointer<>` doesn't have a copy or move constructor, the process of creating one generally relies on NRVO, and thus requires C++17 or later. Like [`rsv::TXSLTARefCountingFixedPointer<>`](#txsltarefcountingpointer-txsltarefcountingnotnullpointer-txsltarefcountingfixedpointer-xslta_borrowing_fixed_owning_pointer), it's a very restricted owning pointer, but because it's not a *dynamic* owning pointer you can use its dereference operators to access its owned target object directly.
+
+As opposed to `rsv::TXSLTASingleOwnerPointer<>`s which, like `rsv::TXSLTARefCountingPointer<>`s, have dereference operators that return "proxy reference" objects rather raw references, and require the use of [`rsv::xslta_borrowing_fixed_owning_pointer<>`](#txsltarefcountingpointer-txsltarefcountingnotnullpointer-txsltarefcountingfixedpointer-xslta_borrowing_fixed_owning_pointer) to obtain raw references to the owned target object.
+
+usage example: 
+
+```cpp
+    #include "mseslta.h"
+    #include "mserefcounting.h"
+    
+    int main(int argc, char* argv[]) {
+        int i1 = 3;
+        int i2 = 5;
+        int i3 = 7;
+        auto iltaptr4 = mse::rsv::TXSLTAPointer<int>{ &i2 };
+        auto iltaptr5 = mse::rsv::TXSLTAPointer<int>{ &i1 };
+        
+        mse::rsv::TXSLTASingleOwnerPointer<mse::rsv::TXSLTAPointer<int> > int_xlptr_xlsoptr3 = mse::rsv::make_xslta_nullable_single_owner(iltaptr4);
+        
+        /* Even when you want to construct a null rsv::TXSLTASingleOwnerPointer<>, if the element type has an annotated
+        lifetime, you would still need to provide (a reference to) an initialization element object from which
+        a lower bound lifetime can be inferred. You could just initialize the single_owner pointer with a value, then reset()
+        the rsv::TXSLTASingleOwnerPointer<>. Alternatively, you can pass nullptr as the first constructor parameter,
+        and a second (otherwise unused) parameter from which the lower bound lifetime will be inferred. */
+        mse::rsv::TXSLTASingleOwnerPointer<mse::rsv::TXSLTAPointer<int> > int_xlptr_xlsoptr2(nullptr, iltaptr4);
+        //mse::rsv::TXSLTASingleOwnerPointer<mse::rsv::TXSLTAPointer<int> > int_xlptr_xlsoptr;    // scpptool would complain
+        mse::rsv::TXSLTASingleOwnerPointer<int> int_xlsoptr;    // fine, the element type does not have an annotated lifetime
+        
+        auto int_xlptr_xlsoptr5 = mse::rsv::make_xslta_nullable_single_owner(nullptr, iltaptr4);
+        auto int_xlptr_xlsoptr6 = mse::rsv::make_xslta_nullable_single_owner(iltaptr4);
+        {
+            /* As with rsv::xslta_optional<>, the preferred way of accessing the (owned) target of an rsv::TXSLTASingleOwnerPointer<>
+            is via an associated rsv::xslta_borrowing_fixed_owning_pointer<> (which, while it exists, "borrows" exclusive
+            access to the (pointer) value of the given owning pointer and prevents it from being reset() or replaced in a way that
+            might result in the deallocation of the owned target object. */
+            auto bfint_xlptr_xlsoptr6 = mse::rsv::make_xslta_borrowing_fixed_owning_pointer(&int_xlptr_xlsoptr6);
+            auto& iltaptr26_ref = *bfint_xlptr_xlsoptr6;
+            std::swap(iltaptr26_ref, iltaptr4);
+        }
+        
+        /* While not the preferred method, rsv::TXSLTASingleOwnerPointer<> does (currently) have limited support for accessing
+        its owned target object (pseudo-)directly. */
+        
+        /* As with rsv::xslta_optional<>, rsv::TXSLTASingleOwnerPointer<>'s dereference methods and operators do not
+        return a raw reference. They return a "proxy reference" object that (while it exists, prevents the deallocation
+        of the target object and) behaves like a (raw) reference in some situations. For example, like a reference,
+        it can be cast to the element type. */
+        typename decltype(int_xlptr_xlsoptr6)::element_type iltaptr6 = (*int_xlptr_xlsoptr6);
+        iltaptr6 = &i2;
+        //iltaptr6 = &i3; // scpptool would complain (because i3 does not live long enough)
+        
+        /* The returned "proxy reference" object also has limited support for assignment operations. */
+        *int_xlptr_xlsoptr6 = &i1;
+        //*int_xlptr_xlsoptr6 = &i3;    // scpptool would complain (because i3 does not live long enough)
+        
+        /* Note that these returned "proxy reference" objects are designed to be used as temporary (rvalue) objects,
+        not as (lvalue) declared variables or stored objects. */
+        
+    #ifdef MSE_HAS_CXX17
+        
+        /* rsv::TXSLTASingleOwnerFixedPointer<> is a (lifetime annotated) single_owner pointer that doesn't support
+        any operations that would change which object is being targeted/owned (subsequent to initialization). Because
+        the owned target object is fixed, its dereference operators just return raw references, so unlike its "dynamic"
+        counterpart, there's no need to involve a "borrowing fixed owning pointer". */
+        auto fint_xlptr_xlsoptr16 = mse::rsv::make_xslta_fixed_single_owner<mse::rsv::TXSLTAPointer<int> >(iltaptr4);
+        auto& iltaptr16_ref = *fint_xlptr_xlsoptr16;
+        std::swap(iltaptr16_ref, iltaptr4);
+        std::swap(iltaptr5, iltaptr16_ref);
+        
+    #endif // MSE_HAS_CXX17
+        
+        {
+            int i21 = 11;
+            auto iltaptr21 = mse::rsv::TXSLTAPointer<int>{ &i21 };
+            auto int_xlptr_xlsoptr21 = mse::rsv::make_xslta_nullable_single_owner(iltaptr21);
+            //int_xlptr_xlsoptr6 = int_xlptr_xlsoptr21; /* scpptool would complain */
+            /* because the lifetime associated with int_xlptr_xlsoptr21's lifetime restriction is shorter than that
+            of int_xlptr_xlsoptr6 */
+            int_xlptr_xlsoptr21 = std::move(int_xlptr_xlsoptr6); // which means the reverse assignment is safe and permitted
+        
+            auto int_xlsoptr21 = mse::rsv::make_xslta_nullable_single_owner(i21);
+            int_xlsoptr = std::move(int_xlsoptr21);    // but this is fine because the element type does not have an annotated lifetime
+            int_xlsoptr21 = std::move(int_xlsoptr);
+        }
+    }
+```
+
 #### SaferCPlusPlus elements
 
 Most of the restrictions required to ensure safety of the elements in the SaferCPlusPlus library are implemented in the type system. However, some of the necessary restrictions cannot be implemented in the type system. This tool is meant to enforce those remaining restrictions. Elements requiring enforcement help are generally relegated to the `mse::rsv` namespace. One exception is the restriction that scope types (regardless of the namespace in which they reside), cannot be used as members of structs/classes that are not themselves scope types. The tool will flag any violations of this restriction.
