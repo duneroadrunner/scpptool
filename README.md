@@ -632,7 +632,7 @@ Also note that (though we don't use them in the example) some (provisional) shor
 `xl_bf_vector<>` is an alias for `xslta_borrowing_fixed_vector<>`  
 `make_xl_bf_vector()` is an alias for `make_xslta_borrowing_fixed_vector()`
 
-usage example: ([link to interactive version](https://godbolt.org/z/43aPqMMd1))
+usage example: ([link to interactive version](https://godbolt.org/z/qo4o1Px83))
 
 ```cpp
     #include "mseslta.h"
@@ -735,7 +735,7 @@ Note that the [`rsv::xslta_borrowing_fixed_vector<>`](#xslta_vector-xslta_fixed_
 
 `rsv::xslta_accessing_fixed_vector<>`, like `rsv::xslta_borrowing_fixed_vector<>`, ensures, while it exists, that the vector contents are not deallocated/relocated/resized. But unlike `rsv::xslta_borrowing_fixed_vector<>`, `rsv::xslta_accessing_fixed_vector<>`'s access to the vector contents is not exclusive. So, for example, multiple `rsv::xslta_accessing_fixed_vector<>`s corresponding to the same vector can exist and be used at the same time. This lack of exclusivity results in `rsv::xslta_accessing_fixed_vector<>` being branded as ineligible to be passed to or shared with asynchronous threads.
 
-usage example: ([link to interactive version](https://godbolt.org/z/hzMc4rcha))
+usage example: ([link to interactive version](https://godbolt.org/z/8dPKd3dsc))
 
 ```cpp
     #include "mseslta.h"
