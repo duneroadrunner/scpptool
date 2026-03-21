@@ -41,15 +41,15 @@ By some request, a ["Rough Summary of the Approach to Lifetime Safety For Those 
         <summary>Lifetime annotated elements in the SaferCPlusPlus library</summary>
 
         1. [Overview](#lifetime-annotated-elements-in-the-safercplusplus-library)
-        1. [TXSLTAPointer](#txsltapointer)
-        2. [TXSLTAOwnerPointer](#txsltaownerpointer)
+        2. [TXSLTAPointer](#txsltapointer)
         3. [xslta_array](#xslta_array)
         4. [xslta_vector, xslta_fixed_vector, xslta_borrowing_fixed_vector](#xslta_vector-xslta_fixed_vector-xslta_borrowing_fixed_vector)
-        5. [TXSLTARandomAccessSection, TXSLTARandomAccessConstSection](#txsltarandomaccesssection-txsltarandomaccessconstsection)
-        6. [TXSLTACSSSXSTERandomAccessIterator and TXSLTACSSSXSTERandomAccessSection](#txsltacsssxsterandomaccessiterator-and-txsltacsssxsterandomaccesssection)
-        7. [xslta_optional, xslta_fixed_optional, xslta_borrowing_fixed_optional](#xslta_optional-xslta_fixed_optional-xslta_borrowing_fixed_optional)
-        8. [TXSLTARefCountingPointer, TXSLTARefCountingNotNullPointer, TXSLTARefCountingFixedPointer, xslta_borrowing_fixed_owning_pointer](#txsltarefcountingpointer-txsltarefcountingnotnullpointer-txsltarefcountingfixedpointer-xslta_borrowing_fixed_owning_pointer)
-        9. [TXSLTASingleOwnerPointer, TXSLTASingleOwnerFixedPointer](#txsltasingleownerpointer-txsltasingleownerfixedpointer)
+        5. [xslta_accessing_fixed_vector](#xslta_accessing_fixed_vector)
+        6. [TXSLTARandomAccessSection, TXSLTARandomAccessConstSection](#txsltarandomaccesssection-txsltarandomaccessconstsection)
+        7. [TXSLTACSSSXSTERandomAccessIterator and TXSLTACSSSXSTERandomAccessSection](#txsltacsssxsterandomaccessiterator-and-txsltacsssxsterandomaccesssection)
+        8. [xslta_optional, xslta_fixed_optional, xslta_borrowing_fixed_optional](#xslta_optional-xslta_fixed_optional-xslta_borrowing_fixed_optional)
+        9. [TXSLTARefCountingPointer, TXSLTARefCountingNotNullPointer, TXSLTARefCountingFixedPointer, xslta_borrowing_fixed_owning_pointer](#txsltarefcountingpointer-txsltarefcountingnotnullpointer-txsltarefcountingfixedpointer-xslta_borrowing_fixed_owning_pointer)
+        10. [TXSLTASingleOwnerPointer, TXSLTASingleOwnerFixedPointer](#txsltasingleownerpointer-txsltasingleownerfixedpointer)
         </details>
     5. [SaferCPlusPlus elements](#safercplusplus-elements)
     6. [Elements not (yet) addressed](#elements-not-yet-addressed)
@@ -523,14 +523,6 @@ usage example: ([link to interactive version](https://godbolt.org/z/hnb6n1Mh6))
         //ilaptr2 = &i3;    // scpptool would complain
     }
 ```
-
-##### TXSLTAOwnerPointer
-
-`rsv::TXSLTAOwnerPointer<>` is a ["lifetime annotated"](#annotating-lifetime-constraints) version of [`TXScopeOwnerPointer<>`](https://github.com/duneroadrunner/SaferCPlusPlus/blob/master/README.md#txscopeownerpointer).
-
-`rsv::TXSLTAOwnerPointer<>` is kind of like an `std::unique_ptr<>` whose use is restricted by the rules of scope objects. You can use it when you want to give scope lifetime to objects that are too large to be declared directly on the stack. 
-
-Instead of its constructor taking a native pointer pointing to an already allocated object, it takes an (often temporary) instance of the desired value and allocates the object itself. You may also use `rsv::make_xslta_owner<>()` to create a `TXSLTAOwnerPointer<>` in a manner akin to `std::make_unique<>()`.
 
 ##### xslta_array
 
