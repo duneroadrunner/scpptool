@@ -1002,8 +1002,8 @@ public:
 	}
 };
 
-template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
-template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>; // not needed as of C++20
+template<class... Ts> struct scpp_overloaded : Ts... { using Ts::operator()...; };
+template<class... Ts> scpp_overloaded(Ts...) -> scpp_overloaded<Ts...>; // not needed as of C++20
 
 struct CLifetimeContext {
 #ifndef NDEBUG
@@ -1014,7 +1014,7 @@ struct CLifetimeContext {
 	CLifetimeContext(clang::Decl const *src) : m_context(src) CLifetimeContext_DEBUG_HELPER1 {}
 	CLifetimeContext(const std::variant<clang::FunctionDecl const *, clang::Decl const *>& src) : m_context(src) {
 #ifndef NDEBUG
-		auto visitor1 = overloaded {
+		auto visitor1 = scpp_overloaded {
 			[&](auto lv) {
 				m_debug_uintptr = (reinterpret_cast<std::uintptr_t>(lv));
 				},
@@ -1030,7 +1030,7 @@ struct CLifetimeContext {
 #ifndef NDEBUG
 		{
 			bool res1 = false;
-			auto visitor1 = overloaded {
+			auto visitor1 = scpp_overloaded {
 				[&](auto lhs_lv, auto rhs_lv) {
 					res1 = false;
 					},

@@ -6147,7 +6147,7 @@ namespace checker {
 		const CStaticLifetimeOwner& slov = sloiv;
 		CScopeLifetimeInfo1 lifetime_info_result;
 
-		auto visitor1 = overloaded {
+		auto visitor1 = scpp_overloaded {
 			[](auto slov) {
 				assert(false);
 				},
@@ -14179,6 +14179,7 @@ namespace checker {
 				} else {
 
 					auto LSD = dyn_cast<const clang::LinkageSpecDecl>(D);
+					auto ND = dyn_cast<const NamespaceDecl>(D);
 					auto NAD = dyn_cast<const NamespaceAliasDecl>(D);
 					if (LSD) {
 						auto lang = LSD->getLanguage();
@@ -14221,6 +14222,25 @@ namespace checker {
 							int q = 5;
 						}
 						int q = 5;
+					} else if (ND) {
+						if (false && ("us" == ND->getName())) {
+							/* Ideally we  */
+							auto l_ISR = instantiation_source_range(ND->getSourceRange(), Rewrite);
+							DEBUG_SOURCE_LOCATION_STR(debug_source_location_str2, l_ISR, Rewrite);
+							DEBUG_SOURCE_TEXT_STR(debug_source_text2, l_ISR, Rewrite);
+							SourceLocation l_ISL = l_ISR.getBegin();
+							SourceLocation l_ISLE = l_ISR.getEnd();
+
+#ifndef NDEBUG
+							if (std::string::npos != debug_source_location_str2.find(g_target_debug_source_location_str1)) {
+								int q = 5;
+							}
+#endif /*!NDEBUG*/
+							m_state1.m_suppress_check_region_set.emplace(l_ISR);
+							m_state1.m_suppress_check_region_set.insert(ND);
+
+							int q = 5;
+						}
 					} else if (NAD) {
 						const auto ND = NAD->getNamespace();
 						if (ND) {
@@ -14302,22 +14322,22 @@ namespace checker {
 						auto qtype = DD->getType();
 						IF_DEBUG(std::string qtype_str = DD->getType().getAsString();)
 						const auto qualified_name = DD->getQualifiedNameAsString();
-						DECLARE_CACHED_CONST_STRING(mse_us_namespace_str1, mse_namespace_str() + "::us::");
-						if (string_begins_with(qualified_name, mse_us_namespace_str1)) {
+						DECLARE_CACHED_CONST_STRING(us_subnamespace_str1, "::us::");
+						DECLARE_CACHED_CONST_STRING(mse_namespace_prefix_str1, mse_namespace_str() + "::");
+						if (string_begins_with(qualified_name, mse_namespace_prefix_str1) 
+							&& (std::string::npos != qualified_name.find(us_subnamespace_str1))) {
 
-							DECLARE_CACHED_CONST_STRING(mse_us_namespace_str2, std::string("::") + mse_namespace_str() + "::us::");
 							auto l_source_text = Rewrite.getRewrittenText(SR);
-							if (string_begins_with(l_source_text, mse_us_namespace_str1)
-								|| string_begins_with(l_source_text, mse_us_namespace_str2)) {
+							if (std::string::npos != l_source_text.find(us_subnamespace_str1)) {
 
-								/* We can't just flag all instantiations of elements in the 'mse::us' namespace because
-								they are used by some of the safe library elements. We just want to flag cases where they
-								are explicitly instantiated by the programmer. For now we'll just check that it's
+								/* We can't just flag all instantiations of elements decalred in a 'us' (sub)namespace because
+								they are used by some of the safe library elements. We just want to flag cases where they are 
+								explicitly instantiated by the programmer. For now we'll just check that it is (or seems to be)
 								explicitly expressed in the source text. This wouldn't catch aliases of elements, so the
-								declaration/definition of the offending aliases (including "using namespace") will need
-								to be screened for and flagged as well. */
+								declaration/definition of the offending aliases (including "using namespace") will need to be 
+								screened for and flagged as well. */
 
-								const std::string error_desc = std::string("Elements in the 'mse::us' namespace (such as '"
+								const std::string error_desc = std::string("Elements in a 'us' (sub)namespace (such as '"
 									+ qualified_name + "') are potentially unsafe. ")
 									+ "Their use requires a 'check suppression' directive.";
 								(*this).m_state1.register_error(*MR.SourceManager, SR, error_desc);
@@ -14525,24 +14545,260 @@ namespace checker {
 		}
 	}
 
-	class Misc1 : public MatchFinder::MatchCallback
+	/* Some types and functions for (very roughly) approximating the visiting of each node in the AST and 
+	applying the handle_node() virtual member function of the given CNodeHandler object to each node. These 
+	are currently not used much and most of their functionality hasn't been tested. */
+
+	enum class ETReeWalkingStatus { Default, SkipFurtherProcessing, DoNotProcessChildren };
+	class CNodeHandler {
+		public:
+		virtual ETReeWalkingStatus handle_node(const clang::Stmt&) { return ETReeWalkingStatus::Default; }
+		virtual ETReeWalkingStatus handle_node(const clang::Decl&) { return ETReeWalkingStatus::Default; }
+		virtual ETReeWalkingStatus handle_node(const clang::DeclContext&) { return ETReeWalkingStatus::Default; }
+	};
+
+	ETReeWalkingStatus apply_to_declcontext_and_each_descendant(const clang::DeclContext& declcontext, CNodeHandler& node_handler, int depth = 0);
+	ETReeWalkingStatus apply_to_decl_and_each_descendant(const clang::Decl& decl, CNodeHandler& node_handler, int depth = 0);
+
+	ETReeWalkingStatus apply_to_stmt_and_each_descendant(const clang::Stmt& stmt, CNodeHandler& node_handler, int depth = 0) {
+		auto retval = ETReeWalkingStatus::Default;
+		const clang::Stmt* ST = &stmt;
+		auto stmt_class = ST->getStmtClass();
+		auto stmt_class_name = ST->getStmtClassName();
+		auto res1 = node_handler.handle_node(stmt);
+		if (ETReeWalkingStatus::SkipFurtherProcessing == res1) {
+			retval = res1;
+		} else if (ETReeWalkingStatus::DoNotProcessChildren != res1) {
+			for (auto child_iter = ST->child_begin(); child_iter != ST->child_end(); child_iter++) {
+				if (nullptr != (*child_iter)) {
+					auto res2 = apply_to_stmt_and_each_descendant(*(*child_iter), node_handler, depth+1);
+					if (ETReeWalkingStatus::SkipFurtherProcessing == res2) {
+						retval = ETReeWalkingStatus::SkipFurtherProcessing;
+						//break;
+						return retval;
+					}
+				} else {
+					int q = 5;
+				}
+			}
+
+			auto res2 = ETReeWalkingStatus::Default;
+			do {
+				auto DS = dyn_cast<const clang::DeclStmt>(ST);
+				if (DS) {
+					for (auto D : DS->decls()) {
+						if (D) {
+							res2 = apply_to_decl_and_each_descendant(*D, node_handler, 1 + depth);
+						}
+					}
+					break;
+				}
+
+			} while (false);
+
+			if (ETReeWalkingStatus::SkipFurtherProcessing == res2) {
+				retval = ETReeWalkingStatus::SkipFurtherProcessing;
+				//break;
+				return retval;
+			}
+		}
+		return retval;
+	}
+
+	ETReeWalkingStatus apply_to_decl_and_each_descendant(const clang::Decl& decl, CNodeHandler& node_handler, int depth/* = 0*/) {
+		auto retval = ETReeWalkingStatus::Default;
+		auto res1 = node_handler.handle_node(decl);
+		if (ETReeWalkingStatus::SkipFurtherProcessing == res1) {
+			retval = res1;
+		} else if (ETReeWalkingStatus::DoNotProcessChildren != res1) {
+			const clang::Decl* D = &decl;
+			std::vector<const clang::Decl*> decls;
+			auto DC2 = dyn_cast<const clang::DeclContext>(D);
+			if (DC2) {
+				for (auto decl_iter = DC2->decls_begin(); decl_iter != DC2->decls_end(); decl_iter++) {
+					auto D2 = (*decl_iter);
+					decls.push_back(D2);
+				}
+				if (2 <= decls.size()) {
+					/* This clang::Decl, D, seems to itself be a set of more than one clang::Decl.  */
+					auto res3 = apply_to_declcontext_and_each_descendant(*DC2, node_handler, 1 + depth);
+					if (ETReeWalkingStatus::SkipFurtherProcessing == res3) {
+						retval = ETReeWalkingStatus::SkipFurtherProcessing;
+						//break;
+						return retval;
+					}
+				}
+			} else {
+				int q = 3;
+			}
+			if (1 >= decls.size()) {
+				auto res4 = ETReeWalkingStatus::Default;
+				do {
+					auto DD = dyn_cast<const clang::DeclaratorDecl>(D);
+					if (DD) {
+						auto res2 = ETReeWalkingStatus::Default;
+						do {
+							auto VD = dyn_cast<const clang::VarDecl>(DD);
+							if (VD) {
+								auto init_E = VD->getInit();
+								if (init_E) {
+									res2 = apply_to_stmt_and_each_descendant(*init_E, node_handler, 1 + depth);
+								}
+								break;
+							}
+
+							auto FD = dyn_cast<const clang::FieldDecl>(DD);
+							if (FD) {
+								auto init_E = FD->getInClassInitializer();
+								if (init_E) {
+									res2 = apply_to_stmt_and_each_descendant(*init_E, node_handler, 1 + depth);
+								}
+								break;
+							}
+						} while (false);
+
+						if (ETReeWalkingStatus::SkipFurtherProcessing == res2) {
+							retval = ETReeWalkingStatus::SkipFurtherProcessing;
+							//break;
+							return retval;
+						}
+					}
+				} while (false);
+
+				if (ETReeWalkingStatus::SkipFurtherProcessing == res4) {
+					retval = ETReeWalkingStatus::SkipFurtherProcessing;
+					return retval;
+				}
+			}
+			auto body_ST = decl.getBody();
+			if (body_ST) {
+				auto res5 = apply_to_stmt_and_each_descendant(*body_ST, node_handler, 1 + depth);
+
+				if (ETReeWalkingStatus::SkipFurtherProcessing == res5) {
+					retval = ETReeWalkingStatus::SkipFurtherProcessing;
+					return retval;
+				}
+			}
+		}
+		return retval;
+	}
+
+	ETReeWalkingStatus apply_to_declcontext_and_each_descendant(const clang::DeclContext& declcontext, CNodeHandler& node_handler, int depth/* = 0*/) {
+		auto retval = ETReeWalkingStatus::Default;
+		auto res1 = node_handler.handle_node(declcontext);
+		if (ETReeWalkingStatus::SkipFurtherProcessing == res1) {
+			retval = res1;
+		} else if (ETReeWalkingStatus::DoNotProcessChildren != res1) {
+			for (auto D : declcontext.decls()) {
+				if (D) {
+					auto res2 = apply_to_decl_and_each_descendant(*D, node_handler, 1 + depth);
+					if (ETReeWalkingStatus::SkipFurtherProcessing == res2) {
+						retval = ETReeWalkingStatus::SkipFurtherProcessing;
+						break;
+					}
+				}
+			}
+		}
+		return retval;
+	}
+
+	class MCSSSMisc1 : public MatchFinder::MatchCallback
 	{
 	public:
-		Misc1 (Rewriter &Rewrite, CTUState& state1, CompilerInstance &CI_ref, int current_tu_num = 0) :
+		MCSSSMisc1 (Rewriter &Rewrite, CTUState& state1, CompilerInstance &CI_ref, int current_tu_num = 0) :
 			Rewrite(Rewrite), m_state1(state1), CI(CI_ref), m_current_tu_num(current_tu_num) {
 			s_current_tu_num += 1;
-			if (0 == m_current_tu_num) {
-				m_current_tu_num = s_current_tu_num;
-			}
+			m_current_tu_num = s_current_tu_num;
 		}
 
 		virtual void run(const MatchFinder::MatchResult &MR)
 		{
-			if (!m_other_TUs_imported) {
+			if (!m_first_element_has_been_processed) {
 				if (CTUAnalysis) {
 					import_other_TUs(&s_multi_tu_state, CI, m_current_tu_num);
 				}
-				m_other_TUs_imported = true;
+				if (MR.Context) {
+					auto TUD = MR.Context->getTranslationUnitDecl();
+					if (TUD) {
+						auto SR = nice_source_range(TUD->getSourceRange(), Rewrite);
+						RETURN_IF_SOURCE_RANGE_IS_NOT_VALID1;
+
+						DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+
+						RETURN_IF_FILTERED_OUT_BY_LOCATION1;
+
+						DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+
+						/* So here we're going to search the AST for subnamespaces of the `mse` namespace that are named `us`. Anything 
+						declared in those namespaces are considered unsafe and use of such items will be reported as unsafe. SO here we 
+						add the `us` namespace to the "check-suppressed" region set to avoid such reports of unsafety within the `us` 
+						namespace itself. */
+
+						class CUSNamespaceNodeHandler : public CNodeHandler {
+							public:
+							CUSNamespaceNodeHandler(Rewriter &Rewrite_param, CTUState& state1) : Rewrite(Rewrite_param), m_state1(state1) {}
+							virtual ETReeWalkingStatus handle_node(const clang::Stmt&) override {
+								/* This handler class is only interested in handling namespaces, and namespaces can never be the child of a 
+								statement, right? So we'll return a directive to skip the processing of the children of this satement. */
+								return ETReeWalkingStatus::DoNotProcessChildren;
+							}
+							virtual ETReeWalkingStatus handle_node(const clang::Decl& decl) override {
+								ETReeWalkingStatus retval = ETReeWalkingStatus::Default;
+								const clang::Decl* D = &decl;
+								auto NSD = dyn_cast<const clang::NamespaceDecl>(D);
+								if (NSD) {
+									IF_DEBUG(std::string namespace_name = NSD->getNameAsString();)
+									IF_DEBUG(std::string namespace_qname = NSD->getQualifiedNameAsString();)
+									if (true && ("us" == NSD->getNameAsString())) {
+										DECLARE_CACHED_CONST_STRING(mse_namespace_prefix_str1, mse_namespace_str() + "::");
+										auto qualified_name = NSD->getQualifiedNameAsString();
+										if (string_begins_with(qualified_name, mse_namespace_prefix_str1)) {
+											/* This seems to be a subnamespace of the `mse` (root) namespace named `us`. We deem anything declared in 
+											such a namespace to be unsafe and (elsewhere) we report an error if we detect the programmer explicitly 
+											using an item declared in such a namespace. Here we add such namespaces to the "checks suppressed" region 
+											set (which exempts the declarations and implementations of the contained items from the checks, but not 
+											the (explicit) use of such items outside of a `us` namespace). Most such namespaces are already exempt 
+											from the checks because they are located inside of mse library (header) files, and most of those are 
+											implicitly exempt from checks. But `msealgorithm.h` is not exempt (because many of the contain algorithms 
+											invoke user-supplied predicates or callable items, and those invocactions of user-supplied code need to 
+											be checked.) */
+
+											auto l_ISR = instantiation_source_range(NSD->getSourceRange(), Rewrite);
+											DEBUG_SOURCE_LOCATION_STR(debug_source_location_str2, l_ISR, Rewrite);
+											DEBUG_SOURCE_TEXT_STR(debug_source_text2, l_ISR, Rewrite);
+											SourceLocation l_ISL = l_ISR.getBegin();
+											SourceLocation l_ISLE = l_ISR.getEnd();
+
+#ifndef NDEBUG
+											if (std::string::npos != debug_source_location_str2.find(g_target_debug_source_location_str1)) {
+												int q = 5;
+											}
+#endif /*!NDEBUG*/
+											m_state1.m_suppress_check_region_set.emplace(l_ISR);
+											m_state1.m_suppress_check_region_set.insert(NSD);
+
+											/* With the namespace added to the "check suppressed" region set, all its children are also implicitly in the 
+											"check suppressed" region set, so there's no need to check if they need to be added. */
+											retval = ETReeWalkingStatus::DoNotProcessChildren;
+										} else {
+											int q = 5;
+										}
+									}
+								}
+
+								return retval;
+							}
+							//virtual ETReeWalkingStatus handle_node(const clang::DeclContext&) override { return ETReeWalkingStatus::Default; }
+
+							Rewriter &Rewrite;
+							CTUState& m_state1;
+						};
+						auto us_namespace_node_handler = CUSNamespaceNodeHandler{ Rewrite, m_state1 };
+						auto res1 = apply_to_declcontext_and_each_descendant(*TUD, us_namespace_node_handler, 0);
+						int q = 5;
+					}
+				}
+				m_first_element_has_been_processed = true;
 			}
 		}
 
@@ -14554,18 +14810,18 @@ namespace checker {
 		CompilerInstance &CI;
 		int m_current_tu_num = 0;
 
-		bool m_other_TUs_imported = false;
+		bool m_first_element_has_been_processed = false;
 		static CMultiTUState s_multi_tu_state;
 		static int s_current_tu_num;
 	};
-	CMultiTUState Misc1::s_multi_tu_state;
-	int Misc1::s_current_tu_num = 0;
+	CMultiTUState MCSSSMisc1::s_multi_tu_state;
+	int MCSSSMisc1::s_current_tu_num = 0;
 
 	/**********************************************************************************************************************/
 	class MyASTConsumer : public ASTConsumer {
 
 	public:
-		MyASTConsumer(Rewriter &R, CompilerInstance &CI, CTUState &tu_state_param) : m_tu_state_ptr(&tu_state_param), HandlerMisc1(R, tu_state(), CI),
+		MyASTConsumer(Rewriter &R, CompilerInstance &CI, CTUState &tu_state_param) : m_tu_state_ptr(&tu_state_param), HandlerMCSSSMisc1(R, tu_state(), CI),
 			HandlerForSSSSuppressCheckDirectiveCall(R, tu_state()), HandlerForSSSSuppressCheckDirectiveDeclField(R, tu_state()),
 			HandlerForSSSSuppressCheckDirectiveDeclGlobal(R, tu_state()), 
 			HandlerForSSSExprUtil(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForSSSDeclRefExprUtil(R, tu_state()),
@@ -14575,7 +14831,7 @@ namespace checker {
 			HandlerForSSSNativePointerVar(R, tu_state()), HandlerForSSSCast(R, tu_state()), HandlerForSSSMemberFunctionCall(R, tu_state()), 
 			HandlerForSSSFunctionCall(R, tu_state()), HandlerForSSSConstructionInitializer(R, tu_state()), HandlerForSSSPointerAssignment(R, tu_state())
 		{
-			Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerMisc1);
+			Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerMCSSSMisc1);
 			Matcher.addMatcher(callExpr(argumentCountIs(0)).bind("mcssssuppresscheckcall"), &HandlerForSSSSuppressCheckDirectiveCall);
 			Matcher.addMatcher(cxxMethodDecl(decl().bind("mcssssuppresscheckmemberdecl")), &HandlerForSSSSuppressCheckDirectiveDeclField);
 			Matcher.addMatcher(functionDecl(decl().bind("mcssssuppresscheckglobaldecl")), &HandlerForSSSSuppressCheckDirectiveDeclGlobal);
@@ -14658,7 +14914,7 @@ namespace checker {
 		CTUState *m_tu_state_ptr = nullptr;
 		CTUState& tu_state() { return *m_tu_state_ptr;}
 
-		Misc1 HandlerMisc1;
+		MCSSSMisc1 HandlerMCSSSMisc1;
 		MCSSSSuppressCheckDirectiveCall HandlerForSSSSuppressCheckDirectiveCall;
 		MCSSSSuppressCheckDirectiveDeclField HandlerForSSSSuppressCheckDirectiveDeclField;
 		MCSSSSuppressCheckDirectiveDeclGlobal HandlerForSSSSuppressCheckDirectiveDeclGlobal;
@@ -14966,7 +15222,7 @@ namespace checker {
         EnableNamespaceImport = options.EnableNamespaceImport;
         SuppressPrompts = options.SuppressPrompts;
 
-		int Status = Tool.buildASTs(Misc1::s_multi_tu_state_ref().ast_units);
+		int Status = Tool.buildASTs(MCSSSMisc1::s_multi_tu_state_ref().ast_units);
 		int ASTStatus = 0;
 		if (Status == 1) {
 			// Building ASTs failed.

@@ -1796,87 +1796,6 @@ namespace convc2validcpp {
 		return nullptr;
 	}
 
-	void walkTheAST1(const clang::Stmt& stmt, int depth = 0) {
-		const clang::Stmt* ST = &stmt;
-		auto stmt_class = ST->getStmtClass();
-		auto stmt_class_name = ST->getStmtClassName();
-		bool process_children_flag = true;
-		if (clang::Stmt::StmtClass::ArraySubscriptExprClass == stmt_class) {
-			//stack.push_back("ArraySubscriptExpr");
-			process_children_flag = true;
-		} else if (clang::Stmt::StmtClass::UnaryOperatorClass == stmt_class) {
-			auto UO = llvm::cast<const clang::UnaryOperator>(ST);
-			if (UO) {
-				if (clang::UnaryOperatorKind::UO_Deref == UO->getOpcode()) {
-					//stack.push_back("Deref");
-					process_children_flag = true;
-				} else {
-					auto QT = UO->getType();
-					const clang::Type* TP = QT.getTypePtr();
-					if (TP && TP->isPointerType()) {
-						if ((clang::UnaryOperatorKind::UO_PreInc == UO->getOpcode())
-								|| (clang::UnaryOperatorKind::UO_PostInc == UO->getOpcode())
-								|| (clang::UnaryOperatorKind::UO_PreDec == UO->getOpcode())
-								|| (clang::UnaryOperatorKind::UO_PostDec == UO->getOpcode())) {
-							/* Incrementing/decrementing a pointer type is pointer arithmetic and
-							* implies the pointer is being used as an array iterator. */
-							int q = 5;
-						}
-					}
-				}
-			} else {
-				assert(false);
-			}
-		} else if ((clang::Stmt::StmtClass::ImplicitCastExprClass == stmt_class)) {
-			auto ICE = llvm::cast<const clang::ImplicitCastExpr>(ST);
-			if (ICE) {
-				auto cast_kind_name = ICE->getCastKindName();
-				auto cast_kind = ICE->getCastKind();
-				if ((clang::CK_FunctionToPointerDecay == cast_kind)) {
-					process_children_flag = false;
-				} else {
-					if ((clang::CK_ArrayToPointerDecay == cast_kind) || (clang::CK_LValueToRValue == cast_kind)) {
-						process_children_flag = true;
-					} else {
-						process_children_flag = true;
-					}
-				}
-			} else { assert(false); }
-		} else if ((clang::Stmt::StmtClass::ParenExprClass == stmt_class)) {
-			process_children_flag = true;
-		} else if(clang::Stmt::StmtClass::DeclRefExprClass == stmt_class) {
-			auto DRE = llvm::cast<const clang::DeclRefExpr>(ST);
-			if (DRE) {
-				//retval = DRE;
-				process_children_flag = true;
-			} else {
-				assert(false);
-			}
-		} else if(clang::Stmt::StmtClass::MemberExprClass == stmt_class) {
-			auto ME = llvm::cast<const clang::MemberExpr>(ST);
-			if (ME) {
-				//retval = ME;
-			} else {
-				assert(false);
-			}
-		} else {
-			if (0 == depth) {
-				int q = 5;
-			}
-			int q = 5;
-		}
-		if (process_children_flag) {
-			for (auto child_iter = ST->child_begin(); child_iter != ST->child_end(); child_iter++) {
-				if (nullptr != (*child_iter)) {
-					walkTheAST1(*(*child_iter), depth+1);
-				} else {
-					assert(false);
-				}
-			}
-		}
-		return;
-	}
-
 	enum class EXScopeEligibility { Yes, No };
 
 	static auto typeLoc_if_available(const clang::TypeSourceInfo& tsi) {
@@ -20314,15 +20233,13 @@ namespace convc2validcpp {
 		}
 	}
 
-	class Misc1 : public MatchFinder::MatchCallback
+	class MCSSSMisc1 : public MatchFinder::MatchCallback
 	{
 	public:
-		Misc1 (Rewriter &Rewrite, CTUState& state1, CompilerInstance &CI_ref, int current_tu_num = 0) :
+		MCSSSMisc1 (Rewriter &Rewrite, CTUState& state1, CompilerInstance &CI_ref, int current_tu_num = 0) :
 			Rewrite(Rewrite), m_state1(state1), CI(CI_ref), m_current_tu_num(current_tu_num) {
 			s_current_tu_num += 1;
-			if (0 == m_current_tu_num) {
-				m_current_tu_num = s_current_tu_num;
-			}
+			m_current_tu_num = s_current_tu_num;
 		}
 
 		virtual void run(const MatchFinder::MatchResult &MR)
@@ -20351,8 +20268,8 @@ namespace convc2validcpp {
 	static CMultiTUState s_multi_tu_state;
 	static int s_current_tu_num;
 	};
-	CMultiTUState Misc1::s_multi_tu_state;
-	int Misc1::s_current_tu_num = 0;
+	CMultiTUState MCSSSMisc1::s_multi_tu_state;
+	int MCSSSMisc1::s_current_tu_num = 0;
 
 
 	/**********************************************************************************************************************/
@@ -20379,13 +20296,13 @@ namespace convc2validcpp {
 		HandlerForSSSSetToNull2(R, tu_state()), HandlerForSSSCompareWithNull2(R, tu_state()), HandlerForSSSMemset(R, tu_state()), HandlerForSSSMemcpy(R, tu_state()),
 		HandlerForSSSConditionalInitializer(R, tu_state()), HandlerForSSSAssignment(R, tu_state()), HandlerForSSSArgToParameterPassingArray2(R, tu_state()),
 		HandlerForSSSArgToReferenceParameterPassing(R, tu_state()), HandlerForSSSReturnValue(R, tu_state()), HandlerForSSSFRead(R, tu_state()), HandlerForSSSFWrite(R, tu_state()), 
-		HandlerForSSSAddressOf(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForSSSStmt(R, tu_state()), HandlerForMisc1(R, tu_state(), CI)
+		HandlerForSSSAddressOf(R, tu_state()), HandlerForSSSDeclUtil(R, tu_state()), HandlerForSSSStmt(R, tu_state()), HandlerForMCSSSMisc1(R, tu_state(), CI)
 	{
 		if (tu_state_param.m_Rewrite_ptr != &R) {
 			tu_state_param.m_Rewrite_ptr = &R;
 		}
 
-		Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerForMisc1);
+		Matcher.addMatcher(DeclarationMatcher(anything()), &HandlerForMCSSSMisc1);
 
 #if 0
 		/* The ordering of the matchers has not yet been thoroughly considered, but generally you'd want
@@ -20669,7 +20586,7 @@ namespace convc2validcpp {
 	MCSSSAddressOf HandlerForSSSAddressOf;
 	MCSSSDeclUtil HandlerForSSSDeclUtil;
 	MCSSSStmt HandlerForSSSStmt;
-	Misc1 HandlerForMisc1;
+	MCSSSMisc1 HandlerForMCSSSMisc1;
 
 	MatchFinder Matcher;
 	};
@@ -21703,7 +21620,7 @@ namespace convc2validcpp {
 			return return_t{-1};
 		}
 
-		int Status = Tool.buildASTs(Misc1::s_multi_tu_state_ref().ast_units);
+		int Status = Tool.buildASTs(MCSSSMisc1::s_multi_tu_state_ref().ast_units);
 
 		int ASTStatus = 0;
 		if (Status == 1) {
