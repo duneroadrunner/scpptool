@@ -46,7 +46,7 @@ By some request, a ["Rough Summary of the Approach to Lifetime Safety For Those 
         4. [xslta_vector, xslta_fixed_vector, xslta_borrowing_fixed_vector](#xslta_vector-xslta_fixed_vector-xslta_borrowing_fixed_vector)
         5. [xslta_accessing_fixed_vector](#xslta_accessing_fixed_vector)
         6. [TXSLTARandomAccessSection, TXSLTARandomAccessConstSection](#txsltarandomaccesssection-txsltarandomaccessconstsection)
-        7. [TXSLTACSSSXSTERandomAccessIterator and TXSLTACSSSXSTERandomAccessSection](#txsltacsssxsterandomaccessiterator-and-txsltacsssxsterandomaccesssection)
+        7. [TXSLTACSSSXSTERandomAccessIterator and TXSLTACSSSXSTERandomAccessSection (i.e. safe span<>)](#txsltacsssxsterandomaccessiterator-and-txsltacsssxsterandomaccesssection)
         8. [xslta_optional, xslta_fixed_optional, xslta_borrowing_fixed_optional](#xslta_optional-xslta_fixed_optional-xslta_borrowing_fixed_optional)
         9. [TXSLTARefCountingPointer, TXSLTARefCountingNotNullPointer, TXSLTARefCountingFixedPointer, xslta_borrowing_fixed_owning_pointer](#txsltarefcountingpointer-txsltarefcountingnotnullpointer-txsltarefcountingfixedpointer-xslta_borrowing_fixed_owning_pointer)
         10. [TXSLTASingleOwnerPointer, TXSLTASingleOwnerFixedPointer](#txsltasingleownerpointer-txsltasingleownerfixedpointer)
@@ -54,7 +54,8 @@ By some request, a ["Rough Summary of the Approach to Lifetime Safety For Those 
     5. [SaferCPlusPlus elements](#safercplusplus-elements)
     6. [Elements not (yet) addressed](#elements-not-yet-addressed)
 6. [Autotranslation](#autotranslation)
-7. [Questions and comments](#questions-and-comments)
+7. [Code migration via naturally and artificially intelligent agents](#code-migration-via-naturally-and-artificially-intelligent-agents)
+8. [Questions and comments](#questions-and-comments)
 
 ### How to Build:
 
@@ -1334,6 +1335,10 @@ The set of potentially unsafe elements in C++, and in the standard library itsel
 ### Autotranslation
 
 This tool also has some ability to convert C source files to the memory safe subset of C++ it enforces and is demonstrated in the [SaferCPlusPlus-AutoTranslation2](https://github.com/duneroadrunner/SaferCPlusPlus-AutoTranslation2) project.
+
+### Code migration via naturally and artificially intelligent agents
+
+The distance between "modern" C++ code and idiomatic code in the scpptool-enforced safe subset is not that great, and in many cases, the conversion can by handled by AI agents. We [provide](https://github.com/duneroadrunner/scpp_code_migration) a basic example of such a conversion.
 
 ### "Flow (in)sensitive" analysis
 
