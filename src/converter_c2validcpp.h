@@ -19004,7 +19004,8 @@ namespace convc2validcpp {
 
 				//auto UEOTTE = dyn_cast<const clang::UnaryExprOrTypeTraitExpr>(E_ii);
 				if (UEOTTE) {
-					if (UEOTTE->isArgumentType()) {
+					const auto kind = UEOTTE->getKind();
+					if (UEOTTE->isArgumentType() && (clang::UETT_SizeOf == kind)) {
 						const auto arg_qtype = UEOTTE->getArgumentType();
 						const auto TSI = UEOTTE->getArgumentTypeInfo();
 						if (TSI) {

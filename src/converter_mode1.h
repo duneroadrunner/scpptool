@@ -23472,9 +23472,8 @@ namespace convm1 {
 
 				auto UEOTTE = dyn_cast<const clang::UnaryExprOrTypeTraitExpr>(E);
 				if (UEOTTE) {
-					/* This is apparently either a `sizeof` or `alignof` expression. For now we'll presume it's a 
-					`sizeof` expression. */
-					if (UEOTTE->isArgumentType()) {
+					const auto kind = UEOTTE->getKind();
+					if (UEOTTE->isArgumentType() && (clang::UETT_SizeOf == kind)) {
 						const auto arg_qtype = UEOTTE->getArgumentType();
 						IF_DEBUG(auto arg_qtype_str = arg_qtype.getAsString();)
 						const auto TSI = UEOTTE->getArgumentTypeInfo();
