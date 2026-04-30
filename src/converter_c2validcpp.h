@@ -19642,7 +19642,7 @@ namespace convc2validcpp {
 										std::string LBLST_text1 = getRewrittenTextOrEmpty(Rewrite, LBLST_SR);
 
 										auto last_token_of_last_GT_ancestor_ST_SL = last_GT_ancestor_ST_SR.getEnd();
-										auto last_token_of_last_GT_ancestor_ST_SR = write_once_source_range(clang::SourceRange{ last_token_of_last_GT_ancestor_ST_SL, last_token_of_last_GT_ancestor_ST_SL});;
+										auto last_token_of_last_GT_ancestor_ST_SR = write_once_source_range(clang::SourceRange{ last_token_of_last_GT_ancestor_ST_SL, last_token_of_last_GT_ancestor_ST_SL});
 										std::string last_token_of_last_GT_ancestor_ST_text1 = getRewrittenTextOrEmpty(Rewrite, last_token_of_last_GT_ancestor_ST_SR);
 										bool abort_flag = false;
 										bool look_for_semicolon_flag = false;
@@ -19684,7 +19684,8 @@ namespace convc2validcpp {
 										}
 										if (!abort_flag) {
 											auto new_last_token_of_last_GT_ancestor_ST_text1 = last_token_of_last_GT_ancestor_ST_text1 + " \n{";
-											state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, last_token_of_last_GT_ancestor_ST_SR, new_last_token_of_last_GT_ancestor_ST_text1);
+											//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, last_token_of_last_GT_ancestor_ST_SR, new_last_token_of_last_GT_ancestor_ST_text1);
+											state1.m_pending_code_modification_actions.add_insert_after_token_at_given_location_action(Rewrite, last_token_of_last_GT_ancestor_ST_SR, last_token_of_last_GT_ancestor_ST_SR.getBegin(), "\n{ ");
 
 											auto first_token_of_LBLST_SR = rewritable_source_range(LBLST_SR);
 											first_token_of_LBLST_SR.setEnd(first_token_of_LBLST_SR.getBegin());
