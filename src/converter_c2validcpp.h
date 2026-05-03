@@ -2603,69 +2603,7 @@ namespace convc2validcpp {
 			set_up_child_dependencies_generically();
 		}
 		virtual ~CExprConversionState() {}
-		virtual void update_current_text(std::optional<CExprTextInfoContext> maybe_context = {}) {
-			auto new_maybe_context = maybe_context.has_value() ? maybe_context : maybe_default_context();
-
-#ifndef NDEBUG
-			if (false && maybe_context.has_value() && maybe_context.value().m_Rewrite_ptr && maybe_context.value().m_state1_ptr) {
-				auto& Rewrite = *(maybe_context.value().m_Rewrite_ptr);
-				auto& state1 = *(maybe_context.value().m_state1_ptr);
-				auto SR = cm1_adj_nice_source_range((*m_expr_cptr).getSourceRange(), state1, Rewrite);
-				DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
-				if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
-					int q = 5;
-				}
-			}
-			if ("ossl_check_const_GENERAL_NAME_sk_type(sk)" == m_original_source_text_str) {
-				int q = 5;
-			}
-#endif /*!NDEBUG*/
-
-			std::optional<std::string> maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range;
-			if (maybe_context.has_value()) {
-				auto const& context = maybe_context.value();
-				clang::SourceRange default_SR = m_SR_plus;
-				if (m_maybe_override_SR_due_to_being_a_macro_whose_definition_is_in_a_filtered_out_location) {
-					auto const& override_SR = m_maybe_override_SR_due_to_being_a_macro_whose_definition_is_in_a_filtered_out_location.value();
-					default_SR = override_SR;
-				}
-				if (!first_is_a_subset_of_second(default_SR, context.m_root_SR)) {
-					/* The default source range does not seem to be contained within the source range of the given context. So we're going to check if there 
-					is a corresponding nested macro range that is, and if so, use the corresponding stored text from that nested macro range. */
-					std::string premodified_text = m_original_source_text_str;
-					if (maybe_context.has_value()) {
-						auto const& context = maybe_context.value();
-						for (auto const& adjusted_source_text_info : m_SR_plus.m_adjusted_source_text_infos) {
-							if (adjusted_source_text_info.m_macro_invocation_range.isValid()) {
-								if (first_is_a_subset_of_second(adjusted_source_text_info.m_macro_invocation_range, context.m_root_SR)) {
-									/* One of the macro nesting levels of the expression seems to be contained within the given context range, 
-									so we'll use the (original) text from that macro nesting level. */
-									maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range = adjusted_source_text_info.m_text;
-									break;
-								}
-							}
-						}
-					}
-					m_current_text_str = modified_copy(premodified_text);
-				}
-			}
-
-			if ((m_child_text_infos.size() + 1 == m_non_child_dependent_text_fragments.size()) && (!maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range.has_value())) {
-				std::string working_text;
-				for (size_t i = 0; i < m_child_text_infos.size(); i += 1) {
-					working_text += m_non_child_dependent_text_fragments.at(i);
-					working_text += m_child_text_infos.at(i).current_text(new_maybe_context);
-				}
-				working_text += m_non_child_dependent_text_fragments.back();
-				m_current_text_str = modified_copy(working_text);
-			} else {
-				std::string premodified_text = m_original_source_text_str;
-				if (maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range.has_value()) {
-					premodified_text = maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range.value();
-				}
-				m_current_text_str = modified_copy(premodified_text);
-			}
-		}
+		virtual void update_current_text(std::optional<CExprTextInfoContext> maybe_context = {});
 		static std::string const& s_species() {
 			static const auto sc_species_str = std::string("");
 			return sc_species_str;
@@ -4100,6 +4038,86 @@ namespace convc2validcpp {
 		}
 		return m_original_source_text_str;
 	}
+
+	void CExprConversionState::update_current_text(std::optional<CExprTextInfoContext> maybe_context/* = {}*/) {
+		auto new_maybe_context = maybe_context.has_value() ? maybe_context : maybe_default_context();
+
+#ifndef NDEBUG
+		if (false && maybe_context.has_value() && maybe_context.value().m_Rewrite_ptr && maybe_context.value().m_state1_ptr) {
+			auto& Rewrite = *(maybe_context.value().m_Rewrite_ptr);
+			auto& state1 = *(maybe_context.value().m_state1_ptr);
+			auto SR = cm1_adj_nice_source_range((*m_expr_cptr).getSourceRange(), state1, Rewrite);
+			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+				int q = 5;
+			}
+		}
+		if ("ossl_check_const_GENERAL_NAME_sk_type(sk)" == m_original_source_text_str) {
+			int q = 5;
+		}
+#endif /*!NDEBUG*/
+
+		std::optional<std::string> maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range;
+		if (maybe_context.has_value()) {
+			auto const& context = maybe_context.value();
+			clang::SourceRange default_SR = m_SR_plus;
+			if (m_maybe_override_SR_due_to_being_a_macro_whose_definition_is_in_a_filtered_out_location) {
+				auto const& override_SR = m_maybe_override_SR_due_to_being_a_macro_whose_definition_is_in_a_filtered_out_location.value();
+				default_SR = override_SR;
+			}
+			if (!first_is_a_subset_of_second(default_SR, context.m_root_SR)) {
+				/* The default source range does not seem to be contained within the source range of the given context. So we're going to check if there 
+				is a corresponding nested macro range that is, and if so, use the corresponding stored text from that nested macro range. */
+				std::string premodified_text = m_original_source_text_str;
+				if (maybe_context.has_value()) {
+					auto const& context = maybe_context.value();
+					for (auto const& adjusted_source_text_info : m_SR_plus.m_adjusted_source_text_infos) {
+						if (adjusted_source_text_info.m_macro_invocation_range.isValid()) {
+							if (first_is_a_subset_of_second(adjusted_source_text_info.m_macro_invocation_range, context.m_root_SR)) {
+								/* One of the macro nesting levels of the expression seems to be contained within the given context range, 
+								so we'll use the (original) text from that macro nesting level. */
+								maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range = adjusted_source_text_info.m_text;
+								break;
+							}
+						}
+					}
+				}
+				m_current_text_str = modified_copy(premodified_text);
+			}
+		}
+
+		if ((m_child_text_infos.size() + 1 == m_non_child_dependent_text_fragments.size()) && (!maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range.has_value())) {
+			std::string working_text;
+			for (size_t i = 0; i < m_child_text_infos.size(); i += 1) {
+				working_text += m_non_child_dependent_text_fragments.at(i);
+				working_text += m_child_text_infos.at(i).current_text(new_maybe_context);
+			}
+			working_text += m_non_child_dependent_text_fragments.back();
+			m_current_text_str = modified_copy(working_text);
+		} else {
+			std::string premodified_text = m_original_source_text_str;
+			if (maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range.has_value()) {
+				premodified_text = maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range.value();
+			}
+			m_current_text_str = modified_copy(premodified_text);
+		}
+
+		static const std::string typeof_str = "typeof";
+		auto found_range1 = Parse::find_uncommented_token(typeof_str, m_current_text_str);
+		if (m_current_text_str.length() > found_range1.begin) {
+			/* This expression seems to contain a (C23) `typeof()` operation. */
+			static const std::string C2V_TYPEOF_str = "C2V_TYPEOF";
+			auto found_range2 = Parse::find_uncommented_token(C2V_TYPEOF_str, m_current_text_str);
+			if (m_current_text_str.length() <= found_range2.begin) {
+				m_current_text_str.replace(found_range1.begin, typeof_str.length(), C2V_TYPEOF_str);
+				if (m_SR_plus.isValid()) {
+					/* Here we report our use of the `C2V_TYPEOF` macro in the output code. */
+					m_state1.m_cpp_type_trait_use_locations.insert(m_SR_plus.getBegin());
+				}
+			}
+		}
+	}
+
 
 	bool CExprConversionState::set_up_child_dependencies_generically() {
 		/* An updated rendering of an expression requires obtaining updated renderings of the expression's 
@@ -7371,6 +7389,63 @@ namespace convc2validcpp {
 			}
 		}
 
+		if (!retval.m_seems_to_involve_a_template_param_or_nonmodifiable_type_originally) {
+			static const std::string typeof_str = "typeof";
+			static const std::string decltype_str = "decltype";
+			static const std::string auto_str = "auto";
+			do {
+				auto found_range1 = Parse::find_uncommented_token(typeof_str, type_original_source_text);
+				if (type_original_source_text.length() > found_range1.begin) {
+					/* This type seems to have been generated from a (C23) `typeof()` operation. For the purposes of this function, 
+					for now, we'll treat the type as non-modifiable. */
+					retval.m_seems_to_involve_a_template_param_or_nonmodifiable_type_originally = true;
+					retval.m_tparam_or_nonmodifiable_type_that_encompasses_the_direct_type_str = type_original_source_text;
+
+					static const std::string C2V_TYPEOF_str = "C2V_TYPEOF";
+					auto found_range2 = Parse::find_uncommented_token(C2V_TYPEOF_str, type_original_source_text);
+					if (type_original_source_text.length() <= found_range2.begin) {
+						retval.m_tparam_or_nonmodifiable_type_that_encompasses_the_direct_type_str.replace(found_range1.begin
+							, typeof_str.length(), C2V_TYPEOF_str);
+						retval.m_changed_from_original |= true;
+
+						if (state1_ptr) {
+							std::optional<clang::SourceRange> maybe_rawSR;
+							if (indirection_state_stack.m_maybe_DD && indirection_state_stack.m_maybe_DD.value()) {
+								maybe_rawSR = indirection_state_stack.m_maybe_DD.value()->getSourceRange();
+							} else if (indirection_state_stack.m_maybe_containing_D && indirection_state_stack.m_maybe_containing_D.value()) {
+								maybe_rawSR = indirection_state_stack.m_maybe_containing_D.value()->getSourceRange();
+							}
+							if (maybe_rawSR.has_value()) {
+								auto l_SR = cm1_adj_nice_source_range(maybe_rawSR.value(), *state1_ptr, Rewrite);
+
+								/* Here we report our use of the `C2V_TYPEOF` macro in the output code. */
+								(*state1_ptr).m_cpp_type_trait_use_locations.insert(l_SR.getBegin());
+							}
+						}
+					}
+					break;
+				}
+				found_range1 = Parse::find_uncommented_token(decltype_str, type_original_source_text);
+				if (type_original_source_text.length() > found_range1.begin) {
+					retval.m_seems_to_involve_a_template_param_or_nonmodifiable_type_originally = true;
+					retval.m_tparam_or_nonmodifiable_type_that_encompasses_the_direct_type_str = type_original_source_text;
+					break;
+				}
+				found_range1 = Parse::find_uncommented_token(auto_str, type_original_source_text);
+				if (type_original_source_text.length() > found_range1.begin) {
+					retval.m_seems_to_involve_a_template_param_or_nonmodifiable_type_originally = true;
+					retval.m_tparam_or_nonmodifiable_type_that_encompasses_the_direct_type_str = type_original_source_text;
+					break;
+				}
+			} while (false);
+
+			if (retval.m_seems_to_involve_a_template_param_or_nonmodifiable_type_originally) {
+				/* We may or may not be dealing with a `clang::DeclaratorDecl` here, but for now we'll flag it as a non-modifiable 
+				one, as that should result in the behavior we want for the rest of the function. */
+				DD_is_not_modifiable = true;
+			}
+		}
+
 		auto additional_void_star_replacement_criteria = [&]() {
 			/* A (hacky) condition that `void_star_replacement` will only be used when `void*` 
 			is literally present in the source text of the declaration being replaced. */
@@ -8615,7 +8690,7 @@ namespace convc2validcpp {
 		retval.m_prefix_str = cumulative_prefix_str;
 		retval.m_suffix_str = cumulative_suffix_str;
 		retval.m_post_name_suffix_str = cumulative_post_name_suffix_str;
-		retval.m_changed_from_original = changed_from_original;
+		retval.m_changed_from_original |= changed_from_original;
 
 		auto direct_qtype_str = indirection_state_stack.m_direct_type_state.current_return_qtype_str();
 
@@ -18668,36 +18743,103 @@ namespace convc2validcpp {
 						}
 					}
 
-					if (update_declaration_flag) {
-						//update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), state1);
-					}
-				} else {
-					auto NAD = dyn_cast<const NamespaceAliasDecl>(D);
-					if (NAD) {
-						const auto ND = NAD->getNamespace();
-						if (ND) {
-							const auto source_namespace_str = ND->getQualifiedNameAsString();
-
-							DECLARE_CACHED_CONST_STRING(mse_namespace_str1, mse_namespace_str());
-							DECLARE_CACHED_CONST_STRING(mse_namespace_str2, mse_namespace_str() + std::string("::"));
-							if ((source_namespace_str == mse_namespace_str1)
-								|| string_begins_with(source_namespace_str, mse_namespace_str2)) {
-
-								/* This check might be a bit of a hack. The idea is that we want to
-								prevent the subversion of checks for use of elements in the mse::us
-								namespace by using an alias to the namespace.
-								*/
-
-								const std::string error_desc = std::string("This namespace alias (of namespace '")
-									+ source_namespace_str + "') could be used to subvert some of the checks. "
-									+ "So its use requires a 'check suppression' directive.";
-								auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
-								if (res.second) {
-									//std::cout << (*(res.first)).as_a_string1() << " \n\n";
-								}
-							}
+					bool update_declaration_due_to_presence_of_typeof_flag = false;
+					auto TOET = dyn_cast<const TypeOfExprType>(qtype.getTypePtr());
+					if (TOET) {
+						update_declaration_due_to_presence_of_typeof_flag = true;
+					} else {
+						static const std::string typeof_str = "typeof";
+						auto typeof_range1 = Parse::find_uncommented_token(typeof_str, qtype_str);
+						if (qtype_str.size() > typeof_range1.begin) {
+							update_declaration_due_to_presence_of_typeof_flag = true;
 						}
 					}
+
+					if (/*update_declaration_flag || */ update_declaration_due_to_presence_of_typeof_flag) {
+						update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), state1);
+					}
+				} else {
+					do {
+						auto NAD = dyn_cast<const NamespaceAliasDecl>(D);
+						if (NAD) {
+							const auto ND = NAD->getNamespace();
+							if (ND) {
+								const auto source_namespace_str = ND->getQualifiedNameAsString();
+
+								DECLARE_CACHED_CONST_STRING(mse_namespace_str1, mse_namespace_str());
+								DECLARE_CACHED_CONST_STRING(mse_namespace_str2, mse_namespace_str() + std::string("::"));
+								if ((source_namespace_str == mse_namespace_str1)
+									|| string_begins_with(source_namespace_str, mse_namespace_str2)) {
+
+									/* This check might be a bit of a hack. The idea is that we want to
+									prevent the subversion of checks for use of elements in the mse::us
+									namespace by using an alias to the namespace.
+									*/
+
+									const std::string error_desc = std::string("This namespace alias (of namespace '")
+										+ source_namespace_str + "') could be used to subvert some of the checks. "
+										+ "So its use requires a 'check suppression' directive.";
+									auto res = std::pair<bool, bool>(); //state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, SR.getBegin(), error_desc));
+									if (res.second) {
+										//std::cout << (*(res.first)).as_a_string1() << " \n\n";
+									}
+								}
+							}
+							break;
+						}
+
+						auto SAD = dyn_cast<const clang::StaticAssertDecl>(D);
+						if (SAD && SAD->getAssertExpr()) {
+							auto* assert_E = SAD->getAssertExpr();
+							assert(assert_E);
+							auto* message_E = SAD->getMessage();
+							auto original_source_text = getRewrittenTextOrEmpty(Rewrite, SR);
+							lrtrim(original_source_text);
+							if (string_begins_with(original_source_text, "_Static_assert")) {
+								if (ConvertC2ValidCpp && SR.isValid()) {
+									auto lambda = [MR, &Rewrite, &state1, SAD, assert_E, message_E, SR]() {
+										std::string new_text = "IF_CPP_ELSE(static_assert, _Static_assert)(";
+										auto context = CExprTextInfoContext{ SR, &Rewrite, &state1 };
+
+										auto& assert_ecs_ref = state1.get_expr_conversion_state_ref(*assert_E, Rewrite);
+										assert_ecs_ref.update_current_text(context);
+										new_text += assert_ecs_ref.current_text(context);
+										if (message_E) {
+											auto& message_ecs_ref = state1.get_expr_conversion_state_ref(*message_E, Rewrite);
+											message_ecs_ref.update_current_text(context);
+											new_text += ", ";
+											new_text += message_ecs_ref.current_text(context);
+										}
+										new_text += ")";
+
+										auto found_range1 = Parse::find_uncommented_token("__builtin_types_compatible_p", new_text);
+										if (new_text.length() > found_range1.begin) {
+											/* __builtin_types_compatible_p() is (currently) not supported in C++. */
+											new_text = "IF_C(" + new_text + ")";
+											state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
+										}
+
+										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_text);
+									};
+									/* This modification needs to be queued so that it will be executed after any other
+									modifications that might affect the relevant part of the source text. */
+									state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
+
+									/* We've queued the modification action for deferred execution, but we don't want to delay the
+									establishment of the expression conversion state because, among other reasons, it reads from 
+									and stores the original source text and we want that done before the source text gets 
+									potentially modified. */
+									auto& assert_ecs_ref = state1.get_expr_conversion_state_ref(*assert_E, Rewrite);
+									if (message_E) {
+										auto& message_ecs_ref = state1.get_expr_conversion_state_ref(*message_E, Rewrite);
+									}
+								}
+							}
+							break;
+						}
+					} while(false);
+
+
 				}
 			}
 		}
@@ -19473,6 +19615,28 @@ namespace convc2validcpp {
 							}
 						}
 					}
+				}
+
+				bool update_expression_due_to_presence_of_typeof_flag = false;
+				static const std::string typeof_str = "typeof";
+				const auto E_text = getRewrittenTextOrEmpty(Rewrite, SR);
+				auto typeof_range1 = Parse::find_uncommented_token(typeof_str, E_text);
+				if (E_text.size() > typeof_range1.begin) {
+					update_expression_due_to_presence_of_typeof_flag = true;
+
+					auto TOET = dyn_cast<const TypeOfExprType>(E_ii_qtype.getTypePtr());
+					if (TOET) {
+						int q = 5;
+					} else {
+						auto typeof_range2 = Parse::find_uncommented_token(typeof_str, E_ii_qtype_str);
+						if (E_ii_qtype_str.size() > typeof_range2.begin) {
+							int q = 5;
+						}
+					}
+				}
+				if (update_expression_due_to_presence_of_typeof_flag) {
+					auto& ecs_ref = state1.get_expr_conversion_state_ref(*E_ii, Rewrite);
+					state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, SR, state1, E_ii);
 				}
 
 #if 0
@@ -21076,6 +21240,13 @@ namespace convc2validcpp {
 						static const std::string include_type_traits_str = 
 							"\n\n#ifdef __cplusplus \n"
 								"#include <type_traits> \n"
+								"#ifndef C2V_TYPEOF \n"
+								"#define C2V_TYPEOF(...) std::remove_reference_t<decltype(__VA_ARGS__)> \n"
+								"#endif /* !C2V_TYPEOF */ \n"
+							"#else /*__cplusplus*/ \n"
+								"#ifndef C2V_TYPEOF \n"
+								"#define C2V_TYPEOF(...) typeof(__VA_ARGS__) \n"
+								"#endif /* !C2V_TYPEOF */ \n"
 							"#endif /*__cplusplus*/ \n";
 
 						auto file_id = SM.getFileID(fii_ref.m_beginning_of_file_loc);
