@@ -19275,6 +19275,41 @@ namespace convc2validcpp {
 						if (BO->getLHS()->getType()->isPointerType()) {
 							MCSSSAssignment::s_handler1(MR, Rewrite, state1, BO->getLHS(), BO->getRHS());
 						}
+					} else if (clang::BinaryOperator::Opcode::BO_OrAssign == BO->getOpcode()) {
+						if (BO->getLHS()->getType()->isEnumeralType()) {
+							/* This seems to be an expression of the form `enum_var |= some_int`. C++ doesn't seem to be cool with this, 
+							so we're going to change it to `enum_var = (enum_var_type)(enum_var | some_int)`. */
+							auto LHS = BO->getLHS();
+							auto RHS = BO->getRHS();
+							if (ConvertC2ValidCpp && SR.isValid() && LHS && RHS) {
+								auto lambda = [MR, &Rewrite, &state1, BO, LHS, RHS, SR]() {
+									auto context = CExprTextInfoContext{ SR, &Rewrite, &state1 };
+
+									auto& BO_ecs_ref = state1.get_expr_conversion_state_ref(*BO, Rewrite);
+									BO_ecs_ref.update_current_text(context);
+									auto& LHS_ecs_ref = state1.get_expr_conversion_state_ref(*LHS, Rewrite);
+									LHS_ecs_ref.update_current_text(context);
+									auto& RHS_ecs_ref = state1.get_expr_conversion_state_ref(*RHS, Rewrite);
+									RHS_ecs_ref.update_current_text(context);
+
+									const std::string lhs_qtype_str = LHS->getType().getAsString();
+									std::string new_bo_text = LHS_ecs_ref.current_text() + " = (" + lhs_qtype_str + ")(" + LHS_ecs_ref.current_text() + " | " + RHS_ecs_ref.current_text() + ")";
+
+									state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_bo_text);
+								};
+								/* This modification needs to be queued so that it will be executed after any other
+								modifications that might affect the relevant part of the source text. */
+								state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
+
+								/* We've queued the modification action for deferred execution, but we don't want to delay the
+								establishment of the expression conversion state because, among other reasons, it reads from 
+								and stores the original source text and we want that done before the source text gets 
+								potentially modified. */
+								auto& BO_ecs_ref = state1.get_expr_conversion_state_ref(*BO, Rewrite);
+								auto& LHS_ecs_ref = state1.get_expr_conversion_state_ref(*LHS, Rewrite);
+								auto& RHS_ecs_ref = state1.get_expr_conversion_state_ref(*RHS, Rewrite);
+							}
+						}
 					}
 				}
 				auto DRE = dyn_cast<const clang::DeclRefExpr>(E);
