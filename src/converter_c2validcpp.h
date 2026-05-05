@@ -15869,8 +15869,7 @@ namespace convc2validcpp {
 
 			RETURN_IF_DEPENDENT_TYPE_CONV1(RHS->getType());
 
-			assert(LHS || VLD);
-			auto LHS_qtype = LHS ? LHS->getType() : VLD->getType();
+			auto LHS_qtype = lhs_qtype;
 			auto RHS_ii_qtype = RHS_ii->getType();
 
 			//auto lhs_res2 = infer_array_type_info_from_stmt(*LHS, "", state1);
@@ -19272,10 +19271,10 @@ namespace convc2validcpp {
 				auto BO = dyn_cast<const clang::BinaryOperator>(E_ii);
 				if (BO) {
 					if (clang::BinaryOperator::Opcode::BO_Assign == BO->getOpcode()) {
-						if (BO->getLHS()->getType()->isPointerType()) {
+						if (BO->getLHS()->getType()->isPointerType() || BO->getLHS()->getType()->isEnumeralType()) {
 							MCSSSAssignment::s_handler1(MR, Rewrite, state1, BO->getLHS(), BO->getRHS());
 						}
-					} else if (clang::BinaryOperator::Opcode::BO_OrAssign == BO->getOpcode()) {
+					} else if ((clang::BinaryOperator::Opcode::BO_OrAssign == BO->getOpcode()) || (clang::BinaryOperator::Opcode::BO_AndAssign == BO->getOpcode())) {
 						if (BO->getLHS()->getType()->isEnumeralType()) {
 							/* This seems to be an expression of the form `enum_var |= some_int`. C++ doesn't seem to be cool with this, 
 							so we're going to change it to `enum_var = (enum_var_type)(enum_var | some_int)`. */
@@ -19292,8 +19291,9 @@ namespace convc2validcpp {
 									auto& RHS_ecs_ref = state1.get_expr_conversion_state_ref(*RHS, Rewrite);
 									RHS_ecs_ref.update_current_text(context);
 
+									const std::string op_str = (clang::BinaryOperator::Opcode::BO_OrAssign == BO->getOpcode()) ? "|" : "&";
 									const std::string lhs_qtype_str = LHS->getType().getAsString();
-									std::string new_bo_text = LHS_ecs_ref.current_text() + " = (" + lhs_qtype_str + ")(" + LHS_ecs_ref.current_text() + " | " + RHS_ecs_ref.current_text() + ")";
+									std::string new_bo_text = LHS_ecs_ref.current_text() + " = (" + lhs_qtype_str + ")(" + LHS_ecs_ref.current_text() + " " + op_str + " " + RHS_ecs_ref.current_text() + ")";
 
 									state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_bo_text);
 								};
