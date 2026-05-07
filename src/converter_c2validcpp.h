@@ -18580,13 +18580,58 @@ namespace convc2validcpp {
 
 						auto maybe_direct_qtype = ddcs_ref.m_indirection_state_stack.m_direct_type_state.current_qtype_if_any();
 						if (maybe_direct_qtype.has_value()) {
-							auto& direct_qtype_ref = maybe_direct_qtype.value();
-							auto* directType = direct_qtype_ref.getTypePtr();
+							const auto& direct_qtype_ref = maybe_direct_qtype.value();
+							IF_DEBUG(auto direct_qtype_ref_str = direct_qtype_ref.getAsString();)
+							const auto* directType = direct_qtype_ref.getTypePtr();
 
-							clang::Decl const * definition_D = directType->getAsRecordDecl();
-							if (!definition_D) {
-								definition_D = directType->getAsTagDecl();
+							clang::TagDecl const * definition_TD = directType->getAsTagDecl();
+							if (definition_TD) {
+								definition_TD = definition_TD->getDefinition();
 							}
+
+#ifndef NDEBUG
+							std::string definition_TD_debug_source_location_str2;
+							std::string definition_TD_debug_source_text2;
+							if (definition_TD) {
+								auto definition_TD_SR = cm1_adj_nice_source_range(definition_TD->getSourceRange(), state1, Rewrite);
+								IF_DEBUG(std::string definition_TD_debug_source_location_str = definition_TD_SR.getBegin().printToString(Rewrite.getSourceMgr());)
+
+								DEBUG_SOURCE_TEXT_STR(definition_TD_debug_source_text, definition_TD_SR, Rewrite);
+
+								definition_TD_debug_source_location_str2 = definition_TD_debug_source_location_str;
+								definition_TD_debug_source_text2 = definition_TD_debug_source_text;
+							}
+#endif /*!NDEBUG*/
+
+							if (definition_TD) {
+								const auto* definition_TD_Type = definition_TD->getTypeForDecl();
+								IF_DEBUG(auto definition_TD_qtype = clang::QualType(definition_TD_Type , 0/*I'm just assuming zero specifies no qualifiers*/);)
+								IF_DEBUG(auto definition_TD_qtype_str = definition_TD_qtype.getAsString();)
+								auto canonical_directType = get_canonical_type_ptr(directType);
+								auto canonical_definition_TD_Type = get_canonical_type_ptr(definition_TD_Type);
+								if (canonical_definition_TD_Type != canonical_directType) {
+									/* We have observed on occasion that the `directType->getAsTagDecl()` call does not return the `Decl` we would 
+									have expected. Further investigation is needed. */
+									definition_TD = nullptr;
+								} else {
+									int q = 5;
+								}
+							}
+							clang::Decl const * definition_D = definition_TD;
+
+#ifndef NDEBUG
+							std::string definition_D_debug_source_location_str2;
+							std::string definition_D_debug_source_text2;
+							if (definition_D) {
+								auto definition_D_SR = cm1_adj_nice_source_range(definition_D->getSourceRange(), state1, Rewrite);
+								IF_DEBUG(std::string definition_D_debug_source_location_str = definition_D_SR.getBegin().printToString(Rewrite.getSourceMgr());)
+
+								DEBUG_SOURCE_TEXT_STR(definition_D_debug_source_text, definition_D_SR, Rewrite);
+
+								definition_D_debug_source_location_str2 = definition_D_debug_source_location_str;
+								definition_D_debug_source_text2 = definition_D_debug_source_text;
+							}
+#endif /*!NDEBUG*/
 
 							auto nested_containing_structs = [&MR](clang::Decl const * definition_D) {
 								std::vector<clang::RecordDecl const *> retval;
