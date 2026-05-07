@@ -1989,7 +1989,7 @@ namespace convc2validcpp {
 
 			if (Rewrite_ptr && !((*this).m_original_source_text_has_been_noted)) {
 				auto& Rewrite = *Rewrite_ptr;
-				auto decl_source_range = state1_ptr ? cm1_adj_nice_source_range(m_ddecl_cptr->getSourceRange(), *state1_ptr, Rewrite) : m_ddecl_cptr->getSourceRange();
+				auto decl_source_range = state1_ptr ? cm1_adj_nice_source_range(m_ddecl_cptr->getSourceRange(), *state1_ptr, Rewrite) : cm1_nice_source_range(m_ddecl_cptr->getSourceRange(), Rewrite);
 
 				(*this).m_original_source_text_str = getRewrittenTextOrEmpty(Rewrite, decl_source_range);
 				auto FND = dyn_cast<const clang::FunctionDecl>(&ddecl);
@@ -1999,16 +1999,24 @@ namespace convc2validcpp {
 						(*this).m_original_function_parameter_decl_cptrs.push_back(FND->getParamDecl(i));
 					}
 					auto return_type_source_range = state1_ptr
-						? cm1_adjusted_source_range(FND->getReturnTypeSourceRange(), *state1_ptr, Rewrite)
+						? cm1_adj_nice_source_range(FND->getReturnTypeSourceRange(), *state1_ptr, Rewrite)
 						: CSourceRangePlus{ cm1_nice_source_range(FND->getReturnTypeSourceRange(), Rewrite) };
 
-					if (decl_source_range.getBegin() < return_type_source_range.getBegin()) {
-						/* FunctionDecl::getReturnTypeSourceRange() seems to not include prefix qualifiers, like
-						* "const". */
-						return_type_source_range = extended_to_include_west_const_if_any(Rewrite, return_type_source_range);
+					if (!(decl_source_range.isValid())) {
+						int q = 5;
+					} else {
+						if ((decl_source_range.getBegin() <= return_type_source_range.getBegin()) && (decl_source_range.getEnd() >= return_type_source_range.getEnd())) {
+							if (decl_source_range.getBegin() < return_type_source_range.getBegin()) {
+								/* FunctionDecl::getReturnTypeSourceRange() seems to not include prefix qualifiers, like
+								* "const". */
+								return_type_source_range = extended_to_include_west_const_if_any(Rewrite, return_type_source_range);
 
-						if (state1_ptr) {
-							return_type_source_range = cm1_adjusted_source_range(return_type_source_range, *state1_ptr, Rewrite);
+								if (state1_ptr) {
+									return_type_source_range = cm1_adjusted_source_range(return_type_source_range, *state1_ptr, Rewrite);
+								}
+							}
+						} else {
+							int q = 5;
 						}
 					}
 					if (!(return_type_source_range.isValid())) {
@@ -9309,16 +9317,24 @@ namespace convc2validcpp {
 					ddcs_ref.m_original_function_parameter_decl_cptrs.push_back(FND->getParamDecl(i));
 				}
 				auto return_type_source_range = state1_ptr
-					? cm1_adjusted_source_range(FND->getReturnTypeSourceRange(), *state1_ptr, Rewrite)
+					? cm1_adj_nice_source_range(FND->getReturnTypeSourceRange(), *state1_ptr, Rewrite)
 					: CSourceRangePlus{ cm1_nice_source_range(FND->getReturnTypeSourceRange(), Rewrite) };
 
-				if (decl_source_range.getBegin() < return_type_source_range.getBegin()) {
-					/* FunctionDecl::getReturnTypeSourceRange() seems to not include prefix qualifiers, like
-					* "const". */
-					return_type_source_range = extended_to_include_west_const_if_any(Rewrite, return_type_source_range);
+				if (!(decl_source_range.isValid())) {
+					int q = 5;
+				} else {
+					if ((decl_source_range.getBegin() <= return_type_source_range.getBegin()) && (decl_source_range.getEnd() >= return_type_source_range.getEnd())) {
+						if (decl_source_range.getBegin() < return_type_source_range.getBegin()) {
+							/* FunctionDecl::getReturnTypeSourceRange() seems to not include prefix qualifiers, like
+							* "const". */
+							return_type_source_range = extended_to_include_west_const_if_any(Rewrite, return_type_source_range);
 
-					if (state1_ptr) {
-						return_type_source_range = cm1_adjusted_source_range(return_type_source_range, *state1_ptr, Rewrite);
+							if (state1_ptr) {
+								return_type_source_range = cm1_adjusted_source_range(return_type_source_range, *state1_ptr, Rewrite);
+							}
+						}
+					} else {
+						int q = 5;
 					}
 				}
 				if (!(return_type_source_range.isValid())) {
@@ -16164,6 +16180,7 @@ namespace convc2validcpp {
 				auto& context_ref = *(MR.Context);
 
 				auto lambda = [LHS, VLD, RHS, RHS2, RHS2SR, LHS_qtype_str, LHS_qtype, &context_ref, &Rewrite, &state1]() {
+						auto effective_LHS_qtype_str = LHS_qtype_str;
 						DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, RHS2SR, Rewrite);
 #ifndef NDEBUG
 						if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
@@ -16172,9 +16189,9 @@ namespace convc2validcpp {
 #endif /*!NDEBUG*/
 						auto& ecs_ref = state1.get_expr_conversion_state_ref(*RHS2, Rewrite);
 
-						std::string namespace_qualified_LHS_qtype_str = with_namespace_qualification_added_if_necessary(LHS_qtype_str, LHS_qtype, *RHS2, Rewrite, state1, context_ref);
+						std::string namespace_qualified_effective_LHS_qtype_str = with_namespace_qualification_added_if_necessary(effective_LHS_qtype_str, LHS_qtype, *RHS2, Rewrite, state1, context_ref);
 
-						std::string cast_wrapper_prefix = "(" + namespace_qualified_LHS_qtype_str + ")(";
+						std::string cast_wrapper_prefix = "(" + namespace_qualified_effective_LHS_qtype_str + ")(";
 						std::string cast_wrapper_suffix = ")";
 						bool seems_to_be_already_applied = false;
 
@@ -16184,11 +16201,66 @@ namespace convc2validcpp {
 							auto PVD = dyn_cast<const clang::ParmVarDecl>(VLD);
 							if (PVD) {
 								decltype_vetoed = true;
+							} else {
+								auto FND = dyn_cast<const clang::FunctionDecl>(VLD);
+								if (FND) {
+									decltype_vetoed = true;
+									auto VLD_effective_qtype = FND->getReturnType();
+
+									auto return_type_source_range_plus = cm1_adjusted_source_range(FND->getReturnTypeSourceRange(), state1, Rewrite);
+
+									auto decl_source_range_plus = cm1_adjusted_source_range(VLD->getSourceRange(), state1, Rewrite);
+									if (!(decl_source_range_plus.isValid())) {
+										int q = 5;
+									} else {
+										if ((decl_source_range_plus.getBegin() <= return_type_source_range_plus.getBegin()) && (decl_source_range_plus.getEnd() >= return_type_source_range_plus.getEnd())) {
+											if (decl_source_range_plus.getBegin() < return_type_source_range_plus.getBegin()) {
+												/* FunctionDecl::getReturnTypeSourceRange() seems to not include prefix qualifiers, like "const". */
+												auto return_type_source_range2 = extended_to_include_west_const_if_any(Rewrite, return_type_source_range_plus);
+												if (return_type_source_range2 != return_type_source_range_plus) {
+													return_type_source_range_plus = cm1_adjusted_source_range(return_type_source_range2, state1, Rewrite);
+												}
+											}
+										} else {
+											/* The (default) source range of the return type does not seem to be contained within the (default) source range 
+											of the function declaration. This can happen if macros are involved. Todo: handle this case. */
+											int q = 5;
+										}
+									}
+									if (!(return_type_source_range_plus.isValid())) {
+										int q = 5;
+									} else {
+										auto name_SR_plus = cm1_adjusted_source_range({ FND->getLocation(), FND->getLocation() }, state1, Rewrite);
+										auto name_SL = name_SR_plus.getBegin();
+										if ((return_type_source_range_plus.getEnd() < name_SL) || (name_SL < return_type_source_range_plus.getBegin())) {
+											effective_LHS_qtype_str = getRewrittenTextOrEmpty(Rewrite, return_type_source_range_plus);
+
+											for (const auto& source_text_info : return_type_source_range_plus.m_adjusted_source_text_infos) {
+												/* The function return type source text seems to be in the body of a (possibly nested) macro. So we'll go 
+												through the stored representation of the source text at each macro nesting level and see if we can find one 
+												in the same macro body as the given RHS source text location. */
+												const auto& def_range = source_text_info.m_macro_definition_range;
+												if (source_text_info.m_macro_invocation_range.isValid() && def_range.isValid() 
+													&& (def_range.getBegin() < RHS2SR.getBegin()) && (def_range.getEnd() > RHS2SR.getEnd())) {
+
+													effective_LHS_qtype_str = source_text_info.m_text;
+													break;
+												}
+											}
+											namespace_qualified_effective_LHS_qtype_str = with_namespace_qualification_added_if_necessary(effective_LHS_qtype_str, LHS_qtype, *RHS2, Rewrite, state1, context_ref);
+											cast_wrapper_prefix = "(" + namespace_qualified_effective_LHS_qtype_str + ")(";
+										} else {
+											/* The return type source range seems to encompass the function name. Like maybe,
+											for example, if the return type is a pointer to a (native) array? */
+											int q = 5;
+										}
+									}
+								}
 							}
 						}
 						std::optional<CSourceRangePlus> maybe_assignment_expression_SR_plus;
 						if (!decltype_vetoed) {
-							if (std::string::npos != LHS_qtype_str.find("unnamed " /*"unnamed enum at"*/)) {
+							if (std::string::npos != effective_LHS_qtype_str.find("unnamed " /*"unnamed enum at"*/)) {
 								/* The explicit lhs type is not available, so we're going to use decltype(lhs) instead. */
 								use_decltype = true;
 							} else {
