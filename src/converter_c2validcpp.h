@@ -18134,6 +18134,20 @@ namespace convc2validcpp {
 								update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), state1);
 							}
 						}
+						if (qtype->isEnumeralType() && VD->hasInit()) {
+							auto const* init_E = VD->getInit();
+							auto const* init_E_ii = IgnoreImplicit(init_E);
+							assert(init_E_ii);
+							const auto init_E_ii_qtype = init_E_ii->getType();
+							IF_DEBUG(auto init_E_ii_qtype_str = init_E_ii_qtype.getAsString();)
+							const auto canonical_init_E_ii_qtype = get_canonical_type(init_E_ii_qtype);
+							const auto canonical_qtype = get_canonical_type(qtype);
+							if (canonical_init_E_ii_qtype != canonical_qtype) {
+								MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_E/*RHS*/
+									, VD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
+							}
+						}
+
 #if 0
 						if ((clang::StorageDuration::SD_Static == storage_duration) || (clang::StorageDuration::SD_Thread == storage_duration)) {
 							bool satisfies_checks = satisfies_restrictions_for_static_storage_duration(qtype);
@@ -18588,21 +18602,6 @@ namespace convc2validcpp {
 							if (definition_TD) {
 								definition_TD = definition_TD->getDefinition();
 							}
-
-#ifndef NDEBUG
-							std::string definition_TD_debug_source_location_str2;
-							std::string definition_TD_debug_source_text2;
-							if (definition_TD) {
-								auto definition_TD_SR = cm1_adj_nice_source_range(definition_TD->getSourceRange(), state1, Rewrite);
-								IF_DEBUG(std::string definition_TD_debug_source_location_str = definition_TD_SR.getBegin().printToString(Rewrite.getSourceMgr());)
-
-								DEBUG_SOURCE_TEXT_STR(definition_TD_debug_source_text, definition_TD_SR, Rewrite);
-
-								definition_TD_debug_source_location_str2 = definition_TD_debug_source_location_str;
-								definition_TD_debug_source_text2 = definition_TD_debug_source_text;
-							}
-#endif /*!NDEBUG*/
-
 							if (definition_TD) {
 								const auto* definition_TD_Type = definition_TD->getTypeForDecl();
 								IF_DEBUG(auto definition_TD_qtype = clang::QualType(definition_TD_Type , 0/*I'm just assuming zero specifies no qualifiers*/);)
@@ -18610,28 +18609,13 @@ namespace convc2validcpp {
 								auto canonical_directType = get_canonical_type_ptr(directType);
 								auto canonical_definition_TD_Type = get_canonical_type_ptr(definition_TD_Type);
 								if (canonical_definition_TD_Type != canonical_directType) {
-									/* We have observed on occasion that the `directType->getAsTagDecl()` call does not return the `Decl` we would 
-									have expected. Further investigation is needed. */
+									/* unexpected? */
 									definition_TD = nullptr;
 								} else {
 									int q = 5;
 								}
 							}
 							clang::Decl const * definition_D = definition_TD;
-
-#ifndef NDEBUG
-							std::string definition_D_debug_source_location_str2;
-							std::string definition_D_debug_source_text2;
-							if (definition_D) {
-								auto definition_D_SR = cm1_adj_nice_source_range(definition_D->getSourceRange(), state1, Rewrite);
-								IF_DEBUG(std::string definition_D_debug_source_location_str = definition_D_SR.getBegin().printToString(Rewrite.getSourceMgr());)
-
-								DEBUG_SOURCE_TEXT_STR(definition_D_debug_source_text, definition_D_SR, Rewrite);
-
-								definition_D_debug_source_location_str2 = definition_D_debug_source_location_str;
-								definition_D_debug_source_text2 = definition_D_debug_source_text;
-							}
-#endif /*!NDEBUG*/
 
 							auto nested_containing_structs = [&MR](clang::Decl const * definition_D) {
 								std::vector<clang::RecordDecl const *> retval;
@@ -18859,19 +18843,19 @@ namespace convc2validcpp {
 						}
 					}
 
-					bool update_declaration_due_to_presence_of_typeof_flag = false;
+					bool aux_update_declaration_flag = false;
 					auto TOET = dyn_cast<const TypeOfExprType>(qtype.getTypePtr());
 					if (TOET) {
-						update_declaration_due_to_presence_of_typeof_flag = true;
+						aux_update_declaration_flag = true;
 					} else {
 						static const std::string typeof_str = "typeof";
 						auto typeof_range1 = Parse::find_uncommented_token(typeof_str, qtype_str);
 						if (qtype_str.size() > typeof_range1.begin) {
-							update_declaration_due_to_presence_of_typeof_flag = true;
+							aux_update_declaration_flag = true;
 						}
 					}
 
-					if (/*update_declaration_flag || */ update_declaration_due_to_presence_of_typeof_flag) {
+					if (/*update_declaration_flag || */ aux_update_declaration_flag) {
 						update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), state1);
 					}
 				} else {
