@@ -19947,6 +19947,7 @@ namespace convc2validcpp {
 				auto& state1 = m_state1;
 
 				auto GTST = llvm::dyn_cast<clang::GotoStmt>(ST);
+				auto CST = llvm::dyn_cast<clang::CaseStmt>(ST);
 				if (GTST) {
 					const auto LBLD = GTST->getLabel();
 					if (LBLD) {
@@ -20038,15 +20039,13 @@ namespace convc2validcpp {
 											}
 										}
 										if (!abort_flag) {
-											auto new_last_token_of_last_GT_ancestor_ST_text1 = last_token_of_last_GT_ancestor_ST_text1 + " \n{";
-											//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, last_token_of_last_GT_ancestor_ST_SR, new_last_token_of_last_GT_ancestor_ST_text1);
-											state1.m_pending_code_modification_actions.add_insert_after_token_at_given_location_action(Rewrite, last_token_of_last_GT_ancestor_ST_SR, last_token_of_last_GT_ancestor_ST_SR.getBegin(), "\n{ ");
+											state1.m_pending_code_modification_actions.add_insert_after_token_at_given_location_action(Rewrite, last_token_of_last_GT_ancestor_ST_SR, last_token_of_last_GT_ancestor_ST_SR.getBegin(), "\n{");
 
 											auto first_token_of_LBLST_SR = rewritable_source_range(LBLST_SR);
 											first_token_of_LBLST_SR.setEnd(first_token_of_LBLST_SR.getBegin());
 											std::string first_token_of_LBLST_text1 = getRewrittenTextOrEmpty(Rewrite, first_token_of_LBLST_SR);
 
-											state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, first_token_of_LBLST_SR, first_token_of_LBLST_SR.getBegin(), "} \n");
+											state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, first_token_of_LBLST_SR, first_token_of_LBLST_SR.getBegin(), "}\n");
 										} else {
 											int q = 5;
 										}
@@ -20066,8 +20065,91 @@ namespace convc2validcpp {
 						int q = 3;
 					}
 					int q = 5;
-				}
+				} else if (CST) {
+					{
+						clang::Stmt const* next_case_or_default_ST = nullptr;
+						const auto parent_ST = NonParenImpNoopCastParentOfType<clang::Stmt>(CST, *(MR.Context));
+						if (parent_ST) {
+							auto case_ancestor_ST = NonParenImpNoopCastParentOfType<clang::Stmt>(CST, *(MR.Context));
+							{
+								bool CST_encountered = false;
+								bool next_case_or_default_ST_encountered = false;
+								bool found_a_declstmt_between_case_and_next_case_or_default = false;
+								for (const auto& child : parent_ST->children()) {
+									if (child) {
+										if (!CST_encountered) {
+											if (child == CST) {
+												CST_encountered = true;
+											}
+										} else {
+											auto next_CST = llvm::dyn_cast<clang::CaseStmt>(child);
+											if (next_CST) {
+												next_case_or_default_ST = next_CST;
+												next_case_or_default_ST_encountered = true;
+												break;
+											}
 
+											auto default_ST = llvm::dyn_cast<clang::DefaultStmt>(child);
+											if (default_ST) {
+												next_case_or_default_ST = default_ST;
+												next_case_or_default_ST_encountered = true;
+												break;
+											}
+
+											auto DS = llvm::dyn_cast<clang::DeclStmt>(child);
+											if (DS) {
+												found_a_declstmt_between_case_and_next_case_or_default = true;
+											}
+										}
+									}
+								}
+								auto const* const subCST = CST->getSubStmt();
+								if (next_case_or_default_ST && subCST) {
+									if (!found_a_declstmt_between_case_and_next_case_or_default) {
+										/* Ok, perhaps unintuitively, the first statement after a `case whatever:` is actually a child of the `clang::CaseStmt` 
+										int the AST. But subsequent statements are not children, but instead siblings of the `clang::CaseStmt` in the AST. So 
+										we've already checked if any of the subsequent siblings of the `clang::CaseStmt`, CST, are `clang::DeclStmt`s and 
+										found that none of them are. Here we check if that child statement, subCST, happens to be a `clang::DeclStmt`. */
+										auto DS = llvm::dyn_cast<clang::DeclStmt>(subCST);
+										if (DS) {
+											found_a_declstmt_between_case_and_next_case_or_default = true;
+										}
+									}
+									const auto subCST_SR = write_once_source_range(cm1_adj_nice_source_range(subCST->getSourceRange(), state1, Rewrite));
+									const auto next_case_or_default_ST_SR = write_once_source_range(cm1_adj_nice_source_range(next_case_or_default_ST->getSourceRange(), state1, Rewrite));
+									if (subCST_SR.isValid() && next_case_or_default_ST_SR.isValid() && (subCST_SR.getEnd() < next_case_or_default_ST_SR.getBegin())
+										&& next_case_or_default_ST_encountered && found_a_declstmt_between_case_and_next_case_or_default) {
+
+										/* Ok, we've verified that the next_case_or_default's parent statement also contains the case statement. 
+										And we've confirmed that the next_case_or_default occurs after the case statement and that there is at 
+										least one declaration statement between the case statement and the next_case_or_default. Since C++11 
+										doesn't allow `case` or `default` statements that would skip over variable initialization, we're going to 
+										enclose all the code between this statement and the next_case_or_default statement in a new scope. */
+
+										auto first_token_of_subCST_SR = rewritable_source_range(subCST_SR);
+										first_token_of_subCST_SR.setEnd(first_token_of_subCST_SR.getBegin());
+										std::string first_token_of_subCST_text1 = getRewrittenTextOrEmpty(Rewrite, first_token_of_subCST_SR);
+
+										state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, first_token_of_subCST_SR, first_token_of_subCST_SR.getBegin(), "{\n ");
+
+										auto first_token_of_next_case_or_default_ST_SR = rewritable_source_range(next_case_or_default_ST_SR);
+										first_token_of_next_case_or_default_ST_SR.setEnd(first_token_of_next_case_or_default_ST_SR.getBegin());
+										std::string first_token_of_next_case_or_default_ST_text1 = getRewrittenTextOrEmpty(Rewrite, first_token_of_next_case_or_default_ST_SR);
+
+										state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, first_token_of_next_case_or_default_ST_SR, first_token_of_next_case_or_default_ST_SR.getBegin(), "}\n");
+									} else {
+										int q = 5;
+									}
+								} else {
+									int q = 7;
+								}
+							}
+						} else {
+							int q = 3;
+						}
+					}
+					int q = 5;
+				}
 			}
 		}
 
