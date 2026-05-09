@@ -18937,9 +18937,63 @@ namespace convc2validcpp {
 							}
 							break;
 						}
+
+						auto const* TDD = dyn_cast<const clang::TypedefDecl>(D);
+						if (TDD) {
+							auto const* TDND = TDD->getCanonicalDecl();
+							if (TDND) {
+								const auto TDND_qtype = TDND->getUnderlyingType();
+								IF_DEBUG(auto TDND_qtype_str = TDND_qtype.getAsString();)
+								auto const* TDND_Type = TDND_qtype.getTypePtr();
+								if (TDND_Type) {
+									if (TDND_Type->isEnumeralType()) {
+										clang::TagDecl const * TD = TDND_Type->getAsTagDecl();
+										clang::TagDecl const * definition_TD = TD ? TD->getDefinition() : nullptr;
+										if ((!definition_TD) || (!definition_TD->isThisDeclarationADefinition())) {
+											/* We failed to obtain the definition of the enum type of the typedef. So we're presuming this would qualify 
+											as a "forward reference to an 'enum' type", which apparently C++ doesn't allow. */
+											auto original_source_text = getRewrittenTextOrEmpty(Rewrite, SR);
+											std::string new_text = "\nIF_C(" + original_source_text + ")";
+											state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
+
+											state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_text);
+										}
+									}
+								} else {
+									int q = 5;
+								}
+							} else {
+								int q = 5;
+							}
+							break;
+						}
+
+						auto ED = dyn_cast<const clang::EnumDecl>(D);
+						if (ED) {
+							auto const* canonical_ED = ED->getCanonicalDecl();
+							if (canonical_ED) {
+								auto const* canonical_ED_Type = canonical_ED->getTypeForDecl();
+								if (canonical_ED_Type) {
+									clang::TagDecl const * TD = canonical_ED_Type->getAsTagDecl();
+									clang::TagDecl const * definition_TD = TD ? TD->getDefinition() : nullptr;
+									if ((!definition_TD) || (!definition_TD->isThisDeclarationADefinition())/* || (!canonical_ED->isComplete())*/) {
+										/* We failed to obtain the definition of the enum type of this EnumDecl. So we're presuming this would qualify 
+										as a "forward reference to an 'enum' type", which apparently C++ doesn't allow. */
+										auto original_source_text = getRewrittenTextOrEmpty(Rewrite, SR);
+										std::string new_text = "\nIF_C(" + original_source_text + ")";
+										state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
+
+										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_text);
+									}
+								} else {
+									int q = 5;
+								}
+							} else {
+								int q = 5;
+							}
+							break;
+						}
 					} while(false);
-
-
 				}
 			}
 		}
