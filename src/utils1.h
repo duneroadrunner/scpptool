@@ -608,6 +608,8 @@ std::vector<std::string> f_declared_object_strings(const std::string_view decl_s
 
 std::string tolowerstr(const std::string_view a);
 
+std::string blanked_out_str(const std::string_view a);
+
 
 /* This function returns a list of individual declarations contained in the same declaration statement
  * as the given declaration. (eg.: "int a, b = 3, *c;" ) */
@@ -2853,6 +2855,20 @@ inline auto Tget_descendant_of_type(const NodeT* NodePtr, clang::ASTContext& con
 	}
 	return retval;
 }
+
+/* Some types and functions for (very roughly) approximating the visiting of each node in the AST and 
+applying the handle_node() virtual member function of the given CNodeHandler object to each node. These 
+are currently not used much and most of their functionality hasn't been tested. */
+enum class ETReeWalkingStatus { Default, SkipFurtherProcessing, DoNotProcessChildren };
+class CNodeHandler {
+	public:
+	virtual ETReeWalkingStatus handle_node(const clang::Stmt&) { return ETReeWalkingStatus::Default; }
+	virtual ETReeWalkingStatus handle_node(const clang::Decl&) { return ETReeWalkingStatus::Default; }
+	virtual ETReeWalkingStatus handle_node(const clang::DeclContext&) { return ETReeWalkingStatus::Default; }
+};
+ETReeWalkingStatus apply_to_declcontext_and_each_descendant(const clang::DeclContext& declcontext, CNodeHandler& node_handler, int depth = 0);
+ETReeWalkingStatus apply_to_decl_and_each_descendant(const clang::Decl& decl, CNodeHandler& node_handler, int depth = 0);
+ETReeWalkingStatus apply_to_stmt_and_each_descendant(const clang::Stmt& stmt, CNodeHandler& node_handler, int depth = 0);
 
 
 /* Some classes for rudimentary collection of statistics about the (cumulative) time used by selected sections 

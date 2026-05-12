@@ -3550,6 +3550,46 @@ namespace convm1 {
 			}
 			return false;
 		}
+		bool InsertTextAfterToken(Rewriter &Rewrite, clang::SourceLocation insertion_point, std::string_view new_text) {
+#ifndef NDEBUG
+			const auto SR = clang::SourceRange{ insertion_point, insertion_point };
+			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+				int q = 5;
+			}
+			if (std::string::npos != new_text.find("idx")) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
+
+			if ((!m_ReplaceText_supression_mode) && insertion_point.isValid()) {
+				return Rewrite.InsertTextAfterToken(insertion_point, new_text);
+			} else {
+				int q = 3;
+			}
+			return false;
+		}
+		bool InsertTextBefore(Rewriter &Rewrite, clang::SourceLocation insertion_point, std::string_view new_text) {
+#ifndef NDEBUG
+			const auto SR = clang::SourceRange{ insertion_point, insertion_point };
+			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+				int q = 5;
+			}
+			if (std::string::npos != new_text.find("idx")) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
+
+			if ((!m_ReplaceText_supression_mode) && insertion_point.isValid()) {
+				return Rewrite.InsertTextBefore(insertion_point, new_text);
+			} else {
+				int q = 3;
+			}
+			return false;
+		}
 
 		std::pair<base_class::iterator, bool> add_replacement_action(const COrderedSourceRange& OSR, const CCodeModificationActionAndID& modifier) {
 			auto iter1 = base_class::find(OSR);
@@ -3653,7 +3693,7 @@ namespace convm1 {
 						}
 #endif /*!NDEBUG*/
 
-						Rewrite.InsertTextAfterToken(insertion_point, new_text);
+						this->InsertTextAfterToken(Rewrite, insertion_point, new_text);
 						if (true) {
 							//auto modified_range = COrderedSourceRange{ insertion_point.getLocWithOffset(+1), OSR.getEnd() };
 							//this->m_already_modified_regions.insert(modified_range);
@@ -3683,7 +3723,7 @@ namespace convm1 {
 						}
 #endif /*!NDEBUG*/
 
-						Rewrite.InsertTextBefore(insertion_point, new_text);
+						this->InsertTextBefore(Rewrite, insertion_point, new_text);
 						if (true) {
 							//auto modified_range = COrderedSourceRange{ insertion_point, OSR.getEnd() };
 							//this->m_already_modified_regions.insert(modified_range);
@@ -7641,10 +7681,7 @@ namespace convm1 {
 				if (ConvertToSCPP && (!suppress_modifications) && state1_ptr) {
 					/* We've stored the function parameters as a string. Now we're going
 					to "blank out"/erase the original source text of the parameters. */
-					std::string blank_text = parens_text;
-					for (auto& ch : blank_text) {
-						ch = ' ';
-					}
+					std::string blank_text = blanked_out_str(parens_text);
 					state1_ptr->m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, parens_SR, blank_text);
 					//Rewrite.ReplaceText(parens_SR, blank_text);
 
@@ -8628,9 +8665,7 @@ namespace convm1 {
 														? write_once_source_range(cm1_adj_nice_source_range(left_rawSR, *state1_ptr, Rewrite))
 														: write_once_source_range(cm1_nice_source_range(left_rawSR, Rewrite));
 													std::string left_blank_text = getRewrittenTextOrEmpty(Rewrite, left_SR);
-													for (auto& ch : left_blank_text) {
-														ch = ' ';
-													}
+													left_blank_text = blanked_out_str(left_blank_text);
 													state1_ptr->m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, left_SR, left_blank_text);
 												}
 												{
@@ -14706,10 +14741,7 @@ namespace convm1 {
 											auto cast_operation_text = getRewrittenTextOrEmpty(Rewrite, cast_operation_SR);
 											/* We're going to "blank out"/erase the original source text of the C-style cast operation
 											(including the parenthesis) (but not the expression that was being casted). */
-											std::string blank_text = cast_operation_text;
-											for (auto& ch : blank_text) {
-												ch = ' ';
-											}
+											std::string blank_text = blanked_out_str(cast_operation_text);
 											m_state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, blank_text);
 
 											static const std::string void_str = "void";
@@ -16203,10 +16235,7 @@ namespace convm1 {
 																			std::string cast_operation_text = getRewrittenTextOrEmpty(Rewrite, cast_operation_SR);
 																			/* We're going to "blank out"/erase the original source text of the C-style cast operation
 																			(including the parenthesis) (but not the expression that was being casted). */
-																			std::string blank_text = cast_operation_text;
-																			for (auto& ch : blank_text) {
-																				ch = ' ';
-																			}
+																			std::string blank_text = blanked_out_str(cast_operation_text);
 																			state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, blank_text);
 																		}
 																		return;
@@ -18311,10 +18340,7 @@ namespace convm1 {
 						std::string cast_operation_text = getRewrittenTextOrEmpty(Rewrite, cast_operation_SR);
 						/* We're going to "blank out"/erase the original source text of the C-style cast operation
 						(including the parenthesis) (but not the expression that was being casted). */
-						std::string blank_text = cast_operation_text;
-						for (auto& ch : blank_text) {
-							ch = ' ';
-						}
+						std::string blank_text = blanked_out_str(cast_operation_text);
 						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, blank_text);
 					}
 				}
@@ -22860,10 +22886,7 @@ namespace convm1 {
 
 										auto adj_attr_SR = write_once_source_range(adj_attr_SR2);
 										std::string attr_text = getRewrittenTextOrEmpty(Rewrite, adj_attr_SR);
-										std::string blank_text = attr_text;
-										for (auto& ch : blank_text) {
-											ch = ' ';
-										}
+										std::string blank_text = blanked_out_str(attr_text);
 										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, adj_attr_SR, blank_text);
 									} else {
 										int q = 3;
@@ -23422,10 +23445,7 @@ namespace convm1 {
 											std::string cast_operation_text = getRewrittenTextOrEmpty(Rewrite, cast_operation_SR);
 											/* We're going to "blank out"/erase the original source text of the C-style cast operation
 											(including the parenthesis) (but not the expression that was being casted). */
-											blank_text = cast_operation_text;
-											for (auto& ch : blank_text) {
-												ch = ' ';
-											}
+											blank_text = blanked_out_str(cast_operation_text);
 										} else {
 											int q = 3;
 										}

@@ -13,6 +13,7 @@
 
 /*Standard headers*/
 #include <cassert>
+#include <cctype>
 #include <cstddef>
 #include <linux/limits.h>
 #include <string>
@@ -3281,6 +3282,46 @@ namespace convc2validcpp {
 			}
 			return false;
 		}
+		bool InsertTextAfterToken(Rewriter &Rewrite, clang::SourceLocation insertion_point, std::string_view new_text) {
+#ifndef NDEBUG
+			const auto SR = clang::SourceRange{ insertion_point, insertion_point };
+			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+				int q = 5;
+			}
+			if (std::string::npos != new_text.find("idx")) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
+
+			if ((!m_ReplaceText_supression_mode) && insertion_point.isValid()) {
+				return Rewrite.InsertTextAfterToken(insertion_point, new_text);
+			} else {
+				int q = 3;
+			}
+			return false;
+		}
+		bool InsertTextBefore(Rewriter &Rewrite, clang::SourceLocation insertion_point, std::string_view new_text) {
+#ifndef NDEBUG
+			const auto SR = clang::SourceRange{ insertion_point, insertion_point };
+			DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, SR, Rewrite);
+			DEBUG_SOURCE_TEXT_STR(debug_source_text, SR, Rewrite);
+			if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
+				int q = 5;
+			}
+			if (std::string::npos != new_text.find("idx")) {
+				int q = 5;
+			}
+#endif /*!NDEBUG*/
+
+			if ((!m_ReplaceText_supression_mode) && insertion_point.isValid()) {
+				return Rewrite.InsertTextBefore(insertion_point, new_text);
+			} else {
+				int q = 3;
+			}
+			return false;
+		}
 
 		std::pair<base_class::iterator, bool> add_replacement_action(const COrderedSourceRange& OSR, const CCodeModificationActionAndID& modifier) {
 			auto iter1 = base_class::find(OSR);
@@ -3384,7 +3425,7 @@ namespace convc2validcpp {
 						}
 #endif /*!NDEBUG*/
 
-						Rewrite.InsertTextAfterToken(insertion_point, new_text);
+						this->InsertTextAfterToken(Rewrite, insertion_point, new_text);
 						if (true) {
 							//auto modified_range = COrderedSourceRange{ insertion_point.getLocWithOffset(+1), OSR.getEnd() };
 							//this->m_already_modified_regions.insert(modified_range);
@@ -3414,7 +3455,7 @@ namespace convc2validcpp {
 						}
 #endif /*!NDEBUG*/
 
-						Rewrite.InsertTextBefore(insertion_point, new_text);
+						this->InsertTextBefore(Rewrite, insertion_point, new_text);
 						if (true) {
 							//auto modified_range = COrderedSourceRange{ insertion_point, OSR.getEnd() };
 							//this->m_already_modified_regions.insert(modified_range);
@@ -3545,6 +3586,16 @@ namespace convc2validcpp {
 	/* This container holds information about usages of preprocessor macros. */
 	class CPPMacroInstances : public std::map<SourceLocation, CPPMacroInstanceInfo> {
 	public:
+	};
+
+	struct CStmtRelocationInfo {
+		clang::Stmt const* m_ST = nullptr;
+		clang::Stmt const* m_ST_to_be_inserted_before = nullptr;
+	};
+
+	struct CStmtRelocationInfoMap : public std::unordered_map<clang::Stmt const*, CStmtRelocationInfo> {
+		typedef std::unordered_map<clang::Stmt const*, CStmtRelocationInfo> base_class;
+		using base_class::base_class;
 	};
 
 	class CTUState : public CCommonTUState1 {
@@ -3775,6 +3826,9 @@ namespace convc2validcpp {
 
 		/* This container holds the locations where use of C++ type traits (presumably wrapped in the IF_CPP() macro) have been inserted. */
 		std::set<clang::SourceLocation> m_cpp_type_trait_use_locations;
+
+		/* This container holds information about statements that are scheduled to be relocated. */
+		CStmtRelocationInfoMap m_stmt_relocation_info_map;
 
 		/* This value seems to be required for certain AST traversing operations. We put
 		it here so that we don't have to pass it around separately, but we're not totally
@@ -7174,10 +7228,7 @@ namespace convc2validcpp {
 				if (ConvertC2ValidCpp && (!suppress_modifications) && state1_ptr) {
 					/* We've stored the function parameters as a string. Now we're going
 					to "blank out"/erase the original source text of the parameters. */
-					std::string blank_text = parens_text;
-					for (auto& ch : blank_text) {
-						ch = ' ';
-					}
+					std::string blank_text = blanked_out_str(parens_text);
 					state1_ptr->m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, parens_SR, blank_text);
 					//Rewrite.ReplaceText(parens_SR, blank_text);
 
@@ -8193,10 +8244,7 @@ namespace convc2validcpp {
 													auto left_SR = state1_ptr
 														? write_once_source_range(cm1_adj_nice_source_range(left_rawSR, *state1_ptr, Rewrite))
 														: write_once_source_range(cm1_nice_source_range(left_rawSR, Rewrite));
-													std::string left_blank_text = getRewrittenTextOrEmpty(Rewrite, left_SR);
-													for (auto& ch : left_blank_text) {
-														ch = ' ';
-													}
+													std::string left_blank_text = blanked_out_str(getRewrittenTextOrEmpty(Rewrite, left_SR));
 													state1_ptr->m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, left_SR, left_blank_text);
 												}
 												{
@@ -15464,10 +15512,7 @@ namespace convc2validcpp {
 						std::string cast_operation_text = getRewrittenTextOrEmpty(Rewrite, cast_operation_SR);
 						/* We're going to "blank out"/erase the original source text of the C-style cast operation
 						(including the parenthesis) (but not the expression that was being casted). */
-						std::string blank_text = cast_operation_text;
-						for (auto& ch : blank_text) {
-							ch = ' ';
-						}
+						std::string blank_text = blanked_out_str(cast_operation_text);
 						state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, cast_operation_SR, blank_text);
 					}
 				}
@@ -18549,10 +18594,7 @@ namespace convc2validcpp {
 
 										auto adj_attr_SR = write_once_source_range(adj_attr_SR2);
 										std::string attr_text = getRewrittenTextOrEmpty(Rewrite, adj_attr_SR);
-										std::string blank_text = attr_text;
-										for (auto& ch : blank_text) {
-											ch = ' ';
-										}
+										std::string blank_text = blanked_out_str(attr_text);
 										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, adj_attr_SR, blank_text);
 									} else {
 										int q = 3;
@@ -19945,208 +19987,499 @@ namespace convc2validcpp {
 				}
 
 				auto& state1 = m_state1;
+				auto& Rewrite = (*this).Rewrite;
 
 				auto GTST = llvm::dyn_cast<clang::GotoStmt>(ST);
 				auto CST = llvm::dyn_cast<clang::CaseStmt>(ST);
 				if (GTST) {
-					const auto LBLD = GTST->getLabel();
-					if (LBLD) {
+					do {
+						const auto LBLD = GTST->getLabel();
+						if (!LBLD) {
+							break;
+						}
 						const auto LBLST = LBLD->getStmt();
-						if (LBLST) {
-							const auto parent_ST = NonParenImpNoopCastParentOfType<clang::Stmt>(LBLST, *(MR.Context));
-							if (parent_ST) {
-								clang::Stmt const* last_GT_ancestor_ST = GTST;
-								auto GT_ancestor_ST = NonParenImpNoopCastParentOfType<clang::Stmt>(GTST, *(MR.Context));
-								while (GT_ancestor_ST && (parent_ST != GT_ancestor_ST)) {
-									last_GT_ancestor_ST = GT_ancestor_ST;
-									GT_ancestor_ST = NonParenImpNoopCastParentOfType<clang::Stmt>(GT_ancestor_ST, *(MR.Context));
+						clang::Stmt const* last_ST_before_LBL = GTST;
+						if (!LBLST) {
+							break;
+						}
+						const auto parent_ST = NonParenImpNoopCastParentOfType<clang::Stmt>(LBLST, *(MR.Context));
+						if (!parent_ST) {
+							break;
+						}
+						/* last_GT_ancestor_ST will be set to the statement containing the `goto` statement that is a sibling (in 
+						terms of scope depth) of the destination label statement. */
+						clang::Stmt const* last_GT_ancestor_ST = GTST;
+						auto GT_ancestor_ST = NonParenImpNoopCastParentOfType<clang::Stmt>(GTST, *(MR.Context));
+						while (GT_ancestor_ST && (parent_ST != GT_ancestor_ST)) {
+							last_GT_ancestor_ST = GT_ancestor_ST;
+							GT_ancestor_ST = NonParenImpNoopCastParentOfType<clang::Stmt>(GT_ancestor_ST, *(MR.Context));
+						}
+						if (!GT_ancestor_ST) {
+							break;
+						}
+
+						/* Here we're going to loop through all the children of the statement that contains (as a direct child) the 
+						destination label and (at a possible deeper scope depth) the goto statement in question. During this loop 
+						we note if any of the (direct) children are variable declaration statements. We also note the (direct child) 
+						statement immediately preceding the destination label statement. */
+						last_ST_before_LBL = last_GT_ancestor_ST;
+						bool last_GT_ancestor_ST_encountered = false;
+						bool LBLST_encountered = false;
+						std::vector<clang::VarDecl const*> variables_declared_between_goto_and_label;
+						for (const auto& child : parent_ST->children()) {
+							if (child) {
+								if (!last_GT_ancestor_ST_encountered) {
+									if (child == last_GT_ancestor_ST) {
+										last_GT_ancestor_ST_encountered = true;
+									}
+								} else if (child == LBLST) {
+									LBLST_encountered = true;
+									break;
+								} else {
+									last_ST_before_LBL = child;
+									auto DS = llvm::dyn_cast<clang::DeclStmt>(child);
+									if (DS) {
+										auto decl_group_ref = DS->getDeclGroup();
+										for (auto D : decl_group_ref) {
+											if (D) {
+												auto VD = llvm::dyn_cast<clang::VarDecl>(D);
+												if (VD) {
+													IF_DEBUG(const auto var_name = VD->getName();)
+													variables_declared_between_goto_and_label.push_back(VD);
+												} else {
+													int q = 5;
+												}
+											} else {
+												int q = 3;
+											}
+										}
+									}
 								}
-								if (GT_ancestor_ST) {
-									bool last_GT_ancestor_ST_encountered = false;
+							}
+						}
+						const auto last_GT_ancestor_ST_SR = write_once_source_range(cm1_adj_nice_source_range(last_GT_ancestor_ST->getSourceRange(), state1, Rewrite));
+						const auto LBLST_SR = write_once_source_range(cm1_adj_nice_source_range(LBLST->getSourceRange(), state1, Rewrite));
+						const auto last_ST_before_LBL_SR = write_once_source_range(cm1_adj_nice_source_range(last_ST_before_LBL->getSourceRange(), state1, Rewrite));
+						if (!(last_GT_ancestor_ST_SR.isValid() && LBLST_SR.isValid() && (last_GT_ancestor_ST_SR.getEnd() < LBLST_SR.getBegin())
+							&& LBLST_encountered && (1 <= variables_declared_between_goto_and_label.size()))) {
+
+							break;
+						}
+
+						/* Ok, we've verified that the destination label's parent statement also contains the goto statement. 
+						And we've identified the statement in the same scope as the label that contains the goto statement 
+						(which may be the goto statement itself). And we've confirmed that the label occurs after the goto 
+						statement and that there is at least one declaration statement between the goto statement and the 
+						label. C++11 doesn't allow goto statements that would skip over variable initialization. */
+
+						std::vector<clang::VarDecl const*> variables_declared_between_goto_and_label_with_dependent_initialization;
+						std::vector<clang::VarDecl const*> variables_declared_between_goto_and_label_with_independent_initialization;
+						for (auto VD : variables_declared_between_goto_and_label) {
+							auto const* init_E = VD->getInit();
+							if (init_E)  {
+								/* We want to determine if the initialization expression contains a clang::DeclRefExpr. To do thsi we are going 
+								to use the apply_to_stmt_and_each_descendant() function. But first we need to define a "node handler" that will 
+								determine whether or not a given node is a clang::DeclRefExpr. */
+								class CDRESearchNodeHandler : public CNodeHandler {
+								public:
+									CDRESearchNodeHandler(Rewriter &Rewrite_param, CTUState& state1) : Rewrite(Rewrite_param), m_state1(state1) {}
+									virtual ETReeWalkingStatus handle_node(const clang::Stmt& statement) override {
+										auto DRE = llvm::dyn_cast<clang::DeclRefExpr>(&statement);
+										if (DRE) {
+											m_contains_DRE = true;
+											return ETReeWalkingStatus::SkipFurtherProcessing;
+										}
+										return ETReeWalkingStatus::Default;
+									}
+
+									Rewriter &Rewrite;
+									CTUState& m_state1;
+									bool m_contains_DRE = false;
+								};
+								auto DRE_search_node_handler = CDRESearchNodeHandler{ Rewrite, m_state1 };
+								auto res1 = apply_to_stmt_and_each_descendant(*init_E, DRE_search_node_handler, 0);
+
+								/* So here we're labelling initialization expressions that contain `clang::DeclRefExpr`s as "dependent" and 
+								"independent" otherwise. */
+								bool label_as_dependent = DRE_search_node_handler.m_contains_DRE;
+
+								if (label_as_dependent) {
+									/* If the variable declaration has a "dependent" initialization expression, then we're not confident that 
+									we can relocate the variable declaration (to a point before the goto statement) without causing a compile 
+									error. So in those cases, rather than relocate the variable declaration, we intend to enclose the code 
+									between (the statement that contains) the goto statement and the destination label in a new scope. But if 
+									any of the the code after the destination label refers to the variable being declared, then that would 
+									cause a compile error. So here we check each statement that occurs after the destination label to see if 
+									it refers to the variable in question. If any do, then we will not label the variable declaration as 
+									having a "dependent" initialization expression. This will result in the variable declaration being 
+									relocated (as if it did not have a "dependent" initialization expression), which may or may not cause a 
+									compile error, but the other options, including doing nothing, will definitely result in a compile error 
+									(when compiled as C++). */
 									bool LBLST_encountered = false;
-									bool found_a_declstmt_between_goto_and_label = false;
+									std::vector<clang::Stmt const*> statements_refering_to_variables_declared_between_goto_and_label_with_dependent_initialization;
 									for (const auto& child : parent_ST->children()) {
 										if (child) {
-											if (!last_GT_ancestor_ST_encountered) {
-												if (child == last_GT_ancestor_ST) {
-													last_GT_ancestor_ST_encountered = true;
+											if (!LBLST_encountered) {
+												if (child == LBLST) {
+													LBLST_encountered = true;
+
+													const auto subLBLST = LBLST->getSubStmt();
+													if (subLBLST) {
+														/* Ok, perhaps unintuitively, the first statement after a `whatever_label:` is actually a child of the `clang::LabelStmt` 
+														int the AST. But subsequent statements are not children, but instead siblings of the `clang::LabelStmt` in the AST. Here 
+														we check if that child statement, subLBLST, references one of the variables_declared_between_goto_and_label. */
+														const auto res1 = statement_makes_reference_to_decl(*VD, *subLBLST);
+														if (res1) {
+															label_as_dependent = false;
+															break;
+														}
+													} else {
+														int q = 5;
+													}
 												}
-											} else if (child == LBLST) {
-												LBLST_encountered = true;
-												break;
+												continue;
 											} else {
-												auto DS = llvm::dyn_cast<clang::DeclStmt>(child);
-												if (DS) {
-													found_a_declstmt_between_goto_and_label = true;
+												const auto res1 = statement_makes_reference_to_decl(*VD, *child);
+												if (res1) {
+													label_as_dependent = false;
+													break;
 												}
 											}
 										}
 									}
-									const auto last_GT_ancestor_ST_SR = write_once_source_range(cm1_adj_nice_source_range(last_GT_ancestor_ST->getSourceRange(), state1, Rewrite));
-									const auto LBLST_SR = write_once_source_range(cm1_adj_nice_source_range(LBLST->getSourceRange(), state1, Rewrite));
-									if (last_GT_ancestor_ST_SR.isValid() && LBLST_SR.isValid() && (last_GT_ancestor_ST_SR.getEnd() < LBLST_SR.getBegin())
-										&& LBLST_encountered && found_a_declstmt_between_goto_and_label) {
+								}
+								if (label_as_dependent) {
+									variables_declared_between_goto_and_label_with_dependent_initialization.push_back(VD);
+								} else {
+									variables_declared_between_goto_and_label_with_independent_initialization.push_back(VD);
+								}
+							} else {
+								variables_declared_between_goto_and_label_with_independent_initialization.push_back(VD);
+							}
+						}
+						for (const auto VD : variables_declared_between_goto_and_label_with_independent_initialization) {
+							auto DST = NonParenImpNoopCastParentOfType<clang::DeclStmt>(VD, *(MR.Context));
+							if (DST) {
+								for (const auto VD2 : variables_declared_between_goto_and_label_with_dependent_initialization) {
+									const auto DST2 = NonParenImpNoopCastParentOfType<clang::DeclStmt>(VD2, *(MR.Context));
+									if (DST2 == DST) {
+										/* This clang::DeclStmt seems to contain variable declarations with both "independent" and "dependent" initializations. 
+										So we're going to deem it ineligible for simple relocation. */
+										DST = nullptr;
+										break;
+									}
+								}
+							}
+							if (DST) {
+								/* As this clang::DeclStmt declares variables with "independent" (or no) initialization expressions, we'll presume 
+								it safe to relocate the statement to be before this goto statement. */
+								auto found_it = state1.m_stmt_relocation_info_map.find(DST);
+								if (state1.m_stmt_relocation_info_map.end() != found_it) {
+									/* This statement is already scheduled to be relocated. */
+									const auto ST_to_be_inserted_before_SR = cm1_adj_nice_source_range(found_it->second.m_ST_to_be_inserted_before->getSourceRange(), state1, Rewrite);
+									if (ST_to_be_inserted_before_SR.isValid() && (last_GT_ancestor_ST_SR.getBegin() < ST_to_be_inserted_before_SR.getBegin())) {
+										/* Our relocation destination is "before" the currently scheduled destination location. So we will replace 
+										the currently scheduled destination location. */
+										found_it->second.m_ST_to_be_inserted_before = last_GT_ancestor_ST;
+									}
+								} else {
+									state1.m_stmt_relocation_info_map.insert({ DST, { DST, last_GT_ancestor_ST } });
 
-										/* Ok, we've verified that the destination label's parent statement also contains the goto statement. 
-										And we've identified the statement in the same scope as the label that contains the goto statement 
-										(which may be the goto statement itself). And we've confirmed that the label occurs after the goto 
-										statement and that there is at least one declaration statement between the goto statement and the 
-										label. Since C++11 doesn't allow goto statements that would skip over variable initialization, 
-										we're going to enclose all the code between this statement and the label statement in a new scope. */
+									/* Multiple different goto statements could each instigate the relocation of the same statement. Here we 
+									ensure that only one relocation is attempted by designating the statement source range as "write once". 
+									This is arguably a little hacky, and it might be more proper to explicitly identify potentially redundant 
+									(or conflicting) relocation attempts. */
+									const auto DST_SR = write_once_source_range(cm1_adj_nice_source_range(DST->getSourceRange(), state1, Rewrite));
+									if (ConvertC2ValidCpp && last_GT_ancestor_ST_SR.isValid() && DST_SR.isValid()) {
 
-										std::string last_GT_ancestor_ST_text1 = getRewrittenTextOrEmpty(Rewrite, last_GT_ancestor_ST_SR);
-										std::string LBLST_text1 = getRewrittenTextOrEmpty(Rewrite, LBLST_SR);
+										auto lambda = [MR, &Rewrite, &state1, DST, DST_SR]() {
+											auto found_it = state1.m_stmt_relocation_info_map.find(DST);
+											if (state1.m_stmt_relocation_info_map.end() != found_it) {
+												const auto ST_to_be_inserted_before_SR = cm1_adj_nice_source_range(found_it->second.m_ST_to_be_inserted_before->getSourceRange(), state1, Rewrite);
+												if (ST_to_be_inserted_before_SR.isValid()) {
+													/* Here we're blanking out the original statement source text. */
+													std::string DST_text1 = getRewrittenTextOrEmpty(Rewrite, DST_SR);
+													std::string blank_text = blanked_out_str(DST_text1);
+													state1.m_pending_code_modification_actions.ReplaceText(Rewrite, DST_SR, blank_text);
 
-										auto last_token_of_last_GT_ancestor_ST_SL = last_GT_ancestor_ST_SR.getEnd();
-										auto last_token_of_last_GT_ancestor_ST_SR = write_once_source_range(clang::SourceRange{ last_token_of_last_GT_ancestor_ST_SL, last_token_of_last_GT_ancestor_ST_SL});
-										std::string last_token_of_last_GT_ancestor_ST_text1 = getRewrittenTextOrEmpty(Rewrite, last_token_of_last_GT_ancestor_ST_SR);
-										bool abort_flag = false;
-										bool look_for_semicolon_flag = false;
-										if (GT_ancestor_ST != GTST) {
-											auto CMPNDST = llvm::dyn_cast<clang::CompoundStmt>(GT_ancestor_ST);
-											if (!CMPNDST) {
-												abort_flag = true;
-											} else if ("}" != last_token_of_last_GT_ancestor_ST_text1) {
-												/* Sometimes compound statements don't end with a curly brace. For example, `if` statements for 
-												which the curly braces are omitted such as: `if (!ssl_ctx) goto error;` 
-												The problem is that in such cases, libclang doesn't even include the terminating semicolon as part 
-												of the compound statement. So we have to manually include it. */
-												if (";" != last_token_of_last_GT_ancestor_ST_text1) {
-													look_for_semicolon_flag = true;
+													/* And inserting a new copy of it before (a statement containing) the goto statement.  */
+													auto first_token_of_ST_to_be_inserted_before_SR = rewritable_source_range(ST_to_be_inserted_before_SR);
+													first_token_of_ST_to_be_inserted_before_SR.setEnd(first_token_of_ST_to_be_inserted_before_SR.getBegin());
+													IF_DEBUG(std::string first_token_of_ST_to_be_inserted_before_text1 = getRewrittenTextOrEmpty(Rewrite, first_token_of_ST_to_be_inserted_before_SR);)
+													auto DST_text_and_newline = DST_text1;
+													if ((1 > DST_text_and_newline.length()) || (';' != DST_text_and_newline.back())) {
+														DST_text_and_newline += ";";
+													}
+													DST_text_and_newline += "\n";
+
+													state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, first_token_of_ST_to_be_inserted_before_SR, first_token_of_ST_to_be_inserted_before_SR.getBegin(), DST_text_and_newline);
 												}
+											} else {
+												int q = 3;
+											}
+										};
+										/* This modification needs to be queued so that it will be executed after any other
+										modifications that might affect the relevant part of the source text. */
+										state1.m_pending_code_modification_actions.add_replacement_action(DST_SR, lambda);
+									}
+								}
+							} else {
+								int q = 5;
+							}
+						}
+						if (!(1 <= variables_declared_between_goto_and_label_with_dependent_initialization.size())) {
+							break;
+						}
+
+						/* Due to the complexity of their initialization expressions, we can't confidently relocate these variable 
+						declarations to an "earlier" location. So instead we intend to enclose all the code between this statement 
+						and the label statement in a new scope. */
+
+						std::string last_GT_ancestor_ST_text1 = getRewrittenTextOrEmpty(Rewrite, last_GT_ancestor_ST_SR);
+						std::string LBLST_text1 = getRewrittenTextOrEmpty(Rewrite, LBLST_SR);
+
+						auto last_token_of_last_GT_ancestor_ST_SL = last_GT_ancestor_ST_SR.getEnd();
+						auto last_token_of_last_GT_ancestor_ST_SR = write_once_source_range(clang::SourceRange{ last_token_of_last_GT_ancestor_ST_SL, last_token_of_last_GT_ancestor_ST_SL});
+						std::string last_token_of_last_GT_ancestor_ST_text1 = getRewrittenTextOrEmpty(Rewrite, last_token_of_last_GT_ancestor_ST_SR);
+						bool abort_flag = false;
+						bool look_for_semicolon_flag = false;
+						if (GT_ancestor_ST != GTST) {
+							auto CMPNDST = llvm::dyn_cast<clang::CompoundStmt>(GT_ancestor_ST);
+							if (!CMPNDST) {
+								abort_flag = true;
+							} else if ("}" != last_token_of_last_GT_ancestor_ST_text1) {
+								/* Sometimes compound statements don't end with a curly brace. For example, `if` statements for 
+								which the curly braces are omitted such as: `if (!ssl_ctx) goto error;` 
+								The problem is that in such cases, libclang doesn't even include the terminating semicolon as part 
+								of the compound statement. So we have to manually include it. */
+								if (";" != last_token_of_last_GT_ancestor_ST_text1) {
+									look_for_semicolon_flag = true;
+								}
+								int q = 5;
+							}
+						}
+						if ((GT_ancestor_ST == GTST) || look_for_semicolon_flag) {
+							/* The statement in the same scope as the destination label statement containing the goto statement 
+							is the goto statement itself in this case. In this case the statement won't include the terminating 
+							semicolon delimeter. So we'll try to find it and use the semicolon as the last token. */
+							last_token_of_last_GT_ancestor_ST_SL = last_token_of_last_GT_ancestor_ST_SL.getLocWithOffset(+last_token_of_last_GT_ancestor_ST_text1.length());
+							while (last_token_of_last_GT_ancestor_ST_SL.isValid()) {
+								last_token_of_last_GT_ancestor_ST_SR = write_once_source_range(clang::SourceRange{ last_token_of_last_GT_ancestor_ST_SL, last_token_of_last_GT_ancestor_ST_SL});
+								last_token_of_last_GT_ancestor_ST_text1 = getRewrittenTextOrEmpty(Rewrite, last_token_of_last_GT_ancestor_ST_SR);
+								if ((1 <= last_token_of_last_GT_ancestor_ST_text1.length()) && ((!std::isspace(last_token_of_last_GT_ancestor_ST_text1.front())) || (!std::isspace(last_token_of_last_GT_ancestor_ST_text1.back())))) {
+									break;
+								}
+								last_token_of_last_GT_ancestor_ST_SL = last_token_of_last_GT_ancestor_ST_SL.getLocWithOffset(+1);
+							}
+							if (!last_token_of_last_GT_ancestor_ST_SL.isValid()) {
+								abort_flag = true;
+							} else {
+								if (";" != last_token_of_last_GT_ancestor_ST_text1) {
+									abort_flag = true;
+								}
+							}
+							last_token_of_last_GT_ancestor_ST_SR = write_once_source_range(clang::SourceRange{ last_token_of_last_GT_ancestor_ST_SL, last_token_of_last_GT_ancestor_ST_SL});
+						}
+						if (!(ConvertC2ValidCpp && !abort_flag)) {
+							break;
+						}
+
+						/* Here we add the enclosing curly braces to create an new enclosing scope. */
+						assert(last_token_of_last_GT_ancestor_ST_SR.isValid() && LBLST_SR.isValid());
+						auto first_token_of_LBLST_SR = rewritable_source_range(LBLST_SR);
+						first_token_of_LBLST_SR.setEnd(first_token_of_LBLST_SR.getBegin());
+						std::string first_token_of_LBLST_text1 = getRewrittenTextOrEmpty(Rewrite, first_token_of_LBLST_SR);
+
+						auto lambda = [MR, &Rewrite, &state1, last_token_of_last_GT_ancestor_ST_SR, first_token_of_LBLST_SR]() {
+							state1.m_pending_code_modification_actions.InsertTextAfterToken(Rewrite, last_token_of_last_GT_ancestor_ST_SR.getBegin(), "\n{");
+
+							state1.m_pending_code_modification_actions.InsertTextBefore(Rewrite, first_token_of_LBLST_SR.getBegin(), "}\n");
+						};
+						/* Multiple different (deeply scoped) goto statements could each instigate the enclosure of the same region. 
+						But we think it might be simpler and cleaner to suppress the redundant enclosures. Here we implement the 
+						suppression by designating the associated region as "write once". This is arguably a little hacky, and it 
+						might be more proper to explicitly identify potentially redundant enclosures. */
+						auto approx_region_to_be_enclosed_SR = write_once_source_range({ last_token_of_last_GT_ancestor_ST_SR.getEnd(), first_token_of_LBLST_SR.getBegin() });
+						/* This modification needs to be queued so that it will be executed after any other
+						modifications that might affect the relevant part of the source text. */
+						state1.m_pending_code_modification_actions.add_replacement_action(approx_region_to_be_enclosed_SR, lambda);
+
+						if (false) {
+							/* This section is no longer used because we now check for and avoid the situation that this section addresses. 
+							But that strategy has its own issues, so we're a bit hesitant to discard this section lest we need it at some 
+							point. */
+
+							/* We're going to search for any statements that occur after the 
+							goto destination label that refer to any variable that will be enclosed in the new scope. In their current 
+							location, those statements would be refering to variables that have already gone out of (the newly added) 
+							scope. So we're going to relocate those statements to alocation just before the close of the newly added 
+							scope. Note that this could theoretically change the behavior of the code to be incorrect. Thta is, it 
+							could result in the statement being skipped over in cases where it would have been executed in the original 
+							code.  */
+							bool LBLST_encountered = false;
+							std::vector<clang::Stmt const*> statements_refering_to_variables_declared_between_goto_and_label_with_dependent_initialization;
+							for (const auto& child : parent_ST->children()) {
+								if (child) {
+									if (!LBLST_encountered) {
+										if (child == LBLST) {
+											LBLST_encountered = true;
+
+											const auto subLBLST = LBLST->getSubStmt();
+											if (subLBLST) {
+												/* Ok, perhaps unintuitively, the first statement after a `whatever_label:` is actually a child of the `clang::LabelStmt` 
+												int the AST. But subsequent statements are not children, but instead siblings of the `clang::LabelStmt` in the AST. Here 
+												we check if that child statement, subLBLST, references one of the variables_declared_between_goto_and_label. */
+												for (const auto VD : variables_declared_between_goto_and_label_with_dependent_initialization) {
+													const auto res1 = statement_makes_reference_to_decl(*VD, *subLBLST);
+													if (res1) {
+														statements_refering_to_variables_declared_between_goto_and_label_with_dependent_initialization.push_back(subLBLST);
+														break;
+													}
+												}
+											} else {
 												int q = 5;
 											}
 										}
-										if ((GT_ancestor_ST == GTST) || look_for_semicolon_flag) {
-											/* The statement in the same scope as the destination label statement containing the goto statement 
-											is the goto statement itself in this case. In this case the statement won't include the terminating 
-											semicolon delimeter. So we'll try to find it and use the semicolon as the last token. */
-											last_token_of_last_GT_ancestor_ST_SL = last_token_of_last_GT_ancestor_ST_SL.getLocWithOffset(+last_token_of_last_GT_ancestor_ST_text1.length());
-											while (last_token_of_last_GT_ancestor_ST_SL.isValid()) {
-												last_token_of_last_GT_ancestor_ST_SR = write_once_source_range(clang::SourceRange{ last_token_of_last_GT_ancestor_ST_SL, last_token_of_last_GT_ancestor_ST_SL});
-												last_token_of_last_GT_ancestor_ST_text1 = getRewrittenTextOrEmpty(Rewrite, last_token_of_last_GT_ancestor_ST_SR);
-												if ((1 <= last_token_of_last_GT_ancestor_ST_text1.length()) && ((!std::isspace(last_token_of_last_GT_ancestor_ST_text1.front())) || (!std::isspace(last_token_of_last_GT_ancestor_ST_text1.back())))) {
-													break;
-												}
-												last_token_of_last_GT_ancestor_ST_SL = last_token_of_last_GT_ancestor_ST_SL.getLocWithOffset(+1);
-											}
-											if (!last_token_of_last_GT_ancestor_ST_SL.isValid()) {
-												abort_flag = true;
-											} else {
-												if (";" != last_token_of_last_GT_ancestor_ST_text1) {
-													abort_flag = true;
-												}
-											}
-										}
-										if (!abort_flag) {
-											state1.m_pending_code_modification_actions.add_insert_after_token_at_given_location_action(Rewrite, last_token_of_last_GT_ancestor_ST_SR, last_token_of_last_GT_ancestor_ST_SR.getBegin(), "\n{");
-
-											auto first_token_of_LBLST_SR = rewritable_source_range(LBLST_SR);
-											first_token_of_LBLST_SR.setEnd(first_token_of_LBLST_SR.getBegin());
-											std::string first_token_of_LBLST_text1 = getRewrittenTextOrEmpty(Rewrite, first_token_of_LBLST_SR);
-
-											state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, first_token_of_LBLST_SR, first_token_of_LBLST_SR.getBegin(), "}\n");
-										} else {
-											int q = 5;
-										}
+										continue;
 									} else {
-										int q = 5;
+										for (const auto VD : variables_declared_between_goto_and_label_with_dependent_initialization) {
+											const auto res1 = statement_makes_reference_to_decl(*VD, *child);
+											if (res1) {
+												statements_refering_to_variables_declared_between_goto_and_label_with_dependent_initialization.push_back(child);
+
+												auto found_it = state1.m_stmt_relocation_info_map.find(child);
+												if (state1.m_stmt_relocation_info_map.end() != found_it) {
+													/* This statement is already scheduled to be relocated. */
+													const auto ST_to_be_inserted_before_SR = cm1_adj_nice_source_range(found_it->second.m_ST_to_be_inserted_before->getSourceRange(), state1, Rewrite);
+													if (ST_to_be_inserted_before_SR.isValid() && (last_GT_ancestor_ST_SR.getEnd() < ST_to_be_inserted_before_SR.getEnd())) {
+														/* Our relocation destination is "before" the currently scheduled destination location. So we will replace 
+														the currently scheduled destination location. */
+														found_it->second.m_ST_to_be_inserted_before = last_GT_ancestor_ST;
+													} else {
+														state1.m_stmt_relocation_info_map.insert({ child, { child, last_GT_ancestor_ST } });
+
+														/* Multiple different goto statements could each instigate the relocation of the same statement. Here we 
+														ensure that only one relocation is attempted by designating the statement source range as "write once". 
+														This is arguably a little hacky, and it might be more proper to explicitly identify potentially redundant 
+														(or conflicting) relocation attempts. */
+														const auto child_SR = write_once_source_range(cm1_adj_nice_source_range(child->getSourceRange(), state1, Rewrite));
+														if (ConvertC2ValidCpp && last_GT_ancestor_ST_SR.isValid() && child_SR.isValid()) {
+
+															auto lambda = [MR, &Rewrite, &state1, child, child_SR, last_ST_before_LBL_SR]() {
+																auto found_it = state1.m_stmt_relocation_info_map.find(child);
+																if (state1.m_stmt_relocation_info_map.end() != found_it) {
+																	const auto ST_to_be_inserted_after_SR = cm1_adj_nice_source_range(found_it->second.m_ST_to_be_inserted_before->getSourceRange(), state1, Rewrite);
+																	if (ST_to_be_inserted_after_SR.isValid()) {
+																		/* Here we're blanking out the original statement source text. */
+																		std::string child_text1 = getRewrittenTextOrEmpty(Rewrite, child_SR);
+																		std::string blank_text = blanked_out_str(child_text1);
+																		state1.m_pending_code_modification_actions.ReplaceText(Rewrite, child_SR, blank_text);
+
+																		/* And inserting a new copy of it after (a statement containing) the goto statement.  */
+																		auto last_token_of_ST_to_be_inserted_after_SR = rewritable_source_range(last_ST_before_LBL_SR);
+																		last_token_of_ST_to_be_inserted_after_SR.setBegin(last_token_of_ST_to_be_inserted_after_SR.getEnd());
+																		IF_DEBUG(std::string last_token_of_ST_to_be_inserted_after_text1 = getRewrittenTextOrEmpty(Rewrite, last_token_of_ST_to_be_inserted_after_SR);)
+
+																		state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, last_token_of_ST_to_be_inserted_after_SR, last_token_of_ST_to_be_inserted_after_SR.getEnd(), child_text1 + ";\n");
+																	}
+																} else {
+																	int q = 3;
+																}
+															};
+															/* This modification needs to be queued so that it will be executed after any other
+															modifications that might affect the relevant part of the source text. */
+															state1.m_pending_code_modification_actions.add_replacement_action(child_SR, lambda);
+														}
+													}
+												}
+
+												break;
+											}
+										}
+									}
+								}
+							}
+						}
+					} while (false);
+				} else if (CST) {
+					clang::Stmt const* next_case_or_default_ST = nullptr;
+					const auto parent_ST = NonParenImpNoopCastParentOfType<clang::Stmt>(CST, *(MR.Context));
+					if (parent_ST) {
+						auto case_ancestor_ST = NonParenImpNoopCastParentOfType<clang::Stmt>(CST, *(MR.Context));
+
+						bool CST_encountered = false;
+						bool next_case_or_default_ST_encountered = false;
+						bool found_a_declstmt_between_case_and_next_case_or_default = false;
+						for (const auto& child : parent_ST->children()) {
+							if (child) {
+								if (!CST_encountered) {
+									if (child == CST) {
+										CST_encountered = true;
 									}
 								} else {
-									int q = 7;
+									auto next_CST = llvm::dyn_cast<clang::CaseStmt>(child);
+									if (next_CST) {
+										next_case_or_default_ST = next_CST;
+										next_case_or_default_ST_encountered = true;
+										break;
+									}
+
+									auto default_ST = llvm::dyn_cast<clang::DefaultStmt>(child);
+									if (default_ST) {
+										next_case_or_default_ST = default_ST;
+										next_case_or_default_ST_encountered = true;
+										break;
+									}
+
+									auto DS = llvm::dyn_cast<clang::DeclStmt>(child);
+									if (DS) {
+										found_a_declstmt_between_case_and_next_case_or_default = true;
+									}
 								}
+							}
+						}
+						auto const* const subCST = CST->getSubStmt();
+						if (next_case_or_default_ST && subCST) {
+							if (!found_a_declstmt_between_case_and_next_case_or_default) {
+								/* Ok, perhaps unintuitively, the first statement after a `case whatever:` is actually a child of the `clang::CaseStmt` 
+								int the AST. But subsequent statements are not children, but instead siblings of the `clang::CaseStmt` in the AST. So 
+								we've already checked if any of the subsequent siblings of the `clang::CaseStmt`, CST, are `clang::DeclStmt`s and 
+								found that none of them are. Here we check if that child statement, subCST, happens to be a `clang::DeclStmt`. */
+								auto DS = llvm::dyn_cast<clang::DeclStmt>(subCST);
+								if (DS) {
+									found_a_declstmt_between_case_and_next_case_or_default = true;
+								}
+							}
+							const auto subCST_SR = write_once_source_range(cm1_adj_nice_source_range(subCST->getSourceRange(), state1, Rewrite));
+							const auto next_case_or_default_ST_SR = write_once_source_range(cm1_adj_nice_source_range(next_case_or_default_ST->getSourceRange(), state1, Rewrite));
+							if (subCST_SR.isValid() && next_case_or_default_ST_SR.isValid() && (subCST_SR.getEnd() < next_case_or_default_ST_SR.getBegin())
+								&& next_case_or_default_ST_encountered && found_a_declstmt_between_case_and_next_case_or_default) {
+
+								/* Ok, we've verified that the next_case_or_default's parent statement also contains the case statement. 
+								And we've confirmed that the next_case_or_default occurs after the case statement and that there is at 
+								least one declaration statement between the case statement and the next_case_or_default. Since C++11 
+								doesn't allow `case` or `default` statements that would skip over variable initialization, we're going to 
+								enclose all the code between this statement and the next_case_or_default statement in a new scope. */
+
+								auto first_token_of_subCST_SR = rewritable_source_range(subCST_SR);
+								first_token_of_subCST_SR.setEnd(first_token_of_subCST_SR.getBegin());
+								std::string first_token_of_subCST_text1 = getRewrittenTextOrEmpty(Rewrite, first_token_of_subCST_SR);
+
+								state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, first_token_of_subCST_SR, first_token_of_subCST_SR.getBegin(), "{\n ");
+
+								auto first_token_of_next_case_or_default_ST_SR = rewritable_source_range(next_case_or_default_ST_SR);
+								first_token_of_next_case_or_default_ST_SR.setEnd(first_token_of_next_case_or_default_ST_SR.getBegin());
+								std::string first_token_of_next_case_or_default_ST_text1 = getRewrittenTextOrEmpty(Rewrite, first_token_of_next_case_or_default_ST_SR);
+
+								state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, first_token_of_next_case_or_default_ST_SR, first_token_of_next_case_or_default_ST_SR.getBegin(), "}\n");
 							} else {
-								int q = 7;
+								int q = 5;
 							}
 						} else {
-							int q = 3;
+							int q = 7;
 						}
 					} else {
 						int q = 3;
-					}
-					int q = 5;
-				} else if (CST) {
-					{
-						clang::Stmt const* next_case_or_default_ST = nullptr;
-						const auto parent_ST = NonParenImpNoopCastParentOfType<clang::Stmt>(CST, *(MR.Context));
-						if (parent_ST) {
-							auto case_ancestor_ST = NonParenImpNoopCastParentOfType<clang::Stmt>(CST, *(MR.Context));
-							{
-								bool CST_encountered = false;
-								bool next_case_or_default_ST_encountered = false;
-								bool found_a_declstmt_between_case_and_next_case_or_default = false;
-								for (const auto& child : parent_ST->children()) {
-									if (child) {
-										if (!CST_encountered) {
-											if (child == CST) {
-												CST_encountered = true;
-											}
-										} else {
-											auto next_CST = llvm::dyn_cast<clang::CaseStmt>(child);
-											if (next_CST) {
-												next_case_or_default_ST = next_CST;
-												next_case_or_default_ST_encountered = true;
-												break;
-											}
-
-											auto default_ST = llvm::dyn_cast<clang::DefaultStmt>(child);
-											if (default_ST) {
-												next_case_or_default_ST = default_ST;
-												next_case_or_default_ST_encountered = true;
-												break;
-											}
-
-											auto DS = llvm::dyn_cast<clang::DeclStmt>(child);
-											if (DS) {
-												found_a_declstmt_between_case_and_next_case_or_default = true;
-											}
-										}
-									}
-								}
-								auto const* const subCST = CST->getSubStmt();
-								if (next_case_or_default_ST && subCST) {
-									if (!found_a_declstmt_between_case_and_next_case_or_default) {
-										/* Ok, perhaps unintuitively, the first statement after a `case whatever:` is actually a child of the `clang::CaseStmt` 
-										int the AST. But subsequent statements are not children, but instead siblings of the `clang::CaseStmt` in the AST. So 
-										we've already checked if any of the subsequent siblings of the `clang::CaseStmt`, CST, are `clang::DeclStmt`s and 
-										found that none of them are. Here we check if that child statement, subCST, happens to be a `clang::DeclStmt`. */
-										auto DS = llvm::dyn_cast<clang::DeclStmt>(subCST);
-										if (DS) {
-											found_a_declstmt_between_case_and_next_case_or_default = true;
-										}
-									}
-									const auto subCST_SR = write_once_source_range(cm1_adj_nice_source_range(subCST->getSourceRange(), state1, Rewrite));
-									const auto next_case_or_default_ST_SR = write_once_source_range(cm1_adj_nice_source_range(next_case_or_default_ST->getSourceRange(), state1, Rewrite));
-									if (subCST_SR.isValid() && next_case_or_default_ST_SR.isValid() && (subCST_SR.getEnd() < next_case_or_default_ST_SR.getBegin())
-										&& next_case_or_default_ST_encountered && found_a_declstmt_between_case_and_next_case_or_default) {
-
-										/* Ok, we've verified that the next_case_or_default's parent statement also contains the case statement. 
-										And we've confirmed that the next_case_or_default occurs after the case statement and that there is at 
-										least one declaration statement between the case statement and the next_case_or_default. Since C++11 
-										doesn't allow `case` or `default` statements that would skip over variable initialization, we're going to 
-										enclose all the code between this statement and the next_case_or_default statement in a new scope. */
-
-										auto first_token_of_subCST_SR = rewritable_source_range(subCST_SR);
-										first_token_of_subCST_SR.setEnd(first_token_of_subCST_SR.getBegin());
-										std::string first_token_of_subCST_text1 = getRewrittenTextOrEmpty(Rewrite, first_token_of_subCST_SR);
-
-										state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, first_token_of_subCST_SR, first_token_of_subCST_SR.getBegin(), "{\n ");
-
-										auto first_token_of_next_case_or_default_ST_SR = rewritable_source_range(next_case_or_default_ST_SR);
-										first_token_of_next_case_or_default_ST_SR.setEnd(first_token_of_next_case_or_default_ST_SR.getBegin());
-										std::string first_token_of_next_case_or_default_ST_text1 = getRewrittenTextOrEmpty(Rewrite, first_token_of_next_case_or_default_ST_SR);
-
-										state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, first_token_of_next_case_or_default_ST_SR, first_token_of_next_case_or_default_ST_SR.getBegin(), "}\n");
-									} else {
-										int q = 5;
-									}
-								} else {
-									int q = 7;
-								}
-							}
-						} else {
-							int q = 3;
-						}
 					}
 					int q = 5;
 				}

@@ -346,6 +346,16 @@ std::string tolowerstr(const std::string_view a) {
 	return retval;
 }
 
+std::string blanked_out_str(const std::string_view a) {
+	std::string retval = std::string(a);
+	for (auto& ch_ref : retval) {
+		if (!isspace(ch_ref)) {
+			ch_ref = ' ';
+		}
+	}
+	return retval;
+}
+
 bool string_begins_with(const std::string_view s1, const std::string_view prefix) {
 	return (0 == s1.compare(0, prefix.length(), prefix));
 }
@@ -442,4 +452,146 @@ bool UsesPointerTypedef(clang::QualType qtype) {
 		}
 	}
 	return false;
+}
+
+ETReeWalkingStatus apply_to_stmt_and_each_descendant(const clang::Stmt& stmt, CNodeHandler& node_handler, int depth/* = 0*/) {
+	auto retval = ETReeWalkingStatus::Default;
+	const clang::Stmt* ST = &stmt;
+	auto stmt_class = ST->getStmtClass();
+	auto stmt_class_name = ST->getStmtClassName();
+	auto res1 = node_handler.handle_node(stmt);
+	if (ETReeWalkingStatus::SkipFurtherProcessing == res1) {
+		retval = res1;
+	} else if (ETReeWalkingStatus::DoNotProcessChildren != res1) {
+		for (auto child_iter = ST->child_begin(); child_iter != ST->child_end(); child_iter++) {
+			if (nullptr != (*child_iter)) {
+				auto res2 = apply_to_stmt_and_each_descendant(*(*child_iter), node_handler, depth+1);
+				if (ETReeWalkingStatus::SkipFurtherProcessing == res2) {
+					retval = ETReeWalkingStatus::SkipFurtherProcessing;
+					//break;
+					return retval;
+				}
+			} else {
+				int q = 5;
+			}
+		}
+
+		auto res2 = ETReeWalkingStatus::Default;
+		do {
+			auto DS = dyn_cast<const clang::DeclStmt>(ST);
+			if (DS) {
+				for (auto D : DS->decls()) {
+					if (D) {
+						res2 = apply_to_decl_and_each_descendant(*D, node_handler, 1 + depth);
+					}
+				}
+				break;
+			}
+
+		} while (false);
+
+		if (ETReeWalkingStatus::SkipFurtherProcessing == res2) {
+			retval = ETReeWalkingStatus::SkipFurtherProcessing;
+			//break;
+			return retval;
+		}
+	}
+	return retval;
+}
+
+ETReeWalkingStatus apply_to_decl_and_each_descendant(const clang::Decl& decl, CNodeHandler& node_handler, int depth/* = 0*/) {
+	auto retval = ETReeWalkingStatus::Default;
+	auto res1 = node_handler.handle_node(decl);
+	if (ETReeWalkingStatus::SkipFurtherProcessing == res1) {
+		retval = res1;
+	} else if (ETReeWalkingStatus::DoNotProcessChildren != res1) {
+		const clang::Decl* D = &decl;
+		std::vector<const clang::Decl*> decls;
+		auto DC2 = dyn_cast<const clang::DeclContext>(D);
+		if (DC2) {
+			for (auto decl_iter = DC2->decls_begin(); decl_iter != DC2->decls_end(); decl_iter++) {
+				auto D2 = (*decl_iter);
+				decls.push_back(D2);
+			}
+			if (2 <= decls.size()) {
+				/* This clang::Decl, D, seems to itself be a set of more than one clang::Decl.  */
+				auto res3 = apply_to_declcontext_and_each_descendant(*DC2, node_handler, 1 + depth);
+				if (ETReeWalkingStatus::SkipFurtherProcessing == res3) {
+					retval = ETReeWalkingStatus::SkipFurtherProcessing;
+					//break;
+					return retval;
+				}
+			}
+		} else {
+			int q = 3;
+		}
+		if (1 >= decls.size()) {
+			auto res4 = ETReeWalkingStatus::Default;
+			do {
+				auto DD = dyn_cast<const clang::DeclaratorDecl>(D);
+				if (DD) {
+					auto res2 = ETReeWalkingStatus::Default;
+					do {
+						auto VD = dyn_cast<const clang::VarDecl>(DD);
+						if (VD) {
+							auto init_E = VD->getInit();
+							if (init_E) {
+								res2 = apply_to_stmt_and_each_descendant(*init_E, node_handler, 1 + depth);
+							}
+							break;
+						}
+
+						auto FD = dyn_cast<const clang::FieldDecl>(DD);
+						if (FD) {
+							auto init_E = FD->getInClassInitializer();
+							if (init_E) {
+								res2 = apply_to_stmt_and_each_descendant(*init_E, node_handler, 1 + depth);
+							}
+							break;
+						}
+					} while (false);
+
+					if (ETReeWalkingStatus::SkipFurtherProcessing == res2) {
+						retval = ETReeWalkingStatus::SkipFurtherProcessing;
+						//break;
+						return retval;
+					}
+				}
+			} while (false);
+
+			if (ETReeWalkingStatus::SkipFurtherProcessing == res4) {
+				retval = ETReeWalkingStatus::SkipFurtherProcessing;
+				return retval;
+			}
+		}
+		auto body_ST = decl.getBody();
+		if (body_ST) {
+			auto res5 = apply_to_stmt_and_each_descendant(*body_ST, node_handler, 1 + depth);
+
+			if (ETReeWalkingStatus::SkipFurtherProcessing == res5) {
+				retval = ETReeWalkingStatus::SkipFurtherProcessing;
+				return retval;
+			}
+		}
+	}
+	return retval;
+}
+
+ETReeWalkingStatus apply_to_declcontext_and_each_descendant(const clang::DeclContext& declcontext, CNodeHandler& node_handler, int depth/* = 0*/) {
+	auto retval = ETReeWalkingStatus::Default;
+	auto res1 = node_handler.handle_node(declcontext);
+	if (ETReeWalkingStatus::SkipFurtherProcessing == res1) {
+		retval = res1;
+	} else if (ETReeWalkingStatus::DoNotProcessChildren != res1) {
+		for (auto D : declcontext.decls()) {
+			if (D) {
+				auto res2 = apply_to_decl_and_each_descendant(*D, node_handler, 1 + depth);
+				if (ETReeWalkingStatus::SkipFurtherProcessing == res2) {
+					retval = ETReeWalkingStatus::SkipFurtherProcessing;
+					break;
+				}
+			}
+		}
+	}
+	return retval;
 }
