@@ -18985,20 +18985,57 @@ namespace convc2validcpp {
 							auto const* TDND = TDD->getCanonicalDecl();
 							if (TDND) {
 								const auto TDND_qtype = TDND->getUnderlyingType();
-								IF_DEBUG(auto TDND_qtype_str = TDND_qtype.getAsString();)
+								IF_DEBUG(auto debug_TDND_qtype_str = TDND_qtype.getAsString();)
 								auto const* TDND_Type = TDND_qtype.getTypePtr();
 								if (TDND_Type) {
 									if (TDND_Type->isEnumeralType()) {
+										auto TDND_qtype_str = TDND_qtype.getAsString();
+										auto TDND_name = TDND->getNameAsString();
 										clang::TagDecl const * TD = TDND_Type->getAsTagDecl();
 										clang::TagDecl const * definition_TD = TD ? TD->getDefinition() : nullptr;
-										if ((!definition_TD) || (!definition_TD->isThisDeclarationADefinition())) {
-											/* We failed to obtain the definition of the enum type of the typedef. So we're presuming this would qualify 
-											as a "forward reference to an 'enum' type", which apparently C++ doesn't allow. */
-											auto original_source_text = getRewrittenTextOrEmpty(Rewrite, SR);
-											std::string new_text = "\nIF_C(" + original_source_text + ")";
-											state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
 
-											state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_text);
+										bool incomplete_type_flag = false;
+										auto ED = dyn_cast<const clang::EnumDecl>(TD);
+										if (ED) {
+											auto const* ED_Type = ED->getTypeForDecl();
+											if (ED_Type) {
+												TD = ED_Type->getAsTagDecl();
+												definition_TD = TD ? TD->getDefinition() : nullptr;
+
+												bool seems_to_be_redundant_in_cplusplus = false;
+												if (!(((!definition_TD) || (!definition_TD->isThisDeclarationADefinition())) && (incomplete_type_flag))) {
+													std::string source_text = getRewrittenTextOrEmpty(Rewrite, SR);
+													auto tok_range1 = Parse::find_potential_noncomment_token_v1(source_text);
+													if ("typedef" == Parse::substring_view(source_text, tok_range1)) {
+														tok_range1 = Parse::find_potential_noncomment_token_v1(source_text, tok_range1.end);
+														if ("enum" == Parse::substring_view(source_text, tok_range1)) {
+															tok_range1 = Parse::find_potential_noncomment_token_v1(source_text, tok_range1.end);
+															const auto potentially_enum_type_str1 = std::string(Parse::substring_view(source_text, tok_range1));
+
+															tok_range1 = Parse::find_potential_noncomment_token_v1(source_text, tok_range1.end);
+															const auto potentially_typedef_name_str = std::string(Parse::substring_view(source_text, tok_range1));
+
+															tok_range1 = Parse::find_potential_noncomment_token_v1(source_text, tok_range1.end);
+
+															if ((source_text.length() <= tok_range1.begin) && (potentially_enum_type_str1 == potentially_typedef_name_str)) {
+																seems_to_be_redundant_in_cplusplus = true;
+															}
+														}
+													}
+												}
+												if (((!definition_TD) || (!definition_TD->isThisDeclarationADefinition())) && (!ED->isComplete())
+													|| seems_to_be_redundant_in_cplusplus) {
+
+													/* Either we failed to obtain the definition of the enum type of the typedef, presumably implying this would 
+													qualify as a "forward reference to an 'enum' type", which apparently C++ doesn't allow, or, this is a typedef 
+													int the form of `typedef enum enum_name enum_name;` (which is basically redundant in C++), or both.*/
+													auto original_source_text = getRewrittenTextOrEmpty(Rewrite, SR);
+													std::string new_text = "\nIF_C(" + original_source_text + ")";
+													state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
+
+													state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, write_once_source_range(SR), new_text);
+												}
+											}
 										}
 									}
 								} else {
@@ -19012,23 +19049,36 @@ namespace convc2validcpp {
 
 						auto ED = dyn_cast<const clang::EnumDecl>(D);
 						if (ED) {
-							auto const* canonical_ED = ED->getCanonicalDecl();
-							if (canonical_ED) {
-								auto const* canonical_ED_Type = canonical_ED->getTypeForDecl();
-								if (canonical_ED_Type) {
-									clang::TagDecl const * TD = canonical_ED_Type->getAsTagDecl();
-									clang::TagDecl const * definition_TD = TD ? TD->getDefinition() : nullptr;
-									if ((!definition_TD) || (!definition_TD->isThisDeclarationADefinition())/* || (!canonical_ED->isComplete())*/) {
-										/* We failed to obtain the definition of the enum type of this EnumDecl. So we're presuming this would qualify 
-										as a "forward reference to an 'enum' type", which apparently C++ doesn't allow. */
-										auto original_source_text = getRewrittenTextOrEmpty(Rewrite, SR);
-										std::string new_text = "\nIF_C(" + original_source_text + ")";
-										state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
+							auto const* ED_Type = ED->getTypeForDecl();
+							if (ED_Type) {
+								clang::TagDecl const * TD = ED_Type->getAsTagDecl();
+								clang::TagDecl const * definition_TD = TD ? TD->getDefinition() : nullptr;
 
-										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_text);
+								bool looks_like_a_forward_enum_declaration = false;
+								if (!(((!definition_TD) || (!definition_TD->isThisDeclarationADefinition())) && (!ED->isComplete()))) {
+									std::string source_text = getRewrittenTextOrEmpty(Rewrite, SR);
+									auto tok_range1 = Parse::find_potential_noncomment_token_v1(source_text);
+									if ("enum" == Parse::substring_view(source_text, tok_range1)) {
+										tok_range1 = Parse::find_potential_noncomment_token_v1(source_text, tok_range1.end);
+										const auto potentially_enum_type_str1 = std::string(Parse::substring_view(source_text, tok_range1));
+
+										tok_range1 = Parse::find_potential_noncomment_token_v1(source_text, tok_range1.end);
+
+										if ((source_text.length() <= tok_range1.begin)) {
+											looks_like_a_forward_enum_declaration = true;
+										}
 									}
-								} else {
-									int q = 5;
+								}
+								if (((!definition_TD) || (!definition_TD->isThisDeclarationADefinition())) && (!ED->isComplete())
+									|| (looks_like_a_forward_enum_declaration)) {
+
+									/* The enum type seems to be an incomplete type which is not being defined in this declaration. So we're 
+									presuming this would qualify as a "forward reference to an 'enum' type", which apparently C++ doesn't allow. */
+									auto original_source_text = getRewrittenTextOrEmpty(Rewrite, SR);
+									std::string new_text = "\nIF_C(" + original_source_text + ")";
+									state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
+
+									state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, write_once_source_range(SR), new_text);
 								}
 							} else {
 								int q = 5;
@@ -20044,7 +20094,7 @@ namespace convc2validcpp {
 											if (D) {
 												auto VD = llvm::dyn_cast<clang::VarDecl>(D);
 												if (VD) {
-													IF_DEBUG(const auto var_name = VD->getName();)
+													IF_DEBUG(const auto var_name = VD->getNameAsString();)
 													variables_declared_between_goto_and_label.push_back(VD);
 												} else {
 													int q = 5;
