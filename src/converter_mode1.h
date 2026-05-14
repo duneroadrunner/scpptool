@@ -4050,6 +4050,8 @@ namespace convm1 {
 				auto& excs_ref = (*(*excs_iter).second);
 				if (TExprConversionState::s_species() == excs_ref.species()) {
 					retval = &static_cast<TExprConversionState&>(excs_ref);
+				} else if constexpr (std::is_same_v<CExprConversionState, TExprConversionState>) {
+					retval = &excs_ref;
 				}
 			}
 			return retval;
@@ -5059,9 +5061,12 @@ namespace convm1 {
 					}
 #endif /*!NDEBUG*/
 
-					auto iter = state1.m_expr_conversion_state_map.find(E);
-					if (state1.m_expr_conversion_state_map.end() != iter) {
-						auto& ecs_ref = *((*iter).second);
+					if (!E) {
+						return;
+					}
+					auto maybe_ecs_ptr = state1.get_pointer_to_preexisting_expr_conversion_state_if_available(*E);
+					if (maybe_ecs_ptr.has_value() && maybe_ecs_ptr.value()) {
+						auto& ecs_ref = *(maybe_ecs_ptr.value());
 						auto context = CExprTextInfoContext{ OSR, &Rewrite, &state1 };
 						auto& current_text_ref = ecs_ref.current_text(context);
 						auto& original_text_ref = ecs_ref.original_text(context);
@@ -6501,7 +6506,22 @@ namespace convm1 {
 					}
 				}
 
+				bool shrunk = (retval.m_adjusted_source_text_infos.size() > 1 + nesting_level);
 				retval.m_adjusted_source_text_infos.resize(1 + nesting_level);
+
+				if ((!retval.m_range_is_essentially_the_entire_body_of_a_macro) && shrunk && (1 <= nesting_level)) {
+					/* `retval.m_adjusted_source_text_infos was shrunk`, so we will reevaluate `retval.m_range_is_essentially_the_entire_body_of_a_macro`, 
+					etc. based on the updated `retval.m_adjusted_source_text_infos` stack. */
+					if (retval.m_adjusted_source_text_infos.at(nesting_level - 1).m_can_be_substituted_with_macro_invocation_text) {
+						retval.m_range_is_essentially_the_entire_body_of_a_macro = true;
+						auto const& text1 = retval.m_adjusted_source_text_infos.at(nesting_level).m_text;
+						if (retval.m_adjusted_source_text_infos.at(nesting_level).m_macro_invocation_range.isValid() && ("" != text1)) {
+							retval.set_source_range(retval.m_adjusted_source_text_infos.at(nesting_level).m_macro_invocation_range);
+							retval.m_macro_expansion_range_substituted_with_macro_invocation_range = true;
+							retval.m_adjusted_source_text_as_if_expanded = text1;
+						}
+					}
+				}
 				if (!retval.isValid()) {
 					size_t index = 0;
 					while (retval.m_adjusted_source_text_infos.at(index).m_can_be_substituted_with_macro_invocation_text) {

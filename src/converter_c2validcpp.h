@@ -3766,6 +3766,8 @@ namespace convc2validcpp {
 				auto& excs_ref = (*(*excs_iter).second);
 				if (TExprConversionState::s_species() == excs_ref.species()) {
 					retval = &static_cast<TExprConversionState&>(excs_ref);
+				} else if constexpr (std::is_same_v<CExprConversionState, TExprConversionState>) {
+					retval = &excs_ref;
 				}
 			}
 			return retval;
@@ -4736,9 +4738,12 @@ namespace convc2validcpp {
 					}
 #endif /*!NDEBUG*/
 
-					auto iter = state1.m_expr_conversion_state_map.find(E);
-					if (state1.m_expr_conversion_state_map.end() != iter) {
-						auto& ecs_ref = *((*iter).second);
+					if (!E) {
+						return;
+					}
+					auto maybe_ecs_ptr = state1.get_pointer_to_preexisting_expr_conversion_state_if_available(*E);
+					if (maybe_ecs_ptr.has_value() && maybe_ecs_ptr.value()) {
+						auto& ecs_ref = *(maybe_ecs_ptr.value());
 						auto context = CExprTextInfoContext{ OSR, &Rewrite, &state1 };
 						auto& current_text_ref = ecs_ref.current_text(context);
 						auto& original_text_ref = ecs_ref.original_text(context);
@@ -6108,7 +6113,22 @@ namespace convc2validcpp {
 					}
 				}
 
+				bool shrunk = (retval.m_adjusted_source_text_infos.size() > 1 + nesting_level);
 				retval.m_adjusted_source_text_infos.resize(1 + nesting_level);
+
+				if ((!retval.m_range_is_essentially_the_entire_body_of_a_macro) && shrunk && (1 <= nesting_level)) {
+					/* `retval.m_adjusted_source_text_infos was shrunk`, so we will reevaluate `retval.m_range_is_essentially_the_entire_body_of_a_macro`, 
+					etc. based on the updated `retval.m_adjusted_source_text_infos` stack. */
+					if (retval.m_adjusted_source_text_infos.at(nesting_level - 1).m_can_be_substituted_with_macro_invocation_text) {
+						retval.m_range_is_essentially_the_entire_body_of_a_macro = true;
+						auto const& text1 = retval.m_adjusted_source_text_infos.at(nesting_level).m_text;
+						if (retval.m_adjusted_source_text_infos.at(nesting_level).m_macro_invocation_range.isValid() && ("" != text1)) {
+							retval.set_source_range(retval.m_adjusted_source_text_infos.at(nesting_level).m_macro_invocation_range);
+							retval.m_macro_expansion_range_substituted_with_macro_invocation_range = true;
+							retval.m_adjusted_source_text_as_if_expanded = text1;
+						}
+					}
+				}
 				if (!retval.isValid()) {
 					size_t index = 0;
 					while (retval.m_adjusted_source_text_infos.at(index).m_can_be_substituted_with_macro_invocation_text) {
@@ -15944,7 +15964,11 @@ namespace convc2validcpp {
 
 			int lhs_indirection_level_adjustment = 0;
 			auto rhs_res3 = leading_addressof_operator_info_from_stmt(*RHS);
-			if (rhs_res3.without_leading_addressof_operator_expr_cptr) {
+			if (false && rhs_res3.without_leading_addressof_operator_expr_cptr) {
+				/* This section is used in the corresponding code that converts to the safe subset. For the conversion from 
+				C to valid C++ that we're doing here we don't need this special-case handling of "address of" expressions, 
+				and it can cause issues in edge cases. */
+
 				assert(rhs_res3.leading_addressof_operator_detected && rhs_res3.addressof_unary_operator_cptr);
 
 				RHS = rhs_res3.without_leading_addressof_operator_expr_cptr;
@@ -16221,7 +16245,7 @@ namespace convc2validcpp {
 				}
 				/* If RHS_ii is "filtered out" then we'll have to use RHS. */
 				auto RHS2 = RHS_ii_is_filtered_out ? RHS : RHS_ii;
-				auto RHS2SR = RHS_ii_is_filtered_out ? SR : RHS_ii_SR;
+				auto RHS2SR = RHS_ii_is_filtered_out ? write_once_source_range(cm1_adj_nice_source_range(*RHS, state1, Rewrite)) : RHS_ii_SR;
 				auto& context_ref = *(MR.Context);
 
 				auto lambda = [LHS, VLD, RHS, RHS2, RHS2SR, LHS_qtype_str, LHS_qtype, &context_ref, &Rewrite, &state1]() {
