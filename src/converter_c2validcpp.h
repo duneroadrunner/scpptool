@@ -21,6 +21,7 @@
 #include <string>
 #include <functional>
 #include <string_view>
+#include <utility>
 #include <vector>
 #include <map>
 #include <unordered_map>
@@ -39,6 +40,16 @@
 #include <fstream>
 
 #include <sstream>
+
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <regex>
+#include <string>
+#include <vector>
+
+namespace fs = std::filesystem;
 
 /*Clang Headers*/
 #include "clang/AST/AST.h"
@@ -3829,6 +3840,9 @@ namespace convc2validcpp {
 		/* This container holds the locations where use of C++ type traits (presumably wrapped in the IF_CPP() macro) have been inserted. */
 		std::set<clang::SourceLocation> m_cpp_type_trait_use_locations;
 
+		/* This container holds the locations of items that need an additional include file and the corresponding file paths. */
+		std::set<std::pair<clang::SourceLocation, std::string> > m_item_requiring_additional_include_infos;
+
 		/* This container holds information about statements that are scheduled to be relocated. */
 		CStmtRelocationInfoMap m_stmt_relocation_info_map;
 
@@ -3841,6 +3855,8 @@ namespace convc2validcpp {
 		it here so that we don't have to pass it around separately, but we're not totally
 		sure that it will be valid for the entire lifetime of this state. */
 		clang::Rewriter* m_Rewrite_ptr = nullptr;
+
+		CompilerInstance *m_CI_ptr = nullptr;
 	};
 
 
@@ -18133,6 +18149,136 @@ namespace convc2validcpp {
 		CTUState& m_state1;
 	};
 
+
+	namespace ns_find_enum_def {
+		struct Match {
+			fs::path file_path;
+			int line_number;
+			std::string line_content;
+			std::vector<std::pair<int, std::string>> context; // (line_number, content)
+		};
+
+		static bool is_header_file(const fs::path& path) {
+			std::string ext = path.extension().string();
+			std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+			return ext == ".h" || ext == ".hpp";
+		}
+
+		static std::vector<std::string> read_file_lines(const fs::path& path) {
+			std::vector<std::string> lines;
+			std::ifstream file(path);
+			if (!file.is_open()) {
+				//std::cerr << "Warning: Could not open file: " << path << "\n";
+				return lines;
+			}
+			std::string line;
+			while (std::getline(file, line)) {
+				lines.push_back(line);
+			}
+			return lines;
+		}
+
+		static std::vector<Match> find_enum_in_file(
+			const fs::path& path, const std::string_view enum_name, int context_lines) {
+			
+			std::vector<Match> matches;
+			std::vector<std::string> lines = read_file_lines(path);
+			if (lines.empty()) return matches;
+
+			// Regex to match enum declarations:
+			// - Optional 'typedef'
+			// - 'enum' keyword
+			// - Optional 'class' or 'struct' modifier
+			// - Enum name (captured)
+			// - Optional underlying type (e.g., ': int')
+			// - Opening brace '{'
+			static const std::regex enum_pattern(
+				R"((?:typedef\s+)?enum(?:\s+(?:class|struct))?\s+(\w+)\s*(?::\s*\w+)?\s*\{)"
+			);
+
+			for (size_t i = 0; i < lines.size(); ++i) {
+				std::smatch match;
+				if (std::regex_search(lines[i], match, enum_pattern)) {
+					std::string found_name = match[1].str();
+					if (found_name == enum_name) {
+						Match m;
+						m.file_path = path;
+						m.line_number = static_cast<int>(i + 1); // 1-based
+						m.line_content = lines[i];
+
+						// Collect context lines
+						int start = static_cast<int>(i) - context_lines;
+						int end = static_cast<int>(i) + context_lines;
+						start = std::max(0, start);
+						end = std::min(static_cast<int>(lines.size()) - 1, end);
+
+						for (int j = start; j <= end; ++j) {
+							m.context.emplace_back(j + 1, lines[j]);
+						}
+
+						matches.push_back(std::move(m));
+					}
+				}
+			}
+
+			return matches;
+		}
+
+		std::optional<std::string> find_header_with_enum_definition(std::string_view enum_name, std::string_view dir_path, bool recursive_flag = true) {
+			std::optional<std::string> retval;
+			std::error_code ec;
+
+			// Validate directory
+			fs::path search_dir(dir_path);
+			if (!fs::exists(search_dir, ec)) {
+				//std::cerr << "Error: Directory does not exist: " << dir_path << "\n";
+				return retval;
+			}
+			if (!fs::is_directory(search_dir, ec)) {
+				//std::cerr << "Error: Path is not a directory: " << dir_path << "\n";
+				return retval;
+			}
+
+			//std::cout << "Searching for enum '" << enum_name << "' in: " << fs::canonical(search_dir).string() << "\n\n";
+
+			// Collect all header files
+			std::vector<fs::path> header_files;
+			if (recursive_flag) {
+				for (auto& entry : fs::recursive_directory_iterator(search_dir, ec)) {
+					if (entry.is_regular_file(ec) && is_header_file(entry.path())) {
+						header_files.push_back(entry.path());
+					}
+				}
+			} else {
+				for (auto& entry : fs::directory_iterator(search_dir, ec)) {
+					if (entry.is_regular_file(ec) && is_header_file(entry.path())) {
+						header_files.push_back(entry.path());
+					}
+				}
+			}
+
+			// Sort for deterministic output
+			std::sort(header_files.begin(), header_files.end());
+
+			//std::cout << "Scanning " << header_files.size() << " header file(s)...\n\n";
+
+			// Search each file
+			std::vector<Match> all_matches;
+			for (const auto& file : header_files) {
+				auto matches = find_enum_in_file(file, enum_name, 2); // 2 context lines
+				all_matches.insert(all_matches.end(), matches.begin(), matches.end());
+				if (1 <= matches.size()) {
+					break;
+				}
+			}
+			if (1 <= all_matches.size()) {
+				retval = all_matches.front().file_path.string();
+			}
+			return retval;
+		}
+	}
+
+
 	static inline std::vector<std::string> const& s_cpp_specific_keywords() {
 		static std::vector<std::string> s_keywords = { "and", "and_eq", /*"asm", "atomic_cancel"
 		, "atomic_commit", "atomic_noexcept",*/ "bitand", "bitor", /*"bool",*/ "catch"
@@ -18145,6 +18291,8 @@ namespace convc2validcpp {
 		, "using", "virtual", /*"wchar_t",*/ "xor", "xor_eq" };
 		return s_keywords;
 	}
+
+	static ASTUnit& s_current_ast_unit_ref();
 
 	class MCSSSDeclUtil : public MatchFinder::MatchCallback
 	{
@@ -18548,6 +18696,183 @@ namespace convc2validcpp {
 							state1.m_xscope_ineligibility_contingent_replacement_map.do_and_dispose_matching_replacements(state1, CDDeclIndirection(*FND, CDDeclIndirection::no_indirection));
 						}
 					}
+
+					bool indirection_flag = false;
+					auto Type2 = qtype.getTypePtr();
+					do {
+						/* Here we check the type and the type of each of its indirections, if any, to determine if any are enum 
+						types, and if the use of any of those enum types would potentially qualify as a "forward enum reference", 
+						which is supported in C, but not C++. */
+						IF_DEBUG(auto Type2_qtype = clang::QualType(Type2 , 0/*I'm just assuming zero specifies no qualifiers*/);)
+						IF_DEBUG(auto Type2_qtype_str = Type2_qtype.getAsString();)
+						bool b1 = Type2->isIncompleteType();
+						if (Type2->isEnumeralType()) {
+							clang::TagDecl const * TD = Type2->getAsTagDecl();
+							clang::TagDecl const * definition_TD = TD ? TD->getDefinition() : nullptr;
+							const auto ED = dyn_cast<const clang::EnumDecl>(TD);
+
+							if (ED) {
+								auto const* ED_Type = ED->getTypeForDecl();
+								if (ED_Type) {
+									TD = ED_Type->getAsTagDecl();
+									definition_TD = TD ? TD->getDefinition() : nullptr;
+
+#ifndef NDEBUG
+									bool b2 = ED_Type->isIncompleteType();
+									if (b2) {
+										int q = 5;
+									}
+									bool is_complete_definition = ED->isCompleteDefinition();
+									if (!is_complete_definition) {
+										int q = 5;
+									}
+									if (definition_TD) {
+										bool b3 = definition_TD->isThisDeclarationADefinition();
+										if (!b3) {
+											int q = 5;
+										}
+									} else {
+										int q = 5;
+									}
+#endif /*!NDEBUG*/
+								}
+								if (((!ED->isComplete()) || indirection_flag) && ("" != ED->getNameAsString())) {
+									/* It was not clear to us how to determine whether an enum type used in the indirection of a pointer is 
+									incomplete or not. So we're just going to assume here that it might be. */
+									const auto enum_name = ED->getNameAsString();
+
+									std::optional<std::string> maybe_header_path;
+									std::optional<fs::path> maybe_canonical_header_path;
+									std::optional<fs::path> maybe_canonical_base_include_dir;
+									bool cwd_is_in_include_paths = false;
+									if (state1.m_CI_ptr) {
+										auto& HeaderSearchOpts_ref = state1.m_CI_ptr->getHeaderSearchOpts();
+										auto const& sys_root = HeaderSearchOpts_ref.Sysroot;
+										auto const& resource_dir = HeaderSearchOpts_ref.ResourceDir;
+
+										auto const& sys_header_prefixes = HeaderSearchOpts_ref.SystemHeaderPrefixes;
+										auto const num_sys_header_prefixes = sys_header_prefixes.size();
+										int count2 = 0;
+										for (auto const& sys_header_prefix : sys_header_prefixes) {
+											auto const path = sys_header_prefix.Prefix;
+											count2 += 1;
+											if (num_sys_header_prefixes == count2) {
+												int q = 5;
+											}
+										}
+
+										/* Here we are going to search every header file in the include directories until we find the definition 
+										of the (potentially) incomplete enum type. */
+										std::error_code ec;
+										auto const& user_entries = HeaderSearchOpts_ref.UserEntries;
+										auto const num_user_entries = user_entries.size();
+										int count1 = 0;
+										for (auto const& user_entry : user_entries) {
+											auto const include_dir_path = user_entry.Path;
+
+											if ((!cwd_is_in_include_paths) && fs::equivalent(".", include_dir_path, ec)) {
+												cwd_is_in_include_paths = true;
+											}
+
+											if (!maybe_canonical_header_path.has_value()) {
+												bool recursive_search_flag = true;
+												if (string_begins_with(include_dir_path, "/usr/")) {
+													recursive_search_flag = false/*arbitrary*/;
+												}
+
+												auto maybe_header_path2 = ns_find_enum_def::find_header_with_enum_definition(enum_name, include_dir_path, recursive_search_flag);
+												if (maybe_header_path2.has_value()) {
+													auto const& header_path2 = maybe_header_path2.value();
+													std::error_code ec;
+
+													fs::path canonical_target = fs::weakly_canonical(header_path2, ec);
+													maybe_canonical_header_path = canonical_target;
+													fs::path canonical_base_dir = fs::weakly_canonical(include_dir_path, ec);
+													maybe_canonical_base_include_dir = canonical_base_dir;
+
+													// Compute the relative include_dir_path from canonical_base_dir to the target.
+													fs::path rel = fs::relative(canonical_target, canonical_base_dir, ec);
+
+													auto relative_header_path = rel.string();
+													maybe_header_path = relative_header_path;
+													//break;
+												}
+											} else if (maybe_canonical_base_include_dir.has_value()) {
+												/* Ok, we've already found the header file with the enum definition we're interested in. Now we're going to 
+												continue looping through the remaining include directories in order to find the shortest path of the header 
+												file relative to any include directory. */
+												const auto canonical_base_include_dir = maybe_canonical_base_include_dir.value();
+												auto const& canonical_header_path = maybe_canonical_header_path.value();
+												std::error_code ec;
+
+												fs::path canonical_include_dir_path = fs::weakly_canonical(include_dir_path, ec);
+
+												fs::path relative_header_path = fs::relative(canonical_header_path, canonical_include_dir_path, ec);
+												if ((!relative_header_path.empty()) && (".." != (*relative_header_path.begin()))) {
+													/* The found header file is also contained in this current include path. */
+													fs::path rel2 = fs::relative(canonical_header_path, canonical_base_include_dir, ec);
+
+													if (relative_header_path.string().length() < rel2.string().length()) {
+														/* The relative path of the header file to the current include path is shorter than the relative path to the 
+														currently designated "base include directory", so we'll instead designate the current include path as the 
+														"base include directory". */
+														maybe_canonical_base_include_dir = canonical_include_dir_path;
+														maybe_header_path = relative_header_path;
+													}
+												}
+											} else {
+												int q = 3;
+											}
+											count1 += 1;
+											if (num_user_entries == count1) {
+												int q = 5;
+											}
+										}
+									}
+									if ((!maybe_header_path.has_value()) && (!cwd_is_in_include_paths)) {
+										/* We're here if we didn't find the enum definition in any of the include directories. So here we'll search 
+										the current working directory, and if we find a header file with the enum definition, then we will report 
+										it with a path relative to the directory containing the current source file being processed. */
+										maybe_header_path = ns_find_enum_def::find_header_with_enum_definition(enum_name, ".");
+										if (maybe_header_path.has_value()) {
+											std::string header_path = maybe_header_path.value();
+
+											auto& SM = Rewrite.getSourceMgr();
+											const auto FE = SM.getFileEntryForID(SM.getFileID(SR.getBegin()));
+											if (FE) {
+												std::error_code ec;
+												std::string_view current_file_pathname = FE->tryGetRealPathName();
+
+												fs::path canonical_target = fs::weakly_canonical(header_path, ec);
+												fs::path canonical_reference = fs::weakly_canonical(current_file_pathname, ec);
+
+												fs::path base_dir = canonical_reference.parent_path();
+
+												// Compute the relative path from base_dir to the target.
+												fs::path rel = fs::relative(canonical_target, base_dir, ec);
+
+												auto relative_header_path = rel.string();
+												maybe_header_path = relative_header_path;
+											}
+										}
+									}
+									if (maybe_header_path.has_value()) {
+										/* We found a header file that contains the definition of the (potentially) incomplete enum type. We'll add 
+										it  to the list of files for which we need to add an `#include` directive. */
+										auto const& header_path = maybe_header_path.value();
+										state1.m_item_requiring_additional_include_infos.insert({ SR.getBegin(), header_path});
+									}
+								}
+							}
+						}
+						if (Type2->isPointerType() || Type2->isArrayType()) {
+							/* "Increment" the type to the type of the next indirection. */
+							Type2 = Type2->getPointeeOrArrayElementType ();
+							indirection_flag = true;
+						} else {
+							break;
+						}
+					} while(true);
 
 					if (false && FND) {
 						if (FND->hasAttrs()) {
@@ -19013,12 +19338,13 @@ namespace convc2validcpp {
 								auto const* TDND_Type = TDND_qtype.getTypePtr();
 								if (TDND_Type) {
 									if (TDND_Type->isEnumeralType()) {
+										/* This seems to be the typedef of an enum. We'll check if the enum type is an incomplete type, which would 
+										be supported by C, but not C++. */
 										auto TDND_qtype_str = TDND_qtype.getAsString();
 										auto TDND_name = TDND->getNameAsString();
 										clang::TagDecl const * TD = TDND_Type->getAsTagDecl();
 										clang::TagDecl const * definition_TD = TD ? TD->getDefinition() : nullptr;
 
-										bool incomplete_type_flag = false;
 										auto ED = dyn_cast<const clang::EnumDecl>(TD);
 										if (ED) {
 											auto const* ED_Type = ED->getTypeForDecl();
@@ -19027,7 +19353,7 @@ namespace convc2validcpp {
 												definition_TD = TD ? TD->getDefinition() : nullptr;
 
 												bool seems_to_be_redundant_in_cplusplus = false;
-												if (!(((!definition_TD) || (!definition_TD->isThisDeclarationADefinition())) && (incomplete_type_flag))) {
+												if (!(((!definition_TD) || (!definition_TD->isThisDeclarationADefinition())) && (!ED->isComplete()))) {
 													std::string source_text = getRewrittenTextOrEmpty(Rewrite, SR);
 													auto tok_range1 = Parse::find_potential_noncomment_token_v1(source_text);
 													if ("typedef" == Parse::substring_view(source_text, tok_range1)) {
@@ -19058,6 +19384,14 @@ namespace convc2validcpp {
 													state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
 
 													state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, write_once_source_range(SR), new_text);
+
+													/* It would make intuitive sense to replace here the forward enum declaration that we're disabling in C++ mode 
+													with an `#include` directive that includes the (header) file where the enum is actually defined. Unfortunately 
+													we've encountered situations where the existing forward enum declaration wasn't actually needed, and inclusion 
+													of the header file that contained the actual enum definition would have caused compile errors due to introduction 
+													of new unsatisfied dependencies. Because of this, we add the inclusion of the header file containing the actual 
+													enum definition only when we identify a (value) declaration that actually needs it. This is handled in another 
+													(earlier) section of this function. */
 												}
 											}
 										}
@@ -19071,7 +19405,7 @@ namespace convc2validcpp {
 							break;
 						}
 
-						auto ED = dyn_cast<const clang::EnumDecl>(D);
+						const auto ED = dyn_cast<const clang::EnumDecl>(D);
 						if (ED) {
 							auto const* ED_Type = ED->getTypeForDecl();
 							if (ED_Type) {
@@ -20860,13 +21194,14 @@ namespace convc2validcpp {
 	struct CDiag {
 		CDiag() {}
 		CDiag(IntrusiveRefCntPtr<DiagnosticIDs>& DiagIDs_ircptr_param, IntrusiveRefCntPtr<DiagnosticsEngine>& DiagEngine_ircptr_param)
-		: DiagIDs_ircptr(DiagIDs_ircptr_param), DiagEngine_ircptr(DiagEngine_ircptr_param) {}
-	IntrusiveRefCntPtr<DiagnosticIDs> DiagIDs_ircptr;
+			: DiagIDs_ircptr(DiagIDs_ircptr_param), DiagEngine_ircptr(DiagEngine_ircptr_param) {}
+		IntrusiveRefCntPtr<DiagnosticIDs> DiagIDs_ircptr;
 		IntrusiveRefCntPtr<DiagnosticsEngine> DiagEngine_ircptr;
 	};
+
 	struct CMultiTUState {
-	std::vector<std::unique_ptr<clang::ASTUnit>> ast_units;
-	std::vector<CDiag> diags;
+		std::vector<std::unique_ptr<clang::ASTUnit>> ast_units;
+		std::vector<CDiag> diags;
 	};
 
 	void import_decl(ASTImporter& Importer, clang::Decl& decl_ref, clang::Rewriter& localRewriter, CompilerInstance &CI) {
@@ -21083,6 +21418,8 @@ namespace convc2validcpp {
 	public:
 		MCSSSMisc1 (Rewriter &Rewrite, CTUState& state1, CompilerInstance &CI_ref, int current_tu_num = 0) :
 			Rewrite(Rewrite), m_state1(state1), CI(CI_ref), m_current_tu_num(current_tu_num) {
+
+			m_state1.m_CI_ptr = &CI_ref;
 			s_current_tu_num += 1;
 			m_current_tu_num = s_current_tu_num;
 		}
@@ -21106,15 +21443,20 @@ namespace convc2validcpp {
 	private:
 		Rewriter &Rewrite;
 		CTUState& m_state1;
-	CompilerInstance &CI;
-	int m_current_tu_num = 0;
+		CompilerInstance &CI;
+		int m_current_tu_num = 0;
 
-	bool m_other_TUs_imported = false;
-	static CMultiTUState s_multi_tu_state;
-	static int s_current_tu_num;
+		bool m_other_TUs_imported = false;
+		static CMultiTUState s_multi_tu_state;
+		static int s_current_tu_num;
+		friend ASTUnit& s_current_ast_unit_ref();
 	};
 	CMultiTUState MCSSSMisc1::s_multi_tu_state;
 	int MCSSSMisc1::s_current_tu_num = 0;
+
+	static ASTUnit& s_current_ast_unit_ref() {
+		return *(MCSSSMisc1::s_multi_tu_state.ast_units.at(MCSSSMisc1::s_current_tu_num - 1));
+	}
 
 
 	/**********************************************************************************************************************/
@@ -21850,6 +22192,11 @@ namespace convc2validcpp {
 				for (auto const& SL : m_tu_state.m_cpp_type_trait_use_locations) {
 					files_that_use_cpp_type_traits.insert(SM.getFileID(SL));
 				}
+				std::multimap<clang::FileID, std::string> files_that_need_additional_includes_and_the_corresponding_include_file_paths;
+				for (auto const& item_requiring_additional_include_info : m_tu_state.m_item_requiring_additional_include_infos) {
+					files_that_need_additional_includes_and_the_corresponding_include_file_paths.insert(
+						{ SM.getFileID(item_requiring_additional_include_info.first), item_requiring_additional_include_info.second });
+				}
 
 				clang::CompilerInstance &ci = getCompilerInstance();
 				clang::Preprocessor &pp = ci.getPreprocessor();
@@ -21871,7 +22218,7 @@ namespace convc2validcpp {
 							int q = 7;
 							pp_callbacks_ptr = m_callbacks_stack.back();
 							m_callbacks_stack.pop_back();
-						} 
+						}
 					} else {
 						m_callbacks_stack.pop_back();
 					}
@@ -21976,6 +22323,39 @@ namespace convc2validcpp {
 									const clang::SourceLocation insert_after_location = maybe_include_guard_end_location.has_value() 
 										? maybe_include_guard_end_location.value() : SM.getLocForStartOfFile(file_id);
 									Rewrite.InsertTextAfterToken(insert_after_location, include_type_traits_str);
+								}
+							}
+
+							std::set<std::string> added_include_files;
+							const auto range1 = files_that_need_additional_includes_and_the_corresponding_include_file_paths.equal_range(file_id);
+							for  (auto found_it1 = range1.first; range1.second != found_it1; ++found_it1) {
+								IF_DEBUG(std::string_view filename_sv = SM.getFilename(SM.getLocForStartOfFile(found_it1->first));)
+								std::string header_path = found_it1->second;
+								const auto include_directive_str = "\n\n#ifdef __cplusplus \n#include \"" + header_path + "\" \n#endif /*__cplusplus*/ \n";
+								const bool already_added = (0 != added_include_files.count(header_path));
+								if (!already_added) {
+									added_include_files.insert(header_path);
+									if ((std::string::npos == file_text.find(include_directive_str))) {
+										/* We need to add an `#include` directive, so we'll try to (heuristically) find a good spot for it near 
+										the beginning of the file. */
+										std::optional<clang::SourceLocation> maybe_include_guard_end_location;
+										if (fii_ref.m_first_macro_directive_ptr_is_valid && fii_ref.m_first_macro_directive_ptr) {
+											auto const& macro_directive = *(fii_ref.m_first_macro_directive_ptr);
+											if (clang::MacroDirective::MD_Define == macro_directive.getKind()) {
+												auto MI = macro_directive.getMacroInfo();
+												if (MI) {
+													auto const& macro_info = *MI;
+													auto macro_def_SLE = macro_info.getDefinitionEndLoc();
+													if (macro_def_SLE.isValid() && macro_info.isUsedForHeaderGuard()) {
+														maybe_include_guard_end_location = macro_def_SLE;
+													}
+												}
+											}
+										}
+										const clang::SourceLocation insert_after_location = maybe_include_guard_end_location.has_value() 
+											? maybe_include_guard_end_location.value() : SM.getLocForStartOfFile(file_id);
+										Rewrite.InsertTextAfterToken(insert_after_location, include_directive_str);
+									}
 								}
 							}
 						}
