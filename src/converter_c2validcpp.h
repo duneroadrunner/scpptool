@@ -18225,6 +18225,8 @@ namespace convc2validcpp {
 		}
 
 		std::optional<std::string> find_header_with_enum_definition(std::string_view enum_name, std::string_view dir_path, bool recursive_flag = true) {
+			THREAD_LOCAL_TIME_USE_STATS_COLLECTION_SITE(gtl_time_use_stats_session1)
+
 			std::optional<std::string> retval;
 			std::error_code ec;
 
@@ -19748,410 +19750,466 @@ namespace convc2validcpp {
 					return;
 				}
 
-				//auto UEOTTE = dyn_cast<const clang::UnaryExprOrTypeTraitExpr>(E_ii);
-				if (UEOTTE) {
-					const auto kind = UEOTTE->getKind();
-					if (UEOTTE->isArgumentType() && (clang::UETT_SizeOf == kind)) {
-						const auto arg_qtype = UEOTTE->getArgumentType();
-						const auto TSI = UEOTTE->getArgumentTypeInfo();
-						if (TSI) {
-							const auto typeLoc = TSI->getTypeLoc();
-							const auto arg_SR = write_once_source_range(cm1_adjusted_source_range(typeLoc.getSourceRange(), state1, Rewrite));
-							DEBUG_SOURCE_LOCATION_STR(debug_arg_source_location_str, arg_SR, Rewrite);
-							if ((!arg_SR.isValid()) || c2v_filtered_out_by_location(MR, arg_SR.getBegin())) {
-								return void();
-							}
-#ifndef NDEBUG
-							if (std::string::npos != debug_arg_source_location_str.find(g_target_debug_source_location_str1)) {
-								int q = 5;
-							}
-#endif /*!NDEBUG*/
-
-							const auto arg_text = getRewrittenTextOrEmpty(Rewrite, arg_SR);
-							if ("" != arg_text) {
-								const std::string namespace_qualified_arg_text = with_namespace_qualification_added_if_necessary(arg_text, arg_qtype, *UEOTTE, Rewrite, state1, *(MR.Context));
-								if (namespace_qualified_arg_text != arg_text) {
-									const auto arg_rawSR = typeLoc.getSourceRange();
-									bool arg_seems_to_be_a_whole_macro_argument = false;
-									if (arg_rawSR.getBegin().isMacroID() && arg_rawSR.getEnd().isMacroID()) {
-										auto& SM = Rewrite.getSourceMgr();
-										auto SL_macro_arg_expansion_start = arg_rawSR.getBegin();
-										const bool SL_isMacroArgExpansion_flag = SM.isMacroArgExpansion(arg_rawSR.getBegin(), &SL_macro_arg_expansion_start);
-										auto SLE_macro_arg_expansion_start = arg_rawSR.getEnd();
-										const bool SLE_isMacroArgExpansion_flag = SM.isMacroArgExpansion(arg_rawSR.getEnd(), &SLE_macro_arg_expansion_start);
-										if (SL_isMacroArgExpansion_flag && SLE_isMacroArgExpansion_flag && (SL_macro_arg_expansion_start == SLE_macro_arg_expansion_start)) {
-											arg_seems_to_be_a_whole_macro_argument = true;
-											/* The type argument seems to be at least part of a macro argument. Next we'll check if it's a (distinct, 
-											whole) macro argument that does not include the parent clang::UnaryExprOrTypeTraitExpr (i.e. `sizeof` 
-											expression). */
-											const auto UEOTTE_rawSR = UEOTTE->getSourceRange();
-											auto UEOTTE_SL_macro_arg_expansion_start = UEOTTE_rawSR.getBegin();
-											const bool UEOTTE_SL_isMacroArgExpansion_flag = SM.isMacroArgExpansion(UEOTTE_rawSR.getBegin(), &UEOTTE_SL_macro_arg_expansion_start);
-											auto UEOTTE_SLE_macro_arg_expansion_start = UEOTTE_rawSR.getEnd();
-											const bool UEOTTE_SLE_isMacroArgExpansion_flag = SM.isMacroArgExpansion(UEOTTE_rawSR.getEnd(), &UEOTTE_SLE_macro_arg_expansion_start);
-											if (UEOTTE_SL_isMacroArgExpansion_flag && UEOTTE_SLE_isMacroArgExpansion_flag && (UEOTTE_SL_macro_arg_expansion_start == UEOTTE_SLE_macro_arg_expansion_start)) {
-												/* The parent clang::UnaryExprOrTypeTraitExpr (i.e. `sizeof` expression) also seems to be (at least 
-												part of) a macro argument. Now we'll check if the type argument and its parent are part of the same 
-												macro argument. */
-												if (UEOTTE_SL_macro_arg_expansion_start == SL_macro_arg_expansion_start) {
-													/* The type argument and its parent expression seem to be part of the same macro argument, indicating 
-													that the type argument is not a whole macro argument. */
-													arg_seems_to_be_a_whole_macro_argument = false;
-												}
-											}
-										}
-									}
-
-									/* If the type argument were an expression, then we could just use our standard mechanism for modifying 
-									an expression, which automatically propagates the changes to any and all relevant containing/ancestor 
-									expressions. But since the type argument is not an expression (it's a type) and we don't have a 
-									standard mechanism that handles it, we're going to resort to manually changing the stored "base" 
-									source text of this clang::UnaryExprOrTypeTraitExpr and each ancestor expression (that already has an 
-									established corresponding "expression conversion state"). 
-									There are "base" text versions for each expression stored in a number of places, including the 
-									`m_original_source_text_str` data member and potentially in multiple components of the `m_SR_plus` 
-									data members. */
-									auto update_string_ref = [&](std::string& string_ref) {
-											if (std::string::npos == string_ref.find(namespace_qualified_arg_text)) {
-												std::string namespace_qualified_source_text_str = string_ref;
-												replace_whole_instances_of_given_string(namespace_qualified_source_text_str, arg_text, namespace_qualified_arg_text);
-												if (string_ref != namespace_qualified_source_text_str) {
-													string_ref = namespace_qualified_source_text_str;
-												} else {
-													int q = 5;
-												}
-											}
-										};
-									auto update_ecs_ref = [&](CExprConversionState& ecs_ref) {
-											update_string_ref(ecs_ref.m_original_source_text_str);
-											update_string_ref(ecs_ref.m_current_text_str);
-											for (auto& non_child_dependent_text_fragment_ref : ecs_ref.m_non_child_dependent_text_fragments) {
-												update_string_ref(non_child_dependent_text_fragment_ref);
-											}
-											update_string_ref(ecs_ref.m_SR_plus.m_adjusted_source_text_as_if_expanded);
-											for (auto& adjusted_source_text_info_ref : ecs_ref.m_SR_plus.m_adjusted_source_text_infos) {
-												update_string_ref(adjusted_source_text_info_ref.m_text);
-											}
-										};
-
-									auto& ecs_ref = state1.get_expr_conversion_state_ref(*UEOTTE, Rewrite);
-									update_ecs_ref(ecs_ref);
-									state1.add_pending_expression_update(*UEOTTE, Rewrite);
-
-									if (true || arg_seems_to_be_a_whole_macro_argument) {
-										bool visibly_containing_expression_scheduled_for_rendering_update =false;
-										auto parent_E = NonImplicitParentOfType<clang::Expr>(UEOTTE, *(MR.Context));
-										auto E1 = parent_E;
-										while (E1) {
-											IF_DEBUG(auto E1_qtype_str = E1->getType().getAsString();)
-
-											auto iter = state1.m_expr_conversion_state_map.find(E1);
-											if (state1.m_expr_conversion_state_map.end() != iter) {
-												auto& l_ecs_ref = *((*iter).second);
-												update_ecs_ref(l_ecs_ref);
-											}
-											if (!visibly_containing_expression_scheduled_for_rendering_update) {
-												const auto E1_SR = write_once_source_range(cm1_adj_nice_source_range(E1->getSourceRange(), state1, Rewrite));
-												if ((E1_SR.getBegin() <= arg_SR.getBegin()) && (arg_SR.getEnd() <= E1_SR.getEnd())) {
-													/* This expression seems to contain the (macro) argument in its visible range. So we'll schedule it 
-													for a rendering update reflect the changes we made to the (macro) argument. (We don't have a proper 
-													mechanism to update the (macro) argument directly because it's a type, not an expression.) */
-													state1.add_pending_expression_update(*E1, Rewrite);
-
-													visibly_containing_expression_scheduled_for_rendering_update = true;
-												}
-											}
-
-											E1 = NonImplicitParentOfType<clang::Expr>(E1, *(MR.Context));
-										}
-										int q = 5;
-									}
+				do {
+					//auto UEOTTE = dyn_cast<const clang::UnaryExprOrTypeTraitExpr>(E_ii);
+					if (UEOTTE) {
+						const auto kind = UEOTTE->getKind();
+						if (UEOTTE->isArgumentType() && (clang::UETT_SizeOf == kind)) {
+							const auto arg_qtype = UEOTTE->getArgumentType();
+							const auto TSI = UEOTTE->getArgumentTypeInfo();
+							if (TSI) {
+								const auto typeLoc = TSI->getTypeLoc();
+								const auto arg_SR = write_once_source_range(cm1_adjusted_source_range(typeLoc.getSourceRange(), state1, Rewrite));
+								DEBUG_SOURCE_LOCATION_STR(debug_arg_source_location_str, arg_SR, Rewrite);
+								if ((!arg_SR.isValid()) || c2v_filtered_out_by_location(MR, arg_SR.getBegin())) {
+									return void();
 								}
-							}
-						}
-					}
-					RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V
-				}
+	#ifndef NDEBUG
+								if (std::string::npos != debug_arg_source_location_str.find(g_target_debug_source_location_str1)) {
+									int q = 5;
+								}
+	#endif /*!NDEBUG*/
 
-				auto BO = dyn_cast<const clang::BinaryOperator>(E_ii);
-				if (BO) {
-					if (clang::BinaryOperator::Opcode::BO_Assign == BO->getOpcode()) {
-						if (BO->getLHS()->getType()->isPointerType() || BO->getLHS()->getType()->isEnumeralType()) {
-							MCSSSAssignment::s_handler1(MR, Rewrite, state1, BO->getLHS(), BO->getRHS());
-						}
-					} else if ((clang::BinaryOperator::Opcode::BO_OrAssign == BO->getOpcode()) || (clang::BinaryOperator::Opcode::BO_AndAssign == BO->getOpcode())) {
-						if (BO->getLHS()->getType()->isEnumeralType()) {
-							/* This seems to be an expression of the form `enum_var |= some_int`. C++ doesn't seem to be cool with this, 
-							so we're going to change it to `enum_var = (enum_var_type)(enum_var | some_int)`. */
-							auto LHS = BO->getLHS();
-							auto RHS = BO->getRHS();
-							if (ConvertC2ValidCpp && SR.isValid() && LHS && RHS) {
-								auto lambda = [MR, &Rewrite, &state1, BO, LHS, RHS, SR]() {
-									auto context = CExprTextInfoContext{ SR, &Rewrite, &state1 };
-
-									auto& BO_ecs_ref = state1.get_expr_conversion_state_ref(*BO, Rewrite);
-									BO_ecs_ref.update_current_text(context);
-									auto& LHS_ecs_ref = state1.get_expr_conversion_state_ref(*LHS, Rewrite);
-									LHS_ecs_ref.update_current_text(context);
-									auto& RHS_ecs_ref = state1.get_expr_conversion_state_ref(*RHS, Rewrite);
-									RHS_ecs_ref.update_current_text(context);
-
-									const std::string op_str = (clang::BinaryOperator::Opcode::BO_OrAssign == BO->getOpcode()) ? "|" : "&";
-									const std::string lhs_qtype_str = LHS->getType().getAsString();
-									std::string new_bo_text = LHS_ecs_ref.current_text() + " = (" + lhs_qtype_str + ")(" + LHS_ecs_ref.current_text() + " " + op_str + " " + RHS_ecs_ref.current_text() + ")";
-
-									state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_bo_text);
-								};
-								/* This modification needs to be queued so that it will be executed after any other
-								modifications that might affect the relevant part of the source text. */
-								state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
-
-								/* We've queued the modification action for deferred execution, but we don't want to delay the
-								establishment of the expression conversion state because, among other reasons, it reads from 
-								and stores the original source text and we want that done before the source text gets 
-								potentially modified. */
-								auto& BO_ecs_ref = state1.get_expr_conversion_state_ref(*BO, Rewrite);
-								auto& LHS_ecs_ref = state1.get_expr_conversion_state_ref(*LHS, Rewrite);
-								auto& RHS_ecs_ref = state1.get_expr_conversion_state_ref(*RHS, Rewrite);
-							}
-						}
-					}
-				}
-				auto DRE = dyn_cast<const clang::DeclRefExpr>(E);
-				if (DRE) {
-					auto expr_text_info = CExprTextInfo(E, Rewrite, state1);
-					const std::string name = expr_text_info.current_text();
-					for (auto& keyword : s_cpp_specific_keywords()) {
-						if (keyword == name) {
-							state1.add_pending_straight_text_replacement_expression_update(Rewrite, SR, E, name + "_a");
-							break;
-						}
-					}
-
-					const auto ECD = dyn_cast<const clang::EnumConstantDecl>(DRE->getDecl());
-					if (ECD) {
-						const std::string enum_const_name = ECD->getNameAsString();
-						auto& ecs_ref = state1.get_expr_conversion_state_ref(*DRE, Rewrite);
-						const std::string dre_text = ecs_ref.m_original_source_text_str;
-						if (dre_text == enum_const_name) {
-
-							if (std::string::npos == dre_text.find("::")) {
-								/* enum const name does not seem to be namespace qualified. We'll check if it needs to be under C++. */
-
-								{
-									clang::Decl const * definition_D = NonParenImpNoopCastParentOfType<clang::EnumDecl>(ECD, *(MR.Context));
-
-									auto nested_containing_structs = [&MR](clang::Decl const * definition_D) {
-										std::vector<clang::RecordDecl const *> retval;
-										auto parent_RD = NonImplicitParentOfType<clang::RecordDecl const>(definition_D, *(MR.Context));
-										while (parent_RD) {
-											retval.push_back(parent_RD);
-											parent_RD = NonImplicitParentOfType<clang::RecordDecl const>(parent_RD, *(MR.Context));
-										}
-										std::reverse(retval.begin(), retval.end());
-										return retval;
-									};
-
-									auto nested_containing_structs_of_def = nested_containing_structs(definition_D);
-
-									if (1 <= nested_containing_structs_of_def.size()) {
-										/* The type seems to have been declared inside the body of a struct. So in C++, depending where it 
-										is used, it may need to be namespace qualified. So we'll try to obtain a corresponding list of 
-										nested structs containing the declaration which uses the type. Then we can try to determine if the 
-										declaration that uses the type is in the same namespace as the declaration of the type itself. In 
-										which case we may not need to add namespace qualification to the type usage. */
-
-										auto get_declcontext = [](const clang::Expr* ptr, clang::ASTContext& Ctx) {
-											clang::Decl const* retval = nullptr;
-											if (!ptr) { return retval; }
-											auto last_ancestor_E = ptr;
-											auto E = NonParenImpNoopCastParentOfType<clang::Expr>(ptr, Ctx);
-											while (E && (E != last_ancestor_E)) {
-												last_ancestor_E = E;
-												E = NonParenImpNoopCastParentOfType<clang::Expr>(E, Ctx);
-											}
-											retval = NonParenImpNoopCastParentOfType<clang::Decl>(last_ancestor_E, Ctx);
-											return retval;
-										};
-
-										auto containing_D = get_declcontext(DRE, *(MR.Context));
-										auto nested_containing_structs_of_decl = nested_containing_structs(containing_D);
-
-										while ((nested_containing_structs_of_def.size() >= 1) && (nested_containing_structs_of_decl.size() >= 1)) {
-											/* We don't need to qualify the type usage with namespaces that the declaration that uses the type 
-											and declaration of the type itself have in common. So we'll test for common containing namespaces 
-											and discard them. */
-											if (nested_containing_structs_of_def.front() != nested_containing_structs_of_decl.front()) {
-												break;
-											}
-											nested_containing_structs_of_def.erase(nested_containing_structs_of_def.begin());
-											nested_containing_structs_of_decl.erase(nested_containing_structs_of_decl.begin());
-										}
-										if (1 <= nested_containing_structs_of_def.size()) {
-											std::string new_namespace_qualified_enum_const_name;
-											for (auto& containing_RD : nested_containing_structs_of_def) {
-												if (!containing_RD) { assert(false); break; }
-												auto struct_name = containing_RD->getQualifiedNameAsString();
-												new_namespace_qualified_enum_const_name += struct_name + "::";
-											}
-
-											auto l_enum_const_name = enum_const_name;
-											static const std::string struct_space_str = "struct ";
-											if (string_begins_with(l_enum_const_name, struct_space_str)) {
-												l_enum_const_name = l_enum_const_name.substr(struct_space_str.length());
-											}
-											static const std::string enum_space_str = "enum ";
-											bool is_an_enum = false;
-											if (string_begins_with(l_enum_const_name, enum_space_str)) {
-												is_an_enum = true;
-												l_enum_const_name = l_enum_const_name.substr(enum_space_str.length());
-											}
-											new_namespace_qualified_enum_const_name += l_enum_const_name;
-
-											if (is_an_enum) {
-												new_namespace_qualified_enum_const_name = enum_space_str + new_namespace_qualified_enum_const_name;
-											}
-
-											bool vetoed_flag = false;
-											if (std::string::npos != new_namespace_qualified_enum_const_name.find("unnamed enum at")) {
-												vetoed_flag = true;
-											}
-											if (std::string::npos != new_namespace_qualified_enum_const_name.find(" (unnamed ")) {
-												vetoed_flag = true;
-											}
-											if ((!vetoed_flag)) {
-												std::string new_cpp_DRE_text;
-												new_cpp_DRE_text = ecs_ref.current_text();
-												if (std::string::npos == new_cpp_DRE_text.find("::")) {
-
-													replace_whole_instances_of_given_string(new_cpp_DRE_text, enum_const_name, new_namespace_qualified_enum_const_name);
-
-													const std::string new_DRE_text = "IF_CPP_ELSE((" + new_cpp_DRE_text + "), (" + dre_text + "))";
-													const auto DRE_SR = write_once_source_range(cm1_adj_nice_source_range(DRE->getSourceRange(), state1, Rewrite));
-													state1.m_if_cpp_macro_use_locations.insert(DRE_SR.getBegin());
-
-													state1.add_pending_straight_text_replacement_expression_update(*DRE, Rewrite, new_DRE_text);
+								const auto arg_text = getRewrittenTextOrEmpty(Rewrite, arg_SR);
+								if ("" != arg_text) {
+									const std::string namespace_qualified_arg_text = with_namespace_qualification_added_if_necessary(arg_text, arg_qtype, *UEOTTE, Rewrite, state1, *(MR.Context));
+									if (namespace_qualified_arg_text != arg_text) {
+										const auto arg_rawSR = typeLoc.getSourceRange();
+										bool arg_seems_to_be_a_whole_macro_argument = false;
+										if (arg_rawSR.getBegin().isMacroID() && arg_rawSR.getEnd().isMacroID()) {
+											auto& SM = Rewrite.getSourceMgr();
+											auto SL_macro_arg_expansion_start = arg_rawSR.getBegin();
+											const bool SL_isMacroArgExpansion_flag = SM.isMacroArgExpansion(arg_rawSR.getBegin(), &SL_macro_arg_expansion_start);
+											auto SLE_macro_arg_expansion_start = arg_rawSR.getEnd();
+											const bool SLE_isMacroArgExpansion_flag = SM.isMacroArgExpansion(arg_rawSR.getEnd(), &SLE_macro_arg_expansion_start);
+											if (SL_isMacroArgExpansion_flag && SLE_isMacroArgExpansion_flag && (SL_macro_arg_expansion_start == SLE_macro_arg_expansion_start)) {
+												arg_seems_to_be_a_whole_macro_argument = true;
+												/* The type argument seems to be at least part of a macro argument. Next we'll check if it's a (distinct, 
+												whole) macro argument that does not include the parent clang::UnaryExprOrTypeTraitExpr (i.e. `sizeof` 
+												expression). */
+												const auto UEOTTE_rawSR = UEOTTE->getSourceRange();
+												auto UEOTTE_SL_macro_arg_expansion_start = UEOTTE_rawSR.getBegin();
+												const bool UEOTTE_SL_isMacroArgExpansion_flag = SM.isMacroArgExpansion(UEOTTE_rawSR.getBegin(), &UEOTTE_SL_macro_arg_expansion_start);
+												auto UEOTTE_SLE_macro_arg_expansion_start = UEOTTE_rawSR.getEnd();
+												const bool UEOTTE_SLE_isMacroArgExpansion_flag = SM.isMacroArgExpansion(UEOTTE_rawSR.getEnd(), &UEOTTE_SLE_macro_arg_expansion_start);
+												if (UEOTTE_SL_isMacroArgExpansion_flag && UEOTTE_SLE_isMacroArgExpansion_flag && (UEOTTE_SL_macro_arg_expansion_start == UEOTTE_SLE_macro_arg_expansion_start)) {
+													/* The parent clang::UnaryExprOrTypeTraitExpr (i.e. `sizeof` expression) also seems to be (at least 
+													part of) a macro argument. Now we'll check if the type argument and its parent are part of the same 
+													macro argument. */
+													if (UEOTTE_SL_macro_arg_expansion_start == SL_macro_arg_expansion_start) {
+														/* The type argument and its parent expression seem to be part of the same macro argument, indicating 
+														that the type argument is not a whole macro argument. */
+														arg_seems_to_be_a_whole_macro_argument = false;
+													}
 												}
+											}
+										}
+
+										/* If the type argument were an expression, then we could just use our standard mechanism for modifying 
+										an expression, which automatically propagates the changes to any and all relevant containing/ancestor 
+										expressions. But since the type argument is not an expression (it's a type) and we don't have a 
+										standard mechanism that handles it, we're going to resort to manually changing the stored "base" 
+										source text of this clang::UnaryExprOrTypeTraitExpr and each ancestor expression (that already has an 
+										established corresponding "expression conversion state"). 
+										There are "base" text versions for each expression stored in a number of places, including the 
+										`m_original_source_text_str` data member and potentially in multiple components of the `m_SR_plus` 
+										data members. */
+										auto update_string_ref = [&](std::string& string_ref) {
+												if (std::string::npos == string_ref.find(namespace_qualified_arg_text)) {
+													std::string namespace_qualified_source_text_str = string_ref;
+													replace_whole_instances_of_given_string(namespace_qualified_source_text_str, arg_text, namespace_qualified_arg_text);
+													if (string_ref != namespace_qualified_source_text_str) {
+														string_ref = namespace_qualified_source_text_str;
+													} else {
+														int q = 5;
+													}
+												}
+											};
+										auto update_ecs_ref = [&](CExprConversionState& ecs_ref) {
+												update_string_ref(ecs_ref.m_original_source_text_str);
+												update_string_ref(ecs_ref.m_current_text_str);
+												for (auto& non_child_dependent_text_fragment_ref : ecs_ref.m_non_child_dependent_text_fragments) {
+													update_string_ref(non_child_dependent_text_fragment_ref);
+												}
+												update_string_ref(ecs_ref.m_SR_plus.m_adjusted_source_text_as_if_expanded);
+												for (auto& adjusted_source_text_info_ref : ecs_ref.m_SR_plus.m_adjusted_source_text_infos) {
+													update_string_ref(adjusted_source_text_info_ref.m_text);
+												}
+											};
+
+										auto& ecs_ref = state1.get_expr_conversion_state_ref(*UEOTTE, Rewrite);
+										update_ecs_ref(ecs_ref);
+										state1.add_pending_expression_update(*UEOTTE, Rewrite);
+
+										if (true || arg_seems_to_be_a_whole_macro_argument) {
+											bool visibly_containing_expression_scheduled_for_rendering_update =false;
+											auto parent_E = NonImplicitParentOfType<clang::Expr>(UEOTTE, *(MR.Context));
+											auto E1 = parent_E;
+											while (E1) {
+												IF_DEBUG(auto E1_qtype_str = E1->getType().getAsString();)
+
+												auto iter = state1.m_expr_conversion_state_map.find(E1);
+												if (state1.m_expr_conversion_state_map.end() != iter) {
+													auto& l_ecs_ref = *((*iter).second);
+													update_ecs_ref(l_ecs_ref);
+												}
+												if (!visibly_containing_expression_scheduled_for_rendering_update) {
+													const auto E1_SR = write_once_source_range(cm1_adj_nice_source_range(E1->getSourceRange(), state1, Rewrite));
+													if ((E1_SR.getBegin() <= arg_SR.getBegin()) && (arg_SR.getEnd() <= E1_SR.getEnd())) {
+														/* This expression seems to contain the (macro) argument in its visible range. So we'll schedule it 
+														for a rendering update reflect the changes we made to the (macro) argument. (We don't have a proper 
+														mechanism to update the (macro) argument directly because it's a type, not an expression.) */
+														state1.add_pending_expression_update(*E1, Rewrite);
+
+														visibly_containing_expression_scheduled_for_rendering_update = true;
+													}
+												}
+
+												E1 = NonImplicitParentOfType<clang::Expr>(E1, *(MR.Context));
 											}
 											int q = 5;
 										}
 									}
 								}
 							}
-
-							int q = 5;
 						}
-						int q = 5;
+						RETURN_IF_FILTERED_OUT_BY_LOCATION_C2V
+						break;
 					}
-				}
-				
-				auto SL = dyn_cast<const clang::StringLiteral>(E);
-				if (SL) {
-					auto& SM = Rewrite.getSourceMgr();
-#ifndef NDEBUG
-					const auto SL_rawSR = SL->getSourceRange();
-					const std::string original_source_text_from_raw_str = getRewrittenTextOrEmpty(Rewrite, SL_rawSR);
-					auto SL_SPSL = SM.getSpellingLoc(SL_rawSR.getBegin());
-					auto SL_SPSLE = SM.getSpellingLoc(SL_rawSR.getEnd());
-					auto SL_SPSR = clang::SourceRange{ SL_SPSL, SL_SPSLE };
-					DEBUG_SOURCE_TEXT_STR(debug_SL_SPSR_source_text, SL_SPSR, Rewrite);
-#endif /*!NDEBUG*/
 
-					const auto str = std::string(SL->getString());
-					//const auto SL_SR_plus1 = cm1_adjusted_source_range(SL->getSourceRange(), state1, Rewrite);
-					const auto SL_SR = write_once_source_range(cm1_adj_nice_source_range(SL->getSourceRange(), state1, Rewrite));
-					std::string original_source_text_str2 = getRewrittenTextOrEmpty(Rewrite, SL_SR);
+					auto BO = dyn_cast<const clang::BinaryOperator>(E_ii);
+					if (BO) {
+						if (clang::BinaryOperator::Opcode::BO_Assign == BO->getOpcode()) {
+							if (BO->getLHS()->getType()->isPointerType() || BO->getLHS()->getType()->isEnumeralType()) {
+								MCSSSAssignment::s_handler1(MR, Rewrite, state1, BO->getLHS(), BO->getRHS());
+							}
+						} else if ((clang::BinaryOperator::Opcode::BO_OrAssign == BO->getOpcode()) || (clang::BinaryOperator::Opcode::BO_AndAssign == BO->getOpcode())) {
+							if (BO->getLHS()->getType()->isEnumeralType()) {
+								/* This seems to be an expression of the form `enum_var |= some_int`. C++ doesn't seem to be cool with this, 
+								so we're going to change it to `enum_var = (enum_var_type)(enum_var | some_int)`. */
+								auto LHS = BO->getLHS();
+								auto RHS = BO->getRHS();
+								if (ConvertC2ValidCpp && SR.isValid() && LHS && RHS) {
+									auto lambda = [MR, &Rewrite, &state1, BO, LHS, RHS, SR]() {
+										auto context = CExprTextInfoContext{ SR, &Rewrite, &state1 };
 
-#ifndef NDEBUG
-					auto SL_SL_offset = SM.getFileOffset(SL_SR.getBegin());
-					auto SL_SLE_offset = SM.getFileOffset(SL_SR.getEnd());
-					const auto offset_diff = SL_SLE_offset - SL_SL_offset;
-					const auto offset_length = offset_diff + 1;
-					auto og_len = original_source_text_str2.length();
-#endif /*!NDEBUG*/
+										auto& BO_ecs_ref = state1.get_expr_conversion_state_ref(*BO, Rewrite);
+										BO_ecs_ref.update_current_text(context);
+										auto& LHS_ecs_ref = state1.get_expr_conversion_state_ref(*LHS, Rewrite);
+										LHS_ecs_ref.update_current_text(context);
+										auto& RHS_ecs_ref = state1.get_expr_conversion_state_ref(*RHS, Rewrite);
+										RHS_ecs_ref.update_current_text(context);
 
-					const auto& original_source_text_str = original_source_text_str2;
-					std::string new_source_text_str = original_source_text_str;
+										const std::string op_str = (clang::BinaryOperator::Opcode::BO_OrAssign == BO->getOpcode()) ? "|" : "&";
+										const std::string lhs_qtype_str = LHS->getType().getAsString();
+										std::string new_bo_text = LHS_ecs_ref.current_text() + " = (" + lhs_qtype_str + ")(" + LHS_ecs_ref.current_text() + " " + op_str + " " + RHS_ecs_ref.current_text() + ")";
 
-					const auto num_toks = SL->getNumConcatenated();
-					if (2 <= num_toks) {
-						for (unsigned int j = 0; num_toks > j; j += 1) {
-							int i = num_toks - 1 - j;
-							auto SrcLoc1 = SL->getStrTokenLoc(i);
+										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_bo_text);
+									};
+									/* This modification needs to be queued so that it will be executed after any other
+									modifications that might affect the relevant part of the source text. */
+									state1.m_pending_code_modification_actions.add_replacement_action(SR, lambda);
 
-							const auto SL_rawSR5 = clang::SourceRange{ SrcLoc1, SrcLoc1 };
-							//const auto SL_SR_plus5 = cm1_adjusted_source_range(clang::SourceRange{ SrcLoc1, SrcLoc1 }, state1, Rewrite);
-							const auto SL_SR5 = write_once_source_range(cm1_adj_nice_source_range(clang::SourceRange{ SrcLoc1, SrcLoc1 }, state1, Rewrite));
-							if (SL_SR5.isValid()) {
-								auto& SM = Rewrite.getSourceMgr();
-								const std::string original_source_text_str5 = getRewrittenTextOrEmpty(Rewrite, SL_SR5);
-								auto pos = SM.getFileOffset(SL_SR5.getBegin()) - SM.getFileOffset(SL_SR.getBegin());
-
-								if ((SL_SR.getBegin() <= SL_SR5.getBegin()) && (SL_SR.getEnd() >= SL_SR5.getEnd()) && ("" != original_source_text_str5)
-									&& (0 <= pos) && (original_source_text_str.length() > pos)) {
-
-									if (new_source_text_str.substr(pos, original_source_text_str5.length()) == original_source_text_str5) {
-										/* We're adding trailing spaces to the string literals to address: error: invalid suffix on literal; C++11 requires a space between literal and identifier [-Wreserved-user-defined-literal] */
-										std::string with_added_rear_space_bumpers = original_source_text_str5 + " ";
-										new_source_text_str.replace(pos, original_source_text_str5.length(), with_added_rear_space_bumpers);
-									} else {
-										int q = 3;
-									}
+									/* We've queued the modification action for deferred execution, but we don't want to delay the
+									establishment of the expression conversion state because, among other reasons, it reads from 
+									and stores the original source text and we want that done before the source text gets 
+									potentially modified. */
+									auto& BO_ecs_ref = state1.get_expr_conversion_state_ref(*BO, Rewrite);
+									auto& LHS_ecs_ref = state1.get_expr_conversion_state_ref(*LHS, Rewrite);
+									auto& RHS_ecs_ref = state1.get_expr_conversion_state_ref(*RHS, Rewrite);
 								}
 							}
 						}
-						if (original_source_text_str != new_source_text_str) {
-							auto& SM = Rewrite.getSourceMgr();
-							if (!cm1_filtered_out_by_location(SM, SL_SR)) {
+						break;
+					}
+
+					auto UO = dyn_cast<const clang::UnaryOperator>(E_ii);
+					if (UO) {
+						if (clang::UnaryOperator::Opcode::UO_AddrOf == UO->getOpcode()) {
+							auto subE_ii = IgnoreParenImpNoopCasts(UO->getSubExpr(), *(MR.Context));
+							const clang::IntegerLiteral* IL = nullptr;
+							auto CLE = dyn_cast<const clang::CompoundLiteralExpr>(subE_ii);
+							if (CLE) {
+								auto ILE = dyn_cast<const clang::InitListExpr>(IgnoreParenImpNoopCasts(CLE->getInitializer(), *(MR.Context)));
+								if (ILE) {
+									const auto num_inits = ILE->getNumInits();
+									if (1 == num_inits) {
+										IL = dyn_cast<const clang::IntegerLiteral>(IgnoreParenImpNoopCasts(ILE->getInit(0), *(MR.Context)));
+									} else {
+										int q = 5;
+									}
+								}
+								if (!IL) {
+									IL = dyn_cast<const clang::IntegerLiteral>(IgnoreParenImpNoopCasts(CLE->getInitializer(), *(MR.Context)));
+								}
+							}
+							if (!IL) {
+								IL = dyn_cast<const clang::IntegerLiteral>(subE_ii);
+							}
+							if (IL) {
+								/* This seems to be an expression like `&(int)7` which is apparently allowed in C, but not C++. */
+								auto& ecs_ref = state1.get_expr_conversion_state_ref(*subE_ii, Rewrite);
+
+								static const std::string wrapper_prefix = "IF_CPP(([](auto const& x) -> decltype(x) { return x; }))(";
+								static const std::string wrapper_suffix = ")";
+
+								const auto l_text_modifier = CWrapExprTextModifier(wrapper_prefix, wrapper_suffix);
+								bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+									&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+								if (!seems_to_be_already_applied) {
+									auto shptr2 = std::make_shared<CWrapExprTextModifier>(wrapper_prefix, wrapper_suffix);
+									ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+									ecs_ref.update_current_text();
+
+									IF_DEBUG(std::string current_text2 = ecs_ref.current_text();)
+
+									state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, ecs_ref.m_SR_plus, state1, subE_ii);
+								}
+							}
+
+							int q = 5;
+						}
+						break;
+					}
+
+					auto DRE = dyn_cast<const clang::DeclRefExpr>(E);
+					if (DRE) {
+						auto expr_text_info = CExprTextInfo(E, Rewrite, state1);
+						const std::string name = expr_text_info.current_text();
+						for (auto& keyword : s_cpp_specific_keywords()) {
+							if (keyword == name) {
+								state1.add_pending_straight_text_replacement_expression_update(Rewrite, SR, E, name + "_a");
+								break;
+							}
+						}
+
+						const auto ECD = dyn_cast<const clang::EnumConstantDecl>(DRE->getDecl());
+						if (ECD) {
+							const std::string enum_const_name = ECD->getNameAsString();
+							auto& ecs_ref = state1.get_expr_conversion_state_ref(*DRE, Rewrite);
+							const std::string dre_text = ecs_ref.m_original_source_text_str;
+							if (dre_text == enum_const_name) {
+
+								if (std::string::npos == dre_text.find("::")) {
+									/* enum const name does not seem to be namespace qualified. We'll check if it needs to be under C++. */
+
+									{
+										clang::Decl const * definition_D = NonParenImpNoopCastParentOfType<clang::EnumDecl>(ECD, *(MR.Context));
+
+										auto nested_containing_structs = [&MR](clang::Decl const * definition_D) {
+											std::vector<clang::RecordDecl const *> retval;
+											auto parent_RD = NonImplicitParentOfType<clang::RecordDecl const>(definition_D, *(MR.Context));
+											while (parent_RD) {
+												retval.push_back(parent_RD);
+												parent_RD = NonImplicitParentOfType<clang::RecordDecl const>(parent_RD, *(MR.Context));
+											}
+											std::reverse(retval.begin(), retval.end());
+											return retval;
+										};
+
+										auto nested_containing_structs_of_def = nested_containing_structs(definition_D);
+
+										if (1 <= nested_containing_structs_of_def.size()) {
+											/* The type seems to have been declared inside the body of a struct. So in C++, depending where it 
+											is used, it may need to be namespace qualified. So we'll try to obtain a corresponding list of 
+											nested structs containing the declaration which uses the type. Then we can try to determine if the 
+											declaration that uses the type is in the same namespace as the declaration of the type itself. In 
+											which case we may not need to add namespace qualification to the type usage. */
+
+											auto get_declcontext = [](const clang::Expr* ptr, clang::ASTContext& Ctx) {
+												clang::Decl const* retval = nullptr;
+												if (!ptr) { return retval; }
+												auto last_ancestor_E = ptr;
+												auto E = NonParenImpNoopCastParentOfType<clang::Expr>(ptr, Ctx);
+												while (E && (E != last_ancestor_E)) {
+													last_ancestor_E = E;
+													E = NonParenImpNoopCastParentOfType<clang::Expr>(E, Ctx);
+												}
+												retval = NonParenImpNoopCastParentOfType<clang::Decl>(last_ancestor_E, Ctx);
+												return retval;
+											};
+
+											auto containing_D = get_declcontext(DRE, *(MR.Context));
+											auto nested_containing_structs_of_decl = nested_containing_structs(containing_D);
+
+											while ((nested_containing_structs_of_def.size() >= 1) && (nested_containing_structs_of_decl.size() >= 1)) {
+												/* We don't need to qualify the type usage with namespaces that the declaration that uses the type 
+												and declaration of the type itself have in common. So we'll test for common containing namespaces 
+												and discard them. */
+												if (nested_containing_structs_of_def.front() != nested_containing_structs_of_decl.front()) {
+													break;
+												}
+												nested_containing_structs_of_def.erase(nested_containing_structs_of_def.begin());
+												nested_containing_structs_of_decl.erase(nested_containing_structs_of_decl.begin());
+											}
+											if (1 <= nested_containing_structs_of_def.size()) {
+												std::string new_namespace_qualified_enum_const_name;
+												for (auto& containing_RD : nested_containing_structs_of_def) {
+													if (!containing_RD) { assert(false); break; }
+													auto struct_name = containing_RD->getQualifiedNameAsString();
+													new_namespace_qualified_enum_const_name += struct_name + "::";
+												}
+
+												auto l_enum_const_name = enum_const_name;
+												static const std::string struct_space_str = "struct ";
+												if (string_begins_with(l_enum_const_name, struct_space_str)) {
+													l_enum_const_name = l_enum_const_name.substr(struct_space_str.length());
+												}
+												static const std::string enum_space_str = "enum ";
+												bool is_an_enum = false;
+												if (string_begins_with(l_enum_const_name, enum_space_str)) {
+													is_an_enum = true;
+													l_enum_const_name = l_enum_const_name.substr(enum_space_str.length());
+												}
+												new_namespace_qualified_enum_const_name += l_enum_const_name;
+
+												if (is_an_enum) {
+													new_namespace_qualified_enum_const_name = enum_space_str + new_namespace_qualified_enum_const_name;
+												}
+
+												bool vetoed_flag = false;
+												if (std::string::npos != new_namespace_qualified_enum_const_name.find("unnamed enum at")) {
+													vetoed_flag = true;
+												}
+												if (std::string::npos != new_namespace_qualified_enum_const_name.find(" (unnamed ")) {
+													vetoed_flag = true;
+												}
+												if ((!vetoed_flag)) {
+													std::string new_cpp_DRE_text;
+													new_cpp_DRE_text = ecs_ref.current_text();
+													if (std::string::npos == new_cpp_DRE_text.find("::")) {
+
+														replace_whole_instances_of_given_string(new_cpp_DRE_text, enum_const_name, new_namespace_qualified_enum_const_name);
+
+														const std::string new_DRE_text = "IF_CPP_ELSE((" + new_cpp_DRE_text + "), (" + dre_text + "))";
+														const auto DRE_SR = write_once_source_range(cm1_adj_nice_source_range(DRE->getSourceRange(), state1, Rewrite));
+														state1.m_if_cpp_macro_use_locations.insert(DRE_SR.getBegin());
+
+														state1.add_pending_straight_text_replacement_expression_update(*DRE, Rewrite, new_DRE_text);
+													}
+												}
+												int q = 5;
+											}
+										}
+									}
+								}
+
+								int q = 5;
+							}
+							int q = 5;
+						}
+						break;
+					}
+					
+					auto SL = dyn_cast<const clang::StringLiteral>(E);
+					if (SL) {
+						auto& SM = Rewrite.getSourceMgr();
+	#ifndef NDEBUG
+						const auto SL_rawSR = SL->getSourceRange();
+						const std::string original_source_text_from_raw_str = getRewrittenTextOrEmpty(Rewrite, SL_rawSR);
+						auto SL_SPSL = SM.getSpellingLoc(SL_rawSR.getBegin());
+						auto SL_SPSLE = SM.getSpellingLoc(SL_rawSR.getEnd());
+						auto SL_SPSR = clang::SourceRange{ SL_SPSL, SL_SPSLE };
+						DEBUG_SOURCE_TEXT_STR(debug_SL_SPSR_source_text, SL_SPSR, Rewrite);
+	#endif /*!NDEBUG*/
+
+						const auto str = std::string(SL->getString());
+						//const auto SL_SR_plus1 = cm1_adjusted_source_range(SL->getSourceRange(), state1, Rewrite);
+						const auto SL_SR = write_once_source_range(cm1_adj_nice_source_range(SL->getSourceRange(), state1, Rewrite));
+						std::string original_source_text_str2 = getRewrittenTextOrEmpty(Rewrite, SL_SR);
+
+	#ifndef NDEBUG
+						auto SL_SL_offset = SM.getFileOffset(SL_SR.getBegin());
+						auto SL_SLE_offset = SM.getFileOffset(SL_SR.getEnd());
+						const auto offset_diff = SL_SLE_offset - SL_SL_offset;
+						const auto offset_length = offset_diff + 1;
+						auto og_len = original_source_text_str2.length();
+	#endif /*!NDEBUG*/
+
+						const auto& original_source_text_str = original_source_text_str2;
+						std::string new_source_text_str = original_source_text_str;
+
+						const auto num_toks = SL->getNumConcatenated();
+						if (2 <= num_toks) {
+							for (unsigned int j = 0; num_toks > j; j += 1) {
+								int i = num_toks - 1 - j;
+								auto SrcLoc1 = SL->getStrTokenLoc(i);
+
+								const auto SL_rawSR5 = clang::SourceRange{ SrcLoc1, SrcLoc1 };
+								//const auto SL_SR_plus5 = cm1_adjusted_source_range(clang::SourceRange{ SrcLoc1, SrcLoc1 }, state1, Rewrite);
+								const auto SL_SR5 = write_once_source_range(cm1_adj_nice_source_range(clang::SourceRange{ SrcLoc1, SrcLoc1 }, state1, Rewrite));
+								if (SL_SR5.isValid()) {
+									auto& SM = Rewrite.getSourceMgr();
+									const std::string original_source_text_str5 = getRewrittenTextOrEmpty(Rewrite, SL_SR5);
+									auto pos = SM.getFileOffset(SL_SR5.getBegin()) - SM.getFileOffset(SL_SR.getBegin());
+
+									if ((SL_SR.getBegin() <= SL_SR5.getBegin()) && (SL_SR.getEnd() >= SL_SR5.getEnd()) && ("" != original_source_text_str5)
+										&& (0 <= pos) && (original_source_text_str.length() > pos)) {
+
+										if (new_source_text_str.substr(pos, original_source_text_str5.length()) == original_source_text_str5) {
+											/* We're adding trailing spaces to the string literals to address: error: invalid suffix on literal; C++11 requires a space between literal and identifier [-Wreserved-user-defined-literal] */
+											std::string with_added_rear_space_bumpers = original_source_text_str5 + " ";
+											new_source_text_str.replace(pos, original_source_text_str5.length(), with_added_rear_space_bumpers);
+										} else {
+											int q = 3;
+										}
+									}
+								}
+							}
+							if (original_source_text_str != new_source_text_str) {
+								auto& SM = Rewrite.getSourceMgr();
+								if (!cm1_filtered_out_by_location(SM, SL_SR)) {
+									auto& ecs_ref = state1.get_expr_conversion_state_ref(*SL, Rewrite);
+
+									const auto l_text_modifier = CStraightReplacementExprTextModifier(new_source_text_str);
+									bool there_seems_to_be_a_text_replacement_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && (l_text_modifier.species_str() == ecs_ref.m_expr_text_modifier_stack.back()->species_str()));
+									if (!there_seems_to_be_a_text_replacement_already_applied) {
+										auto shptr2 = std::make_shared<CStraightReplacementExprTextModifier>(new_source_text_str);
+										ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+										ecs_ref.update_current_text();
+
+										state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, SL_SR, state1, SL);
+									}
+								} else {
+									int q = 5;
+								}
+							}
+						} else {
+							bool thing_to_the_right_may_be_interpretable_as_a_literal_suffix = true;
+							const auto one_after_the_end_SL_SPSL1 = SL_SPSL.getLocWithOffset(+original_source_text_str2.length());
+							const auto one_after_the_end_SL_SPSL2 = SM.getSpellingLoc(SL_rawSR.getBegin().getLocWithOffset(+original_source_text_str2.length()));
+							if (one_after_the_end_SL_SPSL1.isValid() && one_after_the_end_SL_SPSL2.isValid() && (one_after_the_end_SL_SPSL1 == one_after_the_end_SL_SPSL2)) {
+								std::string text1 = getRewrittenTextOrEmpty(Rewrite, { one_after_the_end_SL_SPSL1, one_after_the_end_SL_SPSL1 });
+								if (1 > text1.length()) {
+									thing_to_the_right_may_be_interpretable_as_a_literal_suffix = false;
+								} else {
+									thing_to_the_right_may_be_interpretable_as_a_literal_suffix = Parse::is_alpha_or_underscore(text1.at(0));
+								}
+							}
+							if (thing_to_the_right_may_be_interpretable_as_a_literal_suffix) {
+								/* The thing to the immediate right of the string literal could be interpreted as a literal suffix in 
+								C++ (but not in C which doesn't support (user-defined) literal suffixes) which could result in the 
+								following error:
+								error: invalid suffix on literal; C++11 requires a space between literal and identifier [-Wreserved-user-defined-literal] 
+								
+								So we'll just add a space after the string literal. */
 								auto& ecs_ref = state1.get_expr_conversion_state_ref(*SL, Rewrite);
 
-								const auto l_text_modifier = CStraightReplacementExprTextModifier(new_source_text_str);
-								bool there_seems_to_be_a_text_replacement_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && (l_text_modifier.species_str() == ecs_ref.m_expr_text_modifier_stack.back()->species_str()));
-								if (!there_seems_to_be_a_text_replacement_already_applied) {
-									auto shptr2 = std::make_shared<CStraightReplacementExprTextModifier>(new_source_text_str);
+								const auto l_text_modifier = CWrapExprTextModifier("", " ");
+								bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && (l_text_modifier.species_str() == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+									&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+								if (!seems_to_be_already_applied) {
+									auto shptr2 = std::make_shared<CWrapExprTextModifier>("", " ");
 									ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
 									ecs_ref.update_current_text();
 
 									state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, SL_SR, state1, SL);
 								}
-							} else {
-								int q = 5;
 							}
 						}
-					} else {
-						bool thing_to_the_right_may_be_interpretable_as_a_literal_suffix = true;
-						const auto one_after_the_end_SL_SPSL1 = SL_SPSL.getLocWithOffset(+original_source_text_str2.length());
-						const auto one_after_the_end_SL_SPSL2 = SM.getSpellingLoc(SL_rawSR.getBegin().getLocWithOffset(+original_source_text_str2.length()));
-						if (one_after_the_end_SL_SPSL1.isValid() && one_after_the_end_SL_SPSL2.isValid() && (one_after_the_end_SL_SPSL1 == one_after_the_end_SL_SPSL2)) {
-							std::string text1 = getRewrittenTextOrEmpty(Rewrite, { one_after_the_end_SL_SPSL1, one_after_the_end_SL_SPSL1 });
-							if (1 > text1.length()) {
-								thing_to_the_right_may_be_interpretable_as_a_literal_suffix = false;
-							} else {
-								thing_to_the_right_may_be_interpretable_as_a_literal_suffix = Parse::is_alpha_or_underscore(text1.at(0));
-							}
-						}
-						if (thing_to_the_right_may_be_interpretable_as_a_literal_suffix) {
-							/* The thing to the immediate right of the string literal could be interpreted as a literal suffix in 
-							C++ (but not in C which doesn't support (user-defined) literal suffixes) which could result in the 
-							following error:
-							error: invalid suffix on literal; C++11 requires a space between literal and identifier [-Wreserved-user-defined-literal] 
-							
-							So we'll just add a space after the string literal. */
-							auto& ecs_ref = state1.get_expr_conversion_state_ref(*SL, Rewrite);
-
-							const auto l_text_modifier = CWrapExprTextModifier("", " ");
-							bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && (l_text_modifier.species_str() == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
-								&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
-							if (!seems_to_be_already_applied) {
-								auto shptr2 = std::make_shared<CWrapExprTextModifier>("", " ");
-								ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
-								ecs_ref.update_current_text();
-
-								state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, SL_SR, state1, SL);
-							}
-						}
+						break;
 					}
-				}
+				} while (false);
 
 #if 0
 				auto *CSCE = dyn_cast<const clang::CStyleCastExpr>(E);
