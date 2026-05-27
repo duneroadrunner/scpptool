@@ -4184,17 +4184,18 @@ namespace convc2validcpp {
 
 		static const std::string typeof_str = "typeof";
 		auto found_range1 = Parse::find_uncommented_token(typeof_str, m_current_text_str);
-		if (m_current_text_str.length() > found_range1.begin) {
+		while (m_current_text_str.length() > found_range1.begin) {
 			/* This expression seems to contain a (C23) `typeof()` operation. */
 			static const std::string C2V_TYPEOF_str = "C2V_TYPEOF";
 			auto found_range2 = Parse::find_uncommented_token(C2V_TYPEOF_str, m_current_text_str);
-			if (m_current_text_str.length() <= found_range2.begin) {
+			if (true || (m_current_text_str.length() <= found_range2.begin)) {
 				m_current_text_str.replace(found_range1.begin, typeof_str.length(), C2V_TYPEOF_str);
 				if (m_SR_plus.isValid()) {
 					/* Here we report our use of the `C2V_TYPEOF` macro in the output code. */
 					m_state1.m_cpp_type_trait_use_locations.insert(m_SR_plus.getBegin());
 				}
 			}
+			found_range1 = Parse::find_uncommented_token(typeof_str, m_current_text_str, found_range1.begin + C2V_TYPEOF_str.length());
 		}
 	}
 
@@ -4262,222 +4263,179 @@ namespace convc2validcpp {
 				return false;
 			}
 
-			auto children_iters = m_expr_cptr->children();
-			for (auto child_iter : children_iters) {
-				if (child_iter) {
-					static_assert(std::is_convertible<decltype(*child_iter), clang::Stmt const&>::value, "");
-					auto E = IgnoreImplicit(dyn_cast<const clang::Expr>(&(*child_iter)));
-					if (E) {
-						IF_DEBUG(std::string E_qtype_str = E->getType().getAsString();)
-						struct CExprBasicInfo {
-							CExprBasicInfo(const clang::Expr* E, COrderedSourceRange OSR) : m_E(E), m_OSR(OSR) {}
-							const clang::Expr* m_E;
-							COrderedSourceRange m_OSR;
-						};
-						std::vector<CExprBasicInfo> l_descendants_contained_in_range;
+			struct CExprBasicInfo {
+				CExprBasicInfo(const clang::Expr* E, COrderedSourceRange OSR) : m_E(E), m_OSR(OSR) {}
+				const clang::Expr* m_E;
+				COrderedSourceRange m_OSR;
+			};
 
-						const auto rawSR = E->getSourceRange();
-						const bool b3 = rawSR.getBegin().isMacroID();
-						const bool b4 = rawSR.getEnd().isMacroID();
+			struct CB {
+				/* This function returns a list of the child expressions that are visible within the source range, whole_SR, of 
+				our primary expression. Note that it is possible for our primary expression to be represented in the source code 
+				in multiple locations, each corresponding to a distinct macro nesting level. And whole_SR corresponding to one 
+				of those locations. 
+				It is also possible for a child expression to not be visible in within the source range, whole_SR, of our primary 
+				expression, due to the child expression source text being in the body of a distinct macro (that is invoked within 
+				the primary expression). But if the macro containing the child expression is a function macro, then it's likely 
+				that the arguments of the macro invocation are actually visible within the source range, whole_SR, of our primary 
+				expression. And those macro arguments may correspond to descendants of the child expression. In such cases, we 
+				treat the macro argument expressions as if they were (visible) children of the primary expression. */
+				static auto descendants_contained_in_range(COrderedSourceRange whole_SR, clang::Stmt const& stmt_cref, Rewriter& Rewrite, CTUState& state1) -> std::vector<CExprBasicInfo> {
+					auto stmt_cptr = &stmt_cref;
 
-						auto OSR = write_once_source_range(cm1_adj_nice_source_range(*E, m_state1, Rewrite));
-						if (OSR.isValid()) {
-							auto not_considered_an_updatable_visible_child_lambda = [this, &whole_SR](COrderedSourceRange const& OSR, clang::SourceRange const& rawSR) {
-									const bool b3 = rawSR.getBegin().isMacroID();
-									const bool b4 = rawSR.getEnd().isMacroID();
-									const bool b5 = OSR.getBegin().isMacroID();
-									const bool b6 = OSR.getEnd().isMacroID();
+					std::vector<CExprBasicInfo> l_descendants_contained_in_range;
 
-									bool not_contained_in_range_flag = ((OSR.getBegin() < whole_SR.getBegin()) || (whole_SR.getEnd() < OSR.getEnd()));
-									bool not_considered_an_updatable_visible_child = not_contained_in_range_flag;
-									if ((!not_considered_an_updatable_visible_child) && b3 && b4) {
-										const auto sr2 = source_range_with_both_ends_in_the_same_macro_body(rawSR, Rewrite);
-										if (sr2 == rawSR) {
-											auto E_SR_plus = cm1_adjusted_source_range(sr2, m_state1, Rewrite);
-											if (2 <= E_SR_plus.m_adjusted_source_text_infos.size()) {
-												auto const& adjusted_source_text_info_cref = E_SR_plus.m_adjusted_source_text_infos.at(E_SR_plus.m_adjusted_source_text_infos.size() - 2);
-												auto const& md_SR_cref = adjusted_source_text_info_cref.m_macro_definition_range;
-												if (md_SR_cref.isValid()) {
-													auto& SM = Rewrite.getSourceMgr();
-													bool filtered_out_flag = cm1_filtered_out_by_location(SM, md_SR_cref);
-													if (filtered_out_flag) {
-														not_considered_an_updatable_visible_child = true;
-													}
-												}
-											}
-										}
-									}
-									return not_considered_an_updatable_visible_child;
-								};
-
-							bool not_considered_an_updatable_visible_child = not_considered_an_updatable_visible_child_lambda(OSR, rawSR);
-							if (not_considered_an_updatable_visible_child) {
-								/* The source range of this element does not seem to be contained inside the source range of the parent 
-								expression. This can happen, for example, when macros are involved. But it's possible that some of the 
-								element' descendants actually are contained in the source range of the parent expression. (Macro 
-								function arguments, for example.) So we're going to search for such descendants and treat them, for 
-								rendering purposes, as if they were (direct) children of the parent expression. */
-
-								struct CB {
-									static auto descendants_contained_in_range(COrderedSourceRange whole_SR, clang::Expr const& expr_cref, Rewriter& Rewrite, CTUState& state1) -> std::vector<CExprBasicInfo> {
-										auto expr_cptr = &expr_cref;
-
-										std::vector<CExprBasicInfo> l_descendants_contained_in_range;
-
-										auto children_iters = expr_cptr->children();
-										for (auto child_iter : children_iters) {
-											if (child_iter) {
-												static_assert(std::is_convertible<decltype(*child_iter), clang::Stmt const&>::value, "");
-												auto l_E = IgnoreImplicit(dyn_cast<const clang::Expr>(&(*child_iter)));
-												if (l_E) {
-													IF_DEBUG(std::string l_E_qtype_str = l_E->getType().getAsString();)
-													auto rawSR = l_E->getSourceRange();
-													bool b3 = rawSR.getBegin().isMacroID();
-													bool b4 = rawSR.getEnd().isMacroID();
-
-													auto& SM = Rewrite.getSourceMgr();
-													auto b10 = SM.isMacroArgExpansion(rawSR.getBegin());
-													auto b10b = SM.isMacroArgExpansion(rawSR.getEnd());
-													const auto expansion_SR = SM.getExpansionRange(rawSR.getBegin()).getAsRange();
-
-													bool descendant_does_not_seem_to_be_within_ancestor_source_range = false;
-													auto l_OSR = write_once_source_range(cm1_adj_nice_source_range(*l_E, state1, Rewrite));
-													if (l_OSR.isValid()) {
-														bool b5 = l_OSR.getBegin().isMacroID();
-														bool b6 = l_OSR.getEnd().isMacroID();
-
-#ifndef NDEBUG
-														if (l_OSR.getBegin() <= l_OSR.getEnd()) {
-															std::string text1 = getRewrittenTextOrEmpty(Rewrite, l_OSR);
-															if (std::string::npos != text1.find("ossl_check_const_GENERAL_NAME_sk_type")) {
-																int q = 5;
-															}
-														}
-														if (expansion_SR.isValid() && (expansion_SR.getBegin() <= expansion_SR.getEnd())) {
-															std::string text2 = getRewrittenTextOrEmpty(Rewrite, expansion_SR);
-															if (std::string::npos != text2.find("sk")) {
-																int q = 5;
-															}
-														}
-														bool seems_to_be_part_or_all_of_a_macro_argument = false;
-														if (b10 && b10b) {
-															auto SL_macro_arg_expansion_start = rawSR.getBegin();
-															bool SL_isMacroArgExpansion_flag = SM.isMacroArgExpansion(rawSR.getBegin(), &SL_macro_arg_expansion_start);
-															auto SLE_macro_arg_expansion_start = rawSR.getEnd();
-															bool SLE_isMacroArgExpansion_flag = SM.isMacroArgExpansion(rawSR.getEnd(), &SLE_macro_arg_expansion_start);
-															if (SL_isMacroArgExpansion_flag && SLE_isMacroArgExpansion_flag && (SL_macro_arg_expansion_start == SLE_macro_arg_expansion_start)) {
-																seems_to_be_part_or_all_of_a_macro_argument = true;
-																auto macro_arg_expansion_SPSL = SM.getSpellingLoc(SL_macro_arg_expansion_start);
-																auto macro_arg_expansion_SPSLE = SM.getSpellingLoc(SLE_macro_arg_expansion_start);
-																auto macro_arg_expansion_SR = clang::SourceRange{ macro_arg_expansion_SPSL, macro_arg_expansion_SPSLE };
-																std::string macro_arg_expansion_text1 = getRewrittenTextOrEmpty(Rewrite, macro_arg_expansion_SR);
-																int q = 5;
-															}
-														}
-#endif /*!NDEBUG*/
-														if ((l_OSR.getBegin() < whole_SR.getBegin()) || (whole_SR.getEnd() < l_OSR.getEnd())) {
-															/* The source text of this expression does not seem to be contained within the text range of the 
-															ancestor expression. */
-															bool nested_macro_invocation_within_ancestor_source_range_found = false;
-															if (b3 || b4) {
-																/* But this expression seems to be the result of one or more (possibly nested) macro invocations. 
-																While the expression itself may not be within the ancestor's source text range, the expression 
-																may be essentially equivalent to (one or more of) the macro invocations that produced it. So 
-																we'll check for such macro invocations and whether or not they are located within the ancestor's 
-																source text range. */
-																auto SR_plus = cm1_adjusted_source_range(*l_E, state1, Rewrite);
-																if (false && seems_to_be_part_or_all_of_a_macro_argument) {
-																	for (size_t i = 0; SR_plus.m_adjusted_source_text_infos.size() > i; i += 1) {
-																		auto& adjusted_source_text_info = SR_plus.m_adjusted_source_text_infos.at(i);
-																	}
-																} else {
-																	for (size_t i = 0; SR_plus.m_adjusted_source_text_infos.size() > i; i += 1) {
-																		auto& adjusted_source_text_info = SR_plus.m_adjusted_source_text_infos.at(i);
-																		if (!(adjusted_source_text_info.m_can_be_substituted_with_macro_invocation_text)) {
-																			/* This element cannot just be replaced with the macro invocation that produced it. (Often because 
-																			the macro invocation produces more elements that just this one.) */
-																			break;
-																		}
-																		auto const& ISR = adjusted_source_text_info.m_macro_invocation_range;
-																		if (true && ISR.isValid() && (ISR.getBegin() <= ISR.getEnd()) && (whole_SR.getBegin() <= ISR.getBegin()) && (ISR.getEnd() <= whole_SR.getEnd())) {
-																			l_OSR = ISR;
-																			nested_macro_invocation_within_ancestor_source_range_found = true;
-																		}
-																	}
-																}
-															}
-															if (!nested_macro_invocation_within_ancestor_source_range_found) {
-																descendant_does_not_seem_to_be_within_ancestor_source_range = true;
-															} else {
-																l_descendants_contained_in_range.push_back({ l_E, l_OSR });
-															}
-														} else {
-															l_descendants_contained_in_range.push_back({ l_E, l_OSR });
-														}
-													} else {
-														descendant_does_not_seem_to_be_within_ancestor_source_range = true;
-													}
-													if (descendant_does_not_seem_to_be_within_ancestor_source_range) {
-														auto res1 = descendants_contained_in_range(whole_SR, *l_E, Rewrite, state1);
-														for (auto& visible_descendant_ref : res1) {
-															l_descendants_contained_in_range.push_back(visible_descendant_ref);
-														}
-													}
-												}
-											}
-										}
-										return l_descendants_contained_in_range;
-									}
-								};
-								auto res1 = CB::descendants_contained_in_range(whole_SR, *E, Rewrite, m_state1);
-								for (auto& visible_descendant_ref : res1) {
-									l_descendants_contained_in_range.push_back(visible_descendant_ref);
-								}
-							} else {
-								l_descendants_contained_in_range.push_back({ E, OSR });
-							}
-							for (auto& visible_descendant : l_descendants_contained_in_range) {
-								auto l_E = visible_descendant.m_E;
+					auto children = stmt_cptr->children();
+					for (auto child : children) {
+						if (child) {
+							static_assert(std::is_convertible<decltype(*child), clang::Stmt const&>::value, "");
+							auto l_E = IgnoreImplicit(dyn_cast<const clang::Expr>(&(*child)));
+							if (l_E) {
 								IF_DEBUG(std::string l_E_qtype_str = l_E->getType().getAsString();)
-								auto l_OSR = visible_descendant.m_OSR;
+								auto rawSR = l_E->getSourceRange();
+								bool b3 = rawSR.getBegin().isMacroID();
+								bool b4 = rawSR.getEnd().isMacroID();
 
-								std::string child_original_source_text_str;
-								auto text_info = CExprTextInfo(l_E, Rewrite, m_state1);
-								const std::string text1 = getRewrittenTextOrEmpty(Rewrite, l_OSR);
-								if ("" != text1) {
-									if (text1 != text_info.m_original_source_text_str) {
-										/* An expression can potentially have multiple representations in different levels of nested macros. 
-										But code further down (in this function) assumes that text_info.m_original_text is the representation 
-										that is contained in the source range of our given expression, which may not be the case by default. 
-										So we'll just ensure that it is here. */
-										text_info.m_original_source_text_str = text1;
-									}
-									auto excs_iter = m_state1.m_expr_conversion_state_map.find(l_E);
-									if (m_state1.m_expr_conversion_state_map.end() != excs_iter) {
-										child_original_source_text_str = (*excs_iter).second->m_original_source_text_str;
-									} else {
-										child_original_source_text_str = text_info.m_original_source_text_str;
-									}
+								auto& SM = Rewrite.getSourceMgr();
+								auto b10 = SM.isMacroArgExpansion(rawSR.getBegin());
+								auto b10b = SM.isMacroArgExpansion(rawSR.getEnd());
+								const auto expansion_SR = SM.getExpansionRange(rawSR.getBegin()).getAsRange();
+
+								bool descendant_does_not_seem_to_be_within_ancestor_source_range = false;
+								auto l_OSR = write_once_source_range(cm1_adj_nice_source_range(*l_E, state1, Rewrite));
+								if (l_OSR.isValid()) {
+									bool b5 = l_OSR.getBegin().isMacroID();
+									bool b6 = l_OSR.getEnd().isMacroID();
+
 #ifndef NDEBUG
-									if ("ossl_check_const_GENERAL_NAME_sk_type" == child_original_source_text_str) {
-										int q = 5;
+									if (l_OSR.getBegin() <= l_OSR.getEnd()) {
+										std::string text1 = getRewrittenTextOrEmpty(Rewrite, l_OSR);
+										if (std::string::npos != text1.find("ossl_check_const_GENERAL_NAME_sk_type")) {
+											int q = 5;
+										}
+									}
+									if (expansion_SR.isValid() && (expansion_SR.getBegin() <= expansion_SR.getEnd())) {
+										std::string text2 = getRewrittenTextOrEmpty(Rewrite, expansion_SR);
+										if (std::string::npos != text2.find("sk")) {
+											int q = 5;
+										}
+									}
+									bool seems_to_be_part_or_all_of_a_macro_argument = false;
+									if (b10 && b10b) {
+										auto SL_macro_arg_expansion_start = rawSR.getBegin();
+										bool SL_isMacroArgExpansion_flag = SM.isMacroArgExpansion(rawSR.getBegin(), &SL_macro_arg_expansion_start);
+										auto SLE_macro_arg_expansion_start = rawSR.getEnd();
+										bool SLE_isMacroArgExpansion_flag = SM.isMacroArgExpansion(rawSR.getEnd(), &SLE_macro_arg_expansion_start);
+										if (SL_isMacroArgExpansion_flag && SLE_isMacroArgExpansion_flag && (SL_macro_arg_expansion_start == SLE_macro_arg_expansion_start)) {
+											seems_to_be_part_or_all_of_a_macro_argument = true;
+											auto macro_arg_expansion_SPSL = SM.getSpellingLoc(SL_macro_arg_expansion_start);
+											auto macro_arg_expansion_SPSLE = SM.getSpellingLoc(SLE_macro_arg_expansion_start);
+											auto macro_arg_expansion_SR = clang::SourceRange{ macro_arg_expansion_SPSL, macro_arg_expansion_SPSLE };
+											std::string macro_arg_expansion_text1 = getRewrittenTextOrEmpty(Rewrite, macro_arg_expansion_SR);
+											int q = 5;
+										}
 									}
 #endif /*!NDEBUG*/
-									if ("" != child_original_source_text_str) {
-										//SM.getCharacterData();
-										auto pos = SM.getFileOffset(l_OSR.getBegin()) - SM.getFileOffset(whole_SR.getBegin());
-										if (0 <= pos) {
-											visible_child_infos.insert(COrderedExpr{ l_E, l_OSR, child_original_source_text_str, pos, text_info });
+									if ((l_OSR.getBegin() < whole_SR.getBegin()) || (whole_SR.getEnd() < l_OSR.getEnd())) {
+										/* The source text of this expression does not seem to be contained within the text range of the 
+										ancestor expression. */
+										bool nested_macro_invocation_within_ancestor_source_range_found = false;
+										if (b3 || b4) {
+											/* But this expression seems to be the result of one or more (possibly nested) macro invocations. 
+											While the expression itself may not be within the ancestor's source text range, the expression 
+											may be essentially equivalent to (one or more of) the macro invocations that produced it. So 
+											we'll check for such macro invocations and whether or not they are located within the ancestor's 
+											source text range. */
+											auto SR_plus = cm1_adjusted_source_range(*l_E, state1, Rewrite);
+											if (false && seems_to_be_part_or_all_of_a_macro_argument) {
+												for (size_t i = 0; SR_plus.m_adjusted_source_text_infos.size() > i; i += 1) {
+													auto& adjusted_source_text_info = SR_plus.m_adjusted_source_text_infos.at(i);
+												}
+											} else {
+												for (size_t i = 0; SR_plus.m_adjusted_source_text_infos.size() > i; i += 1) {
+													auto& adjusted_source_text_info = SR_plus.m_adjusted_source_text_infos.at(i);
+													if (!(adjusted_source_text_info.m_can_be_substituted_with_macro_invocation_text)) {
+														/* This element cannot just be replaced with the macro invocation that produced it. (Often because 
+														the macro invocation produces more elements that just this one.) */
+														break;
+													}
+													auto const& ISR = adjusted_source_text_info.m_macro_invocation_range;
+													if (true && ISR.isValid() && (ISR.getBegin() <= ISR.getEnd()) && (whole_SR.getBegin() <= ISR.getBegin()) && (ISR.getEnd() <= whole_SR.getEnd())) {
+														l_OSR = ISR;
+														nested_macro_invocation_within_ancestor_source_range_found = true;
+													}
+												}
+											}
 										}
+										if (!nested_macro_invocation_within_ancestor_source_range_found) {
+											descendant_does_not_seem_to_be_within_ancestor_source_range = true;
+										} else {
+											l_descendants_contained_in_range.push_back({ l_E, l_OSR });
+										}
+									} else {
+										l_descendants_contained_in_range.push_back({ l_E, l_OSR });
 									}
 								} else {
-									int q = 3;
+									descendant_does_not_seem_to_be_within_ancestor_source_range = true;
+								}
+								if (descendant_does_not_seem_to_be_within_ancestor_source_range) {
+									auto res1 = descendants_contained_in_range(whole_SR, *l_E, Rewrite, state1);
+									for (auto& visible_descendant_ref : res1) {
+										l_descendants_contained_in_range.push_back(visible_descendant_ref);
+									}
+								}
+							} else {
+								auto res1 = descendants_contained_in_range(whole_SR, *child, Rewrite, state1);
+								for (auto& visible_descendant_ref : res1) {
+									l_descendants_contained_in_range.push_back(visible_descendant_ref);
 								}
 							}
 						}
 					}
+					return l_descendants_contained_in_range;
+				}
+			};
+
+			auto l_descendants_contained_in_range = CB::descendants_contained_in_range(whole_SR, *m_expr_cptr, Rewrite, m_state1);
+			for (auto& visible_descendant : l_descendants_contained_in_range) {
+				auto l_E = visible_descendant.m_E;
+				IF_DEBUG(std::string l_E_qtype_str = l_E->getType().getAsString();)
+				auto l_OSR = visible_descendant.m_OSR;
+
+				std::string child_original_source_text_str;
+				auto text_info = CExprTextInfo(l_E, Rewrite, m_state1);
+				const std::string text1 = getRewrittenTextOrEmpty(Rewrite, l_OSR);
+				if ("" != text1) {
+					if (text1 != text_info.m_original_source_text_str) {
+						/* An expression can potentially have multiple representations in different levels of nested macros. 
+						But code further down (in this function) assumes that text_info.m_original_text is the representation 
+						that is contained in the source range of our given expression, which may not be the case by default. 
+						So we'll just ensure that it is here. */
+						text_info.m_original_source_text_str = text1;
+					}
+					auto excs_iter = m_state1.m_expr_conversion_state_map.find(l_E);
+					if (m_state1.m_expr_conversion_state_map.end() != excs_iter) {
+						child_original_source_text_str = (*excs_iter).second->m_original_source_text_str;
+					} else {
+						child_original_source_text_str = text_info.m_original_source_text_str;
+					}
+#ifndef NDEBUG
+					if ("ossl_check_const_GENERAL_NAME_sk_type" == child_original_source_text_str) {
+						int q = 5;
+					}
+#endif /*!NDEBUG*/
+					if ("" != child_original_source_text_str) {
+						//SM.getCharacterData();
+						auto pos = SM.getFileOffset(l_OSR.getBegin()) - SM.getFileOffset(whole_SR.getBegin());
+						if (0 <= pos) {
+							visible_child_infos.insert(COrderedExpr{ l_E, l_OSR, child_original_source_text_str, pos, text_info });
+						}
+					}
+				} else {
+					int q = 3;
 				}
 			}
+
 			if (1 > visible_child_infos.size()) {
 				return true;
 			}
@@ -20341,17 +20299,55 @@ namespace convc2validcpp {
 				bool update_expression_due_to_presence_of_typeof_flag = false;
 				static const std::string typeof_str = "typeof";
 				const auto E_text = getRewrittenTextOrEmpty(Rewrite, SR);
+				size_t number_of_occurrences_of_typeof = 0;
 				auto typeof_range1 = Parse::find_uncommented_token(typeof_str, E_text);
-				if (E_text.size() > typeof_range1.begin) {
-					update_expression_due_to_presence_of_typeof_flag = true;
+				while (E_text.length() > typeof_range1.begin) {
+					number_of_occurrences_of_typeof += 1;
+					typeof_range1 = Parse::find_uncommented_token(typeof_str, E_text, typeof_range1.begin + typeof_str.length());
+				}
+				if (1 <= number_of_occurrences_of_typeof) {
 
-					auto TOET = dyn_cast<const TypeOfExprType>(E_ii_qtype.getTypePtr());
-					if (TOET) {
-						int q = 5;
-					} else {
-						auto typeof_range2 = Parse::find_uncommented_token(typeof_str, E_ii_qtype_str);
-						if (E_ii_qtype_str.size() > typeof_range2.begin) {
+					struct CB {
+						CB(const std::string& typeof_str, CTUState &state1, Rewriter &Rewrite) : m_typeof_str(typeof_str), m_state1(state1), m_Rewrite(Rewrite) {}
+
+						/* We don't want to bother updating this expression if the  */
+						auto number_of_occurrences_of_typeof_in_E_or_D_children(clang::Stmt const& stmt) -> size_t {
+							size_t number_of_occurrences_of_typeof = 0;
+							for (const auto& child : stmt.children()) {
+								auto child_E = dyn_cast<const clang::Expr>(child);
+								auto child_DS = dyn_cast<const clang::DeclStmt>(child);
+								if (child_E || child_DS) {
+									const auto child_SR = cm1_adj_nice_source_range(child->getSourceRange(), m_state1, m_Rewrite);
+									const auto child_text = getRewrittenTextOrEmpty(m_Rewrite, child_SR);
+									auto child_typeof_range1 = Parse::find_uncommented_token(m_typeof_str, child_text);
+									while (child_text.length() > child_typeof_range1.begin) {
+										number_of_occurrences_of_typeof += 1;
+										child_typeof_range1 = Parse::find_uncommented_token(m_typeof_str, child_text, child_typeof_range1.begin + m_typeof_str.length());
+									}
+								} else if (child) {
+									number_of_occurrences_of_typeof = number_of_occurrences_of_typeof_in_E_or_D_children(*child);
+								}
+							}
+							return number_of_occurrences_of_typeof;
+						}
+						const std::string& m_typeof_str;
+						CTUState &m_state1;
+						Rewriter &m_Rewrite;
+					};
+					CB b1{ typeof_str, state1, Rewrite };
+
+					auto number_of_occurrences_of_typeof_in_E_or_D_children = b1.number_of_occurrences_of_typeof_in_E_or_D_children(*E_ii);
+					if (number_of_occurrences_of_typeof_in_E_or_D_children < number_of_occurrences_of_typeof) {
+						update_expression_due_to_presence_of_typeof_flag = true;
+
+						auto TOET = dyn_cast<const TypeOfExprType>(E_ii_qtype.getTypePtr());
+						if (TOET) {
 							int q = 5;
+						} else {
+							auto typeof_range2 = Parse::find_uncommented_token(typeof_str, E_ii_qtype_str);
+							if (E_ii_qtype_str.size() > typeof_range2.begin) {
+								int q = 5;
+							}
 						}
 					}
 				}
