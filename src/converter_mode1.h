@@ -2816,7 +2816,7 @@ namespace convm1 {
 					auto const& override_SR = m_maybe_override_SR_due_to_being_a_macro_whose_definition_is_in_a_filtered_out_location.value();
 					default_SR = override_SR;
 				}
-				if (!first_is_a_subset_of_second(default_SR, context.m_root_SR)) {
+				if (!first_is_contained_in_second(default_SR, context.m_root_SR)) {
 					/* The default source range does not seem to be contained within the source range of the given context. So we're going to check if there 
 					is a corresponding nested macro range that is, and if so, use the corresponding stored text from that nested macro range. */
 					std::string premodified_text = m_original_source_text_str;
@@ -2824,7 +2824,7 @@ namespace convm1 {
 						auto const& context = maybe_context.value();
 						for (auto const& adjusted_source_text_info : m_SR_plus.m_adjusted_source_text_infos) {
 							if (adjusted_source_text_info.m_macro_invocation_range.isValid()) {
-								if (first_is_a_subset_of_second(adjusted_source_text_info.m_macro_invocation_range, context.m_root_SR)) {
+								if (first_is_contained_in_second(adjusted_source_text_info.m_macro_invocation_range, context.m_root_SR)) {
 									/* One of the macro nesting levels of the expression seems to be contained within the given context range, 
 									so we'll use the (original) text from that macro nesting level. */
 									maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range = adjusted_source_text_info.m_text;
@@ -2871,7 +2871,7 @@ namespace convm1 {
 				auto const& context = maybe_context.value();
 				for (auto const& adjusted_source_text_info : m_SR_plus.m_adjusted_source_text_infos) {
 					if (adjusted_source_text_info.m_macro_invocation_range.isValid()) {
-						if (first_is_a_subset_of_second(adjusted_source_text_info.m_macro_invocation_range, context.m_root_SR)) {
+						if (first_is_contained_in_second(adjusted_source_text_info.m_macro_invocation_range, context.m_root_SR)) {
 							/* One of the macro nesting levels of the expression seems to be contained within the context range. */
 							return adjusted_source_text_info.m_text;
 						}
@@ -3803,7 +3803,7 @@ namespace convm1 {
 
 		bool contains(const clang::SourceRange& SR) const {
 			for (auto it = (*this).cbegin(); (*this).cend() != it; it++) {
-				if (first_is_a_subset_of_second(SR, (*it).first)) {
+				if (first_is_contained_in_second(SR, (*it).first)) {
 					return true;
 				}
 			}
@@ -9526,7 +9526,7 @@ namespace convm1 {
 						was expressed in another redeclaration of the variable rather than this declaration.
 						We're using source ranges to determine whether the initializtion expression is
 						part of this declaration because it's not immediately clear how else to do it. */
-						auto init_expr_located_in_this_decl = first_is_a_subset_of_second(init_expr_source_range, decl_source_range);
+						auto init_expr_located_in_this_decl = first_is_contained_in_second(init_expr_source_range, decl_source_range);
 
 						if (init_expr_source_range.isValid() && init_expr_located_in_this_decl) {
 							initialization_expr_str = getRewrittenTextOrEmpty(Rewrite, init_expr_source_range);
@@ -14853,11 +14853,11 @@ namespace convm1 {
 									was expressed in another redeclaration of the variable rather than this declaration.
 									We're using source ranges to determine whether the initializtion expression is
 									part of this declaration because it's not immediately clear how else to do it. */
-									auto init_expr_located_in_this_decl = first_is_a_subset_of_second(init_expr_SR_plus, SR);
+									auto init_expr_located_in_this_decl = first_is_contained_in_second(init_expr_SR_plus, SR);
 									if (!init_expr_located_in_this_decl) {
 										for (auto const& adjusted_source_text_info : init_expr_SR_plus.m_adjusted_source_text_infos) {
 											if (adjusted_source_text_info.m_macro_invocation_range.isValid()) {
-												init_expr_located_in_this_decl |= first_is_a_subset_of_second(adjusted_source_text_info.m_macro_invocation_range, SR);
+												init_expr_located_in_this_decl |= first_is_contained_in_second(adjusted_source_text_info.m_macro_invocation_range, SR);
 												if (init_expr_located_in_this_decl) {
 													/* One of the macro nesting levels of the init expression seems to be contained within the declaration statement. */
 													break;

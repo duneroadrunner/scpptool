@@ -2642,7 +2642,7 @@ namespace convc2validcpp {
 				auto const& context = maybe_context.value();
 				for (auto const& adjusted_source_text_info : m_SR_plus.m_adjusted_source_text_infos) {
 					if (adjusted_source_text_info.m_macro_invocation_range.isValid()) {
-						if (first_is_a_subset_of_second(adjusted_source_text_info.m_macro_invocation_range, context.m_root_SR)) {
+						if (first_is_contained_in_second(adjusted_source_text_info.m_macro_invocation_range, context.m_root_SR)) {
 							/* One of the macro nesting levels of the expression seems to be contained within the context range. */
 							return adjusted_source_text_info.m_text;
 						}
@@ -3546,7 +3546,7 @@ namespace convc2validcpp {
 
 		bool contains(const clang::SourceRange& SR) const {
 			for (auto it = (*this).cbegin(); (*this).cend() != it; it++) {
-				if (first_is_a_subset_of_second(SR, (*it).first)) {
+				if (first_is_contained_in_second(SR, (*it).first)) {
 					return true;
 				}
 			}
@@ -4145,7 +4145,7 @@ namespace convc2validcpp {
 				auto const& override_SR = m_maybe_override_SR_due_to_being_a_macro_whose_definition_is_in_a_filtered_out_location.value();
 				default_SR = override_SR;
 			}
-			if (!first_is_a_subset_of_second(default_SR, context.m_root_SR)) {
+			if (!first_is_contained_in_second(default_SR, context.m_root_SR)) {
 				/* The default source range does not seem to be contained within the source range of the given context. So we're going to check if there 
 				is a corresponding nested macro range that is, and if so, use the corresponding stored text from that nested macro range. */
 				std::string premodified_text = m_original_source_text_str;
@@ -4153,7 +4153,7 @@ namespace convc2validcpp {
 					auto const& context = maybe_context.value();
 					for (auto const& adjusted_source_text_info : m_SR_plus.m_adjusted_source_text_infos) {
 						if (adjusted_source_text_info.m_macro_invocation_range.isValid()) {
-							if (first_is_a_subset_of_second(adjusted_source_text_info.m_macro_invocation_range, context.m_root_SR)) {
+							if (first_is_contained_in_second(adjusted_source_text_info.m_macro_invocation_range, context.m_root_SR)) {
 								/* One of the macro nesting levels of the expression seems to be contained within the given context range, 
 								so we'll use the (original) text from that macro nesting level. */
 								maybe_text_of_nested_macro_range_contained_within_the_given_contexts_range = adjusted_source_text_info.m_text;
@@ -9129,7 +9129,7 @@ namespace convc2validcpp {
 						was expressed in another redeclaration of the variable rather than this declaration.
 						We're using source ranges to determine whether the initializtion expression is
 						part of this declaration because it's not immediately clear how else to do it. */
-						auto init_expr_located_in_this_decl = first_is_a_subset_of_second(init_expr_source_range, decl_source_range);
+						auto init_expr_located_in_this_decl = first_is_contained_in_second(init_expr_source_range, decl_source_range);
 
 						if (init_expr_source_range.isValid() && init_expr_located_in_this_decl) {
 							initialization_expr_str = getRewrittenTextOrEmpty(Rewrite, init_expr_source_range);
@@ -16265,8 +16265,9 @@ namespace convc2validcpp {
 				auto& context_ref = *(MR.Context);
 
 				auto lambda = [LHS, VLD, RHS, RHS2, RHS2SR, LHS_qtype_str, LHS_qtype, &context_ref, &Rewrite, &state1]() {
+						auto l_RHS2SR = RHS2SR;
 						auto effective_LHS_qtype_str = LHS_qtype_str;
-						DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, RHS2SR, Rewrite);
+						DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, l_RHS2SR, Rewrite);
 #ifndef NDEBUG
 						if (std::string::npos != debug_source_location_str.find(g_target_debug_source_location_str1)) {
 							int q = 5;
@@ -16326,7 +16327,7 @@ namespace convc2validcpp {
 												in the same macro body as the given RHS source text location. */
 												const auto& def_range = source_text_info.m_macro_definition_range;
 												if (source_text_info.m_macro_invocation_range.isValid() && def_range.isValid() 
-													&& (def_range.getBegin() < RHS2SR.getBegin()) && (def_range.getEnd() > RHS2SR.getEnd())) {
+													&& (def_range.getBegin() < l_RHS2SR.getBegin()) && (def_range.getEnd() > l_RHS2SR.getEnd())) {
 
 													effective_LHS_qtype_str = source_text_info.m_text;
 													break;
@@ -16367,6 +16368,25 @@ namespace convc2validcpp {
 											the LHS. */
 											use_decltype = true;
 											maybe_assignment_expression_SR_plus = SR_plus;
+
+											/* But if we're going to refer to the LHS in a cast operation added to the RHS, we'd want to add the cast operation
+											to the representation of the RHS expression which is in the same macro nesting level as the assignment expression 
+											(and the corresponding representation of the LHS expression), if available. In most cases the default source range 
+											of the RHS corresponds to the representation we want, but not always. For example, if the RHS is itself a macro. */
+											auto l_RHS2SR_plus = cm1_adjusted_source_range(RHS2->getSourceRange(), state1, Rewrite);
+											if ((!first_is_contained_in_second(l_RHS2SR_plus, SR_plus)) && (1 <= l_RHS2SR_plus.m_adjusted_source_text_infos.size())) {
+												/* The default RHS source range does not seem to be contained within the range of the assignment operation. So 
+												we'll look for the RHS source range that is. */
+												for (auto& source_text_info_ref : l_RHS2SR_plus.m_adjusted_source_text_infos) {
+													auto const& invocation_range = source_text_info_ref.m_macro_invocation_range;
+													if (!invocation_range.isValid()) {
+														break;
+													}
+													if ((invocation_range.getBegin() >= SR_plus.getBegin()) && (invocation_range.getEnd() <= SR_plus.getEnd())) {
+														l_RHS2SR = invocation_range;
+													}
+												}
+											}
 										}
 									}
 								}
@@ -16429,7 +16449,7 @@ namespace convc2validcpp {
 
 									cast_wrapper_prefix = start_of_potential_cast_wrapper_prefix + lhs_expression_text + ")))";
 									cast_wrapper_suffix = "";
-									state1.m_if_cpp_macro_use_locations.insert(RHS2SR.getBegin());
+									state1.m_if_cpp_macro_use_locations.insert(l_RHS2SR.getBegin());
 								} else {
 									int q = 3;
 								}
@@ -16444,11 +16464,12 @@ namespace convc2validcpp {
 						if (!seems_to_be_already_applied) {
 							auto shptr2 = std::make_shared<CWrapExprTextModifier>(cast_wrapper_prefix, cast_wrapper_suffix);
 							ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
-							ecs_ref.update_current_text();
 
-							IF_DEBUG(std::string current_text2 = ecs_ref.current_text();)
+							ecs_ref.update_current_text(CExprTextInfoContext{ l_RHS2SR });
 
-							state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, RHS2SR, state1, RHS2);
+							IF_DEBUG(std::string current_text2 = ecs_ref.current_text(CExprTextInfoContext{ l_RHS2SR });)
+
+							state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, l_RHS2SR, state1, RHS2);
 						}
 					};
 
@@ -18151,6 +18172,8 @@ namespace convc2validcpp {
 
 
 	namespace ns_find_enum_def {
+		/* mostly ai generated code (May 2026) */
+
 		struct Match {
 			fs::path file_path;
 			int line_number;

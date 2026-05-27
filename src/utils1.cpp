@@ -178,7 +178,7 @@ bool is_macro_instantiation(const clang::SourceRange& sr, clang::Rewriter &Rewri
 	return false;
 }
 
-bool first_is_a_subset_of_second(const clang::SourceRange& first, const clang::SourceRange& second) {
+bool first_is_contained_in_second(const clang::SourceRange& first, const clang::SourceRange& second) {
 	bool retval = true;
 	if ((first.getBegin() < second.getBegin()) || (second.getEnd() < first.getEnd())) {
 		retval = false;
@@ -188,7 +188,7 @@ bool first_is_a_subset_of_second(const clang::SourceRange& first, const clang::S
 
 bool first_is_a_proper_subset_of_second(const clang::SourceRange& first, const clang::SourceRange& second) {
 	bool retval = true;
-	if ((!first_is_a_subset_of_second(first, second)) || (second == first)) {
+	if ((!first_is_contained_in_second(first, second)) || (second == first)) {
 		retval = false;
 	}
 	return retval;

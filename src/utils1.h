@@ -253,7 +253,7 @@ clang::SourceRange instantiation_source_range(const clang::SourceRange& sr, clan
 bool is_macro_instantiation(const clang::SourceRange& sr, clang::Rewriter &Rewrite);
 
 /* not necessarily a proper subset */
-bool first_is_a_subset_of_second(const clang::SourceRange& first, const clang::SourceRange& second);
+bool first_is_contained_in_second(const clang::SourceRange& first, const clang::SourceRange& second);
 bool first_is_a_proper_subset_of_second(const clang::SourceRange& first, const clang::SourceRange& second);
 
 bool string_begins_with(const std::string_view s1, const std::string_view prefix);
@@ -680,7 +680,7 @@ class COrderedRegionSet : public std::set<COrderedSourceRange> {
 	bool contains(const clang::SourceRange& SR) const {
 		IF_DEBUG(auto or_set_size = (*this).size());
 		for (auto it = (*this).cbegin(); (*this).cend() != it; it++) {
-			if (first_is_a_subset_of_second(SR, *it)) {
+			if (first_is_contained_in_second(SR, *it)) {
 				return true;
 			}
 		}
