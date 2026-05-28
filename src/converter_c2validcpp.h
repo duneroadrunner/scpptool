@@ -20293,6 +20293,19 @@ namespace convc2validcpp {
 								MCSSSPointerArithmetic2::s_handler1(MR, Rewrite, state1, E, DRE, nullptr, operator_E);
 							}
 						}
+					} else {
+						const auto parent_VLD = Tget_immediately_containing_element_of_type<clang::ValueDecl>(E, Ctx);
+						if (parent_VLD) {
+							const auto DS = Tget_immediately_containing_element_of_type<clang::DeclStmt>(parent_VLD, Ctx);
+							if (DS) {
+								if (!(DS->isSingleDecl())) {
+									/* For `clang::DeclStmt`s that contain multiple `clang::Decl`s, those `clang::Decl`s (apart from the first one?) 
+									may be overlooked elsewhere for the handling of iheir initialization as an assignment. */
+									MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, E, parent_VLD, MCSSSAssignment::EIsAnInitialization::Yes);
+									int q = 5;
+								}
+							}
+						}
 					}
 				}
 
