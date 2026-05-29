@@ -506,72 +506,52 @@ ETReeWalkingStatus apply_to_decl_and_each_descendant(const clang::Decl& decl, CN
 		retval = res1;
 	} else if (ETReeWalkingStatus::DoNotProcessChildren != res1) {
 		const clang::Decl* D = &decl;
-		std::vector<const clang::Decl*> decls;
-		auto DC2 = dyn_cast<const clang::DeclContext>(D);
-		if (DC2) {
-			for (auto decl_iter = DC2->decls_begin(); decl_iter != DC2->decls_end(); decl_iter++) {
-				auto D2 = (*decl_iter);
-				decls.push_back(D2);
+		auto VD = dyn_cast<const clang::VarDecl>(D);
+		auto FD = dyn_cast<const clang::FieldDecl>(D);
+		auto FND = dyn_cast<const clang::FunctionDecl>(D);
+		if (VD) {
+			if (VD->hasInit() && VD->getInit()) {
+				auto res1 = apply_to_stmt_and_each_descendant(*(VD->getInit()), node_handler, 1 + depth);
+				if (ETReeWalkingStatus::SkipFurtherProcessing == res1) {
+					retval = res1;
+				}
 			}
-			if (2 <= decls.size()) {
-				/* This clang::Decl, D, seems to itself be a set of more than one clang::Decl.  */
-				auto res3 = apply_to_declcontext_and_each_descendant(*DC2, node_handler, 1 + depth);
-				if (ETReeWalkingStatus::SkipFurtherProcessing == res3) {
-					retval = ETReeWalkingStatus::SkipFurtherProcessing;
-					//break;
-					return retval;
+		} else if (FD) {
+			if (FD->hasInClassInitializer() && FD->getInClassInitializer()) {
+				auto res1 = apply_to_stmt_and_each_descendant(*(FD->getInClassInitializer()), node_handler, 1 + depth);
+				if (ETReeWalkingStatus::SkipFurtherProcessing == res1) {
+					retval = res1;
+				}
+			}
+		} else if (FND) {
+			for (auto const& PVD : FND->parameters()) {
+				auto res1 = apply_to_decl_and_each_descendant(*PVD, node_handler, 1 + depth);
+				if (ETReeWalkingStatus::SkipFurtherProcessing == res1) {
+					retval = res1;
+					break;
+				}
+			}
+			if ((ETReeWalkingStatus::SkipFurtherProcessing != retval) && (FND->hasBody() && FND->getBody())) {
+				auto res1 = apply_to_stmt_and_each_descendant(*(FND->getBody()), node_handler, 1 + depth);
+				if (ETReeWalkingStatus::SkipFurtherProcessing == res1) {
+					retval = res1;
 				}
 			}
 		} else {
-			int q = 3;
-		}
-		if (1 >= decls.size()) {
-			auto res4 = ETReeWalkingStatus::Default;
-			do {
-				auto DD = dyn_cast<const clang::DeclaratorDecl>(D);
-				if (DD) {
-					auto res2 = ETReeWalkingStatus::Default;
-					do {
-						auto VD = dyn_cast<const clang::VarDecl>(DD);
-						if (VD) {
-							auto init_E = VD->getInit();
-							if (init_E) {
-								res2 = apply_to_stmt_and_each_descendant(*init_E, node_handler, 1 + depth);
-							}
-							break;
-						}
-
-						auto FD = dyn_cast<const clang::FieldDecl>(DD);
-						if (FD) {
-							auto init_E = FD->getInClassInitializer();
-							if (init_E) {
-								res2 = apply_to_stmt_and_each_descendant(*init_E, node_handler, 1 + depth);
-							}
-							break;
-						}
-					} while (false);
-
-					if (ETReeWalkingStatus::SkipFurtherProcessing == res2) {
-						retval = ETReeWalkingStatus::SkipFurtherProcessing;
-						//break;
-						return retval;
-					}
+			auto DC2 = dyn_cast<const clang::DeclContext>(D);
+			if (DC2) {
+				auto res1 = apply_to_declcontext_and_each_descendant(*DC2, node_handler, 1 + depth);
+				if (ETReeWalkingStatus::SkipFurtherProcessing == res1) {
+					retval = res1;
 				}
-			} while (false);
-
-			if (ETReeWalkingStatus::SkipFurtherProcessing == res4) {
-				retval = ETReeWalkingStatus::SkipFurtherProcessing;
-				return retval;
 			}
-		}
-		auto body_ST = decl.getBody();
-		if (body_ST) {
-			auto res5 = apply_to_stmt_and_each_descendant(*body_ST, node_handler, 1 + depth);
-
-			if (ETReeWalkingStatus::SkipFurtherProcessing == res5) {
-				retval = ETReeWalkingStatus::SkipFurtherProcessing;
-				return retval;
+			if ((ETReeWalkingStatus::SkipFurtherProcessing != retval) && (D->hasBody() && D->getBody())) {
+				auto res1 = apply_to_stmt_and_each_descendant(*(D->getBody()), node_handler, 1 + depth);
+				if (ETReeWalkingStatus::SkipFurtherProcessing == res1) {
+					retval = res1;
+				}
 			}
+			int q = 7;
 		}
 	}
 	return retval;
@@ -592,6 +572,296 @@ ETReeWalkingStatus apply_to_declcontext_and_each_descendant(const clang::DeclCon
 				}
 			}
 		}
+	}
+	return retval;
+}
+
+auto stmt_sibling_ordinal_info_if_available(clang::Stmt const& stmt, clang::ASTContext& context) -> std::optional<COrdinalInfo> {
+	auto node_ST = &stmt;
+	const auto& parents = context.getParents(*node_ST);
+	if ( parents.empty() ) {
+		return {};
+	}
+	const auto num_parents = parents.size();
+	std::optional<size_t> maybe_child_ordinal;
+	size_t count = 0;
+	const auto* parent_ST = parents[0].template get<clang::Stmt>();
+	if (parent_ST) {
+		for (auto child : parent_ST->children()) {
+			if (child == node_ST) {
+				maybe_child_ordinal = count;
+			}
+			count += 1;
+		}
+	} else {
+		const auto* parent_D = parents[0].template get<clang::Decl>();
+		if (parent_D) {
+			/* Are there any `clang::Decl`s with more than one child `clang::Stmt`? */
+			maybe_child_ordinal = 0;
+			count = 1;
+		} else {
+			int q = 3;
+		}
+	}
+	if (maybe_child_ordinal.has_value()) {
+		auto const& child_ordinal = maybe_child_ordinal.value();
+		return COrdinalInfo{ child_ordinal, count };
+	}
+	return {};
+}
+auto decl_sibling_ordinal_info_if_available(clang::Decl const& decl, clang::ASTContext& context) -> std::optional<COrdinalInfo> {
+	auto node_D = &decl;
+	std::optional<size_t> maybe_child_ordinal;
+	size_t count = 0;
+
+	const auto& parents = context.getParents(*node_D);
+	if ( !parents.empty() ) {
+		const auto num_parents = parents.size();
+		const auto* parent_ST = parents[0].template get<clang::Stmt>();
+		if (parent_ST) {
+			auto parent_DST = clang::dyn_cast<const clang::DeclStmt>(parent_ST);
+			if (parent_DST) {
+				for (const auto D : parent_DST->decls()) {
+					if (D == node_D) {
+						maybe_child_ordinal = count;
+					}
+					count += 1;
+				}
+			} else {
+				int q = 3;
+			}
+		}
+		if (!maybe_child_ordinal.has_value()) {
+			const auto* parent_D = parents[0].template get<clang::Decl>();
+			if (parent_D) {
+				auto parent_FND = clang::dyn_cast<const clang::FunctionDecl>(parent_D);
+				if (parent_FND) {
+					for (const auto D : parent_FND->parameters()) {
+						if (D == node_D) {
+							maybe_child_ordinal = count;
+						}
+						count += 1;
+					}
+					if (parent_FND->hasBody() && parent_FND->getBody()) {
+						const auto body_ST = parent_FND->getBody();
+						for (auto child : body_ST->children()) {
+							/* The children of body_ST are `clang::Stmt`s, so they cannot match the given `clang::Decl`, but we still want 
+							to include them in the total (number of children). */
+							count += 1;
+						}
+					}
+				} else {
+					auto parent_DC = clang::dyn_cast<const clang::DeclContext>(parent_D);
+					if (parent_DC) {
+						for (const auto D : parent_DC->decls()) {
+							if (D == node_D) {
+								maybe_child_ordinal = count;
+							}
+							count += 1;
+						}
+					} else {
+						int q = 3;
+					}
+				}
+			}
+		}
+	}
+	if (!maybe_child_ordinal.has_value()) {
+		count = 0;
+		const auto* parent_DC = node_D->getDeclContext();
+		if (parent_DC) {
+			auto parent_FND = clang::dyn_cast<const clang::FunctionDecl>(parent_DC);
+			if (parent_FND) {
+				for (const auto D : parent_FND->parameters()) {
+					if (D == node_D) {
+						maybe_child_ordinal = count;
+					}
+					count += 1;
+				}
+				if (parent_FND->hasBody() && parent_FND->getBody()) {
+					const auto body_ST = parent_FND->getBody();
+					for (auto child : body_ST->children()) {
+						/* The children of body_ST are `clang::Stmt`s, so they cannot match the given `clang::Decl`, but we still want 
+						to include them in the total (number of children). */
+						count += 1;
+					}
+				}
+			} else {
+				for (const auto D : parent_DC->decls()) {
+					if (D == node_D) {
+						maybe_child_ordinal = count;
+					}
+					count += 1;
+				}
+				if (0 == count) {
+					const auto* parent_func_DC = node_D->getParentFunctionOrMethod();
+					if (parent_func_DC && (parent_DC != parent_func_DC)) {
+						for (const auto D : parent_func_DC->decls()) {
+							if (D == node_D) {
+								maybe_child_ordinal = count;
+							}
+							count += 1;
+						}
+					}
+				}
+			}
+		} else {
+			int q = 5;
+		}
+	}
+	if (maybe_child_ordinal.has_value()) {
+		auto const& child_ordinal = maybe_child_ordinal.value();
+		return COrdinalInfo{ child_ordinal, count };
+	}
+	return {};
+}
+auto declcontext_sibling_ordinal_info_if_available(clang::DeclContext const& declcontext, clang::ASTContext& context) -> std::optional<COrdinalInfo> {
+	const auto node_DC = &declcontext;
+	std::optional<COrdinalInfo> retval;
+
+	const auto D = clang::dyn_cast<const clang::Decl>(node_DC);
+	if (D) {
+		retval = decl_sibling_ordinal_info_if_available(*D, context);
+	}
+	if (!retval.has_value()) {
+		const auto parent_DC = node_DC->getParent();
+		if (parent_DC && (parent_DC != node_DC)) {
+			std::optional<size_t> maybe_child_ordinal;
+			size_t count = 0;
+			for (const auto child_D : parent_DC->decls()) {
+				const auto DC2 = clang::dyn_cast<const clang::DeclContext>(child_D);
+				if (DC2 && (DC2 == node_DC)) {
+					maybe_child_ordinal = count;
+				}
+				count += 1;
+			}
+			if (maybe_child_ordinal.has_value()) {
+				auto const& child_ordinal = maybe_child_ordinal.value();
+				return COrdinalInfo{ child_ordinal, count };
+			}
+		} else {
+			int q = 5;
+		}
+	}
+	return retval;
+}
+
+auto stmt_ast_location_if_available(clang::Stmt const& stmt, clang::ASTContext& context) -> std::optional<CASTLocation> {
+	auto node_ST = &stmt;
+	std::optional<CASTLocation> retval;
+
+	CASTLocation ancestor_ast_location;
+	const auto& parents = context.getParents(*node_ST);
+	if ( !(parents.empty()) ) {
+		const auto num_parents = parents.size();
+		std::optional<CASTLocation> maybe_parent_ast_location;
+
+		const auto* parent_ST = parents[0].template get<clang::Stmt>();
+		if (parent_ST) {
+			maybe_parent_ast_location = stmt_ast_location_if_available(*parent_ST, context);
+		} else {
+			const auto* parent_D = parents[0].template get<clang::Decl>();
+			if (parent_D) {
+				maybe_parent_ast_location = decl_ast_location_if_available(*parent_D, context);
+			}
+		}
+		if (!(maybe_parent_ast_location.has_value())) {
+			return retval;
+		}
+		ancestor_ast_location = maybe_parent_ast_location.value();
+	}
+
+	auto maybe_sibling_ordinal_info = stmt_sibling_ordinal_info_if_available(*node_ST, context);
+	if (maybe_sibling_ordinal_info.has_value()) {
+		auto const& sibling_ordinal_info = maybe_sibling_ordinal_info.value();
+		const std::string total_elements_str = std::to_string(sibling_ordinal_info.total_elements);
+		std::string ordinal_str = std::to_string(sibling_ordinal_info.ordinal);
+		while (total_elements_str.length() > ordinal_str.length()) {
+			ordinal_str = "0" + ordinal_str;
+		}
+		retval = ancestor_ast_location + "_" + ordinal_str;
+	}
+	return retval;
+}
+auto decl_ast_location_if_available(clang::Decl const& decl, clang::ASTContext& context) -> std::optional<CASTLocation> {
+	auto node_D = &decl;
+	std::optional<CASTLocation> retval;
+
+	CASTLocation ancestor_ast_location;
+	std::optional<CASTLocation> maybe_parent_ast_location;
+	const auto& parents = context.getParents(*node_D);
+	if ( !(parents.empty()) ) {
+		const auto num_parents = parents.size();
+
+		const auto* parent_ST = parents[0].template get<clang::Stmt>();
+		if (parent_ST) {
+			maybe_parent_ast_location = stmt_ast_location_if_available(*parent_ST, context);
+		} else {
+			const auto* parent_D = parents[0].template get<clang::Decl>();
+			if (parent_D) {
+				maybe_parent_ast_location = decl_ast_location_if_available(*parent_D, context);
+			}
+		}
+	}
+	if (!maybe_parent_ast_location.has_value()) {
+		const auto* parent_DC = node_D->getDeclContext();
+		if (parent_DC) {
+			maybe_parent_ast_location = declcontext_ast_location_if_available(*parent_DC, context);
+		}
+	}
+	if (maybe_parent_ast_location.has_value()) {
+		ancestor_ast_location = maybe_parent_ast_location.value();
+	}
+
+	auto maybe_sibling_ordinal_info = decl_sibling_ordinal_info_if_available(*node_D, context);
+	if (maybe_sibling_ordinal_info.has_value()) {
+		auto const& sibling_ordinal_info = maybe_sibling_ordinal_info.value();
+		const std::string total_elements_str = std::to_string(sibling_ordinal_info.total_elements);
+		std::string ordinal_str = std::to_string(sibling_ordinal_info.ordinal);
+		while (total_elements_str.length() > ordinal_str.length()) {
+			ordinal_str = "0" + ordinal_str;
+		}
+		retval = ancestor_ast_location + "_" + ordinal_str;
+	}
+	return retval;
+}
+auto declcontext_ast_location_if_available(clang::DeclContext const& declcontext, clang::ASTContext& context) -> std::optional<CASTLocation> {
+	auto node_DC = &declcontext;
+	std::optional<CASTLocation> retval;
+
+	CASTLocation ancestor_ast_location;
+	std::optional<CASTLocation> maybe_parent_ast_location;
+	const auto D = clang::dyn_cast<const clang::Decl>(node_DC);
+	if (D) {
+		auto maybe_ast_location1 = decl_ast_location_if_available(*D, context);
+		if (maybe_ast_location1.has_value()) {
+			return maybe_ast_location1.value();
+		}
+	}
+	if (!maybe_parent_ast_location.has_value()) {
+		const auto parent_DC = node_DC->getParent();
+		if (parent_DC && (parent_DC != node_DC)) {
+			maybe_parent_ast_location = declcontext_ast_location_if_available(*parent_DC, context);
+			if (!(maybe_parent_ast_location.has_value())) {
+				return retval;
+			}
+		} else {
+			int q = 5;
+		}
+	}
+	if (maybe_parent_ast_location.has_value()) {
+		ancestor_ast_location = maybe_parent_ast_location.value();
+	}
+
+	auto maybe_sibling_ordinal_info = declcontext_sibling_ordinal_info_if_available(*node_DC, context);
+	if (maybe_sibling_ordinal_info.has_value()) {
+		auto const& sibling_ordinal_info = maybe_sibling_ordinal_info.value();
+		const std::string total_elements_str = std::to_string(sibling_ordinal_info.total_elements);
+		std::string ordinal_str = std::to_string(sibling_ordinal_info.ordinal);
+		while (total_elements_str.length() > ordinal_str.length()) {
+			ordinal_str = "0" + ordinal_str;
+		}
+		retval = ancestor_ast_location + "_" + ordinal_str;
 	}
 	return retval;
 }

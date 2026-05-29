@@ -960,6 +960,23 @@ inline clang::Decl const* Tget_containing_template_decl_if_any(const NodeT* Node
 	return retval;
 }
 
+struct COrdinalInfo {
+	size_t ordinal = 0;
+	size_t total_elements = 0;
+};
+
+auto stmt_sibling_ordinal_info_if_available(clang::Stmt const& stmt, clang::ASTContext& context) -> std::optional<COrdinalInfo>;
+auto decl_sibling_ordinal_info_if_available(clang::Decl const& decl, clang::ASTContext& context) -> std::optional<COrdinalInfo>;
+auto declcontext_sibling_ordinal_info_if_available(clang::DeclContext const& declcontext, clang::ASTContext& context) -> std::optional<COrdinalInfo>;
+
+/* `CASTLocation` is intended to be an "ordered" representation of a node's position in the (presumably static) AST. 
+In particular, you can compare two `CASTLocation`s to determine which occurs "earlier" in the AST. */
+using CASTLocation = std::string;
+
+auto stmt_ast_location_if_available(clang::Stmt const& stmt, clang::ASTContext& context) -> std::optional<CASTLocation>;
+auto decl_ast_location_if_available(clang::Decl const& decl, clang::ASTContext& context) -> std::optional<CASTLocation>;
+auto declcontext_ast_location_if_available(clang::DeclContext const& declcontext, clang::ASTContext& context) -> std::optional<CASTLocation>;
+
 
 template<typename _Ty>
 class value_ptr1_t : public std::unique_ptr<_Ty> {

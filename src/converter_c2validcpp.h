@@ -18688,40 +18688,32 @@ namespace convc2validcpp {
 						which is supported in C, but not C++. */
 						IF_DEBUG(auto Type2_qtype = clang::QualType(Type2 , 0/*I'm just assuming zero specifies no qualifiers*/);)
 						IF_DEBUG(auto Type2_qtype_str = Type2_qtype.getAsString();)
-						bool b1 = Type2->isIncompleteType();
+						IF_DEBUG(bool b1 = Type2->isIncompleteType();)
 						if (Type2->isEnumeralType()) {
 							clang::TagDecl const * TD = Type2->getAsTagDecl();
 							clang::TagDecl const * definition_TD = TD ? TD->getDefinition() : nullptr;
 							const auto ED = dyn_cast<const clang::EnumDecl>(TD);
 
 							if (ED) {
-								auto const* ED_Type = ED->getTypeForDecl();
-								if (ED_Type) {
-									TD = ED_Type->getAsTagDecl();
-									definition_TD = TD ? TD->getDefinition() : nullptr;
+								const auto definition_ED = definition_TD ? dyn_cast<const clang::EnumDecl>(definition_TD) : (const clang::EnumDecl*)nullptr;
+								bool definition_does_not_seem_to_be_available_before_reference_flag = (!bool(definition_ED) || (!ED->isComplete()));
 
-#ifndef NDEBUG
-									bool b2 = ED_Type->isIncompleteType();
-									if (b2) {
-										int q = 5;
-									}
-									bool is_complete_definition = ED->isCompleteDefinition();
-									if (!is_complete_definition) {
-										int q = 5;
-									}
-									if (definition_TD) {
-										bool b3 = definition_TD->isThisDeclarationADefinition();
-										if (!b3) {
+								if (definition_ED && (!definition_does_not_seem_to_be_available_before_reference_flag)) {
+									auto maybe_definition_ED_ast_location = decl_ast_location_if_available(*definition_ED, *(MR.Context));
+									auto maybe_D_ast_location = decl_ast_location_if_available(*D, *(MR.Context));
+									if (maybe_definition_ED_ast_location.has_value() && maybe_D_ast_location.has_value()) {
+										auto const& definition_ED_ast_location = maybe_definition_ED_ast_location.value();
+										auto const& D_ast_location = maybe_D_ast_location.value();
+										if (D_ast_location < definition_ED_ast_location) {
+											definition_does_not_seem_to_be_available_before_reference_flag = true;
+										} else {
 											int q = 5;
 										}
-									} else {
-										int q = 5;
 									}
-#endif /*!NDEBUG*/
 								}
-								if (((!ED->isComplete()) || indirection_flag) && ("" != ED->getNameAsString())) {
-									/* It was not clear to us how to determine whether an enum type used in the indirection of a pointer is 
-									incomplete or not. So we're just going to assume here that it might be. */
+								if (definition_does_not_seem_to_be_available_before_reference_flag && ("" != ED->getNameAsString())) {
+									/* C++ does not support "forward enum references", so we're going to search files the include paths for the actual 
+									definition of the enum and, if we find it, add an appropriate `#include` directive. */
 									const auto enum_name = ED->getNameAsString();
 
 									std::optional<std::string> maybe_header_path;
