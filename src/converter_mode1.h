@@ -919,6 +919,7 @@ namespace convm1 {
 			std::optional<clang::SourceRange> maybe_fallback_SR;
 			auto ranges_of_begin_iter = nested_macro_ranges_of_begin.begin();
 			auto ranges_of_end_iter = nested_macro_ranges_of_end.end();
+			std::optional<decltype(ranges_of_begin_iter)> maybe_ranges_of_begin_iter_from_last_time;
 			for (; nested_macro_ranges_of_begin.end() != ranges_of_begin_iter; ++ranges_of_begin_iter) {
 				auto const& current_macro_range_of_begin = ranges_of_begin_iter->second;
 
@@ -978,7 +979,11 @@ namespace convm1 {
 							if ((nested_macro_ranges_of_begin.begin() != ranges_of_begin_iter) && (nested_macro_ranges_of_end.begin() != l_ranges_of_end_iter)) {
 								auto test_ranges_of_begin_iter1 = ranges_of_begin_iter - 1;
 								auto test_ranges_of_end_iter1 = l_ranges_of_end_iter - 1;
-								while (test_ranges_of_begin_iter1->second == test_ranges_of_end_iter1->second) {
+
+								/* Because this part involves reversing the increment of the loop variable, it is possible to get into a situation 
+								where the loop makes no progress (and hangs). So we'll check for such a situation. */
+								bool repeat_flag = maybe_ranges_of_begin_iter_from_last_time.has_value() && (test_ranges_of_begin_iter1 == maybe_ranges_of_begin_iter_from_last_time.value());
+								while ((!repeat_flag) && (test_ranges_of_begin_iter1->second == test_ranges_of_end_iter1->second)) {
 									ranges_of_begin_iter = test_ranges_of_begin_iter1;
 									l_ranges_of_end_iter = test_ranges_of_end_iter1;
 									if (test_ranges_of_begin_iter1->first < test_ranges_of_end_iter1->first) {
@@ -992,7 +997,11 @@ namespace convm1 {
 									} else {
 										break;
 									}
+
+									repeat_flag = maybe_ranges_of_begin_iter_from_last_time.has_value() && (test_ranges_of_begin_iter1 == maybe_ranges_of_begin_iter_from_last_time.value());
 								}
+
+								maybe_ranges_of_begin_iter_from_last_time = ranges_of_begin_iter;
 							}
 						}
 
