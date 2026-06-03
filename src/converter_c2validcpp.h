@@ -6093,6 +6093,49 @@ namespace convc2validcpp {
 							retval.m_adjusted_source_text_infos.at(nesting_level).m_macro_definition_range = found_macro_iter->second.definition_SR();
 
 							++nesting_level;
+						} else if (("" != macro_name) && (adjusted_macro_SPSR.isValid())) {
+							auto SPSL1 = adjusted_macro_SPSR.getEnd().getLocWithOffset(+macro_name.length());
+							auto last_SPSL1 = SPSL1;
+							auto text1 = getRewrittenTextOrEmpty(Rewrite, { SPSL1, SPSL1 });
+							bool double_hash_flag = false;
+							while ("##" == text1) {
+								auto SPSL2 = SPSL1.getLocWithOffset(+text1.length());
+								auto text2 = getRewrittenTextOrEmpty(Rewrite, { SPSL2, SPSL2 });
+								if (("" != text2)) {
+									double_hash_flag = true;
+									last_SPSL1 = SPSL1;
+									SPSL1 = SPSL2.getLocWithOffset(+text2.length());
+									text1 = getRewrittenTextOrEmpty(Rewrite, { SPSL1, SPSL1 });
+								} else {
+									break;
+									int q = 7;
+								}
+							}
+							if (double_hash_flag) {
+								auto SPSL2 = last_SPSL1.getLocWithOffset(+text1.length());
+								auto text2 = getRewrittenTextOrEmpty(Rewrite, { SPSL2, SPSL2 });
+								auto text3 = getRewrittenTextOrEmpty(Rewrite, { adjusted_macro_SPSR.getEnd(), SPSL2 });
+								if (("" != text2) && ("" != text3)) {
+									/* The source range at this nesting level seems to contain something like `abc##def` of `abc##def##ghi`. This is 
+									not a "proper" invocation of a "proper" macro, but clang seems to report it as a macro invocation so we'll also 
+									treat is as one. */
+									retval.m_adjusted_source_text_infos.at(nesting_level).m_can_be_substituted_with_macro_invocation_text = true;
+
+									auto& adjusted_source_text_info_ref = retval.m_adjusted_source_text_infos.at(1 + nesting_level);
+									retval.m_adjusted_source_text_as_if_expanded = text3;
+									adjusted_source_text_info_ref.m_text = retval.m_adjusted_source_text_as_if_expanded;
+									adjusted_source_text_info_ref.m_macro_args = macro_args;
+									adjusted_source_text_info_ref.m_macro_invocation_range = { adjusted_macro_SPSR.getEnd(), SPSL2 };
+									adjusted_source_text_info_ref.m_macro_name = macro_name;
+									if (c2v_filtered_out_by_location(SM, retval) && (!c2v_filtered_out_by_location(SM, adjusted_source_text_info_ref.m_macro_invocation_range))) {
+										retval.set_source_range(adjusted_source_text_info_ref.m_macro_invocation_range);
+									}
+
+									++nesting_level;
+								} else {
+									int q = 7;
+								}
+							}
 						} else {
 							int q = 5;
 						}
@@ -6296,7 +6339,9 @@ namespace convc2validcpp {
 							/* We're going to check that at least one of the reported (nested) macro expansion ranges of the expression 
 							is contained inside the range of the parent expression. */
 							bool E_SR_plus_ref_has_range_contained_in_parent_expression_range = false;
-							if ((E_SR_plus_ref.getBegin() >= context_SR.getBegin()) && (E_SR_plus_ref.getEnd() <= context_SR.getEnd())) {
+							if ((E_SR_plus_ref.getBegin() >= context_SR.getBegin()) && (E_SR_plus_ref.getBegin/*getEnd*/() <= context_SR.getEnd())) {
+								/* Note that it is possible in rare circumstances (like when `##`s are involed) that the end of the expreesion 
+								range will spill beyond the (inaccurately) reported range of the parent. */
 								E_SR_plus_ref_has_range_contained_in_parent_expression_range = true;
 							} else {
 								if (first_has_a_range_contained_in_second(E_SR_plus_ref, context_SR)) {
