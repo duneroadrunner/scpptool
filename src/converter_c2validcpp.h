@@ -20144,8 +20144,17 @@ namespace convc2validcpp {
 	#endif /*!NDEBUG*/
 
 						const auto str = std::string(SL->getString());
-						//const auto SL_SR_plus1 = cm1_adjusted_source_range(SL->getSourceRange(), state1, Rewrite);
-						const auto SL_SR = write_once_source_range(cm1_adj_nice_source_range(SL->getSourceRange(), state1, Rewrite));
+						const auto SL_SR_plus1 = cm1_adjusted_source_range(SL->getSourceRange(), state1, Rewrite);
+						auto eti_context = CExprTextInfoContext{ SL_SR_plus1, &Rewrite, &state1 };
+						clang::SourceRange SL_SR = SL_SR_plus1;
+
+						const auto& astis = SL_SR_plus1.m_adjusted_source_text_infos;
+						const size_t num_astis = astis.size();
+						if (2 <= num_astis) {
+							eti_context = { astis.at(0).m_macro_invocation_range, &Rewrite, &state1 };
+							SL_SR = write_once_source_range(cm1_adj_nice_source_range(astis.at(0).m_macro_invocation_range, state1, Rewrite));
+						}
+
 						std::string original_source_text_str2 = getRewrittenTextOrEmpty(Rewrite, SL_SR);
 
 	#ifndef NDEBUG
@@ -20163,11 +20172,16 @@ namespace convc2validcpp {
 						if (2 <= num_toks) {
 							for (unsigned int j = 0; num_toks > j; j += 1) {
 								int i = num_toks - 1 - j;
-								auto SrcLoc1 = SL->getStrTokenLoc(i);
+								auto rawSrcLoc1 = SL->getStrTokenLoc(i);
+								auto SrcLoc1_SR_plus = cm1_adjusted_source_range({ rawSrcLoc1, rawSrcLoc1 }, state1, Rewrite);
 
-								const auto SL_rawSR5 = clang::SourceRange{ SrcLoc1, SrcLoc1 };
-								//const auto SL_SR_plus5 = cm1_adjusted_source_range(clang::SourceRange{ SrcLoc1, SrcLoc1 }, state1, Rewrite);
-								const auto SL_SR5 = write_once_source_range(cm1_adj_nice_source_range(clang::SourceRange{ SrcLoc1, SrcLoc1 }, state1, Rewrite));
+								auto SrcLoc1 = SrcLoc1_SR_plus.getBegin();
+								auto maybe_text_info_cptr = cpointer_targeting_the_source_text_info_record_corresponding_to_the_given_context_if_any(SrcLoc1_SR_plus, eti_context);
+								if (maybe_text_info_cptr.has_value()) {
+									SrcLoc1 = maybe_text_info_cptr.value()->m_macro_invocation_range.getBegin();
+								}
+
+								const auto SL_SR5 = clang::SourceRange{ SrcLoc1, SrcLoc1 };
 								if (SL_SR5.isValid()) {
 									auto& SM = Rewrite.getSourceMgr();
 									const std::string original_source_text_str5 = getRewrittenTextOrEmpty(Rewrite, SL_SR5);
