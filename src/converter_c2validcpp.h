@@ -16147,14 +16147,26 @@ namespace convc2validcpp {
 				auto LHS_rawSR = LHS ? LHS->getSourceRange() : VLD->getSourceRange();
 				auto assignment_SR_plus = cm1_adjusted_source_range(clang::SourceRange{ LHS_rawSR.getBegin(), RHS_rawSR.getEnd() }, state1, Rewrite);
 				if (!first_is_contained_in_second(RHS2SR, assignment_SR_plus)) {
-					for (size_t i = RHS2SR_plus.m_adjusted_source_text_infos.size(); 1 <= i; i -= 1) {
-						/* If the RHS expression is produced by a series of nested macro invocations, it might have multiple valid 
-						representations in the source corresponding to different macro invocation nesting levels. In such case, we'd 
-						want to use the (shallowest) representation that is in the same nesting level as the LHS (and the assignment 
-						operation as a whole). */
-						auto const& SR1 = RHS2SR_plus.m_adjusted_source_text_infos.at(i - 1).m_macro_invocation_range;
-						if (SR1.isValid() && first_is_contained_in_second(SR1, assignment_SR_plus) && !c2v_filtered_out_by_location(MR, SR1)) {
-							RHS2SR = write_once_source_range(SR1);
+					bool veto_flag = ("" == assignment_SR_plus.m_adjusted_source_text_as_if_expanded);
+					if (!veto_flag) {
+						for (size_t i = RHS2SR_plus.m_adjusted_source_text_infos.size(); 1 <= i; i -= 1) {
+							/* If the RHS expression is produced by a series of nested macro invocations, it might have multiple valid 
+							representations in the source corresponding to different macro invocation nesting levels. In such case, we'd 
+							want to use the (shallowest) representation that is in the same nesting level as the LHS (and the assignment 
+							operation as a whole). */
+							auto const& SR1 = RHS2SR_plus.m_adjusted_source_text_infos.at(i - 1).m_macro_invocation_range;
+							if (SR1.isValid() && first_is_contained_in_second(SR1, assignment_SR_plus) && !c2v_filtered_out_by_location(MR, SR1)) {
+								RHS2SR = write_once_source_range(SR1);
+							}
+						}
+					} else {
+						/* assignment_SR_plus seems questionable */
+						if (VLD && VLD->getType()->isFunctionType()) {
+							/* In this case, possibly because this "assignment" corresponds to a function return statement so the "source range 
+							of the assignment operation" is maybe a little more complicated. */
+							int q = 5;
+						} else {
+							int q = 5;
 						}
 					}
 				}
