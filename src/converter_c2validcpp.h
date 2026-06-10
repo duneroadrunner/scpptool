@@ -18279,6 +18279,15 @@ namespace convc2validcpp {
 									, VD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
 							}
 						}
+						auto PVD = dyn_cast<const ParmVarDecl>(VD);
+						if ((!PVD) && (!(VD->hasInit())) && (!(VD->hasExternalStorage())) 
+							&& qtype.isConstQualified() && (qtype.isPODType(*(MR.Context)))&& (!qtype->isEnumeralType())) {
+
+							/* This to deal with things like: "error: default initialization of an object of const type 'const unsigned char[32]'" */
+							ddcs_ref.m_fallback_current_initialization_expr_str = "{}";
+							update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), state1);
+							int q = 5;
+						}
 
 #if 0
 						if ((clang::StorageDuration::SD_Static == storage_duration) || (clang::StorageDuration::SD_Thread == storage_duration)) {
@@ -22325,9 +22334,11 @@ namespace convc2validcpp {
 											}
 										}
 									}
-									const clang::SourceLocation insert_after_location = maybe_include_guard_end_location.has_value() 
-										? maybe_include_guard_end_location.value() : SM.getLocForStartOfFile(file_id);
-									Rewrite.InsertTextAfterToken(insert_after_location, if_cpp_def_str);
+									if (maybe_include_guard_end_location.has_value()) {
+										Rewrite.InsertTextAfterToken(maybe_include_guard_end_location.value(), if_cpp_def_str);
+									} else {
+										Rewrite.InsertTextBefore(SM.getLocForStartOfFile(file_id), if_cpp_def_str);
+									}
 								}
 							}
 							if (files_that_use_cpp_type_traits.end() != files_that_use_cpp_type_traits.find(file_id)) {
