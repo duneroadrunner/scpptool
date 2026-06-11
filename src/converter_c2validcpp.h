@@ -8880,7 +8880,7 @@ namespace convc2validcpp {
 					initializer_info_str = "{}";
 				} else {
 					static const auto enum_space_str = std::string("enum ");
-					if (string_begins_with(qtype_str, enum_space_str)) {
+					if (false && string_begins_with(qtype_str, enum_space_str)) {
 						qtype_str = qtype_str.substr(enum_space_str.length());
 					}
 					if ("Dual" == ConvertMode) {
@@ -16147,7 +16147,7 @@ namespace convc2validcpp {
 				auto LHS_rawSR = LHS ? LHS->getSourceRange() : VLD->getSourceRange();
 				auto assignment_SR_plus = cm1_adjusted_source_range(clang::SourceRange{ LHS_rawSR.getBegin(), RHS_rawSR.getEnd() }, state1, Rewrite);
 				if (!first_is_contained_in_second(RHS2SR, assignment_SR_plus)) {
-					bool veto_flag = ("" == assignment_SR_plus.m_adjusted_source_text_as_if_expanded);
+					bool veto_flag = ((0 == assignment_SR_plus.m_adjusted_source_text_infos.size()) || ("" == assignment_SR_plus.m_adjusted_source_text_as_if_expanded));
 					if (!veto_flag) {
 						for (size_t i = RHS2SR_plus.m_adjusted_source_text_infos.size(); 1 <= i; i -= 1) {
 							/* If the RHS expression is produced by a series of nested macro invocations, it might have multiple valid 
@@ -18266,17 +18266,32 @@ namespace convc2validcpp {
 								update_declaration_if_not_suppressed(*DD, Rewrite, *(MR.Context), state1);
 							}
 						}
-						if (qtype->isEnumeralType() && VD->hasInit()) {
+						if (VD->hasInit()) {
 							auto const* init_E = VD->getInit();
 							auto const* init_E_ii = IgnoreImplicit(init_E);
 							assert(init_E_ii);
 							const auto init_E_ii_qtype = init_E_ii->getType();
 							IF_DEBUG(auto init_E_ii_qtype_str = init_E_ii_qtype.getAsString();)
 							const auto canonical_init_E_ii_qtype = get_canonical_type(init_E_ii_qtype);
-							const auto canonical_qtype = get_canonical_type(qtype);
-							if (canonical_init_E_ii_qtype != canonical_qtype) {
-								MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_E/*RHS*/
-									, VD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
+							if (qtype->isEnumeralType()) {
+								const auto canonical_qtype = get_canonical_type(qtype);
+								if (canonical_init_E_ii_qtype.getTypePtr() != canonical_qtype.getTypePtr()) {
+									MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_E/*RHS*/
+										, VD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
+								}
+							} else {
+								if (qtype->isArrayType() && canonical_init_E_ii_qtype->isArrayType()) {
+									auto element_type_ptr = qtype->getPointeeOrArrayElementType();
+									auto init_E_ii_element_type_ptr = canonical_init_E_ii_qtype->getPointeeOrArrayElementType();
+									if (element_type_ptr->isEnumeralType()) {
+										const auto canonical_element_type_ptr = get_canonical_type_ptr(element_type_ptr);
+										const auto canonical_init_E_ii_element_type_ptr = get_canonical_type_ptr(init_E_ii_element_type_ptr);
+										if (canonical_init_E_ii_element_type_ptr != canonical_element_type_ptr) {
+											MCSSSAssignment::s_handler1(MR, Rewrite, state1, nullptr/*LHS*/, init_E/*RHS*/
+												, VD/*VLD*/, MCSSSAssignment::EIsAnInitialization::Yes);
+										}
+									}
+								}
 							}
 						}
 						auto PVD = dyn_cast<const ParmVarDecl>(VD);
@@ -20132,6 +20147,69 @@ namespace convc2validcpp {
 									ecs_ref.update_current_text();
 
 									state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, SL_SR, state1, SL);
+								}
+							}
+						}
+						break;
+					}
+
+					auto ICE = dyn_cast<const clang::ImplicitCastExpr>(E);
+					if (ICE) {
+						if (E_qtype->isEnumeralType() && (!E_ii_qtype->isEnumeralType())) {
+							bool veto_flag = false;
+							auto& Ctx = *(MR.Context);
+							auto parent_E = Tget_immediately_containing_element_of_type<clang::Expr>(E, Ctx);
+							if (parent_E) {
+								auto ILE = dyn_cast<const clang::InitListExpr>(parent_E);
+								if (!ILE) {
+									/* Adding the explicit casts required by C++ for conversion to enums is generally handled by the MCSSSAssignment 
+									handler. But currently, that handler neglects cases where the enum is a member field of the object (rather than 
+									the object itself). Ideally the MCSSSAssignment handler and its triggers will be extended to address enum member 
+									fields, but for now it's easier just to handle it here in the MCSSSExpr handler (which is triggered for every 
+									expression, including the initialization expressions of enum member fields.) A theoretical drawback of this 
+									(simpler) handler is that, unlike the MCSSSAssignment handler, it does not identify situations (with macros) 
+									where it would be more appropriate to specify the cast type with a `decltype()` operation. */
+									veto_flag = true;
+								}
+							}
+							if ((!veto_flag) && (std::string::npos != E_qtype.getAsString().find(" (unnamed "))) {
+								veto_flag = true;
+							}
+
+							if (!veto_flag) {
+								bool E_ii_is_filtered_out = false;
+								auto E_ii_SR = write_once_source_range(cm1_adjusted_source_range(E_ii->getSourceRange(), state1, Rewrite));
+								if ((!E_ii_SR.isValid()) || c2v_filtered_out_by_location(MR, E_ii_SR.getBegin())) {
+									E_ii_is_filtered_out = true;
+								}
+								/* If E_ii is "filtered out" then we'll have to use E. */
+								auto E2 = E_ii_is_filtered_out ? E : E_ii;
+								auto E2SR_plus = E_ii_is_filtered_out ? cm1_adjusted_source_range(*E, state1, Rewrite) : cm1_adjusted_source_range(*E_ii, state1, Rewrite);
+								auto E2SR = write_once_source_range(E2SR_plus);
+
+								auto E_rawSR = E->getSourceRange();
+
+								auto& context_ref = *(MR.Context);
+
+								auto& ecs_ref = state1.get_expr_conversion_state_ref(*E2, Rewrite);
+
+								std::string cast_wrapper_prefix = "(" + E_qtype.getAsString() + ")(";
+								std::string cast_wrapper_suffix = ")";
+								bool seems_to_be_already_applied = false;
+								{
+									const auto l_text_modifier = CWrapExprTextModifier(cast_wrapper_prefix, cast_wrapper_suffix);
+									seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+										&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+								}
+								if (!seems_to_be_already_applied) {
+									auto shptr2 = std::make_shared<CWrapExprTextModifier>(cast_wrapper_prefix, cast_wrapper_suffix);
+									ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+
+									ecs_ref.update_current_text(CExprTextInfoContext{ E2SR });
+
+									IF_DEBUG(std::string current_text2 = ecs_ref.current_text(CExprTextInfoContext{ E2SR });)
+
+									state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, E2SR, state1, E2);
 								}
 							}
 						}
