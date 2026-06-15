@@ -3223,6 +3223,14 @@ struct Parse {
 						retval = { start_pos, start_pos + 1 };
 					}
 					return retval;
+				} else if ('#' == first_ch) {
+					if (('#' == second_ch)) {
+						/* namespace delimiter, right? */
+						retval = { start_pos, start_pos + 2 };
+					} else {
+						retval = { start_pos, start_pos + 1 };
+					}
+					return retval;
 				}
 			}
 			/* We seem to have potentially encountered a token type that we don't (yet) recognize. So we'll

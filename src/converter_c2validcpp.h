@@ -3621,6 +3621,16 @@ namespace convc2validcpp {
 		using base_class::base_class;
 	};
 
+	struct CDeclRelocationInfo {
+		clang::Decl const* m_D = nullptr;
+		clang::Decl const* m_D_to_be_inserted_before = nullptr;
+	};
+
+	struct CDeclRelocationInfoMap : public std::unordered_map<clang::Decl const*, CDeclRelocationInfo> {
+		typedef std::unordered_map<clang::Decl const*, CDeclRelocationInfo> base_class;
+		using base_class::base_class;
+	};
+
 	class CTUState : public CCommonTUState1 {
 	public:
 		/* This container holds (potential) actions that are meant to be executed upon
@@ -3857,6 +3867,9 @@ namespace convc2validcpp {
 
 		/* This container holds information about statements that are scheduled to be relocated. */
 		CStmtRelocationInfoMap m_stmt_relocation_info_map;
+
+		/* This container holds information about declarations that are scheduled to be relocated. */
+		CDeclRelocationInfoMap m_decl_relocation_info_map;
 
 		/* This value seems to be required for certain AST traversing operations. We put
 		it here so that we don't have to pass it around separately, but we're not totally
@@ -12170,26 +12183,26 @@ namespace convc2validcpp {
 
 				if (RD->isThisDeclarationADefinition()) {
 					if (false) {
-						auto res1 = (*this).m_state1.m_recdecl_conversion_state_map.insert(*RD, Rewrite, m_state1);
-						auto rdcs_map_iter = res1.first;
-						if ((*this).m_state1.m_recdecl_conversion_state_map.end() == rdcs_map_iter) {
-							return;
+						if (false) {
+							auto res1 = (*this).m_state1.m_recdecl_conversion_state_map.insert(*RD, Rewrite, m_state1);
+							auto rdcs_map_iter = res1.first;
+							if ((*this).m_state1.m_recdecl_conversion_state_map.end() == rdcs_map_iter) {
+								return;
+							}
+							auto& rdcs_ref = (*rdcs_map_iter).second;
+							//bool update_declaration_flag = res1.second;
 						}
-						auto& rdcs_ref = (*rdcs_map_iter).second;
-						//bool update_declaration_flag = res1.second;
-					}
-					{
-						auto res1 = (*this).m_state1.m_recdecl_map.insert(*RD, Rewrite, m_state1);
-						auto rdcs_map_iter = res1.first;
-						if ((*this).m_state1.m_recdecl_map.end() == rdcs_map_iter) {
-							return;
+						{
+							auto res1 = (*this).m_state1.m_recdecl_map.insert(*RD, Rewrite, m_state1);
+							auto rdcs_map_iter = res1.first;
+							if ((*this).m_state1.m_recdecl_map.end() == rdcs_map_iter) {
+								return;
+							}
+							auto& rdcs_ref = (*rdcs_map_iter).second;
+							//bool update_declaration_flag = res1.second;
 						}
-						auto& rdcs_ref = (*rdcs_map_iter).second;
-						//bool update_declaration_flag = res1.second;
 					}
-
 				}
-
 			}
 		}
 
@@ -18909,13 +18922,11 @@ namespace convc2validcpp {
 
 					if (std::string::npos == qtype_str.find("::")) {
 						/* qtype does not seem to be namespace qualified. We'll check if it needs to be under C++. */
-
-						//auto [ddcs_ref, update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*DD, &Rewrite);
-
-						clang::Type const* directType = nullptr;
-
-						auto maybe_direct_qtype = ddcs_ref.m_indirection_state_stack.m_direct_type_state.current_qtype_if_any();
-						if (maybe_direct_qtype.has_value()) {
+						do {
+							auto maybe_direct_qtype = ddcs_ref.m_indirection_state_stack.m_direct_type_state.current_qtype_if_any();
+							if (!maybe_direct_qtype.has_value()) {
+								break;
+							}
 							const auto& direct_qtype_ref = maybe_direct_qtype.value();
 							IF_DEBUG(auto direct_qtype_ref_str = direct_qtype_ref.getAsString();)
 							const auto* directType = direct_qtype_ref.getTypePtr();
@@ -18952,87 +18963,375 @@ namespace convc2validcpp {
 
 							auto nested_containing_structs_of_def = nested_containing_structs(definition_D);
 
-							if (1 <= nested_containing_structs_of_def.size()) {
-								/* The type seems to have been declared inside the body of a struct. So in C++, depending where it 
-								is used, it may need to be namespace qualified. So we'll try to obtain a corresponding list of 
-								nested structs containing the declaration which uses the type. Then we can try to determine if the 
-								declaration that uses the type is in the same namespace as the declaration of the type itself. In 
-								which case we may not need to add namespace qualification to the type usage. */
+							if (!(1 <= nested_containing_structs_of_def.size())) {
+								break;
+							}
+							/* The type seems to have been declared inside the body of a struct. So in C++, depending where it 
+							is used, it may need to be namespace qualified. So we'll try to obtain a corresponding list of 
+							nested structs containing the declaration which uses the type. Then we can try to determine if the 
+							declaration that uses the type is in the same namespace as the declaration of the type itself. In 
+							which case we may not need to add namespace qualification to the type usage. */
 
-								auto nested_containing_structs_of_decl = nested_containing_structs(DD);
-								if (0 == nested_containing_structs_of_decl.size()) {
-									auto DC = DD->getParentFunctionOrMethod();
-									if (DC) {
-										auto FND = dyn_cast<const clang::FunctionDecl>(DC);
-										if (FND) {
-											nested_containing_structs_of_decl = nested_containing_structs(FND);
-										}
-									}
-								}
-
-								while ((nested_containing_structs_of_def.size() >= 1) && (nested_containing_structs_of_decl.size() >= 1)) {
-									/* We don't need to qualify the type usage with namespaces that the declaration that uses the type 
-									and declaration of the type itself have in common. So we'll test for common containing namespaces 
-									and discard them. */
-									if (nested_containing_structs_of_def.front() != nested_containing_structs_of_decl.front()) {
-										break;
-									}
-									nested_containing_structs_of_def.erase(nested_containing_structs_of_def.begin());
-									nested_containing_structs_of_decl.erase(nested_containing_structs_of_decl.begin());
-								}
-								if (1 <= nested_containing_structs_of_def.size()) {
-									std::string new_namespace_qualified_direct_type_str;
-									for (auto& containing_RD : nested_containing_structs_of_def) {
-										if (!containing_RD) { assert(false); break; }
-										auto struct_name = containing_RD->getQualifiedNameAsString();
-										new_namespace_qualified_direct_type_str += struct_name + "::";
-									}
-									auto direct_type_str = ddcs_ref.m_indirection_state_stack.m_direct_type_state.current_qtype_str(); 
-									static const std::string struct_space_str = "struct ";
-									if (string_begins_with(direct_type_str, struct_space_str)) {
-										direct_type_str = direct_type_str.substr(struct_space_str.length());
-									}
-									static const std::string enum_space_str = "enum ";
-									bool is_an_enum = false;
-									if (string_begins_with(direct_type_str, enum_space_str)) {
-										is_an_enum = true;
-										direct_type_str = direct_type_str.substr(enum_space_str.length());
-									}
-									new_namespace_qualified_direct_type_str += direct_type_str;
-
-									if (is_an_enum) {
-										new_namespace_qualified_direct_type_str = enum_space_str + new_namespace_qualified_direct_type_str;
-									}
-
-									bool vetoed_flag = false;
-									if (std::string::npos != new_namespace_qualified_direct_type_str.find("unnamed enum at")) {
-										vetoed_flag = true;
-									}
-									if (std::string::npos != new_namespace_qualified_direct_type_str.find(" (unnamed ")) {
-										vetoed_flag = true;
-									}
-									if ((!vetoed_flag)) {
-										if (SR.isValid()) {
-											auto current_DD_text = getRewrittenTextOrEmpty(Rewrite, SR);
-											if (std::string::npos == current_DD_text.find("::")) {
-												ddcs_ref.set_current_direct_non_function_qtype_str(new_namespace_qualified_direct_type_str);
-
-												std::string new_cpp_DD_text;
-												//auto res = generate_declaration_replacement_code(DD, Rewrite, &state1, state1.m_ddecl_conversion_state_map);
-												//new_cpp_DD_text = res.m_replacement_code;
-												new_cpp_DD_text = current_DD_text;
-												replace_whole_instances_of_given_string(new_cpp_DD_text, ddcs_ref.m_indirection_state_stack.m_direct_type_state.return_type_original_source_text(), new_namespace_qualified_direct_type_str);
-
-												std::string new_DD_text = "IF_CPP_ELSE(" + new_cpp_DD_text + ", " + current_DD_text + ")";
-												state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
-
-												state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_DD_text);
-											}
-										}
+							auto nested_containing_structs_of_decl = nested_containing_structs(DD);
+							if (0 == nested_containing_structs_of_decl.size()) {
+								auto DC = DD->getParentFunctionOrMethod();
+								if (DC) {
+									auto FND = dyn_cast<const clang::FunctionDecl>(DC);
+									if (FND) {
+										nested_containing_structs_of_decl = nested_containing_structs(FND);
 									}
 								}
 							}
-						}
+
+							while ((nested_containing_structs_of_def.size() >= 1) && (nested_containing_structs_of_decl.size() >= 1)) {
+								/* We don't need to qualify the type usage with namespaces that the declaration that uses the type 
+								and declaration of the type itself have in common. So we'll test for common containing namespaces 
+								and discard them. */
+								if (nested_containing_structs_of_def.front() != nested_containing_structs_of_decl.front()) {
+									break;
+								}
+								nested_containing_structs_of_def.erase(nested_containing_structs_of_def.begin());
+								nested_containing_structs_of_decl.erase(nested_containing_structs_of_decl.begin());
+							}
+							if (!(1 <= nested_containing_structs_of_def.size())) {
+								break;
+							}
+							std::string new_namespace_qualified_direct_type_str;
+							for (auto& containing_RD : nested_containing_structs_of_def) {
+								if (!containing_RD) { assert(false); break; }
+								auto struct_name = containing_RD->getQualifiedNameAsString();
+								new_namespace_qualified_direct_type_str += struct_name + "::";
+							}
+							auto direct_type_str = ddcs_ref.m_indirection_state_stack.m_direct_type_state.current_qtype_str(); 
+							static const std::string struct_space_str = "struct ";
+							if (string_begins_with(direct_type_str, struct_space_str)) {
+								direct_type_str = direct_type_str.substr(struct_space_str.length());
+							}
+							static const std::string enum_space_str = "enum ";
+							bool is_an_enum = false;
+							if (string_begins_with(direct_type_str, enum_space_str)) {
+								is_an_enum = true;
+								direct_type_str = direct_type_str.substr(enum_space_str.length());
+							}
+							new_namespace_qualified_direct_type_str += direct_type_str;
+
+							if (is_an_enum) {
+								new_namespace_qualified_direct_type_str = enum_space_str + new_namespace_qualified_direct_type_str;
+							}
+
+							bool vetoed_flag = false;
+							if (std::string::npos != new_namespace_qualified_direct_type_str.find("unnamed enum at")) {
+								vetoed_flag = true;
+							}
+							if (std::string::npos != new_namespace_qualified_direct_type_str.find(" (unnamed ")) {
+								vetoed_flag = true;
+							}
+							if (vetoed_flag) {
+								break;
+							}
+							auto contains_double_colons = [&](std::string_view text) {
+									auto tok_range2 = Parse::find_uncommented_token("::", text);
+									if (text.length() > tok_range2.begin) {
+										return true;
+									}
+									return false;
+								};
+
+							auto TSI = DD->getTypeSourceInfo();
+							if (TSI) {
+								do {
+									const auto typeLoc = TSI->getTypeLoc();
+									const auto type_spec_SR_plus = cm1_adjusted_source_range(typeLoc.getSourceRange(), state1, Rewrite);
+									DEBUG_SOURCE_LOCATION_STR(debug_type_spec_source_location_str, type_spec_SR_plus, Rewrite);
+
+									const auto type_spec_text = getRewrittenTextOrEmpty(Rewrite, type_spec_SR_plus);
+									if ("" == type_spec_text) {
+										break;
+									}
+									if (contains_double_colons(type_spec_text)) {
+										/* There seem to be double colons "::" already present in the type specification text, suggesting this is C++ code. 
+										It doesn't feel prudent to attempt to add namespace qualifications to code that seems to already have them. */
+										break;
+									}
+									/* There don't seem to be any double colons "::" in the type specification text. */
+									const auto tok_range1 = Parse::find_uncommented_token(direct_type_str, type_spec_text);
+									if (type_spec_text.length() > tok_range1.begin) {
+										/* We found an instance of the name of type we're looking to replace in the type specification text. */
+
+										auto current_DD_text = getRewrittenTextOrEmpty(Rewrite, SR);
+										ddcs_ref.set_current_direct_non_function_qtype_str(new_namespace_qualified_direct_type_str);
+
+										std::string new_cpp_DD_text;
+										//auto res = generate_declaration_replacement_code(DD, Rewrite, &state1, state1.m_ddecl_conversion_state_map);
+										//new_cpp_DD_text = res.m_replacement_code;
+										new_cpp_DD_text = current_DD_text;
+										replace_whole_instances_of_given_string(new_cpp_DD_text, ddcs_ref.m_indirection_state_stack.m_direct_type_state.return_type_original_source_text(), new_namespace_qualified_direct_type_str);
+
+										std::string new_DD_text = "IF_CPP_ELSE(" + new_cpp_DD_text + ", " + current_DD_text + ")";
+										state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
+
+										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_DD_text);
+									} else {
+										/* We didn't find an instance of the name of type we're looking to replace in the type specification text. If this 
+										is a macro invocation, it might be in one of the (other nested) macro invocation sites. */
+										for (auto& adjusted_source_text_info_ref : type_spec_SR_plus.m_adjusted_source_text_infos) {
+											const auto tok_range2 = Parse::find_uncommented_token(direct_type_str, adjusted_source_text_info_ref.m_text);
+											if (adjusted_source_text_info_ref.m_text.length() > tok_range2.begin) {
+												/* We'll first check in the macro arguments (if any). */
+												bool found_in_macro_arg_flag = false;
+												size_t macro_arg_index = 0;
+												for (auto& macro_arg : adjusted_source_text_info_ref.m_macro_args) {
+													const auto tok_range3 = Parse::find_uncommented_token(direct_type_str, macro_arg);
+													bool break_out_of_for_loop_flag1 = false;
+													do {
+														if (!((macro_arg.length() > tok_range3.begin) && macro_arg.m_maybe_source_range.has_value())) {
+															break;
+														}
+														const auto macro_arg_OSR = write_once_source_range(macro_arg.m_maybe_source_range.value());
+														if (!(macro_arg_OSR.isValid())) {
+															break;
+														}
+
+														found_in_macro_arg_flag = true;
+														break_out_of_for_loop_flag1 = true;
+
+														if (contains_double_colons(macro_arg)) {
+															break;
+														}
+														const auto& macro_name = adjusted_source_text_info_ref.m_macro_name;
+														auto found_macro_iter = state1.m_pp_macro_definitions.find(macro_name);
+														if ((state1.m_pp_macro_definitions.end() == found_macro_iter)) {
+															break;
+														}
+														const auto macro_param = found_macro_iter->second.m_parameter_names.at(macro_arg_index);
+														auto const& macro_def_body_str = found_macro_iter->second.m_macro_def_body_str;
+														auto double_hash_sequence_range = Parse::find_token_sequence({ "##", macro_param }, macro_def_body_str);
+														if (macro_def_body_str.length() <= double_hash_sequence_range.begin) {
+															double_hash_sequence_range = Parse::find_token_sequence({ macro_param, "##"  }, macro_def_body_str);
+														}
+														if (macro_def_body_str.length() > double_hash_sequence_range.begin) {
+															/* The macro body seems to contain '##corresponding_macro_param_name' or 'corresponding_macro_param_name##'. 
+															(Presumably as part of a preprocessor operation.) So in this case we can't just replace the unqualified type 
+															(given as a macro pargument) with the namespace qualified version because it wouldn't work in the double hash 
+															preprocessor operation. (We've encountered this in the wild.) So instead we'll try to move the (nested) struct 
+															definition to just before (and outside of) the containing parent struct. */
+															assert(1 <= nested_containing_structs_of_def.size());
+															const auto* containing_RD = *(nested_containing_structs_of_def.begin());
+															if (!containing_RD) {
+																assert(false);
+																break;
+															}
+															const auto containing_RD_SR = cm1_adj_nice_source_range(containing_RD->getSourceRange(), state1, Rewrite);
+															DEBUG_SOURCE_LOCATION_STR(debug_containing_RD_source_location_str, containing_RD_SR, Rewrite);
+															DEBUG_SOURCE_TEXT_STR(debug_containing_RD_source_text, containing_RD_SR, Rewrite);
+
+															if (!definition_D) {
+																assert(false);
+																break;
+															}
+															const auto definition_RD = dyn_cast<const clang::RecordDecl>(definition_D);
+															if (!definition_RD) {
+																assert(false);
+																break;
+															}
+
+															const auto definition_RD_SR_plus = cm1_adjusted_source_range(definition_RD->getSourceRange(), state1, Rewrite);
+															DEBUG_SOURCE_LOCATION_STR(debug_definition_RD_source_location_str, definition_RD_SR_plus, Rewrite);
+															DEBUG_SOURCE_TEXT_STR(debug_definition_RD_source_text, definition_RD_SR_plus, Rewrite);
+
+															auto& SM = Rewrite.getSourceMgr();
+															auto definition_RD_SPSR = clang::SourceRange({ SM.getSpellingLoc(definition_RD_SR_plus.getBegin()), SM.getSpellingLoc(definition_RD_SR_plus.getEnd()) });
+
+															auto parent_definition_RD = NonParenImpNoopCastParentOfType<clang::RecordDecl>(definition_RD, *(MR.Context));
+															if (!parent_definition_RD) {
+																break;
+															}
+															const auto parent_definition_RD_SR_plus = cm1_adjusted_source_range(parent_definition_RD->getSourceRange(), state1, Rewrite);
+															DEBUG_SOURCE_LOCATION_STR(debug_parent_definition_RD_source_location_str, parent_definition_RD_SR_plus, Rewrite);
+															DEBUG_SOURCE_TEXT_STR(debug_parent_definition_RD_source_text, parent_definition_RD_SR_plus, Rewrite);
+
+															/* The definition of the struct could be part of the declaration of a member field. Here we'll check for and note if this is the case. */
+															struct CFDInfo {
+																clang::FieldDecl const* FD = nullptr;
+																CSourceRangePlus FD_SR_plus;
+															};
+															auto maybe_containing_FD_info = std::optional<CFDInfo>{};
+
+															for (auto field : parent_definition_RD->fields()) {
+																if (field) {
+																	const auto FD = dyn_cast<const clang::FieldDecl>(field);
+																	const auto FD_qtype = FD->getType();
+																	IF_DEBUG(auto FD_qtype_str = FD_qtype.getAsString();)
+																	IF_DEBUG(auto definition_RD_qtype = clang::QualType(definition_RD->getTypeForDecl() , 0/*I'm just assuming zero specifies no qualifiers*/);)
+																	IF_DEBUG(auto definition_RD_qtype_str = definition_RD_qtype.getAsString();)
+																	if (get_canonical_type_ptr(FD_qtype.getTypePtr()) == get_canonical_type_ptr(definition_RD->getTypeForDecl())) {
+																		const auto FD_SR_plus = cm1_adjusted_source_range(FD->getSourceRange(), state1, Rewrite);
+																		auto FD_SPSR = clang::SourceRange({ SM.getSpellingLoc(FD_SR_plus.getBegin()), SM.getSpellingLoc(FD_SR_plus.getEnd()) });
+																		if (first_is_contained_in_second(definition_RD_SPSR, FD_SPSR)) {
+																			maybe_containing_FD_info = CFDInfo{ FD, FD_SR_plus };
+
+																			/* We'll likely be modifying the field declaration, so we'll ensure that there is no delay in the establishment of 
+																			the corresponding "conversion state", so that the original source text can be noted before any source modifications 
+																			that might alter the source text. */
+																			auto [FD_ddcs_ref, FD_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*FD, &Rewrite);
+																			break;
+																		} else {
+																			int q = 5;
+																		}
+																	}
+																}
+															}
+
+															/* We're going to schedule a relocation of the the definition of the struct to just before (and outside of) the containing 
+															parent struct. */
+															auto found_it = state1.m_decl_relocation_info_map.find(definition_RD);
+															if (state1.m_decl_relocation_info_map.end() != found_it) {
+																/* This declaration is already scheduled to be relocated. */
+																const auto D_to_be_inserted_before_SR = cm1_adj_nice_source_range(found_it->second.m_D_to_be_inserted_before->getSourceRange(), state1, Rewrite);
+																if (D_to_be_inserted_before_SR.isValid() && (parent_definition_RD_SR_plus.getBegin() < D_to_be_inserted_before_SR.getBegin())) {
+																	/* Our relocation destination is "before" the currently scheduled destination location. So we will replace 
+																	the currently scheduled destination location. */
+																	found_it->second.m_D_to_be_inserted_before = parent_definition_RD;
+																}
+															} else {
+																state1.m_decl_relocation_info_map.insert({ definition_RD, { definition_RD, parent_definition_RD } });
+
+																/* Multiple declarations could each instigate the relocation of the same definition declaration source text. 
+																(For example, if the declarations involve distinct invocations of the same macro.) Here we ensure that only 
+																one relocation is attempted by designating the definition declaration source range as "write once". This is 
+																arguably a little hacky, and it might be more proper to explicitly identify potentially redundant (or 
+																conflicting) relocation attempts. */
+																const auto definition_RD_OSR = write_once_source_range(definition_RD_SR_plus);
+																if (ConvertC2ValidCpp && parent_definition_RD_SR_plus.isValid() && definition_RD_OSR.isValid()) {
+
+																	auto lambda = [MR, &Rewrite, &state1, definition_RD, definition_RD_OSR, maybe_containing_FD_info]() {
+																		auto found_it = state1.m_decl_relocation_info_map.find(definition_RD);
+																		do {
+																			if (state1.m_decl_relocation_info_map.end() == found_it) {
+																				/* unexpected */
+																				int q = 3;
+																				break;
+																			}
+																			const auto D_to_be_inserted_before_SR = cm1_adj_nice_source_range(found_it->second.m_D_to_be_inserted_before->getSourceRange(), state1, Rewrite);
+																			if (!D_to_be_inserted_before_SR.isValid()) {
+																				break;
+																			}
+																			std::string definition_RD_text1 = getRewrittenTextOrEmpty(Rewrite, definition_RD_OSR);
+																			if (maybe_containing_FD_info.has_value()) {
+																				/* The definition seems to be part of a member field declaration. So as we relocate the definition, we need to replace 
+																				the member field declaration with a version (that we will synthesize) that does not include the definition. */
+																				auto const& FD_info = maybe_containing_FD_info.value();
+
+																				assert(FD_info.FD);
+																				auto [FD_ddcs_ref, FD_update_declaration_flag] = state1.get_ddecl_conversion_state_ref_and_update_flag(*(FD_info.FD), &Rewrite);
+
+																				std::string name = FD_info.FD->getNameAsString();
+																				if (FD_ddcs_ref.m_maybe_updated_name.has_value()) {
+																					name = FD_ddcs_ref.m_maybe_updated_name.value();
+																				}
+
+																				auto res4 = type_indirection_prefix_and_suffix_modifier_and_code_generator(FD_ddcs_ref.m_indirection_state_stack,
+																					Rewrite, EIsFunctionParam::No, {}, ESuppressModifications::Yes, &state1);
+
+																				bool no_indirection = (1 > FD_ddcs_ref.m_indirection_state_stack.size());
+																				auto direct_qtype_str = no_indirection
+																					? adjusted_qtype_str(FD_ddcs_ref.current_direct_qtype_str())
+																					: adjusted_qtype_str(FD_ddcs_ref.current_direct_return_qtype_str());
+
+																				std::string initialization_expr_str{ FD_ddcs_ref.current_initialization_expr_str(Rewrite, &state1, CExprTextInfoContext{ FD_info.FD_SR_plus, &Rewrite, &state1 }) };
+																				std::string initializer_append_str;
+																				if ("" != initialization_expr_str) {
+																					initializer_append_str = " = " + initialization_expr_str;
+																				}
+
+																				std::string replacement_code = res4.m_prefix_str + direct_qtype_str + res4.m_suffix_str;
+																				replacement_code += " ";
+																				replacement_code += name;
+																				replacement_code += res4.m_post_name_suffix_str;
+			
+																				replacement_code += initializer_append_str;
+
+																				state1.m_pending_code_modification_actions.ReplaceText(Rewrite, rewritable_source_range(FD_info.FD_SR_plus), replacement_code);
+																				int q = 5;
+																			} else {
+																				/* Here we're blanking out the original definition declaration source text. */
+																				std::string definition_RD_text1 = getRewrittenTextOrEmpty(Rewrite, definition_RD_OSR);
+																				std::string blank_text = blanked_out_str(definition_RD_text1);
+																				state1.m_pending_code_modification_actions.ReplaceText(Rewrite, definition_RD_OSR, blank_text);
+																			}
+
+																			/* Here we insert a new copy of the definition declaration before the originally containing struct. */
+																			auto first_token_of_D_to_be_inserted_before_SR = rewritable_source_range(D_to_be_inserted_before_SR);
+																			first_token_of_D_to_be_inserted_before_SR.setEnd(first_token_of_D_to_be_inserted_before_SR.getBegin());
+																			IF_DEBUG(std::string first_token_of_D_to_be_inserted_before_text1 = getRewrittenTextOrEmpty(Rewrite, first_token_of_D_to_be_inserted_before_SR);)
+																			auto definition_RD_text_and_newline = definition_RD_text1;
+																			if ((1 > definition_RD_text_and_newline.length()) || (';' != definition_RD_text_and_newline.back())) {
+																				definition_RD_text_and_newline += ";";
+																			}
+																			definition_RD_text_and_newline += "\n";
+
+																			state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, first_token_of_D_to_be_inserted_before_SR, first_token_of_D_to_be_inserted_before_SR.getBegin(), definition_RD_text_and_newline);
+																		} while (false);
+																	};
+																	/* This modification needs to be queued so that it will be executed after any other
+																	modifications that might affect the relevant part of the source text. */
+																	state1.m_pending_code_modification_actions.add_replacement_action(definition_RD_OSR, lambda);
+																}
+															}
+														} else {
+															std::string new_cpp_macro_arg_text = macro_arg;
+															replace_whole_instances_of_given_string(new_cpp_macro_arg_text, direct_type_str, new_namespace_qualified_direct_type_str);
+
+															std::string new_macro_arg_text = "IF_CPP_ELSE(" + new_cpp_macro_arg_text + ", " + macro_arg + ")";
+															state1.m_if_cpp_macro_use_locations.insert(macro_arg_OSR.getBegin());
+
+															state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, macro_arg_OSR, new_macro_arg_text);
+														}
+													} while (false);
+													if (break_out_of_for_loop_flag1) {
+														break;
+													}
+
+													macro_arg_index += 1;
+												}
+												if (found_in_macro_arg_flag) {
+													break;
+												}
+												const auto invocation_OSR = write_once_source_range(adjusted_source_text_info_ref.m_macro_invocation_range);
+												if (invocation_OSR.isValid()) {
+													if (!contains_double_colons(adjusted_source_text_info_ref.m_text)) {
+														std::string new_cpp_invocation_text = adjusted_source_text_info_ref.m_text;
+														replace_whole_instances_of_given_string(new_cpp_invocation_text, direct_type_str, new_namespace_qualified_direct_type_str);
+
+														std::string new_invocation_text = "IF_CPP_ELSE(" + new_cpp_invocation_text + ", " + adjusted_source_text_info_ref.m_text + ")";
+														state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
+
+														state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, invocation_OSR, new_invocation_text);
+													}
+													break;
+												}
+											}
+										}
+									}
+								} while (false);
+							} else if (SR.isValid()) {
+								auto current_DD_text = getRewrittenTextOrEmpty(Rewrite, SR);
+								if (!contains_double_colons(current_DD_text)) {
+									ddcs_ref.set_current_direct_non_function_qtype_str(new_namespace_qualified_direct_type_str);
+
+									std::string new_cpp_DD_text;
+									//auto res = generate_declaration_replacement_code(DD, Rewrite, &state1, state1.m_ddecl_conversion_state_map);
+									//new_cpp_DD_text = res.m_replacement_code;
+									new_cpp_DD_text = current_DD_text;
+									replace_whole_instances_of_given_string(new_cpp_DD_text, ddcs_ref.m_indirection_state_stack.m_direct_type_state.return_type_original_source_text(), new_namespace_qualified_direct_type_str);
+
+									std::string new_DD_text = "IF_CPP_ELSE(" + new_cpp_DD_text + ", " + current_DD_text + ")";
+									state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
+
+									state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_DD_text);
+								}
+							}
+						} while (false);
 					}
 
 					if (false) {
@@ -21064,230 +21363,232 @@ namespace convc2validcpp {
 				RD->getTypeForDecl();
 				auto CXXRD = RD->getTypeForDecl()->getAsCXXRecordDecl();
 				if (RD->isThisDeclarationADefinition()) {
-					bool is_lambda = false;
+					if (false) {
+						bool is_lambda = false;
 
-					bool has_xscope_tag_base = false;
-					bool has_ContainsNonOwningScopeReference_tag_base = false;
-					bool has_ReferenceableByScopePointer_tag_base = false;
+						bool has_xscope_tag_base = false;
+						bool has_ContainsNonOwningScopeReference_tag_base = false;
+						bool has_ReferenceableByScopePointer_tag_base = false;
 
-					if (CXXRD) {
-						if (CXXRD->isLambda()) {
-							is_lambda = true;
+						if (CXXRD) {
+							if (CXXRD->isLambda()) {
+								is_lambda = true;
 
-							auto& context = *MR.Context;
-							const auto* LE = Tget_immediately_containing_element_of_type<clang::LambdaExpr>(CXXRD, *MR.Context);
-							if (LE) {
-								auto* MTE = Tget_immediately_containing_element_of_type<clang::MaterializeTemporaryExpr>(LE, *MR.Context);
-								if (!MTE) {
-									const clang::ImplicitCastExpr* ICE2 = Tget_immediately_containing_element_of_type<clang::ImplicitCastExpr>(LE, *MR.Context);
-									const clang::ImplicitCastExpr* ICE1 = ICE2;
-									do {
-										ICE1 = ICE2;
-										ICE2 = Tget_immediately_containing_element_of_type<clang::ImplicitCastExpr>(ICE1, *MR.Context);
-									} while (ICE2);
-									MTE = Tget_immediately_containing_element_of_type<clang::MaterializeTemporaryExpr>(ICE1, *MR.Context);
-								}
-								if (MTE) {
-									const auto* CE = Tget_immediately_containing_element_of_type<clang::CallExpr>(
-										MTE->IgnoreImpCasts(), *MR.Context);
-									if (CE) {
-										const auto qname = CE->getDirectCallee()->getQualifiedNameAsString();
-										DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_reference_or_pointer_capture_lambda");
-										DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_non_reference_or_pointer_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_non_reference_or_pointer_capture_lambda");
-										DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_capture_lambda");
-										if ((mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str == qname)
-											|| (mse_rsv_make_xscope_non_reference_or_pointer_capture_lambda_str == qname)
-											|| (mse_rsv_make_xscope_capture_lambda_str == qname)) {
-											/* This CXXRecordDecl is a lambda expression being supplied as an argument
-											to an 'mse::rsv::make_xscope_*_capture_lambda()' function. Being a lambda, it
-											cannot inherit from 'mse::us::impl::XScopeTagBase' (or anything else for that
-											matter), but here we'll treat it as if it satisfies that (potential)
-											requirement as it should be safe (and is kind of necessary) here. */
-											has_xscope_tag_base = true;
+								auto& context = *MR.Context;
+								const auto* LE = Tget_immediately_containing_element_of_type<clang::LambdaExpr>(CXXRD, *MR.Context);
+								if (LE) {
+									auto* MTE = Tget_immediately_containing_element_of_type<clang::MaterializeTemporaryExpr>(LE, *MR.Context);
+									if (!MTE) {
+										const clang::ImplicitCastExpr* ICE2 = Tget_immediately_containing_element_of_type<clang::ImplicitCastExpr>(LE, *MR.Context);
+										const clang::ImplicitCastExpr* ICE1 = ICE2;
+										do {
+											ICE1 = ICE2;
+											ICE2 = Tget_immediately_containing_element_of_type<clang::ImplicitCastExpr>(ICE1, *MR.Context);
+										} while (ICE2);
+										MTE = Tget_immediately_containing_element_of_type<clang::MaterializeTemporaryExpr>(ICE1, *MR.Context);
+									}
+									if (MTE) {
+										const auto* CE = Tget_immediately_containing_element_of_type<clang::CallExpr>(
+											MTE->IgnoreImpCasts(), *MR.Context);
+										if (CE) {
+											const auto qname = CE->getDirectCallee()->getQualifiedNameAsString();
+											DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_reference_or_pointer_capture_lambda");
+											DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_non_reference_or_pointer_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_non_reference_or_pointer_capture_lambda");
+											DECLARE_CACHED_CONST_STRING(mse_rsv_make_xscope_capture_lambda_str, mse_namespace_str() + "::rsv::make_xscope_capture_lambda");
+											if ((mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str == qname)
+												|| (mse_rsv_make_xscope_non_reference_or_pointer_capture_lambda_str == qname)
+												|| (mse_rsv_make_xscope_capture_lambda_str == qname)) {
+												/* This CXXRecordDecl is a lambda expression being supplied as an argument
+												to an 'mse::rsv::make_xscope_*_capture_lambda()' function. Being a lambda, it
+												cannot inherit from 'mse::us::impl::XScopeTagBase' (or anything else for that
+												matter), but here we'll treat it as if it satisfies that (potential)
+												requirement as it should be safe (and is kind of necessary) here. */
+												has_xscope_tag_base = true;
 
-											/* The safety of the following is premised on the assumption that captured lambda
-											variables(/fields) are not addressable (by scope pointer) from outside the lambda. */
-											has_ReferenceableByScopePointer_tag_base = true;
+												/* The safety of the following is premised on the assumption that captured lambda
+												variables(/fields) are not addressable (by scope pointer) from outside the lambda. */
+												has_ReferenceableByScopePointer_tag_base = true;
 
-											if (mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str == qname) {
-												has_ContainsNonOwningScopeReference_tag_base = true;
+												if (mse_rsv_make_xscope_reference_or_pointer_capture_lambda_str == qname) {
+													has_ContainsNonOwningScopeReference_tag_base = true;
+												}
 											}
 										}
 									}
+								} else {
+									int q = 5; /* unexpected*/
 								}
 							} else {
-								int q = 5; /* unexpected*/
-							}
-						} else {
-							std::vector<const FieldDecl*> unverified_pointer_fields;
-							for (const auto& field : RD->fields()) {
-								const auto field_qtype = field->getType();
-								IF_DEBUG(auto field_qtype_str = field_qtype.getAsString();)
-								if (field_qtype.getTypePtr()->isPointerType()) {
-									const auto ICIEX = field->getInClassInitializer();
-									if (!ICIEX) {
-										unverified_pointer_fields.push_back(field);
-									} else if (is_nullptr_literal(ICIEX, *(MR.Context))) {
-										auto ICISR = write_once_source_range(cm1_adj_nice_source_range(ICIEX->getSourceRange(), m_state1, Rewrite));
-										if (!ICISR.isValid()) {
-											ICISR = SR;
+								std::vector<const FieldDecl*> unverified_pointer_fields;
+								for (const auto& field : RD->fields()) {
+									const auto field_qtype = field->getType();
+									IF_DEBUG(auto field_qtype_str = field_qtype.getAsString();)
+									if (field_qtype.getTypePtr()->isPointerType()) {
+										const auto ICIEX = field->getInClassInitializer();
+										if (!ICIEX) {
+											unverified_pointer_fields.push_back(field);
+										} else if (is_nullptr_literal(ICIEX, *(MR.Context))) {
+											auto ICISR = write_once_source_range(cm1_adj_nice_source_range(ICIEX->getSourceRange(), m_state1, Rewrite));
+											if (!ICISR.isValid()) {
+												ICISR = SR;
+											}
+											const std::string error_desc = std::string("Null initialization of ")
+												+ "native pointer fields (such as '" + field->getNameAsString()
+												+ "') is not supported.";
+											auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, ICISR.getBegin(), error_desc));
+											if (res.second) {
+												//std::cout << (*(res.first)).as_a_string1() << " \n\n";
+											}
 										}
-										const std::string error_desc = std::string("Null initialization of ")
-											+ "native pointer fields (such as '" + field->getNameAsString()
-											+ "') is not supported.";
-										auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, ICISR.getBegin(), error_desc));
-										if (res.second) {
-											//std::cout << (*(res.first)).as_a_string1() << " \n\n";
+
+
+										{
+											/*  */
+											auto l_DD = field;
+											auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*l_DD, &Rewrite);
+
+											update_declaration_if_not_suppressed(*l_DD, Rewrite, *(MR.Context), m_state1);
 										}
+
 									}
-
-
-									{
-										/*  */
-										auto l_DD = field;
-										auto [ddcs_ref, update_declaration_flag] = m_state1.get_ddecl_conversion_state_ref_and_update_flag(*l_DD, &Rewrite);
-
-										update_declaration_if_not_suppressed(*l_DD, Rewrite, *(MR.Context), m_state1);
-									}
-
 								}
-							}
-							if (1 <= unverified_pointer_fields.size()) {
-								for (const auto& constructor : CXXRD->ctors()) {
-									if (constructor->isCopyOrMoveConstructor()) {
-										if (constructor->isDefaulted()) {
-											continue;
+								if (1 <= unverified_pointer_fields.size()) {
+									for (const auto& constructor : CXXRD->ctors()) {
+										if (constructor->isCopyOrMoveConstructor()) {
+											if (constructor->isDefaulted()) {
+												continue;
+											}
 										}
-									}
-									auto l_unverified_pointer_fields = unverified_pointer_fields;
-									int num_pointer_constructor_initializers = 0;
-									for (const auto& constructor_initializer : constructor->inits()) {
-										const auto FD = constructor_initializer->getMember();
-										for (auto iter = l_unverified_pointer_fields.begin(); l_unverified_pointer_fields.end() != iter; iter++) {
-											if (FD == *iter) {
-												l_unverified_pointer_fields.erase(iter);
+										auto l_unverified_pointer_fields = unverified_pointer_fields;
+										int num_pointer_constructor_initializers = 0;
+										for (const auto& constructor_initializer : constructor->inits()) {
+											const auto FD = constructor_initializer->getMember();
+											for (auto iter = l_unverified_pointer_fields.begin(); l_unverified_pointer_fields.end() != iter; iter++) {
+												if (FD == *iter) {
+													l_unverified_pointer_fields.erase(iter);
 
-												const auto CIEX = constructor_initializer->getInit();
-												if (!CIEX) {
-													/* unexpected*/
-													int q = 3;
-												} else {
-													if (false && is_nullptr_literal(CIEX, *(MR.Context))) {
-														/* This case is handled in the MCSSSConstructionInitializer handler. */
+													const auto CIEX = constructor_initializer->getInit();
+													if (!CIEX) {
+														/* unexpected*/
+														int q = 3;
+													} else {
+														if (false && is_nullptr_literal(CIEX, *(MR.Context))) {
+															/* This case is handled in the MCSSSConstructionInitializer handler. */
+														}
 													}
-												}
 
-												break;
+													break;
+												}
+											}
+										}
+										if (1 <= l_unverified_pointer_fields.size()) {
+											auto constructor_SR = cm1_adj_nice_source_range(constructor->getSourceRange(), m_state1, Rewrite);
+											if (!SR.isValid()) {
+												constructor_SR = SR;
+											}
+											const std::string error_desc = std::string("Missing constructor initializer (or ")
+											+ "direct initializer) required for '" + l_unverified_pointer_fields.front()->getNameAsString()
+											+ "' (raw) pointer field.";
+											auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, constructor_SR.getBegin(), error_desc));
+											if (res.second) {
+												//std::cout << (*(res.first)).as_a_string1() << " \n\n";
 											}
 										}
 									}
-									if (1 <= l_unverified_pointer_fields.size()) {
-										auto constructor_SR = cm1_adj_nice_source_range(constructor->getSourceRange(), m_state1, Rewrite);
-										if (!SR.isValid()) {
-											constructor_SR = SR;
-										}
-										const std::string error_desc = std::string("Missing constructor initializer (or ")
-										+ "direct initializer) required for '" + l_unverified_pointer_fields.front()->getNameAsString()
-										+ "' (raw) pointer field.";
-										auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, constructor_SR.getBegin(), error_desc));
-										if (res.second) {
-											//std::cout << (*(res.first)).as_a_string1() << " \n\n";
+								}
+							}
+							if (checker::is_xscope_type(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
+								has_xscope_tag_base = true;
+							}
+							if (checker::contains_non_owning_scope_reference(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
+								has_ContainsNonOwningScopeReference_tag_base = true;
+							}
+							if (checker::referenceable_by_scope_pointer(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
+								has_ReferenceableByScopePointer_tag_base = true;
+							}
+						}
+
+						for (const auto& field : RD->fields()) {
+							const auto field_qtype = field->getType();
+							auto field_qtype_str = field_qtype.getAsString();
+
+							std::string error_desc;
+							if (field_qtype.getTypePtr()->isPointerType()) {
+								if (!(*this).m_state1.raw_pointer_scope_restrictions_are_disabled()) {
+									if (has_xscope_tag_base) {
+										/*
+										error_desc = std::string("Native pointers are not (yet) supported as fields of xscope ")
+											+ "structs or classes.";
+										*/
+									} else {
+										if (is_lambda) {
+											error_desc = std::string("Native pointers (such as those of type '") + field_qtype.getAsString()
+												+ "') are not supported as captures of (non-xscope) lambdas. ";
+										} else {
+											error_desc = std::string("Native pointers (such as those of type '") + field_qtype.getAsString()
+												+"') are not supported as fields of (non-xscope) structs or classes.";
 										}
 									}
 								}
-							}
-						}
-						if (checker::is_xscope_type(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
-							has_xscope_tag_base = true;
-						}
-						if (checker::contains_non_owning_scope_reference(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
-							has_ContainsNonOwningScopeReference_tag_base = true;
-						}
-						if (checker::referenceable_by_scope_pointer(*(CXXRD->getTypeForDecl()), (*this).m_state1)) {
-							has_ReferenceableByScopePointer_tag_base = true;
-						}
-					}
-
-					for (const auto& field : RD->fields()) {
-						const auto field_qtype = field->getType();
-						auto field_qtype_str = field_qtype.getAsString();
-
-						std::string error_desc;
-						if (field_qtype.getTypePtr()->isPointerType()) {
-							if (!(*this).m_state1.raw_pointer_scope_restrictions_are_disabled()) {
+							} else if (field_qtype.getTypePtr()->isReferenceType()) {
 								if (has_xscope_tag_base) {
 									/*
-									error_desc = std::string("Native pointers are not (yet) supported as fields of xscope ")
+									error_desc = std::string("Native references are not (yet) supported as fields of xscope ")
 										+ "structs or classes.";
 									*/
 								} else {
 									if (is_lambda) {
-										error_desc = std::string("Native pointers (such as those of type '") + field_qtype.getAsString()
+										error_desc = std::string("Native references (such as those of type '") + field_qtype.getAsString()
 											+ "') are not supported as captures of (non-xscope) lambdas. ";
 									} else {
-										error_desc = std::string("Native pointers (such as those of type '") + field_qtype.getAsString()
+										error_desc = std::string("Native references (such as those of type '") + field_qtype.getAsString()
 											+"') are not supported as fields of (non-xscope) structs or classes.";
 									}
 								}
 							}
-						} else if (field_qtype.getTypePtr()->isReferenceType()) {
-							if (has_xscope_tag_base) {
-								/*
-								error_desc = std::string("Native references are not (yet) supported as fields of xscope ")
-									+ "structs or classes.";
-								*/
-							} else {
+
+							if ((!has_xscope_tag_base) && checker::is_xscope_type(field_qtype, (*this).m_state1)) {
 								if (is_lambda) {
-									error_desc = std::string("Native references (such as those of type '") + field_qtype.getAsString()
-										+ "') are not supported as captures of (non-xscope) lambdas. ";
+									error_desc = std::string("Lambdas that capture variables of xscope type (such as '")
+										+ field_qtype_str + "') must be scope lambdas (usually created via an "
+										+  "'mse::rsv::make_xscope_*_lambda()' wrapper function).";
 								} else {
-									error_desc = std::string("Native references (such as those of type '") + field_qtype.getAsString()
-										+"') are not supported as fields of (non-xscope) structs or classes.";
+									error_desc = std::string("Structs or classes containing fields of xscope type (such as '")
+										+ field_qtype_str + "') must inherit from mse::rsv::XScopeTagBase.";
 								}
 							}
-						}
-
-						if ((!has_xscope_tag_base) && checker::is_xscope_type(field_qtype, (*this).m_state1)) {
-							if (is_lambda) {
-								error_desc = std::string("Lambdas that capture variables of xscope type (such as '")
-									+ field_qtype_str + "') must be scope lambdas (usually created via an "
-									+  "'mse::rsv::make_xscope_*_lambda()' wrapper function).";
-							} else {
-								error_desc = std::string("Structs or classes containing fields of xscope type (such as '")
-									+ field_qtype_str + "') must inherit from mse::rsv::XScopeTagBase.";
+							if ((!has_ContainsNonOwningScopeReference_tag_base)
+								&& checker::contains_non_owning_scope_reference(field_qtype, (*this).m_state1)) {
+								if (is_lambda) {
+									error_desc = std::string("Lambdas that capture items (such as those of type '")
+										+ field_qtype_str + "') that are, or contain, non-owning scope references must be "
+										+ "scope 'reference or pointer capture' lambdas (created via the "
+										+ "'mse::rsv::make_xscope_reference_or_pointer_capture_lambda()' "
+										+ "wrapper function).";
+								} else {
+									error_desc = std::string("Structs or classes containing fields (such as those of type '")
+										+ field_qtype_str + "') that are, or contain, non-owning scope references must inherit from "
+										+ "mse::rsv::ContainsNonOwningScopeReferenceTagBase.";
+								}
 							}
-						}
-						if ((!has_ContainsNonOwningScopeReference_tag_base)
-							&& checker::contains_non_owning_scope_reference(field_qtype, (*this).m_state1)) {
-							if (is_lambda) {
-								error_desc = std::string("Lambdas that capture items (such as those of type '")
-									+ field_qtype_str + "') that are, or contain, non-owning scope references must be "
-									+ "scope 'reference or pointer capture' lambdas (created via the "
-									+ "'mse::rsv::make_xscope_reference_or_pointer_capture_lambda()' "
-									+ "wrapper function).";
-							} else {
-								error_desc = std::string("Structs or classes containing fields (such as those of type '")
-									+ field_qtype_str + "') that are, or contain, non-owning scope references must inherit from "
-									+ "mse::rsv::ContainsNonOwningScopeReferenceTagBase.";
+							if ((!has_ReferenceableByScopePointer_tag_base)
+								&& checker::referenceable_by_scope_pointer(field_qtype, (*this).m_state1)) {
+								if (is_lambda) {
+									/* The assumption is that we don't have to worry about scope pointers targeting
+									lambda capture variables(/fields) from outside the lambda, because they're not 
+									directly accessible from outside? */
+								} else {
+									error_desc = std::string("Structs or classes containing fields (such as '") + field_qtype_str
+										+ "') that yield scope pointers (from their overloaded 'operator&'), or contain an element "
+										+ "that does, must inherit from mse::rsv::ReferenceableByScopePointerTagBase.";
+								}
 							}
-						}
-						if ((!has_ReferenceableByScopePointer_tag_base)
-							&& checker::referenceable_by_scope_pointer(field_qtype, (*this).m_state1)) {
-							if (is_lambda) {
-								/* The assumption is that we don't have to worry about scope pointers targeting
-								lambda capture variables(/fields) from outside the lambda, because they're not 
-								directly accessible from outside? */
-							} else {
-								error_desc = std::string("Structs or classes containing fields (such as '") + field_qtype_str
-									+ "') that yield scope pointers (from their overloaded 'operator&'), or contain an element "
-									+ "that does, must inherit from mse::rsv::ReferenceableByScopePointerTagBase.";
-							}
-						}
-						if ("" != error_desc) {
-							auto FDISR = instantiation_source_range(field->getSourceRange(), Rewrite);
-							auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
-							if (res.second) {
-								//std::cout << (*(res.first)).as_a_string1() << " \n\n";
+							if ("" != error_desc) {
+								auto FDISR = instantiation_source_range(field->getSourceRange(), Rewrite);
+								auto res = std::pair<bool, bool>(); //(*this).m_state1.m_error_records.emplace(CErrorRecord(*MR.SourceManager, FDISR.getBegin(), error_desc));
+								if (res.second) {
+									//std::cout << (*(res.first)).as_a_string1() << " \n\n";
+								}
 							}
 						}
 					}
