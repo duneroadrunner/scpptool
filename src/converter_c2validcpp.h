@@ -20819,7 +20819,7 @@ namespace convc2validcpp {
 						if (!LBLD) {
 							break;
 						}
-						const auto LBLST = LBLD->getStmt();
+						clang::LabelStmt const* LBLST = LBLD->getStmt();
 						clang::Stmt const* last_ST_before_LBL = GTST;
 						if (!LBLST) {
 							break;
@@ -20854,10 +20854,22 @@ namespace convc2validcpp {
 									if (child == last_GT_ancestor_ST) {
 										last_GT_ancestor_ST_encountered = true;
 									}
-								} else if (child == LBLST) {
+								} else if (false && !LBLST_encountered) {
 									LBLST_encountered = true;
 									break;
 								} else {
+									if (!LBLST_encountered) {
+										auto LBLST2 = llvm::dyn_cast<clang::LabelStmt>(child);
+										if (LBLST2) {
+											/* We switched from using the label statement corresponding to the goto, to using the first encountered sibling 
+											label statement (which may still be the corresponding label statement itself). In our experience so far, we found 
+											this more likely to work as it helps avoid partially overlapping regions between goto and label statement pairs 
+											(that we may end up enclosing in curly braces to create new scopes). */
+											LBLST = LBLST2;
+											LBLST_encountered = true;
+											break;
+										}
+									}
 									last_ST_before_LBL = child;
 									auto DS = llvm::dyn_cast<clang::DeclStmt>(child);
 									if (DS) {
