@@ -19142,13 +19142,13 @@ namespace convc2validcpp {
 															auto& SM = Rewrite.getSourceMgr();
 															auto definition_RD_SPSR = clang::SourceRange({ SM.getSpellingLoc(definition_RD_SR_plus.getBegin()), SM.getSpellingLoc(definition_RD_SR_plus.getEnd()) });
 
-															auto parent_definition_RD = NonParenImpNoopCastParentOfType<clang::RecordDecl>(definition_RD, *(MR.Context));
-															if (!parent_definition_RD) {
+															auto parent_of_definition_RD = NonParenImpNoopCastParentOfType<clang::RecordDecl>(definition_RD, *(MR.Context));
+															if (!parent_of_definition_RD) {
 																break;
 															}
-															const auto parent_definition_RD_SR_plus = cm1_adjusted_source_range(parent_definition_RD->getSourceRange(), state1, Rewrite);
-															DEBUG_SOURCE_LOCATION_STR(debug_parent_definition_RD_source_location_str, parent_definition_RD_SR_plus, Rewrite);
-															DEBUG_SOURCE_TEXT_STR(debug_parent_definition_RD_source_text, parent_definition_RD_SR_plus, Rewrite);
+															const auto parent_of_definition_RD_SR_plus = cm1_adjusted_source_range(parent_of_definition_RD->getSourceRange(), state1, Rewrite);
+															DEBUG_SOURCE_LOCATION_STR(debug_parent_of_definition_RD_source_location_str, parent_of_definition_RD_SR_plus, Rewrite);
+															DEBUG_SOURCE_TEXT_STR(debug_parent_of_definition_RD_source_text, parent_of_definition_RD_SR_plus, Rewrite);
 
 															/* The definition of the struct could be part of the declaration of a member field. Here we'll check for and note if this is the case. */
 															struct CFDInfo {
@@ -19157,7 +19157,7 @@ namespace convc2validcpp {
 															};
 															auto maybe_containing_FD_info = std::optional<CFDInfo>{};
 
-															for (auto field : parent_definition_RD->fields()) {
+															for (auto field : parent_of_definition_RD->fields()) {
 																if (field) {
 																	const auto FD = dyn_cast<const clang::FieldDecl>(field);
 																	const auto FD_qtype = FD->getType();
@@ -19182,19 +19182,49 @@ namespace convc2validcpp {
 																}
 															}
 
-															/* We're going to schedule a relocation of the the definition of the struct to just before (and outside of) the containing 
-															parent struct. */
+															/* We're going to schedule a relocation of the the definition of the struct to just before (and outside of) the appropriate 
+															containing declaration. Which we will initially default to just the parent struct. */
+															clang::Decl const* containing_D_to_be_moved_before = parent_of_definition_RD;
+															auto containing_D_to_be_moved_before_SR_plus = parent_of_definition_RD_SR_plus;
+
+															/* But if the parent struct is part of another declaration, then the definition declaration should be moved to before (and 
+															outside of) that containing declaration. Here we check for this case. */
+															auto parent_of_definition_RD_DC = parent_of_definition_RD->getDeclContext();
+															if (parent_of_definition_RD_DC) {
+																const auto parent_of_definition_RD_SPSR = clang::SourceRange({ SM.getSpellingLoc(parent_of_definition_RD_SR_plus.getBegin()), SM.getSpellingLoc(parent_of_definition_RD_SR_plus.getEnd()) });
+																for (const auto D2 : parent_of_definition_RD_DC->decls()) {
+																	if (D2 && (D2 != parent_of_definition_RD)) {
+																		auto TDD = dyn_cast<const clang::TypedefDecl>(D2);
+																		if (TDD) {
+																			/* Often a containing declaration might be a typedef declaration. */
+																			int q = 5;
+																		}
+																		const auto D2_SR_plus = cm1_adjusted_source_range(*D2, state1, Rewrite);
+																		if (D2_SR_plus.isValid()) {
+																			IF_DEBUG(const auto text1 = getRewrittenTextOrEmpty(Rewrite, D2_SR_plus);)
+																			const auto D2_SPSR = clang::SourceRange({ SM.getSpellingLoc(D2_SR_plus.getBegin()), SM.getSpellingLoc(D2_SR_plus.getEnd()) });
+																			IF_DEBUG(const auto text2 = getRewrittenTextOrEmpty(Rewrite, D2_SPSR);)
+																			if (first_is_contained_in_second(parent_of_definition_RD_SPSR, D2_SPSR)) {
+																				containing_D_to_be_moved_before = D2;
+																				containing_D_to_be_moved_before_SR_plus = D2_SR_plus;
+																				break;
+																			}
+																		}
+																	}
+																}
+															}
+
 															auto found_it = state1.m_decl_relocation_info_map.find(definition_RD);
 															if (state1.m_decl_relocation_info_map.end() != found_it) {
 																/* This declaration is already scheduled to be relocated. */
-																const auto D_to_be_inserted_before_SR = cm1_adj_nice_source_range(found_it->second.m_D_to_be_inserted_before->getSourceRange(), state1, Rewrite);
-																if (D_to_be_inserted_before_SR.isValid() && (parent_definition_RD_SR_plus.getBegin() < D_to_be_inserted_before_SR.getBegin())) {
+																const auto currently_scheduled_D_to_be_inserted_before_SR = cm1_adj_nice_source_range(found_it->second.m_D_to_be_inserted_before->getSourceRange(), state1, Rewrite);
+																if (currently_scheduled_D_to_be_inserted_before_SR.isValid() && (containing_D_to_be_moved_before_SR_plus.getBegin() < currently_scheduled_D_to_be_inserted_before_SR.getBegin())) {
 																	/* Our relocation destination is "before" the currently scheduled destination location. So we will replace 
 																	the currently scheduled destination location. */
-																	found_it->second.m_D_to_be_inserted_before = parent_definition_RD;
+																	found_it->second.m_D_to_be_inserted_before = containing_D_to_be_moved_before;
 																}
 															} else {
-																state1.m_decl_relocation_info_map.insert({ definition_RD, { definition_RD, parent_definition_RD } });
+																state1.m_decl_relocation_info_map.insert({ definition_RD, { definition_RD, containing_D_to_be_moved_before } });
 
 																/* Multiple declarations could each instigate the relocation of the same definition declaration source text. 
 																(For example, if the declarations involve distinct invocations of the same macro.) Here we ensure that only 
@@ -19202,7 +19232,7 @@ namespace convc2validcpp {
 																arguably a little hacky, and it might be more proper to explicitly identify potentially redundant (or 
 																conflicting) relocation attempts. */
 																const auto definition_RD_OSR = write_once_source_range(definition_RD_SR_plus);
-																if (ConvertC2ValidCpp && parent_definition_RD_SR_plus.isValid() && definition_RD_OSR.isValid()) {
+																if (ConvertC2ValidCpp && containing_D_to_be_moved_before_SR_plus.isValid() && definition_RD_OSR.isValid()) {
 
 																	auto lambda = [MR, &Rewrite, &state1, definition_RD, definition_RD_OSR, maybe_containing_FD_info]() {
 																		auto found_it = state1.m_decl_relocation_info_map.find(definition_RD);
