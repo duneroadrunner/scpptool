@@ -9554,7 +9554,7 @@ namespace convc2validcpp {
 				}
 				if (has_register_storage_class) {
 					if (state1_ptr) {
-						replacement_code += "IF_CPP_ELSE(, register) ";
+						replacement_code += "IF_C(register) ";
 						auto& state1 = *state1_ptr;
 						state1.m_if_cpp_macro_use_locations.insert(decl_source_range.getBegin());
 					}
@@ -15658,7 +15658,7 @@ namespace convc2validcpp {
 							std::string new_cpp_qtype_text = std::string(current_qtype_text);
 							replace_whole_instances_of_given_string(new_cpp_qtype_text, direct_qtype.getAsString(), new_namespace_qualified_direct_type_str);
 
-							retval = "IF_CPP_ELSE(" + new_cpp_qtype_text + ", " + std::string(current_qtype_text) + ")";
+							retval = "IF_CPP(" + new_cpp_qtype_text + ")IF_C(" + std::string(current_qtype_text) + ")";
 							state1.m_if_cpp_macro_use_locations.insert(expr.getSourceRange().getBegin());
 						}
 					}
@@ -19067,7 +19067,7 @@ namespace convc2validcpp {
 										new_cpp_DD_text = current_DD_text;
 										replace_whole_instances_of_given_string(new_cpp_DD_text, ddcs_ref.m_indirection_state_stack.m_direct_type_state.return_type_original_source_text(), new_namespace_qualified_direct_type_str);
 
-										std::string new_DD_text = "IF_CPP_ELSE(" + new_cpp_DD_text + ", " + current_DD_text + ")";
+										std::string new_DD_text = "IF_CPP(" + new_cpp_DD_text + ")IF_C(" + current_DD_text + ")";
 										state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
 
 										state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_DD_text);
@@ -19312,7 +19312,7 @@ namespace convc2validcpp {
 															std::string new_cpp_macro_arg_text = macro_arg;
 															replace_whole_instances_of_given_string(new_cpp_macro_arg_text, direct_type_str, new_namespace_qualified_direct_type_str);
 
-															std::string new_macro_arg_text = "IF_CPP_ELSE(" + new_cpp_macro_arg_text + ", " + macro_arg + ")";
+															std::string new_macro_arg_text = "IF_CPP(" + new_cpp_macro_arg_text + ")IF_C(" + macro_arg + ")";
 															state1.m_if_cpp_macro_use_locations.insert(macro_arg_OSR.getBegin());
 
 															state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, macro_arg_OSR, new_macro_arg_text);
@@ -19333,7 +19333,7 @@ namespace convc2validcpp {
 														std::string new_cpp_invocation_text = adjusted_source_text_info_ref.m_text;
 														replace_whole_instances_of_given_string(new_cpp_invocation_text, direct_type_str, new_namespace_qualified_direct_type_str);
 
-														std::string new_invocation_text = "IF_CPP_ELSE(" + new_cpp_invocation_text + ", " + adjusted_source_text_info_ref.m_text + ")";
+														std::string new_invocation_text = "IF_CPP(" + new_cpp_invocation_text + ")IF_C(" + adjusted_source_text_info_ref.m_text + ")";
 														state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
 
 														state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, invocation_OSR, new_invocation_text);
@@ -19355,7 +19355,7 @@ namespace convc2validcpp {
 									new_cpp_DD_text = current_DD_text;
 									replace_whole_instances_of_given_string(new_cpp_DD_text, ddcs_ref.m_indirection_state_stack.m_direct_type_state.return_type_original_source_text(), new_namespace_qualified_direct_type_str);
 
-									std::string new_DD_text = "IF_CPP_ELSE(" + new_cpp_DD_text + ", " + current_DD_text + ")";
+									std::string new_DD_text = "IF_CPP(" + new_cpp_DD_text + ")IF_C(" + current_DD_text + ")";
 									state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
 
 									state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, SR, new_DD_text);
@@ -19549,7 +19549,7 @@ namespace convc2validcpp {
 							if (string_begins_with(original_source_text, "_Static_assert")) {
 								if (ConvertC2ValidCpp && SR.isValid()) {
 									auto lambda = [MR, &Rewrite, &state1, SAD, assert_E, message_E, SR]() {
-										std::string new_text = "IF_CPP_ELSE(static_assert, _Static_assert)(";
+										std::string new_text = "IF_CPP(static_assert)IF_C(_Static_assert)(";
 										auto context = CExprTextInfoContext{ SR, &Rewrite, &state1 };
 
 										auto& assert_ecs_ref = state1.get_expr_conversion_state_ref(*assert_E, Rewrite);
@@ -20183,8 +20183,9 @@ namespace convc2validcpp {
 
 					auto UO = dyn_cast<const clang::UnaryOperator>(E_ii);
 					if (UO) {
+						const auto opcode_str = std::string(UO->getOpcodeStr(UO->getOpcode()));
+						auto subE_ii = IgnoreParenImpNoopCasts(UO->getSubExpr(), *(MR.Context));
 						if (clang::UnaryOperator::Opcode::UO_AddrOf == UO->getOpcode()) {
-							auto subE_ii = IgnoreParenImpNoopCasts(UO->getSubExpr(), *(MR.Context));
 							const clang::IntegerLiteral* IL = nullptr;
 							auto CLE = dyn_cast<const clang::CompoundLiteralExpr>(subE_ii);
 							if (CLE) {
@@ -20222,10 +20223,30 @@ namespace convc2validcpp {
 									IF_DEBUG(std::string current_text2 = ecs_ref.current_text();)
 
 									state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, ecs_ref.m_SR_plus, state1, subE_ii);
+									state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
 								}
 							}
+						} else if (("++" == opcode_str) || ("--" == opcode_str)) {
+							if (E_qtype->isEnumeralType()) {
+								auto& ecs_ref = state1.get_expr_conversion_state_ref(*subE_ii, Rewrite);
 
-							int q = 5;
+								static const std::string wrapper_prefix = "IF_CPP((int&))(";
+								static const std::string wrapper_suffix = ")";
+
+								const auto l_text_modifier = CWrapExprTextModifier(wrapper_prefix, wrapper_suffix);
+								bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+									&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+								if (!seems_to_be_already_applied) {
+									auto shptr2 = std::make_shared<CWrapExprTextModifier>(wrapper_prefix, wrapper_suffix);
+									ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+									ecs_ref.update_current_text();
+
+									IF_DEBUG(std::string current_text2 = ecs_ref.current_text();)
+
+									state1.m_pending_code_modification_actions.add_expression_update_replacement_action(Rewrite, ecs_ref.m_SR_plus, state1, subE_ii);
+									state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
+								}
+							}
 						}
 						break;
 					}
@@ -20339,7 +20360,7 @@ namespace convc2validcpp {
 
 														replace_whole_instances_of_given_string(new_cpp_DRE_text, enum_const_name, new_namespace_qualified_enum_const_name);
 
-														const std::string new_DRE_text = "IF_CPP_ELSE((" + new_cpp_DRE_text + "), (" + dre_text + "))";
+														const std::string new_DRE_text = "IF_CPP((" + new_cpp_DRE_text + "))IF_C((" + dre_text + "))";
 														const auto DRE_SR = write_once_source_range(cm1_adj_nice_source_range(DRE->getSourceRange(), state1, Rewrite));
 														state1.m_if_cpp_macro_use_locations.insert(DRE_SR.getBegin());
 
@@ -20634,7 +20655,7 @@ namespace convc2validcpp {
 								}
 							} else if (UO) {
 								const auto opcode = UO->getOpcode();
-								const auto opcode_str= std::string(UO->getOpcodeStr(opcode));
+								const auto opcode_str = std::string(UO->getOpcodeStr(opcode));
 								if (("++" == opcode_str) || ("--" == opcode_str)) {
 									pointer_arithmetic_flag = true;
 									operator_E = UO;
@@ -22697,30 +22718,16 @@ namespace convc2validcpp {
 
 						auto& SM = TheRewriter.getSourceMgr();
 
-#if 0
 						static const std::string if_cpp_def_str = 
-							"\n\n#ifndef IF_CPP_ELSE \n"
+							"\n\n#ifndef IF_CPP \n"
 								"#ifdef __cplusplus \n"
-									"#define IF_CPP_ELSE(x, y) x \n"
-								"#else /*__cplusplus*/ \n"
-									"#define IF_CPP_ELSE(x, y) y \n"
-								"#endif /*__cplusplus*/ \n"
-								"#define IF_CPP(x) IF_CPP_ELSE(x, ) \n"
-							"#endif /*!defined(IF_CPP_ELSE)*/ \n";
-#else /* 0 */
-						static const std::string if_cpp_def_str = 
-							"\n\n#ifndef IF_CPP_ELSE \n"
-								"#ifdef __cplusplus \n"
-									"#define IF_CPP_ELSE(x, y) x \n"
 									"#define IF_CPP(...) __VA_ARGS__ \n"
 									"#define IF_C(...) \n"
 								"#else /*__cplusplus*/ \n"
-									"#define IF_CPP_ELSE(x, y) y \n"
 									"#define IF_CPP(...) \n"
 									"#define IF_C(...) __VA_ARGS__ \n"
 								"#endif /*__cplusplus*/ \n"
-							"#endif /*!defined(IF_CPP_ELSE)*/ \n";
-#endif /* 0 */
+							"#endif /*!defined(IF_CPP)*/ \n";
 						static const std::string include_type_traits_str = 
 							"\n\n#ifdef __cplusplus \n"
 								"#include <type_traits> \n"
@@ -22738,8 +22745,8 @@ namespace convc2validcpp {
 						if (maybe_file_text.has_value()) {
 							std::string file_text = std::string(maybe_file_text.value());
 							if (files_that_use_the_if_cpp_macro.end() != files_that_use_the_if_cpp_macro.find(file_id)) {
-								if (std::string::npos == file_text.find("#ifndef IF_CPP_ELSE ")) {
-									/* The IF_CPP_ELSE() macro is reportedly used in the conversion of this file, so we'll add some code 
+								if (std::string::npos == file_text.find("#ifndef IF_CPP ")) {
+									/* The IF_CPP() macro is reportedly used in the conversion of this file, so we'll add some code 
 									at the beginning of the file to define that macro if it hasn't already been defined. */
 									std::optional<clang::SourceLocation> maybe_include_guard_end_location;
 									if (fii_ref.m_first_macro_directive_ptr_is_valid && fii_ref.m_first_macro_directive_ptr) {
