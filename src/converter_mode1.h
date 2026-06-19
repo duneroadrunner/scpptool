@@ -3703,7 +3703,7 @@ namespace convm1 {
 #endif /*!NDEBUG*/
 
 						this->InsertTextAfterToken(Rewrite, insertion_point, new_text);
-						if (true) {
+						if (!this->m_ReplaceText_supression_mode) {
 							//auto modified_range = COrderedSourceRange{ insertion_point.getLocWithOffset(+1), OSR.getEnd() };
 							//this->m_already_modified_regions.insert(modified_range);
 							this->m_already_modified_regions.insert(OSR);
@@ -3733,7 +3733,7 @@ namespace convm1 {
 #endif /*!NDEBUG*/
 
 						this->InsertTextBefore(Rewrite, insertion_point, new_text);
-						if (true) {
+						if (!this->m_ReplaceText_supression_mode) {
 							//auto modified_range = COrderedSourceRange{ insertion_point, OSR.getEnd() };
 							//this->m_already_modified_regions.insert(modified_range);
 							this->m_already_modified_regions.insert(OSR);
@@ -3775,7 +3775,9 @@ namespace convm1 {
 
 								//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, OSR, replacement_code);
 								auto res2 = this->ReplaceText(Rewrite, OSR, replacement_code);
-								this->m_already_modified_regions.insert(OSR);
+								if (!this->m_ReplaceText_supression_mode) {
+									this->m_already_modified_regions.insert(OSR);
+								}
 							}
 						}
 					}
@@ -3803,7 +3805,9 @@ namespace convm1 {
 
 							//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, OSR, replacement_code);
 							auto res2 = this->ReplaceText(Rewrite, OSR, replacement_code);
-							this->m_already_modified_regions.insert(OSR);
+							if (!this->m_ReplaceText_supression_mode) {
+								this->m_already_modified_regions.insert(OSR);
+							}
 						}
 					}
 				};
@@ -6392,7 +6396,7 @@ namespace convm1 {
 								bool is_essentially_the_whole_macro = false;
 								if (trimmed_macro_def_body_str == trimmed_source_text_as_if_expanded) {
 									is_essentially_the_whole_macro = true;
-								} else if (trimmed_macro_def_body_str == ("(" + adjusted_source_text_as_if_expanded + ")")) {
+								} else if (matches_parenthesized(adjusted_source_text_as_if_expanded, trimmed_macro_def_body_str)) {
 									is_essentially_the_whole_macro = true;
 								}
 

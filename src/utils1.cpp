@@ -259,6 +259,59 @@ std::string with_newlines_removed(const std::string_view str) {
 	return retval;
 }
 
+/* AI generated function: */
+/// Returns true if \p parenthesized consists of optional whitespace, '(',
+/// optional whitespace, \p str, optional whitespace, ')', and optional trailing whitespace.
+bool matches_parenthesized(std::string_view str,
+                                  std::string_view parenthesized) {
+    auto trimStart = [](std::string_view& sv) {
+        sv.remove_prefix(std::min(sv.find_first_not_of(" \t\r\n"), sv.size()));
+    };
+
+    auto trimEnd = [](std::string_view& sv) {
+        auto pos = sv.find_last_not_of(" \t\r\n");
+        if (pos == std::string_view::npos) {
+            sv = {};
+        } else {
+            sv.remove_suffix(sv.size() - pos - 1);
+        }
+    };
+
+    // Trim leading whitespace
+    trimStart(parenthesized);
+
+    // Must start with '('
+    if (parenthesized.empty() || parenthesized.front() != '(') {
+        return false;
+    }
+    parenthesized.remove_prefix(1);
+
+    // Trim whitespace after '('
+    trimStart(parenthesized);
+
+    // Must contain str at the beginning
+    if (parenthesized.size() < str.size()) {
+        return false;
+    }
+    if (parenthesized.substr(0, str.size()) != str) {
+        return false;
+    }
+    parenthesized.remove_prefix(str.size());
+
+    // Trim whitespace after str
+    trimStart(parenthesized);
+
+    // Must have exactly ')' remaining (after trimming trailing whitespace)
+    if (parenthesized.empty() || parenthesized.front() != ')') {
+        return false;
+    }
+    parenthesized.remove_prefix(1);
+
+    // Only trailing whitespace allowed after ')'
+    trimEnd(parenthesized);
+    return parenthesized.empty();
+}
+
 /* No longer used. This function extracts the text of individual declarations when multiple
  * pointers are declared in the same declaration statement. */
 std::vector<std::string> f_declared_object_strings(const std::string_view decl_stmt_str) {

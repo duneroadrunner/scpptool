@@ -3449,7 +3449,7 @@ namespace convc2validcpp {
 #endif /*!NDEBUG*/
 
 						this->InsertTextAfterToken(Rewrite, insertion_point, new_text);
-						if (true) {
+						if (!this->m_ReplaceText_supression_mode) {
 							//auto modified_range = COrderedSourceRange{ insertion_point.getLocWithOffset(+1), OSR.getEnd() };
 							//this->m_already_modified_regions.insert(modified_range);
 							this->m_already_modified_regions.insert(OSR);
@@ -3479,7 +3479,7 @@ namespace convc2validcpp {
 #endif /*!NDEBUG*/
 
 						this->InsertTextBefore(Rewrite, insertion_point, new_text);
-						if (true) {
+						if (!this->m_ReplaceText_supression_mode) {
 							//auto modified_range = COrderedSourceRange{ insertion_point, OSR.getEnd() };
 							//this->m_already_modified_regions.insert(modified_range);
 							this->m_already_modified_regions.insert(OSR);
@@ -3521,7 +3521,9 @@ namespace convc2validcpp {
 
 								//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, OSR, replacement_code);
 								auto res2 = this->ReplaceText(Rewrite, OSR, replacement_code);
-								this->m_already_modified_regions.insert(OSR);
+								if (!this->m_ReplaceText_supression_mode) {
+									this->m_already_modified_regions.insert(OSR);
+								}
 							}
 						}
 					}
@@ -3549,7 +3551,9 @@ namespace convc2validcpp {
 
 							//state1.m_pending_code_modification_actions.add_straight_text_overwrite_action(Rewrite, OSR, replacement_code);
 							auto res2 = this->ReplaceText(Rewrite, OSR, replacement_code);
-							this->m_already_modified_regions.insert(OSR);
+							if (!this->m_ReplaceText_supression_mode) {
+								this->m_already_modified_regions.insert(OSR);
+							}
 						}
 					}
 				};
@@ -6039,7 +6043,7 @@ namespace convc2validcpp {
 								bool is_essentially_the_whole_macro = false;
 								if (trimmed_macro_def_body_str == trimmed_source_text_as_if_expanded) {
 									is_essentially_the_whole_macro = true;
-								} else if (trimmed_macro_def_body_str == ("(" + adjusted_source_text_as_if_expanded + ")")) {
+								} else if (matches_parenthesized(adjusted_source_text_as_if_expanded, trimmed_macro_def_body_str)) {
 									is_essentially_the_whole_macro = true;
 								}
 
@@ -20376,6 +20380,48 @@ namespace convc2validcpp {
 								int q = 5;
 							}
 							int q = 5;
+						}
+						break;
+					}
+
+					auto ME = dyn_cast<const clang::MemberExpr>(E);
+					if (ME) {
+						auto VLD = ME->getMemberDecl();
+						//auto FD = dyn_cast<const clang::FieldDecl>(VLD);
+						if (VLD) {
+							const std::string field_name = VLD->getNameAsString();
+							if ("" != field_name) {
+								for (auto& keyword : s_cpp_specific_keywords()) {
+									if (keyword == field_name) {
+										auto expr_text_info = CExprTextInfo(E, Rewrite, state1);
+										const std::string E_current_text = expr_text_info.current_text();
+
+										const auto dot_pos = E_current_text.find_last_of('.');
+										auto after_dot_pos_or_arrow_pos = dot_pos + 1;
+										const auto end_of_arrow_pos = E_current_text.find_last_of('>');
+										if (std::string::npos == after_dot_pos_or_arrow_pos) {
+											after_dot_pos_or_arrow_pos = end_of_arrow_pos + 1;
+										} else if ((std::string::npos != end_of_arrow_pos) && (end_of_arrow_pos >= after_dot_pos_or_arrow_pos)) {
+											after_dot_pos_or_arrow_pos = end_of_arrow_pos + 1;
+										}
+										if (std::string::npos != after_dot_pos_or_arrow_pos) {
+											const auto current_field_name = E_current_text.substr(after_dot_pos_or_arrow_pos);
+											if (current_field_name == field_name) {
+												auto E_new_text = E_current_text;
+												E_new_text.replace(after_dot_pos_or_arrow_pos, current_field_name.length(), current_field_name + "_a");
+												state1.add_pending_straight_text_replacement_expression_update(Rewrite, SR, E, E_new_text);
+											} else {
+												int q = 7;
+											}
+										} else {
+											int q = 7;
+										}
+										break;
+									}
+								}
+							} else {
+								int q = 3;
+							}
 						}
 						break;
 					}

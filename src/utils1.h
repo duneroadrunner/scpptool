@@ -602,6 +602,10 @@ std::string with_whitespace_removed(const std::string_view str);
 
 std::string with_newlines_removed(const std::string_view str);
 
+/// Returns true if \p parenthesized consists of optional whitespace, '(',
+/// optional whitespace, \p str, optional whitespace, ')', and optional trailing whitespace.
+bool matches_parenthesized(std::string_view str, std::string_view parenthesized);
+
 /* No longer used. This function extracts the text of individual declarations when multiple
  * pointers are declared in the same declaration statement. */
 std::vector<std::string> f_declared_object_strings(const std::string_view decl_stmt_str);
