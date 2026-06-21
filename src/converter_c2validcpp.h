@@ -802,13 +802,14 @@ namespace convc2validcpp {
 		CSourceRangePlus() = default;
 		CSourceRangePlus(CSourceRangePlus&& src) = default;
 		CSourceRangePlus(CSourceRangePlus const& src) = default;
-		CSourceRangePlus(base_class&& src) : base_class(std::forward<decltype(src)>(src)) {}
-		CSourceRangePlus(base_class const& src) : base_class(src) {}
+		explicit CSourceRangePlus(base_class&& src) : base_class(std::forward<decltype(src)>(src)) {}
+		explicit CSourceRangePlus(base_class const& src) : base_class(src) {}
 		CSourceRangePlus& operator=(CSourceRangePlus&& src) = default;
 		CSourceRangePlus& operator=(CSourceRangePlus const& src) = default;
 		//CSourceRangePlus& operator=(base_class&& src) { base_class::operator=(std::forward<decltype(src)>(src)); return *this; }
 		//CSourceRangePlus& operator=(base_class const& src) { base_class::operator=(src); return *this; }
 		void set_source_range(base_class const& src) { base_class::operator=(src); }
+		base_class get_source_range() const { return (*this); }
 		bool isValid() const {
 			return (base_class::isValid() && (!(getBegin() > getEnd())));
 		}
@@ -865,7 +866,7 @@ namespace convc2validcpp {
 	level. */
 	static CSourceRangePlus source_range_with_both_ends_in_the_same_macro_body(clang::SourceRange sr, clang::Rewriter &Rewrite) {
 		auto& SM = Rewrite.getSourceMgr();
-		CSourceRangePlus retval = sr;
+		CSourceRangePlus retval{ sr };
 		auto SL = sr.getBegin();
 		auto SLE = sr.getEnd();
 
@@ -2052,7 +2053,7 @@ namespace convc2validcpp {
 							: cm1_nice_source_location(FND->getLocation(), Rewrite);
 						if ((return_type_source_range.getEnd() < name_SL) || (name_SL < return_type_source_range.getBegin())) {
 							(*this).m_function_return_type_original_source_text_str = getRewrittenTextOrEmpty(Rewrite, return_type_source_range);
-							(*this).m_function_return_type_SR_plus = return_type_source_range;
+							(*this).m_function_return_type_SR_plus = CSourceRangePlus{ return_type_source_range };
 						} else {
 							/* The return type source range seems to encompass the function name. Like maybe,
 							for example, if the return type is a pointer to a (native) array? */
@@ -5170,7 +5171,7 @@ namespace convc2validcpp {
 		we'll  check here if the given source range seems to be a gnu attribute argument, and if so, 
 		try to instead return an extended range that covers the entire gnu attribute specifier. */
 
-		CSourceRangePlus retval = sr;
+		CSourceRangePlus retval{ sr };
 		retval.m_original_source_range = sr;
 
 		auto rawSR = sr;
@@ -5280,7 +5281,7 @@ namespace convc2validcpp {
 				int q = 5;
 				/* Note that we specifically omit the (defaulted) CTUState pointer parameter as not omitting it 
 				risks infinite recursion with this function. */
-				retval = cm1_nice_source_range(sr, Rewrite);
+				retval = CSourceRangePlus{ cm1_nice_source_range(sr, Rewrite) };
 				retval.m_original_source_range = sr;
 				return retval;
 			}
@@ -5475,7 +5476,7 @@ namespace convc2validcpp {
 
 			auto sr2_sl = SL;
 			auto sr2_sle = SLE;
-			CSourceRangePlus sr2 = sr;
+			CSourceRangePlus sr2{ sr };
 			if (true || ("" == SPSR_source_text)) {
 				/* The fact that we're not getting any source text from the "spelling" range may be due to the 
 				Begin and End points of the range being at different levels of macro nesting. So we'll attempt 
@@ -6783,7 +6784,7 @@ namespace convc2validcpp {
 		} else if (may_be_a_gnu_attr) {
 			auto maybe_SR2 = extended_to_include_entire_gnu_attribute_if_any(retval, state1, Rewrite);
 			if (maybe_SR2.has_value()) {
-				retval = maybe_SR2.value();
+				retval = CSourceRangePlus{ maybe_SR2.value() };
 			}
 		}
 		return retval;
@@ -8601,16 +8602,16 @@ namespace convc2validcpp {
 									indirection level. In theory this hack could cause problems. We may be able to get away with it
 									in paractice. */
 									const auto hacked_range_end = definition_SR.getEnd().getLocWithOffset(+j);
-									const auto hacked_SR = write_once_source_range({ definition_SR.getEnd().getLocWithOffset(+1), hacked_range_end });
+									const auto hacked_OSR = write_once_source_range({ definition_SR.getEnd().getLocWithOffset(+1), hacked_range_end });
 
-									DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, hacked_SR, Rewrite);
+									DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, hacked_OSR, Rewrite);
 									const auto debug_SR1 = clang::SourceRange({ insert_before_point.getLocWithOffset(-1), insert_before_point.getLocWithOffset(-1) });
 									DEBUG_SOURCE_TEXT_STR(debug_source_text1, debug_SR1, Rewrite);
 									const auto debug_SR2 = clang::SourceRange({ insert_before_point, insert_before_point });
 									DEBUG_SOURCE_TEXT_STR(debug_source_text2, debug_SR2, Rewrite);
 									DEBUG_SOURCE_TEXT_STR(debug_source_text3, definition_SR, Rewrite);
 
-									state1.m_pending_code_modification_actions.add_insert_after_token_at_given_location_action(Rewrite, hacked_SR, insert_after_point, suffix_str);
+									state1.m_pending_code_modification_actions.add_insert_after_token_at_given_location_action(Rewrite, hacked_OSR, insert_after_point, suffix_str);
 									indirection_state_ref.m_suffix_SR_or_insert_before_point = definition_SR.getEnd().getLocWithOffset(+1);
 								}
 
@@ -8629,7 +8630,7 @@ namespace convc2validcpp {
 									indirection level. In theory this hack could cause problems. We may be able to get away with it
 									in paractice. */
 									const auto hacked_range_end = definition_SR.getBegin().getLocWithOffset(-1 + j);
-									const auto hacked_SR = write_once_source_range({ definition_SR.getBegin(), hacked_range_end });
+									const auto hacked_OSR = write_once_source_range({ definition_SR.getBegin(), hacked_range_end });
 
 									state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, write_once_source_range({ definition_SR.getBegin(), hacked_range_end }), insert_before_point, prefix_str);
 									indirection_state_ref.m_prefix_SR_or_insert_before_point = definition_SR.getBegin();
@@ -9324,7 +9325,7 @@ namespace convc2validcpp {
 					: cm1_nice_source_location(FND->getLocation(), Rewrite);
 				if ((return_type_source_range.getEnd() < name_SL) || (name_SL < return_type_source_range.getBegin())) {
 					ddcs_ref.m_function_return_type_original_source_text_str = getRewrittenTextOrEmpty(Rewrite, return_type_source_range);
-					ddcs_ref.m_function_return_type_SR_plus = return_type_source_range;
+					ddcs_ref.m_function_return_type_SR_plus = CSourceRangePlus{ return_type_source_range };
 				} else {
 					/* The return type source range seems to encompass the function name. Like maybe,
 					for example, if the return type is a pointer to a (native) array? */
@@ -19246,10 +19247,14 @@ namespace convc2validcpp {
 																				int q = 3;
 																				break;
 																			}
-																			const auto D_to_be_inserted_before_SR = cm1_adj_nice_source_range(found_it->second.m_D_to_be_inserted_before->getSourceRange(), state1, Rewrite);
-																			if (!D_to_be_inserted_before_SR.isValid()) {
+																			const auto D_to_be_inserted_before_rawSR = found_it->second.m_D_to_be_inserted_before->getSourceRange();
+																			const auto D_to_be_inserted_before_SR_plus = cm1_adjusted_source_range(D_to_be_inserted_before_rawSR, state1, Rewrite);
+																			if (!D_to_be_inserted_before_SR_plus.isValid()) {
 																				break;
 																			}
+
+																			auto definition_RD_SR_plus = cm1_adjusted_source_range(definition_RD->getSourceRange(), state1, Rewrite);
+
 																			std::string definition_RD_text1 = getRewrittenTextOrEmpty(Rewrite, definition_RD_OSR);
 																			if (maybe_containing_FD_info.has_value()) {
 																				/* The definition seems to be part of a member field declaration. So as we relocate the definition, we need to replace 
@@ -19262,6 +19267,51 @@ namespace convc2validcpp {
 																				std::string name = FD_info.FD->getNameAsString();
 																				if (FD_ddcs_ref.m_maybe_updated_name.has_value()) {
 																					name = FD_ddcs_ref.m_maybe_updated_name.value();
+																				}
+
+																				auto FD_SR_plus = cm1_adjusted_source_range(FD_info.FD->getSourceRange(), state1, Rewrite);
+
+																				std::string type_specifier_replacement_code;
+
+																				auto maybe_typeLoc = typeLoc_if_available(*(FD_info.FD));
+																				if (maybe_typeLoc.has_value()) {
+																					auto typeLoc = maybe_typeLoc.value();
+																					const auto type_SR_plus = cm1_adjusted_source_range(typeLoc.getSourceRange(), state1, Rewrite);
+																					/* Ok we have the source range of the type specifier. We're assuming/hoping that the definition declaration is 
+																					of the form `struct name1 { ... } fieldname` and that the type specifier source range we have covers the 
+																					`struct name1` part. */
+																					if (!first_is_contained_in_second(type_SR_plus, FD_SR_plus)) {
+																						/* The default type specifier source range does not seem to be contained within the field declaration. This could because 
+																						it is in the body of a macro invoked within the field declaration. In such case we want the representation of the type 
+																						specifier corresponding to the macro invocation location within the field declaration. But the field declaration may 
+																						itself be in the body of another macro. So first we'll check for this and if so, note the name of the containing macro. */
+																						std::string FD_containing_macro_name;
+																						for (size_t i = 0 ; FD_SR_plus.m_adjusted_source_text_infos.size() > (i + 1); i += 1) {
+																							auto const& text_info1 = FD_SR_plus.m_adjusted_source_text_infos.at(i);
+																							auto const& text_info2 = FD_SR_plus.m_adjusted_source_text_infos.at(i + 1);
+																							auto const& SR1 = text_info1.m_macro_invocation_range;
+																							if (SR1.isValid() && (SR1 == FD_SR_plus.get_source_range())) {
+																								FD_containing_macro_name = text_info2.m_macro_name;
+																								break;
+																							}
+																						}
+																						if ("" == FD_containing_macro_name) {
+																							if ("" != type_SR_plus.m_adjusted_source_text_as_if_expanded) {
+																								/* The field declaration does not seem to be in the body of a macro. */
+																								type_specifier_replacement_code = type_SR_plus.m_adjusted_source_text_as_if_expanded;
+																							}
+																						} else {
+																							for (size_t i = 0 ; type_SR_plus.m_adjusted_source_text_infos.size() > (i + 1); i += 1) {
+																								auto const& text_info1 = type_SR_plus.m_adjusted_source_text_infos.at(i);
+																								auto const& text_info2 = type_SR_plus.m_adjusted_source_text_infos.at(i + 1);
+																								if (text_info2.m_macro_name == FD_containing_macro_name) {
+																									/* We found a representation of the type specifier that seems to be in the body of the same macro as the field declaration. */
+																									type_specifier_replacement_code = text_info1.m_text;
+																									break;
+																								}
+																							}
+																						}
+																					}
 																				}
 
 																				auto res4 = type_indirection_prefix_and_suffix_modifier_and_code_generator(FD_ddcs_ref.m_indirection_state_stack,
@@ -19278,7 +19328,12 @@ namespace convc2validcpp {
 																					initializer_append_str = " = " + initialization_expr_str;
 																				}
 
-																				std::string replacement_code = res4.m_prefix_str + direct_qtype_str + res4.m_suffix_str;
+																				std::string replacement_code;
+																				if ("" != type_specifier_replacement_code) {
+																					replacement_code = type_specifier_replacement_code;
+																				} else {
+																					replacement_code = res4.m_prefix_str + direct_qtype_str + res4.m_suffix_str;
+																				}
 																				replacement_code += " ";
 																				replacement_code += name;
 																				replacement_code += res4.m_post_name_suffix_str;
@@ -19295,16 +19350,30 @@ namespace convc2validcpp {
 																			}
 
 																			/* Here we insert a new copy of the definition declaration before the originally containing struct. */
-																			auto first_token_of_D_to_be_inserted_before_SR = rewritable_source_range(D_to_be_inserted_before_SR);
-																			first_token_of_D_to_be_inserted_before_SR.setEnd(first_token_of_D_to_be_inserted_before_SR.getBegin());
-																			IF_DEBUG(std::string first_token_of_D_to_be_inserted_before_text1 = getRewrittenTextOrEmpty(Rewrite, first_token_of_D_to_be_inserted_before_SR);)
 																			auto definition_RD_text_and_newline = definition_RD_text1;
 																			if ((1 > definition_RD_text_and_newline.length()) || (';' != definition_RD_text_and_newline.back())) {
 																				definition_RD_text_and_newline += ";";
 																			}
+																			auto& SM = Rewrite.getSourceMgr();
+																			auto is_macro_expansion = SM.isMacroBodyExpansion(D_to_be_inserted_before_rawSR.getBegin());
+																			if (!is_macro_expansion) {
+																				is_macro_expansion = SM.isMacroArgExpansion(D_to_be_inserted_before_rawSR.getBegin());
+																			}
+																			if (is_macro_expansion) {
+																				definition_RD_text_and_newline += " \\";
+																			}
 																			definition_RD_text_and_newline += "\n";
 
-																			state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, first_token_of_D_to_be_inserted_before_SR, first_token_of_D_to_be_inserted_before_SR.getBegin(), definition_RD_text_and_newline);
+																			/* We need to indicate the source range to be overwritten. But in this case we're inserting text and not overwriting 
+																			any text. So intuitively, the range should maybe be an empty range located adjacent to the insertion point. But we 
+																			want the range to be unique to the definition declaration being moved so that marking the range as "write once" won't 
+																			prevent subsequent insertion operations of other definition declarations (or whatever) that may occur at the same 
+																			location. So, as a hack to try to make the range unique to the definition declaration while not interfering with any 
+																			corresponding operation to actually overwrite the definition declaration, we're going to use the range of the first 
+																			token the definition declaration, even though that range may be far from the insertion point. */
+																			const auto hacked_OSR = write_once_source_range({ definition_RD_OSR.getBegin(), definition_RD_OSR.getBegin() });
+
+																			state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, hacked_OSR, D_to_be_inserted_before_SR_plus.getBegin(), definition_RD_text_and_newline);
 																		} while (false);
 																	};
 																	/* This modification needs to be queued so that it will be executed after any other

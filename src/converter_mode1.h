@@ -782,13 +782,14 @@ namespace convm1 {
 		CSourceRangePlus() = default;
 		CSourceRangePlus(CSourceRangePlus&& src) = default;
 		CSourceRangePlus(CSourceRangePlus const& src) = default;
-		CSourceRangePlus(base_class&& src) : base_class(std::forward<decltype(src)>(src)) {}
-		CSourceRangePlus(base_class const& src) : base_class(src) {}
+		explicit CSourceRangePlus(base_class&& src) : base_class(std::forward<decltype(src)>(src)) {}
+		explicit CSourceRangePlus(base_class const& src) : base_class(src) {}
 		CSourceRangePlus& operator=(CSourceRangePlus&& src) = default;
 		CSourceRangePlus& operator=(CSourceRangePlus const& src) = default;
 		//CSourceRangePlus& operator=(base_class&& src) { base_class::operator=(std::forward<decltype(src)>(src)); return *this; }
 		//CSourceRangePlus& operator=(base_class const& src) { base_class::operator=(src); return *this; }
 		void set_source_range(base_class const& src) { base_class::operator=(src); }
+		base_class get_source_range() const { return (*this); }
 		bool isValid() const {
 			return (base_class::isValid() && (!(getBegin() > getEnd())));
 		}
@@ -844,7 +845,7 @@ namespace convm1 {
 	level. */
 	static CSourceRangePlus source_range_with_both_ends_in_the_same_macro_body(clang::SourceRange sr, clang::Rewriter &Rewrite) {
 		auto& SM = Rewrite.getSourceMgr();
-		CSourceRangePlus retval = sr;
+		CSourceRangePlus retval{ sr };
 		auto SL = sr.getBegin();
 		auto SLE = sr.getEnd();
 
@@ -2044,7 +2045,7 @@ namespace convm1 {
 						if (decl_source_range.getBegin() < return_type_source_range.getBegin()) {
 							/* FunctionDecl::getReturnTypeSourceRange() seems to not include prefix qualifiers, like
 							* "const". */
-							return_type_source_range = extended_to_include_west_const_if_any(Rewrite, return_type_source_range);
+							return_type_source_range = CSourceRangePlus{ extended_to_include_west_const_if_any(Rewrite, return_type_source_range) };
 
 							if (state1_ptr) {
 								return_type_source_range = cm1_adjusted_source_range(return_type_source_range, *state1_ptr, Rewrite);
@@ -5523,7 +5524,7 @@ namespace convm1 {
 		we'll  check here if the given source range seems to be a gnu attribute argument, and if so, 
 		try to instead return an extended range that covers the entire gnu attribute specifier. */
 
-		CSourceRangePlus retval = sr;
+		CSourceRangePlus retval{ sr };
 		retval.m_original_source_range = sr;
 
 		auto rawSR = sr;
@@ -5633,7 +5634,7 @@ namespace convm1 {
 				int q = 5;
 				/* Note that we specifically omit the (defaulted) CTUState pointer parameter as not omitting it 
 				risks infinite recursion with this function. */
-				retval = cm1_nice_source_range(sr, Rewrite);
+				retval = CSourceRangePlus{ cm1_nice_source_range(sr, Rewrite) };
 				retval.m_original_source_range = sr;
 				return retval;
 			}
@@ -5828,7 +5829,7 @@ namespace convm1 {
 
 			auto sr2_sl = SL;
 			auto sr2_sle = SLE;
-			CSourceRangePlus sr2 = sr;
+			CSourceRangePlus sr2{ sr };
 			if (true || ("" == SPSR_source_text)) {
 				/* The fact that we're not getting any source text from the "spelling" range may be due to the 
 				Begin and End points of the range being at different levels of macro nesting. So we'll attempt 
@@ -7137,7 +7138,7 @@ namespace convm1 {
 		} else if (may_be_a_gnu_attr) {
 			auto maybe_SR2 = extended_to_include_entire_gnu_attribute_if_any(retval, state1, Rewrite);
 			if (maybe_SR2.has_value()) {
-				retval = maybe_SR2.value();
+				retval = CSourceRangePlus{ maybe_SR2.value() };
 			}
 		}
 		return retval;
@@ -8972,16 +8973,16 @@ namespace convm1 {
 									indirection level. In theory this hack could cause problems. We may be able to get away with it
 									in paractice. */
 									const auto hacked_range_end = definition_SR.getEnd().getLocWithOffset(+j);
-									const auto hacked_SR = write_once_source_range({ definition_SR.getEnd().getLocWithOffset(+1), hacked_range_end });
+									const auto hacked_OSR = write_once_source_range({ definition_SR.getEnd().getLocWithOffset(+1), hacked_range_end });
 
-									DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, hacked_SR, Rewrite);
+									DEBUG_SOURCE_LOCATION_STR(debug_source_location_str, hacked_OSR, Rewrite);
 									const auto debug_SR1 = clang::SourceRange({ insert_before_point.getLocWithOffset(-1), insert_before_point.getLocWithOffset(-1) });
 									DEBUG_SOURCE_TEXT_STR(debug_source_text1, debug_SR1, Rewrite);
 									const auto debug_SR2 = clang::SourceRange({ insert_before_point, insert_before_point });
 									DEBUG_SOURCE_TEXT_STR(debug_source_text2, debug_SR2, Rewrite);
 									DEBUG_SOURCE_TEXT_STR(debug_source_text3, definition_SR, Rewrite);
 
-									state1.m_pending_code_modification_actions.add_insert_after_token_at_given_location_action(Rewrite, hacked_SR, insert_after_point, suffix_str);
+									state1.m_pending_code_modification_actions.add_insert_after_token_at_given_location_action(Rewrite, hacked_OSR, insert_after_point, suffix_str);
 									indirection_state_ref.m_suffix_SR_or_insert_before_point = definition_SR.getEnd().getLocWithOffset(+1);
 								}
 
@@ -9000,7 +9001,7 @@ namespace convm1 {
 									indirection level. In theory this hack could cause problems. We may be able to get away with it
 									in paractice. */
 									const auto hacked_range_end = definition_SR.getBegin().getLocWithOffset(-1 + j);
-									const auto hacked_SR = write_once_source_range({ definition_SR.getBegin(), hacked_range_end });
+									const auto hacked_OSR = write_once_source_range({ definition_SR.getBegin(), hacked_range_end });
 
 									state1.m_pending_code_modification_actions.add_insert_before_given_location_action(Rewrite, write_once_source_range({ definition_SR.getBegin(), hacked_range_end }), insert_before_point, prefix_str);
 									indirection_state_ref.m_prefix_SR_or_insert_before_point = definition_SR.getBegin();
@@ -9676,7 +9677,7 @@ namespace convm1 {
 				if (decl_source_range.getBegin() < return_type_source_range.getBegin()) {
 					/* FunctionDecl::getReturnTypeSourceRange() seems to not include prefix qualifiers, like
 					* "const". */
-					return_type_source_range = extended_to_include_west_const_if_any(Rewrite, return_type_source_range);
+					return_type_source_range = CSourceRangePlus{ extended_to_include_west_const_if_any(Rewrite, return_type_source_range) };
 
 					if (state1_ptr) {
 						return_type_source_range = cm1_adjusted_source_range(return_type_source_range, *state1_ptr, Rewrite);
