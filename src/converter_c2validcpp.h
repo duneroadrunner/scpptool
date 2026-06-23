@@ -16,6 +16,7 @@
 #include <cctype>
 #include <cstddef>
 #include <linux/limits.h>
+#include <optional>
 #include <string>
 #include <iostream>
 #include <string>
@@ -16008,58 +16009,64 @@ namespace convc2validcpp {
 					bool b2 = LHS_pointee_qtype->isUnsignedIntegerType();
 					if ((b1 != b2) || (b3 && !b4)) {
 						rhs_needs_hard_cast_to_lhs = true;
-					} else if (!b4) {
-						auto CE = llvm::dyn_cast<const clang::CallExpr>(RHS_ii);
-						if (CE) {
-							const auto function_decl1 = CE->getDirectCallee();
-							const auto num_args = CE->getNumArgs();
-							if (function_decl1) {
-								const std::string function_name = function_decl1->getNameAsString();
+					} else {
+						auto RHS_ii_pointee_canonical_qtype = get_canonical_type(RHS_ii_pointee_qtype);
+						auto LHS_pointee_canonical_qtype = get_canonical_type(LHS_pointee_qtype);
+						if (RHS_ii_pointee_canonical_qtype.getTypePtr() != LHS_pointee_canonical_qtype.getTypePtr()) {
+							rhs_needs_hard_cast_to_lhs = true;
+						} else if (!b4) {
+							auto CE = llvm::dyn_cast<const clang::CallExpr>(RHS_ii);
+							if (CE) {
+								const auto function_decl1 = CE->getDirectCallee();
+								const auto num_args = CE->getNumArgs();
+								if (function_decl1) {
+									const std::string function_name = function_decl1->getNameAsString();
 
-								//auto function_decl1_SR = cm1_adj_nice_source_range(function_decl1->getSourceRange(), state1, Rewrite);
-								//bool FD_is_non_modifiable = c2v_filtered_out_by_location(MR, function_decl1_SR.getBegin());
+									//auto function_decl1_SR = cm1_adj_nice_source_range(function_decl1->getSourceRange(), state1, Rewrite);
+									//bool FD_is_non_modifiable = c2v_filtered_out_by_location(MR, function_decl1_SR.getBegin());
 
-								struct CFunctionInfo {
-									std::string m_fname;
-									size_t m_num_params = 0;
-									size_t m_zb_index_of_param_of_interest = 0;
-								};
-								/* These are just the ones we ran into. There may be others. */
-								static const std::vector<CFunctionInfo> s_const_violating_c_function_infos1 = {
-									{ "strchr", 2, 0 }, 
-									{ "strrchr", 2, 0 }, 
-									{ "memchr", 3, 0 }, 
-									{ "strpbrk", 2, 0 }, 
-									{ "strstr", 2, 0 }
-								};
-								bool is_const_violating_c_function = false;
-								size_t index_of_param_of_interest = 0;
-								for (auto& info : s_const_violating_c_function_infos1) {
-									if ((function_name == info.m_fname) && (num_args == info.m_num_params)) {
-										is_const_violating_c_function = true;
-										index_of_param_of_interest = info.m_zb_index_of_param_of_interest;
-										break;
+									struct CFunctionInfo {
+										std::string m_fname;
+										size_t m_num_params = 0;
+										size_t m_zb_index_of_param_of_interest = 0;
+									};
+									/* These are just the ones we ran into. There may be others. */
+									static const std::vector<CFunctionInfo> s_const_violating_c_function_infos1 = {
+										{ "strchr", 2, 0 }, 
+										{ "strrchr", 2, 0 }, 
+										{ "memchr", 3, 0 }, 
+										{ "strpbrk", 2, 0 }, 
+										{ "strstr", 2, 0 }
+									};
+									bool is_const_violating_c_function = false;
+									size_t index_of_param_of_interest = 0;
+									for (auto& info : s_const_violating_c_function_infos1) {
+										if ((function_name == info.m_fname) && (num_args == info.m_num_params)) {
+											is_const_violating_c_function = true;
+											index_of_param_of_interest = info.m_zb_index_of_param_of_interest;
+											break;
+										}
 									}
-								}
-								if (is_const_violating_c_function) {
-									auto arg_EX = CE->getArg(index_of_param_of_interest);
+									if (is_const_violating_c_function) {
+										auto arg_EX = CE->getArg(index_of_param_of_interest);
 
-									assert(arg_EX->getType().getTypePtrOrNull());
-									auto arg_source_range = write_once_source_range(cm1_adj_nice_source_range(*arg_EX, state1, Rewrite));
-									std::string arg_source_text;
-									if (arg_source_range.isValid()) {
-										IF_DEBUG(arg_source_text = getRewrittenTextOrEmpty(Rewrite, arg_source_range);)
-									}
+										assert(arg_EX->getType().getTypePtrOrNull());
+										auto arg_source_range = write_once_source_range(cm1_adj_nice_source_range(*arg_EX, state1, Rewrite));
+										std::string arg_source_text;
+										if (arg_source_range.isValid()) {
+											IF_DEBUG(arg_source_text = getRewrittenTextOrEmpty(Rewrite, arg_source_range);)
+										}
 
-									const auto arg_EX_qtype = arg_EX->getType();
-									IF_DEBUG(std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();)
-									if (arg_EX_qtype->isPointerType()) {
-										const auto arg_EX_pointee_qtype = arg_EX_qtype->getPointeeType();
-										if (arg_EX_pointee_qtype.isConstQualified()) {
-											/* The argument pointee is const qualified which means in C++ the pointee of the return value will 
-											also be const qualified, which is not the case in C. */
+										const auto arg_EX_qtype = arg_EX->getType();
+										IF_DEBUG(std::string arg_EX_qtype_str = arg_EX_qtype.getAsString();)
+										if (arg_EX_qtype->isPointerType()) {
+											const auto arg_EX_pointee_qtype = arg_EX_qtype->getPointeeType();
+											if (arg_EX_pointee_qtype.isConstQualified()) {
+												/* The argument pointee is const qualified which means in C++ the pointee of the return value will 
+												also be const qualified, which is not the case in C. */
 
-											rhs_needs_hard_cast_to_lhs = true;
+												rhs_needs_hard_cast_to_lhs = true;
+											}
 										}
 									}
 								}
@@ -18225,6 +18232,140 @@ namespace convc2validcpp {
 		return s_keywords;
 	}
 
+	struct CNamespaceQualificationOfTypeInfo {
+		clang::Decl const * definition_D = nullptr;
+		std::vector<clang::RecordDecl const *> nested_containing_structs_of_def;
+		std::vector<clang::RecordDecl const *> nested_containing_structs_of_decl;
+		std::string direct_qtype_str;
+		std::string new_namespace_qualified_direct_qtype_str;
+		bool is_vetoed = false;
+	};
+
+	template <typename NodeT>
+	inline auto namespace_qualification_of_type(clang::QualType const& direct_qtype_ref, const NodeT* node_ptr, clang::ASTContext& Ctx) -> CNamespaceQualificationOfTypeInfo {
+		CNamespaceQualificationOfTypeInfo retval;
+
+		auto direct_qtype_str = direct_qtype_ref.getAsString();
+		retval.direct_qtype_str = direct_qtype_str;
+		if (std::string::npos == direct_qtype_str.find("::")) {
+			/* qtype does not seem to be namespace qualified. We'll check if it needs to be under C++. */
+			do {
+				const auto* directType = direct_qtype_ref.getTypePtr();
+
+				clang::TagDecl const * definition_TD = directType->getAsTagDecl();
+				if (definition_TD) {
+					definition_TD = definition_TD->getDefinition();
+				}
+				if (definition_TD) {
+					const auto* definition_TD_Type = definition_TD->getTypeForDecl();
+					IF_DEBUG(auto definition_TD_qtype = clang::QualType(definition_TD_Type , 0/*I'm just assuming zero specifies no qualifiers*/);)
+					IF_DEBUG(auto definition_TD_qtype_str = definition_TD_qtype.getAsString();)
+					auto canonical_directType = get_canonical_type_ptr(directType);
+					auto canonical_definition_TD_Type = get_canonical_type_ptr(definition_TD_Type);
+					if (canonical_definition_TD_Type != canonical_directType) {
+						/* unexpected? */
+						definition_TD = nullptr;
+					} else {
+						int q = 5;
+					}
+				}
+				clang::Decl const * definition_D = definition_TD;
+
+				retval.definition_D = definition_D;
+
+				auto nested_containing_structs = [&Ctx](auto const * definition_D) {
+					std::vector<clang::RecordDecl const *> retval;
+					auto parent_RD = NonImplicitParentOfType<clang::RecordDecl const>(definition_D, Ctx);
+					while (parent_RD) {
+						retval.push_back(parent_RD);
+						parent_RD = NonImplicitParentOfType<clang::RecordDecl const>(parent_RD, Ctx);
+					}
+					std::reverse(retval.begin(), retval.end());
+					return retval;
+				};
+
+				auto nested_containing_structs_of_def = nested_containing_structs(definition_D);
+
+				if (!(1 <= nested_containing_structs_of_def.size())) {
+					retval.is_vetoed = true;
+					break;
+				}
+				/* The type seems to have been declared inside the body of a struct. So in C++, depending where it 
+				is used, it may need to be namespace qualified. So we'll try to obtain a corresponding list of 
+				nested structs containing the declaration which uses the type. Then we can try to determine if the 
+				declaration that uses the type is in the same namespace as the declaration of the type itself. In 
+				which case we may not need to add namespace qualification to the type usage. */
+
+				auto nested_containing_structs_of_decl = nested_containing_structs(node_ptr);
+				if (0 == nested_containing_structs_of_decl.size()) {
+					clang::DeclContext const* DC = nullptr;
+					auto D = dyn_cast<const clang::Decl>(node_ptr);
+					if (D) {
+						DC = D->getParentFunctionOrMethod();
+					}
+					if (DC) {
+						auto FND = dyn_cast<const clang::FunctionDecl>(DC);
+						if (FND) {
+							nested_containing_structs_of_decl = nested_containing_structs(FND);
+						}
+					}
+				}
+
+				while ((nested_containing_structs_of_def.size() >= 1) && (nested_containing_structs_of_decl.size() >= 1)) {
+					/* We don't need to qualify the type usage with namespaces that the declaration that uses the type 
+					and declaration of the type itself have in common. So we'll test for common containing namespaces 
+					and discard them. */
+					if (nested_containing_structs_of_def.front() != nested_containing_structs_of_decl.front()) {
+						break;
+					}
+					nested_containing_structs_of_def.erase(nested_containing_structs_of_def.begin());
+					nested_containing_structs_of_decl.erase(nested_containing_structs_of_decl.begin());
+				}
+				retval.nested_containing_structs_of_def = nested_containing_structs_of_def;
+				retval.nested_containing_structs_of_decl = nested_containing_structs_of_decl;
+				if (!(1 <= nested_containing_structs_of_def.size())) {
+					retval.is_vetoed = true;
+					break;
+				}
+				std::string new_namespace_qualified_direct_qtype_str;
+				for (auto& containing_RD : nested_containing_structs_of_def) {
+					if (!containing_RD) { assert(false); retval.is_vetoed = true; break; }
+					auto struct_name = containing_RD->getQualifiedNameAsString();
+					new_namespace_qualified_direct_qtype_str += struct_name + "::";
+				}
+				static const std::string struct_space_str = "struct ";
+				if (string_begins_with(direct_qtype_str, struct_space_str)) {
+					direct_qtype_str = direct_qtype_str.substr(struct_space_str.length());
+				}
+				static const std::string enum_space_str = "enum ";
+				bool is_an_enum = false;
+				if (string_begins_with(direct_qtype_str, enum_space_str)) {
+					is_an_enum = true;
+					direct_qtype_str = direct_qtype_str.substr(enum_space_str.length());
+				}
+				new_namespace_qualified_direct_qtype_str += direct_qtype_str;
+
+				retval.direct_qtype_str = direct_qtype_str;
+				retval.new_namespace_qualified_direct_qtype_str = new_namespace_qualified_direct_qtype_str;
+
+				if (is_an_enum) {
+					new_namespace_qualified_direct_qtype_str = enum_space_str + new_namespace_qualified_direct_qtype_str;
+				}
+
+				bool vetoed_flag = false;
+				if (std::string::npos != new_namespace_qualified_direct_qtype_str.find("unnamed enum at")) {
+					vetoed_flag = true;
+				}
+				if (std::string::npos != new_namespace_qualified_direct_qtype_str.find(" (unnamed ")) {
+					vetoed_flag = true;
+				}
+				retval.is_vetoed = vetoed_flag;
+			} while (false);
+		}
+
+		return retval;
+	}
+
 	static ASTUnit& s_current_ast_unit_ref();
 
 	class MCSSSDeclUtil : public MatchFinder::MatchCallback
@@ -18933,107 +19074,19 @@ namespace convc2validcpp {
 								break;
 							}
 							const auto& direct_qtype_ref = maybe_direct_qtype.value();
-							IF_DEBUG(auto direct_qtype_ref_str = direct_qtype_ref.getAsString();)
 							const auto* directType = direct_qtype_ref.getTypePtr();
 
-							clang::TagDecl const * definition_TD = directType->getAsTagDecl();
-							if (definition_TD) {
-								definition_TD = definition_TD->getDefinition();
-							}
-							if (definition_TD) {
-								const auto* definition_TD_Type = definition_TD->getTypeForDecl();
-								IF_DEBUG(auto definition_TD_qtype = clang::QualType(definition_TD_Type , 0/*I'm just assuming zero specifies no qualifiers*/);)
-								IF_DEBUG(auto definition_TD_qtype_str = definition_TD_qtype.getAsString();)
-								auto canonical_directType = get_canonical_type_ptr(directType);
-								auto canonical_definition_TD_Type = get_canonical_type_ptr(definition_TD_Type);
-								if (canonical_definition_TD_Type != canonical_directType) {
-									/* unexpected? */
-									definition_TD = nullptr;
-								} else {
-									int q = 5;
-								}
-							}
-							clang::Decl const * definition_D = definition_TD;
+							auto namespace_qualification_info = namespace_qualification_of_type(direct_qtype_ref, DD, *(MR.Context));
 
-							auto nested_containing_structs = [&MR](clang::Decl const * definition_D) {
-								std::vector<clang::RecordDecl const *> retval;
-								auto parent_RD = NonImplicitParentOfType<clang::RecordDecl const>(definition_D, *(MR.Context));
-								while (parent_RD) {
-									retval.push_back(parent_RD);
-									parent_RD = NonImplicitParentOfType<clang::RecordDecl const>(parent_RD, *(MR.Context));
-								}
-								std::reverse(retval.begin(), retval.end());
-								return retval;
-							};
-
-							auto nested_containing_structs_of_def = nested_containing_structs(definition_D);
-
-							if (!(1 <= nested_containing_structs_of_def.size())) {
+							if (namespace_qualification_info.is_vetoed) {
 								break;
 							}
-							/* The type seems to have been declared inside the body of a struct. So in C++, depending where it 
-							is used, it may need to be namespace qualified. So we'll try to obtain a corresponding list of 
-							nested structs containing the declaration which uses the type. Then we can try to determine if the 
-							declaration that uses the type is in the same namespace as the declaration of the type itself. In 
-							which case we may not need to add namespace qualification to the type usage. */
+							auto& definition_D = namespace_qualification_info.definition_D;
+							auto& nested_containing_structs_of_def = namespace_qualification_info.nested_containing_structs_of_def;
+							auto& nested_containing_structs_of_decl = namespace_qualification_info.nested_containing_structs_of_decl;
+							auto& direct_type_str = namespace_qualification_info.direct_qtype_str;
+							auto& new_namespace_qualified_direct_type_str = namespace_qualification_info.new_namespace_qualified_direct_qtype_str;
 
-							auto nested_containing_structs_of_decl = nested_containing_structs(DD);
-							if (0 == nested_containing_structs_of_decl.size()) {
-								auto DC = DD->getParentFunctionOrMethod();
-								if (DC) {
-									auto FND = dyn_cast<const clang::FunctionDecl>(DC);
-									if (FND) {
-										nested_containing_structs_of_decl = nested_containing_structs(FND);
-									}
-								}
-							}
-
-							while ((nested_containing_structs_of_def.size() >= 1) && (nested_containing_structs_of_decl.size() >= 1)) {
-								/* We don't need to qualify the type usage with namespaces that the declaration that uses the type 
-								and declaration of the type itself have in common. So we'll test for common containing namespaces 
-								and discard them. */
-								if (nested_containing_structs_of_def.front() != nested_containing_structs_of_decl.front()) {
-									break;
-								}
-								nested_containing_structs_of_def.erase(nested_containing_structs_of_def.begin());
-								nested_containing_structs_of_decl.erase(nested_containing_structs_of_decl.begin());
-							}
-							if (!(1 <= nested_containing_structs_of_def.size())) {
-								break;
-							}
-							std::string new_namespace_qualified_direct_type_str;
-							for (auto& containing_RD : nested_containing_structs_of_def) {
-								if (!containing_RD) { assert(false); break; }
-								auto struct_name = containing_RD->getQualifiedNameAsString();
-								new_namespace_qualified_direct_type_str += struct_name + "::";
-							}
-							auto direct_type_str = ddcs_ref.m_indirection_state_stack.m_direct_type_state.current_qtype_str(); 
-							static const std::string struct_space_str = "struct ";
-							if (string_begins_with(direct_type_str, struct_space_str)) {
-								direct_type_str = direct_type_str.substr(struct_space_str.length());
-							}
-							static const std::string enum_space_str = "enum ";
-							bool is_an_enum = false;
-							if (string_begins_with(direct_type_str, enum_space_str)) {
-								is_an_enum = true;
-								direct_type_str = direct_type_str.substr(enum_space_str.length());
-							}
-							new_namespace_qualified_direct_type_str += direct_type_str;
-
-							if (is_an_enum) {
-								new_namespace_qualified_direct_type_str = enum_space_str + new_namespace_qualified_direct_type_str;
-							}
-
-							bool vetoed_flag = false;
-							if (std::string::npos != new_namespace_qualified_direct_type_str.find("unnamed enum at")) {
-								vetoed_flag = true;
-							}
-							if (std::string::npos != new_namespace_qualified_direct_type_str.find(" (unnamed ")) {
-								vetoed_flag = true;
-							}
-							if (vetoed_flag) {
-								break;
-							}
 							auto contains_double_colons = [&](std::string_view text) {
 									auto tok_range2 = Parse::find_uncommented_token("::", text);
 									if (text.length() > tok_range2.begin) {
@@ -20151,14 +20204,14 @@ namespace convc2validcpp {
 													replace_whole_instances_of_given_string(namespace_qualified_source_text_str, arg_text, namespace_qualified_arg_text);
 													if (string_ref != namespace_qualified_source_text_str) {
 														string_ref = namespace_qualified_source_text_str;
+														return true;
 													} else {
-														int q = 5;
+														return false;
 													}
 												}
+												return false;
 											};
 										auto update_ecs_ref = [&](CExprConversionState& ecs_ref) {
-												update_string_ref(ecs_ref.m_original_source_text_str);
-												update_string_ref(ecs_ref.m_current_text_str);
 												for (auto& non_child_dependent_text_fragment_ref : ecs_ref.m_non_child_dependent_text_fragments) {
 													update_string_ref(non_child_dependent_text_fragment_ref);
 												}
@@ -20166,11 +20219,30 @@ namespace convc2validcpp {
 												for (auto& adjusted_source_text_info_ref : ecs_ref.m_SR_plus.m_adjusted_source_text_infos) {
 													update_string_ref(adjusted_source_text_info_ref.m_text);
 												}
+
+												update_string_ref(ecs_ref.m_original_source_text_str);
+												/* Ok, because the argument of the `sizeof` operation that we modified is a type rather than an expression and 
+												we don't really have the infrastructure to properly handle updates of non-expression arguments, we use a hack 
+												of modifying the `m_original_source_text_str` field as well to try to ensure that the modification we made to 
+												the type argument does not get neglected when rendering containing expressions. But we still need to somehow 
+												indicate that a modification took place, so we're going to use another semi-hack of adding a "text modifier" 
+												action that just adds a space at the end. */
+												const auto l_text_modifier = CWrapExprTextModifier("", " ");
+												bool seems_to_be_already_applied = ((1 <= ecs_ref.m_expr_text_modifier_stack.size()) && ("wrap" == ecs_ref.m_expr_text_modifier_stack.back()->species_str()) 
+													&& (l_text_modifier.is_equal_to(*(ecs_ref.m_expr_text_modifier_stack.back()))));
+												if (!seems_to_be_already_applied) {
+													auto shptr2 = std::make_shared<CWrapExprTextModifier>("", " ");
+													ecs_ref.m_expr_text_modifier_stack.push_back(shptr2);
+													ecs_ref.update_current_text();
+													IF_DEBUG(std::string current_text2 = ecs_ref.current_text();)
+													int q = 5;
+												}
 											};
 
 										auto& ecs_ref = state1.get_expr_conversion_state_ref(*UEOTTE, Rewrite);
 										update_ecs_ref(ecs_ref);
 										state1.add_pending_expression_update(*UEOTTE, Rewrite);
+										state1.m_if_cpp_macro_use_locations.insert(SR.getBegin());
 
 										if (true || arg_seems_to_be_a_whole_macro_argument) {
 											bool visibly_containing_expression_scheduled_for_rendering_update =false;
@@ -20179,10 +20251,12 @@ namespace convc2validcpp {
 											while (E1) {
 												IF_DEBUG(auto E1_qtype_str = E1->getType().getAsString();)
 
+												bool E1_ecs_updated1 = false;
 												auto iter = state1.m_expr_conversion_state_map.find(E1);
 												if (state1.m_expr_conversion_state_map.end() != iter) {
 													auto& l_ecs_ref = *((*iter).second);
 													update_ecs_ref(l_ecs_ref);
+													E1_ecs_updated1 = true;
 												}
 												if (!visibly_containing_expression_scheduled_for_rendering_update) {
 													const auto E1_SR = write_once_source_range(cm1_adj_nice_source_range(E1->getSourceRange(), state1, Rewrite));
@@ -20190,6 +20264,10 @@ namespace convc2validcpp {
 														/* This expression seems to contain the (macro) argument in its visible range. So we'll schedule it 
 														for a rendering update reflect the changes we made to the (macro) argument. (We don't have a proper 
 														mechanism to update the (macro) argument directly because it's a type, not an expression.) */
+														if (!E1_ecs_updated1) {
+															auto& E1_ecs_ref = state1.get_expr_conversion_state_ref(*E1, Rewrite);
+															update_ecs_ref(E1_ecs_ref);
+														}
 														state1.add_pending_expression_update(*E1, Rewrite);
 
 														visibly_containing_expression_scheduled_for_rendering_update = true;
