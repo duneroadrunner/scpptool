@@ -19782,6 +19782,19 @@ namespace convc2validcpp {
 											}
 										}
 									}
+									auto TDD_rawSR = TDD->getSourceRange();
+									if (TDD_rawSR.isValid() && TDD_rawSR.getBegin().isMacroID() && TDD_rawSR.getEnd().isMacroID()) {
+										std::string TDD_text1 = getRewrittenTextOrEmpty(Rewrite, SR);
+										//static const std::string buggy_str1 = "typedef struct prefix##_iter_t *prefix##_iter_t";
+										static const std::string buggy_str1 = "typedef struct prefix##_iter_t *prefix";
+										if (buggy_str1 == TDD_text1) {
+											/* This is just a special case fix for a buggy line of code we encountered. */
+											//static const std::string fixed_str1 = "typedef struct prefix##_entry_t *prefix##_iter_t";
+											static const std::string fixed_str1 = "typedef struct prefix##_entry_t *prefix";
+											state1.m_pending_code_modification_actions.ReplaceText(Rewrite, SR, fixed_str1);
+										}
+										int q = 5;
+									}
 								} else {
 									int q = 5;
 								}
