@@ -78,7 +78,9 @@ At the time of writing, the build script uses (the pre-built binaries for) LLVM-
 
     sudo ln -s /usr/lib/x86_64-linux-gnu/libxml2.so.16 /usr/lib/x86_64-linux-gnu/libxml2.so.2
 
-Fedora 43 x64 seems to have all the library dependencies preinstalled by default. (The build script is also going to need the `make` command if you don't already have it installed.)
+With Fedora 43, (if you haven't already done so) it seems you just need to install the development tools:
+
+    sudo dnf install @development-tools
 
 Next, [download](https://github.com/duneroadrunner/scpptool/archive/master.zip) and extract the repository (or clone it). Then just run the `build_myscpptool.sh` script. 
 
