@@ -63,11 +63,20 @@ The build procedure has been tested on Ubuntu 24.0.4lts x64 and Fedora 43 x64. (
 
 First, ensure that the library dependencies required by the llvm+clang library used by scpptool are installed. 
 
-With Ubuntu 24.0.4lts x64, that would be:
+With Ubuntu 24.04lts x64, that would be:
 ```
 sudo apt-get update
 sudo apt-get install libzstd-dev
 ```
+
+With Ubuntu 26.04.1lts x64, it would be:
+
+    sudo apt-get update
+    sudo apt-get install zlib1g-dev pkg-config
+
+At the time of writing, the build script uses (the pre-built binaries for) LLVM-21.1.8, which seem to have a dependency on `libxml2.so.2`, which is apparently deprecated in Ubuntu 25.XX and later. A workaround for this issue is to create a symlink for the deprecated version, `libxml2.so.2`, to the present version, `libxml2.so.16` as follows:
+
+    sudo ln -s /usr/lib/x86_64-linux-gnu/libxml2.so.16 /usr/lib/x86_64-linux-gnu/libxml2.so.2
 
 Fedora 43 x64 seems to have all the library dependencies preinstalled by default. (The build script is also going to need the `make` command if you don't already have it installed.)
 
