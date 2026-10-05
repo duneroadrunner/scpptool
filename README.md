@@ -59,7 +59,7 @@ By some request, a ["Rough Summary of the Approach to Lifetime Safety For Those 
 
 ### How to Build:
 
-The build procedure has been tested on Ubuntu 24.0.4lts x64 and Fedora 43 x64. (But there's no intrinsic reason it shouldn't work on any platform for which clang+llvm is available.)
+The build procedure has been tested on Ubuntu 24.04lts and 26.04.1lts x64 and Fedora 43 and 44 x64. (But there's no intrinsic reason it shouldn't work on any platform for which clang+llvm is available.)
 
 First, ensure that the library dependencies required by the llvm+clang library used by scpptool are installed. 
 
